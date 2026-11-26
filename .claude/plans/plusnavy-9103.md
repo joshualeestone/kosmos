@@ -51,3 +51,14 @@ only there. Relay deploy is separate from a Kosmos cut.
 - Round 4 shots: 12 of 14 taken, all read, 0 overflow. plus-waiting-6590 timed out in the app layout (both themes):
   check whether it does the same on the base (acaa7eeb50) before the PR; if so, it is the screen, not this change.
 - NEXT: that control; review round 2 (whole branch); proof; PR with --base navyweb-9101 (PigeonPete's plan).
+
+## Review round 2 (sonnet, blind, whole branch): no BLOCKER; both WARNINGs fixed (head 6db67b8cd7)
+- Fixed: the request sheets' own white text (.askwho b, the ID-scoped .askcodebig, .waitsaid, .askrow.done .askok,
+  .askcard h3) and the blue .askbrand, white on the light card in the app; #plus-si-bought-recheck's blue-grey edge.
+- Added the check review 2 asked for: every rule in the app-visible scopes that hard-codes a navy-era colour needs an
+  html.kapptabs override for the same target (control: removing one override fails it and names it). Exclusions, each
+  with its reason in the test: the skin itself, hover, placeholders, the white QR, the sash, state 1 (signed out only),
+  the red badge, the printout.
+- Specificity, --danger: inherit, and contrast were confirmed correct by the reviewer.
+- Shots round 5: 14 of 14 in the app (light and dark), 0 overflow; the browser control unchanged. No shot screen shows
+  the .askreq sheet in the app (ask-waiting is an agent's question), so those rules are covered by the check, not a shot.
