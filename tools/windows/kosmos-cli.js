@@ -133,7 +133,8 @@ const USAGE = {
     '  kosmos task files <project-id|--all>                         check each built task\'s delivered file again on this computer: matches, changed or missing',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them, unless it sends only --waiting',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark, once per file; a file sent again by its name replaces only that one, and files not sent stay as they were; another agent\'s mark keeps them, your own mark without --file drops them, unless it sends only --waiting',
+    '      --check <file-name>                                      as another agent, check only the files named (once per file); without it a mark checks every file, and withdraws any you sent yourself',
     '      --waiting <who>                                          what it waits on: person, review or release (or none, to say it waits on nothing named)',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task edit <project-id> <task-number> [--title "<new title>"] [--detail "<new detail>" | --clear-detail]  fix a task\'s title or detail',
@@ -1583,7 +1584,9 @@ async function taskList(ctx, args) {
       if (bits.length) ctx.out('    ' + bits.join('; '));
     }
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
-    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
+    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : '')
+      // kosmos#9105, as install/kosmos: a mark with several files says there are more.
+      + (Array.isArray(x.builtFiles) && x.builtFilesAt === x.builtAt && x.builtFiles.filter((e) => e && e.fingerprint).length > 1 ? ' (1 of ' + x.builtFiles.filter((e) => e && e.fingerprint).length + ' files: kosmos task show lists them)' : ''));
   }
   return 0;
 }
@@ -2134,15 +2137,18 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release|none] [--file <path> ...] [--check <file-name> ...] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends a delivered file\'s fingerprint, once per file; --check checks only the files named, as another agent; --commit records the commit a code fix landed as; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   /* kosmos#4889, as install/kosmos: --clear, (#6330) --file <path> and (#7508) --commit <ref> are built's options; any
      other --word is refused, and past a bare -- everything is the note. */
   const rest = args.slice(2);
-  let clear = false, past = false, file = null, wantFile = false, cref = null, wantCommit = false, waiting = null, wantWaiting = false;
+  let clear = false, past = false, wantFile = false, cref = null, wantCommit = false, waiting = null, wantWaiting = false, wantCheck = false;
+  const files = [];   // kosmos#9105: every --file
+  const checks = [];   // kosmos#9105: every --check <name>
   const words = [];
   for (const a of rest) {
-    if (wantFile) { file = a; wantFile = false; continue; }
+    if (wantFile) { files.push(a); wantFile = false; continue; }
+    if (wantCheck) { checks.push(a); wantCheck = false; continue; }
     if (wantCommit) { cref = a; wantCommit = false; continue; }
     if (wantWaiting) {   // kosmos#8934: refused as it is read, as install/kosmos refuses it, before --file and --commit
       if (!['person', 'review', 'release', 'none'].includes(a)) { ctx.err('--waiting says what the task waits on: person, review, release or none (got ' + a + ').'); return 2; }
@@ -2151,12 +2157,14 @@ async function taskBuilt(ctx, args) {
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
     if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
+    if (!past && a === '--check') { wantCheck = true; continue; }   // kosmos#9105
     if (!past && a === '--commit') { wantCommit = true; continue; }   // #7508
     if (!past && a === '--waiting') { wantWaiting = true; continue; }   // kosmos#8934
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)', a); return 2; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--waiting person|review|release|none] [--file <path> ...] [--check <file-name> ...] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends a delivered file\'s fingerprint, once per file; --check checks only the files named, as another agent; --commit records the commit a code fix landed as; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
+  if (wantCheck) { ctx.err('--check needs the name of a file the task was marked built with (kosmos task show lists them).'); return 2; }   // kosmos#9105, as install/kosmos
   if (wantCommit || cref === '') { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD.'); return 2; }
   if (wantWaiting) { ctx.err('--waiting says what the task waits on: person, review, release or none.'); return 2; }   // kosmos#8934, after --file and --commit, as install/kosmos
   if (cref !== null && cref.startsWith('-')) { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD (got ' + cref + ').'); return 2; }   // review 2: not the next option
@@ -2166,46 +2174,91 @@ async function taskBuilt(ctx, args) {
   if (clear && waiting !== null) { ctx.err('--clear takes the mark off, so it takes no --waiting. Run it without --waiting.'); return 2; }
   /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
      engine/fileprint.js gives, as the Mac and `kosmos fingerprint` do (a PDF's own dates and document ID left out). */
+  /* kosmos#9105: once for each --file. The first is also sent the older way (fingerprint, file_path), so a board from
+     before more than one file still keeps it; each is sent in files with its name. */
   let fingerprint = null;
   let filePath = null;
   let pathWhy = null;   // kosmos#8227 item 1: why a readable local-looking path was not kept, when it was its drive
-  if (file !== null) {
+  let file = files.length ? files[0] : null;
+  const sent = [];   // [{ file, name, fingerprint, filePath, pathWhy }]
+  let checkNames = null;
+  if (checks.length) {
+    if (clear) { ctx.err('--clear takes the mark off, so it takes no --check. Run it without --check.'); return 2; }
+    if (files.length) { ctx.err('--check is another agent\'s check of the files sent, so it takes no --file. Run it without --file.'); return 2; }
+    for (const c of checks) {
+      if (!c || /[\\/\u0000-\u001f\u007f]/.test(c) || c === '.' || c === '..') { ctx.err('--check needs the name of a file the task was marked built with, without its folder (got ' + c + ').'); return 2; }
+    }
+    checkNames = checks;
+  }
+  if (files.length) {
     if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
     let fileprint;
     try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
-    /* kosmos#8214, as install/kosmos: and its absolute path here, so `kosmos task files` can check it again. Resolved
-       first and fingerprinted by that path, so the two always name the same file. A path the board would refuse
-       (control characters, a network path such as \\server\share, over 1024 characters) is sent as none, as the Mac
-       command sends it, and the mark goes without it. */
-    let whole = null;
-    try { whole = (ctx.pathRules || path).resolve(ctx.cwd(), file); } catch (_) { whole = null; }
-    const got = fileprint.fingerprint(typeof whole === 'string' ? whole : file);
-    if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
-    fingerprint = got;
-    filePath = typeof fileprint.keptPath === 'function' && fileprint.keptPath(whole) ? whole : null;   // the board's own rule
-    /* kosmos#8227 item 1: and not on a drive mapped to a network share, which `task files` would refuse to open anyway (a
-       drive letter reads as local by its name; only its kind tells, read from engine/windrives.js). A drive whose kind
-       cannot be read is not kept either, and the reason is said. Asked only for a drive path that would be kept: one
-       PowerShell call (about 0.2 s here), the only cost this adds to marking a file. */
-    if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
-      let kind = 'old';   // an install whose windrives or tasklist cannot tell (review 5)
-      let tl = null;
-      try { tl = ctx.engine('tasklist'); } catch (_) { tl = null; }
-      const read = driveInfoFor(ctx);
-      if (read && tl && typeof tl.driveKind === 'function') {
-        try { kind = tl.driveKind(read(filePath.charAt(0))); } catch (_) { kind = 'unknown'; }   // the verdict task files reads
+    const one = (file) => {
+      let fingerprint = null;
+      let filePath = null;
+      let pathWhy = null;
+      /* kosmos#8214, as install/kosmos: and its absolute path here, so `kosmos task files` can check it again. Resolved
+         first and fingerprinted by that path, so the two always name the same file. A path the board would refuse
+         (control characters, a network path such as \\server\share, over 1024 characters) is sent as none, as the Mac
+         command sends it, and the mark goes without it. */
+      let whole = null;
+      try { whole = (ctx.pathRules || path).resolve(ctx.cwd(), file); } catch (_) { whole = null; }
+      const got = fileprint.fingerprint(typeof whole === 'string' ? whole : file);
+      if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return { code: 2 }; }
+      fingerprint = got;
+      filePath = typeof fileprint.keptPath === 'function' && fileprint.keptPath(whole) ? whole : null;   // the board's own rule
+      /* kosmos#8227 item 1: and not on a drive mapped to a network share, which `task files` would refuse to open anyway (a
+         drive letter reads as local by its name; only its kind tells, read from engine/windrives.js). A drive whose kind
+         cannot be read is not kept either, and the reason is said. Asked only for a drive path that would be kept: one
+         PowerShell call (about 0.2 s here), the only cost this adds to marking a file. */
+      if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
+        let kind = 'old';   // an install whose windrives or tasklist cannot tell (review 5)
+        let tl = null;
+        try { tl = ctx.engine('tasklist'); } catch (_) { tl = null; }
+        const read = driveInfoFor(ctx);
+        if (read && tl && typeof tl.driveKind === 'function') {
+          try { kind = tl.driveKind(read(filePath.charAt(0))); } catch (_) { kind = 'unknown'; }   // the verdict task files reads
+        }
+        if (kind !== 'local') {
+          const letter = filePath.charAt(0).toUpperCase();
+          const why = {
+            network: letter + ': is a network drive, and kosmos task files never opens one',
+            absent: 'drive ' + letter + ': did not show up as one of this computer\'s drives',
+            old: 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos',
+          };
+          pathWhy = why[kind] || 'Kosmos could not read what kind of drive ' + letter + ': is';
+          filePath = null;
+        }
       }
-      if (kind !== 'local') {
-        const letter = filePath.charAt(0).toUpperCase();
-        const why = {
-          network: letter + ': is a network drive, and kosmos task files never opens one',
-          absent: 'drive ' + letter + ': did not show up as one of this computer\'s drives',
-          old: 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos',
-        };
-        pathWhy = why[kind] || 'Kosmos could not read what kind of drive ' + letter + ': is';
-        filePath = null;
+      return { fingerprint, filePath, pathWhy, whole };
+    };
+    for (const f of files) {
+      const got = one(f);
+      if (got.code) return got.code;
+      // kosmos#9105: the file's name is how the board knows it: its own name, given once.
+      // Without the trailing dots and spaces Windows itself ignores, so report.pdf. is report.pdf.
+      let name = String(typeof got.whole === 'string' ? got.whole : f).split(/[\\/]/).pop().replace(/[. ]+$/, '');
+      if (/[\u0000-\u001f\u007f]/.test(name) || !name) {
+        if (files.length > 1) { ctx.err('Kosmos cannot send a file whose name has control characters in it, or is only dots and spaces, among several files: rename it first.'); return 2; }
+        name = '';   // one such file goes the older way only, as before #9105
       }
+      // kosmos#9105, as install/kosmos: the name as its folder lists it (one file, one name, whatever the case typed).
+      if (name && typeof got.whole === 'string') {
+        try {
+          const dir = (ctx.pathRules || path).dirname(got.whole);
+          // A short 8.3 alias (REPORT~1.PDF) is not in the listing: the file's long name, from the system, first.
+          let long = null;
+          try { const real = (ctx.fs || fs).realpathSync.native(got.whole); if (String((ctx.pathRules || path).dirname(real)).toLowerCase() === String((ctx.fs || fs).realpathSync.native(dir)).toLowerCase()) long = (ctx.pathRules || path).basename(real); } catch (_) { long = null; }
+          const listed = ctx.engine('builtfiles').diskName(long || name, (ctx.fs || fs).readdirSync(dir));
+          if (typeof listed === 'string' && listed && !/[\\/\u0000-\u001f\u007f]/.test(listed)) name = listed.replace(/[. ]+$/, '') || name;
+        } catch (_) { /* the name as typed */ }
+      }
+      if (name && sent.some((x) => x.name === name)) { ctx.err('Two files named ' + name + ': give each file once (the board knows a file by its name).'); return 2; }
+      sent.push({ file: f, name, ...got });
     }
+    ({ fingerprint, filePath, pathWhy } = sent[0]);
+    file = sent[0].file;
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
      repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */
@@ -2231,7 +2284,11 @@ async function taskBuilt(ctx, args) {
     if (/[\u0000-\u001f\u007f]/.test(repo)) { ctx.err('Kosmos cannot record a commit from a repository whose path has control characters in it.'); return 2; }   // review 3: as the Mac
     commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
   }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(filePath ? { file_path: filePath } : {}), ...(commit ? { commit } : {}), ...(waiting ? { waiting_on: waiting } : {}) });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(filePath ? { file_path: filePath } : {}),
+    // kosmos#9105: every file with its name (none when the one file has no usable name), and the files a check names.
+    ...(sent.length && sent[0].name ? { files: sent.map((x) => ({ name: x.name, fingerprint: x.fingerprint, ...(x.filePath ? { file_path: x.filePath } : {}) })) } : {}),
+    ...(checkNames ? { check: checkNames } : {}),
+    ...(commit ? { commit } : {}), ...(waiting ? { waiting_on: waiting } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
@@ -2253,9 +2310,20 @@ async function taskBuilt(ctx, args) {
     // Review 4: none asks for no value, so an answer without one is what was asked, never "not recorded".
     if (!clear && waiting && waiting !== 'none' && !recorded) ctx.out('This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again.');
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
-    if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
-    if (!clear && fingerprint && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');
-    else if (!clear && fingerprint && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
+    if (!clear && sent.length > 1) {
+      // kosmos#9105: one line per file, and an older board (no builtFiles in its answer) said to have kept the first.
+      for (const x of sent) {
+        ctx.out('Fingerprint sent: ' + x.fingerprint + ' for ' + x.file);
+        if (!x.filePath) ctx.out('The path of ' + x.file + ' was not sent (' + (x.pathWhy || 'Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most') + '), so kosmos task files cannot check it.');
+      }
+      if (!Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos kept only the first file, ' + sent[0].file + ': it may be older than more than one --file. Update it, then mark the task again.');
+    }
+    // As install/kosmos: an older board does not know --check, so it counted the mark as a check of its one file.
+    // Not for the same mark again (changed false), whose answer is the task as stored.
+    if (!clear && checkNames && r.json.changed !== false && !Array.isArray(r.json.task.builtFiles)) ctx.out('This Kosmos does not know --check, so it counted this as a check of the file it keeps: it may be older than --check. Update it, then mark the task again.');
+    if (!clear && fingerprint && sent.length <= 1) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
+    if (!clear && fingerprint && sent.length <= 1 && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');
+    else if (!clear && fingerprint && sent.length <= 1 && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
     // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
     // Review 5: only when the board's answer carries it (an older board drops a field it does not know).
     if (!clear && commit) {

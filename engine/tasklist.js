@@ -387,9 +387,36 @@ function showLines(body, num, project) {
     field('Built', (whenWords(x.builtAt) || 'yes') + (by ? ', by ' + by : '') + builtWaitsWords(x));
     if (typeof x.builtNote === 'string' && x.builtNote.trim()) { lines.push('Built note:'); under(x.builtNote); }
   }
+  /* kosmos#9105: a mark with several files lists each: its fingerprint and sender, its path or the command to check a
+     copy, who checked it and what it replaced. One file reads exactly as below. */
+  const delivered = x.builtAt ? require('./builtfiles').filesOf(x) : [];
+  if (delivered.length > 1) {
+    const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
+    const live = delivered.filter((e) => e.fingerprint).length;
+    field('Delivered files', live ? String(live) + ' (check them again: kosmos task files ' + one(project) + ')' : 'none current: every file sent was withdrawn');
+    for (const e of delivered) {
+      // A file from before files had names may be one of the named files, sent again: said, never guessed.
+      const label = e.name ? require('./builtfiles').shownName(e.name) : 'sent without a name, by an older Kosmos command or with a path Kosmos does not keep (it may be one of the others, sent again)';   // the form --check takes
+      if (e.fingerprint) {
+        field('File ' + label, e.fingerprint + (e.by ? ', sent by ' + q(e.by) : '')
+          + (e.path ? '' : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + e.fingerprint + ')'));
+        if (e.path) { lines.push('  Its path, on the computer that marked it:'); under(e.path); }
+        const checked = names(e.checkedBy, e.checkedByPerson);
+        if (checked.length) field('  Checked', 'by ' + checked.join(', ') + ' (marked built after it was sent)');
+        else if (e.replaces) field('  Checked', 'not yet: nobody has checked it since it replaced the one below');
+      } else field('File ' + label, 'withdrawn (the last mark from its sender sent no file)');
+      if (e.replaces) {
+        const old = e.replaces;
+        const oldWhen = typeof old.at === 'string' ? whenWords(old.at) : '';
+        field(e.fingerprint ? '  Replaces' : '  Withdrawn file', old.fingerprint + (old.by ? ', sent by ' + q(old.by) : '') + (oldWhen ? ', ' + oldWhen : ''));
+        const oldChecked = names(old.checkedBy, old.checkedByPerson);
+        if (oldChecked.length) field('  Out of date', 'the checks of that file, by ' + oldChecked.join(', ') + (e.fingerprint ? ': they are not checks of this one' : ''));
+      }
+    }
+  }
   /* kosmos#6330: `task built --file` records the delivered file's fingerprint. kosmos#8214: and, from a CLI that sends it,
      its path on the computer that marked it; a mark without one says so, never guessed. */
-  if (PRINT_RE.test(x.builtFingerprint || '')) {
+  if (delivered.length <= 1 && PRINT_RE.test(x.builtFingerprint || '')) {
     const at = typeof x.builtFilePath === 'string' && x.builtFilePath.trim() ? x.builtFilePath : null;
     field('Delivered file', x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : '')
       + (at ? ' (check it again: kosmos task files ' + one(project) + ')'
@@ -398,7 +425,7 @@ function showLines(body, num, project) {
   }
   /* kosmos#8307: who checked THIS file (a checker's mark that kept it), and the file it replaced, or the one the last
      mark withdrew (review 1: a mark with no file), whose checks are of that file and no longer count. */
-  {
+  if (delivered.length <= 1) {
     const current = PRINT_RE.test(x.builtFingerprint || '');
     const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
     const checked = current ? names(x.builtCheckedBy, x.builtCheckedByPerson) : [];
@@ -671,17 +698,26 @@ function filesLines(body, opts = {}) {
   const lines = [];
   const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0, elsewhere: 0, unchecked: 0 };
   let noFile = 0;
+  let withdrawnAll = 0;   // kosmos#9105: built with files, every one withdrawn since
   for (const found of tasks) {
     const x = scrub(found);
-    if (!PRINT_RE.test(x.builtFingerprint || '')) { noFile += 1; continue; }
+    /* kosmos#9105: every current file of the mark, each checked as one file always was (a list from an older board,
+       without builtFiles, is its one file). builtAt is not asked of: this list is the board's built list already. */
+    const listed = PRINT_RE.test(x.builtFingerprint || '') || Array.isArray(found.builtFiles) || found.builtReplaces
+      ? require('./builtfiles').filesOf({ ...found, builtAt: found.builtAt || true }) : [];
+    const current = listed.filter((e) => PRINT_RE.test(e.fingerprint || ''));
+    // Withdrawn only when the files read are withdrawn ones: a list an older board left behind (stale) is no file.
+    if (!current.length) { if (listed.length) withdrawnAll += 1; else noFile += 1; continue; }
     lines.push((every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + titleOf(x));
+    for (const file of current) {
+    const print = file.fingerprint;
     // The stored path is opened as sent (a scrubbed one would be another file); only the printed copy is scrubbed.
-    const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
+    const at = typeof file.path === 'string' && file.path ? file.path : null;
     // Review 4: printed without characters a terminal cannot show safely, and when it held one the line says so.
     // The two joiners are kept, as clean() keeps them (an emoji needs them), so they are not counted as hidden.
     const hidden = at ? /[\p{Cc}\p{Cf}]/u.test(at.replace(/[\u200c\u200d]/g, '')) : false;
     const shown = at ? clean(at).replace(/[\t\r\n]/g, ' ') + (hidden ? ' (printed without characters it cannot show)' : '') : '';
-    if (!at) { tally.nopath += 1; lines.push('    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
+    if (!at) { tally.nopath += 1; lines.push('    no path recorded' + (current.length > 1 ? ' for ' + clean(file.name || 'a file').replace(/[\t\r\n]/g, ' ') : '') + ' (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + print); continue; }
     // Never opened: a path marked on the other kind of computer, a network path (a marker's choice of host), or one not
     // absolute. The board refuses the last two; an older or edited store may still hold one.
     if (foreign(at)) { tally.elsewhere += 1; lines.push('    NOT CHECKED ' + shown + ': marked on a ' + (windows ? 'Mac or Linux' : 'Windows') + ' computer, so it is not on this one'); continue; }
@@ -715,7 +751,7 @@ function filesLines(body, opts = {}) {
       if (reachesAutomount(at, m)) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': it reaches an automount folder (which would mount it from elsewhere), or loops through links'); continue; }
     }
     let got;
-    try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + String((e && e.message) || e) + ')' }; }
+    try { got = compare(at, print); } catch (e) { got = { ok: false, words: 'unreadable (' + String((e && e.message) || e) + ')' }; }
     if (!got || !got.ok) {
       // Review 5: a reader's error can quote the path, so its words are cleaned as the path is.
       const why = got && typeof got.words === 'string' ? clean(got.words).replace(/[\t\r\n]/g, ' ') : 'unreadable';
@@ -723,11 +759,13 @@ function filesLines(body, opts = {}) {
       else { tally.unreadable += 1; lines.push('    CANNOT READ ' + shown + ': ' + why); }
     } else if (got.match === true) { tally.matches += 1; lines.push('    matches  ' + shown); }
     else { tally.changed += 1; lines.push('    CHANGED since it was marked  ' + shown); }
+    }
   }
-  const checked = tasks.length - noFile;
+  const checked = tasks.length - noFile - withdrawnAll;
+  const withdrawnWords = withdrawnAll ? ' ' + withdrawnAll + ' built with files since withdrawn.' : '';
   const where = every ? 'in any project' : 'in ' + one(opts.project);
   if (!checked) {
-    lines.push(tasks.length ? 'No built task ' + where + ' names a delivered file (' + tasks.length + ' built without --file).'
+    lines.push(tasks.length ? 'No built task ' + where + ' names a delivered file' + (noFile ? ' (' + noFile + ' built without --file).' : '.') + withdrawnWords
       : 'No built tasks ' + where + '.');
   } else {
     const bits = [tally.matches + ' match', tally.changed + ' changed', tally.missing + ' missing'];
@@ -735,8 +773,11 @@ function filesLines(body, opts = {}) {
     if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
     if (tally.elsewhere) bits.push(tally.elsewhere + ' marked on another kind of computer');
     if (tally.unchecked) bits.push(tally.unchecked + ' not opened (see each line for why)');
-    lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where) + ': ' + bits.join(', ') + '.'
-      + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
+    // kosmos#9105: the tallies count files, so when a mark sent several the line says how many.
+    const fileCount = tally.matches + tally.changed + tally.missing + tally.unreadable + tally.nopath + tally.elsewhere + tally.unchecked;
+    lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where)
+      + (fileCount !== checked ? ' (' + fileCount + ' files)' : '') + ': ' + bits.join(', ') + '.'
+      + (noFile ? ' ' + noFile + ' more built without --file.' : '') + withdrawnWords);
     if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');
     lines.push('Checked on this computer: a mark made on another computer can read missing here.');
   }
