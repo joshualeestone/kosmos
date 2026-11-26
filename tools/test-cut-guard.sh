@@ -1517,6 +1517,9 @@ KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end ci-a
 : > "$MB/beside-runs.log"; for _i in $(seq 1 490); do echo "E pad$_i 1" >> "$MB/beside-runs.log"; done
 bwp=""; for _w in $(seq 1 20); do ( for _j in $(seq 1 15); do KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end "w${_w}x${_j}"; done ) & bwp="$bwp $!"; done
 for _p in $bwp; do wait "$_p"; done   # the writers only: a bare wait would also wait for this file's hour-long stand-ins
+# Review 1 (besidefix): a writer that gave up near the end left its line pending, not lost; a last locked write folds it
+# before counting, so a give-up under load cannot read as a loss here.
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end fold-before-count
 nl9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; nw9139="$(grep -c '^E w' "$MB/beside-runs.log")"
 { [ "$nl9139" -ge 400 ] && [ "$nl9139" -le 500 ] && [ "$nw9139" = 300 ]; } && pass "#9139 twenty writers at once lose no line across the trim" || fail "#9139 concurrent writers lost lines ($nl9139 lines, $nw9139 of 300 writer lines)"
 # #9139 follow-up (CI 11-26 19:06 UTC lost 1 of 300 above): a writer that cannot get the lock gives up after a COUNT of
@@ -1542,6 +1545,19 @@ for _p in $bwp; do wait "$_p"; done
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end last-fold
 nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 { [ "$ng9139" -ge 1 ] && [ "$nw9139" = 300 ] && [ -z "$(ls "$MB" | grep '^beside-runs\.log\.pending')" ]; } && pass "#9139 twenty writers that mostly give up lose no line once folded ($ng9139 had given up while the lock was held)" || fail "#9139 writers that give up lost lines ($nw9139 of 300, $ng9139 were pending)"
+# Review 1 (besidefix): the reader's first stage cannot fail (cat of an unmatched pending glob exits 1, which under the
+# caller's errexit and pipefail ended the caller). Pinned in the SOURCE, not run: this file may not turn pipefail on
+# (the #8195 ratchet would then count every pipeline in it as new).
+awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ cat "$f" "$f".pending.* 2>/dev/null || true; } | awk' \
+  && pass "#9139 the reader's cat stage cannot fail its pipeline (source pin)" || fail "#9139 the reader's cat stage is no longer guarded with || true"
+# Review 1 (besidefix): an older end folded after a newer start of the same id does not end the newer run. The marker
+# dir is made here: an earlier arm removes it, and these two write their lines by hand (not through the writer).
+mkdir -p "$MB"; now9139=$(date +%s); printf 'S r9 %s reused\n' $((now9139 - 100)) > "$MB/beside-runs.log"; printf 'E r9 %s\n' $((now9139 - 1000)) > "$MB/beside-runs.log.pending.test1"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200)) | grep -qF "reused (r9), from" && pass "#9139 an older end folded late does not end a newer run of the same id" || fail "#9139 a reused id was ended by an older end ($(KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since $((now9139 - 200))))"
+# Review 1 (besidefix): a pending line is read while the log does not exist yet.
+rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
+rm -f "$MB"/beside-runs.log.pending.*
 # Review 2: a lock left by a writer killed while holding it is broken once it is older than 10 s.
 mkdir "$MB/beside-runs.log.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"   # UTC both sides (#7725)
 st9139=$(date +%s); KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end after-stale; el9139=$(( $(date +%s) - st9139 ))
