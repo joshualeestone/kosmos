@@ -327,6 +327,21 @@ function changedLines(before, after, moved = null) {
   };
   const headsA = headsOf(a);
   const headsB = headsOf(b);
+  /* kosmos#9096 item 5, review 2: which lines are code (a fence line, or inside a fence), by headsOf's fence rules. A code
+     line is never judged wording only: its quotes, commas and spacing are syntax. */
+  const codeOf = (lines) => {
+    const code = new Array(lines.length).fill(false);
+    let fence = null;
+    for (let k = 0; k < lines.length; k += 1) {
+      const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[k]);
+      if (m && fence === null) { fence = m[1]; code[k] = true; }
+      else if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) { fence = null; code[k] = true; }
+      else code[k] = fence !== null;
+    }
+    return code;
+  };
+  const codeA = codeOf(a);
+  const codeB = codeOf(b);
   const headAt = (heads, upTo) => (upTo >= 0 ? heads[upTo] : null);
   const runs = [];
   let run = null;
@@ -355,14 +370,14 @@ function changedLines(before, after, moved = null) {
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
-    if (removing) { const k = underMoved(headsA[pre + i]); if (k >= 0) shownUnder[k] += 1; (run.movedOf = run.movedOf || []).push(k); run.lines.push('- ' + A[i]); i += 1; }
-    else { run.lines.push('+ ' + B[j]); j += 1; }
+    if (removing) { const k = underMoved(headsA[pre + i]); if (k >= 0) shownUnder[k] += 1; (run.movedOf = run.movedOf || []).push(k); (run.codeMinus = run.codeMinus || []).push(codeA[pre + i]); run.lines.push('- ' + A[i]); i += 1; }
+    else { (run.codePlus = run.codePlus || []).push(codeB[pre + j]); run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
   /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
      first would leave a cut file with only the rules that no longer apply). */
   /* kosmos#9096 item 5: a removed line and the line that replaced it whose only difference is spacing after the
-     indentation, a full stop or comma that directly ends a word, or straight against curly quotes changed in wording
+     indentation, a single full stop that directly ends a word, or straight against curly quotes changed in wording
      only. Such a pair is counted and not printed, so the capped list keeps its room for rules that changed.
      Narrow on purpose (review 1): a mark standing alone is kept (`git add .`, `cd ..`); ? ! ; : are kept (a question is
      not an instruction, `! cmd` negates, `;` separates commands, `key:` is YAML); leading indentation must match exactly
@@ -371,18 +386,23 @@ function changedLines(before, after, moved = null) {
   const wordingOf = (t) => {
     const s = String(t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     const indent = s.match(/^[ \t]*/)[0];
-    return indent + s.slice(indent.length).replace(/(?<=\w)[.,]+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+    // Review 2: one full stop only, right after a word (`main..` is a git range); a comma is never wording (JSON, args).
+    return indent + s.slice(indent.length).replace(/(?<=\w)\.(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
   };
   let reworded = 0;
   for (const r of runs) {
     const minus = r.lines.filter((l) => l.startsWith('- '));
     const plus = r.lines.filter((l) => l.startsWith('+ '));
     const movedOf = r.movedOf || [];   // the moved-heading index of each - line, in order (-1: none)
+    const codeMinus = r.codeMinus || [];
+    const codePlus = r.codePlus || [];
     for (let k = Math.min(minus.length, plus.length) - 1; k >= 0; k -= 1) {
+      // Review 2: code (in a fence, or with a backtick span) is compared exactly, so it is never hidden.
+      if (codeMinus[k] || codePlus[k] || minus[k].includes('`') || plus[k].includes('`')) continue;
       if (wordingOf(minus[k].slice(2)) !== wordingOf(plus[k].slice(2))) continue;
       // Review 1: a hidden - line is no longer "still marked" under a moved heading.
       if (movedOf[k] >= 0) shownUnder[movedOf[k]] -= 1;
-      minus.splice(k, 1); plus.splice(k, 1); movedOf.splice(k, 1); reworded += 1;
+      minus.splice(k, 1); plus.splice(k, 1); movedOf.splice(k, 1); codeMinus.splice(k, 1); codePlus.splice(k, 1); reworded += 1;
     }
     r.lines = minus.concat(plus);
   }

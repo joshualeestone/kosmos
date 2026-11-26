@@ -45,6 +45,15 @@ test('CONTROL: a flag, a case change, a symbol and a path dot still print', () =
     ['Delete it?', 'Delete it.'],
     ['  key: v', 'key: v'],
     ['  - sub', '- sub'],
+    // Review 2: stacked dots after a word, and any comma, are not wording.
+    ['git log origin/main.. --oneline', 'git log origin/main --oneline'],
+    ['git diff main..', 'git diff main'],
+    ['  "strict": true,', '  "strict": true'],
+    ['echo a, b', 'echo a b'],
+    ['Pass --dry-run, --force', 'Pass --dry-run --force'],
+    // Review 2: a line with a code span is compared exactly (its quotes and spacing are syntax).
+    ['Run `grep "a  b" f`', 'Run `grep "a b" f`'],
+    ["Run `echo 'x'`", 'Run `echo \u2018x\u2019`'],
   ]) {
     const out = changedLines('# R\n' + a + '\n', '# R\n' + b + '\n');
     assert.ok(out.includes('- ' + a) && out.includes('+ ' + b), 'hidden as wording only: ' + a + ' -> ' + b);
@@ -74,4 +83,14 @@ test('a cut list with wording-only lines keeps the cap and ends with the cut not
   assert.ok(out.split('\n').length <= CHANGES_LINES_MAX, 'over the line cap');
   assert.match(out, NOTE);
   assert.match(out.split('\n').pop(), /^\[More changed than fits here/, 'the cut note is not last');
+});
+
+test('review 2: a line inside a code fence is compared exactly, even when only a quote or a full stop changed', () => {
+  const before = '# R\n```sh\necho \'x\'\ngit add file.\n```\n';
+  const after = '# R\n```sh\necho \u2018x\u2019\ngit add file\n```\n';
+  const out = changedLines(before, after);
+  assert.doesNotMatch(out, NOTE, 'a code line was counted as wording only');
+  assert.ok(out.includes("- echo 'x'") && out.includes('+ git add file'), 'a code change was not printed');
+  // CONTROL: the same two edits in prose are wording only.
+  assert.equal(changedLines('# R\nSay \'x\' now\nAdd the file.\n', '# R\nSay \u2018x\u2019 now\nAdd the file\n').match(NOTE)[1], '2');
 });
