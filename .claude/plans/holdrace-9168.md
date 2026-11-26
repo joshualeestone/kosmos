@@ -30,7 +30,7 @@ That holds which lose the race land within a minute of the add. A hold placed la
 as today; this only closes the "add then hold at once" case the reports describe. Still exposed, by design: a new part
 added to an old task nobody is on, and a reopened task, are given at once (the wait keys on the task's createdAt).
 
-## Tests: engine/assigner-holdrace-9168.test.js (6), each clock set from the task's own createdAt
+## Tests: engine/assigner-holdrace-9168.test.js (6 at first, 8 after review 1), each clock set from the task's own createdAt
 - CONTROL: a task one tick old is given. A task 5 s old, and 59.999 s old, is not.
 - add, tick at 5 s (not given), hold, tick after the grace: never given.
 - a createdAt ten minutes ahead of the clock: given.
