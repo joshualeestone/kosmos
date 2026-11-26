@@ -164,6 +164,7 @@ struct ChatList: UIViewRepresentable {
         var movedAt: CFTimeInterval = 0
         func moving() -> Bool { CACurrentMediaTime() - movedAt < 0.25 }
 
+        var wasTwoPanes = false   // kosmos#9002: whether two panes were showing at the last update
         func redrawAtNewWidth() {
             guard let source, let list else { return }
             for ip in list.indexPathsForVisibleItems {
@@ -1077,8 +1078,11 @@ struct ChatList: UIViewRepresentable {
         co.landing = landing
         let wasWide = co.environment.paneWidth
         co.environment = context.environment
-        // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one.
-        if abs(wasWide - co.environment.paneWidth) > 0.5 { co.redrawAtNewWidth() }
+        // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one. Only when two panes
+        // are, or were, showing: a phone rotating keeps its drawn cells as it always did.
+        let two = context.environment.horizontalSizeClass == .regular && context.environment.verticalSizeClass == .regular
+        if abs(wasWide - co.environment.paneWidth) > 0.5, two || co.wasTwoPanes { co.redrawAtNewWidth() }
+        co.wasTwoPanes = two
         co.apply(ids, dropped: dropped)
         if newest != co.newest {
             co.newest = newest
