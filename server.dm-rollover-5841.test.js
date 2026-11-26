@@ -10,6 +10,7 @@
  *
  *   node --test server.dm-rollover-5841.test.js
  */
+require('./test-support/tmpscope');   // kosmos#9098: first, so the sandbox below lands in this process's own temp folder
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
