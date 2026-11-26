@@ -7162,20 +7162,22 @@ cmd_task() {
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
       [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; } ;;
     built)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)"; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release|none] [--file <path> ...] [--check <file-name> ...] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends a delivered file's fingerprint, once per file; --check checks only the files named, as another agent; --commit records the commit a code fix landed as; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      local _c _cpast=0 _cfile=0 _ccommit=0 _cwait=0   # kosmos#4889: --clear, (#6330) --file <path>, (#7508) --commit <ref> and (#8934) --waiting <who> are built's options; any other --word is refused
+      local _c _cpast=0 _cfile=0 _ccommit=0 _cwait=0 _ccheck=0   # kosmos#9105: --check <name>, and --file again for each file; kosmos#4889: --clear, (#6330) --file <path>, (#7508) --commit <ref> and (#8934) --waiting <who> are built's options; any other --word is refused
       for _c in "${@:3}"; do
         if [ "$_cpast" = 1 ]; then break; fi
         if [ "$_cfile" = 1 ]; then _cfile=2; continue; fi
         if [ "$_ccommit" = 1 ]; then _ccommit=2; continue; fi
+        if [ "$_ccheck" = 1 ]; then _ccheck=2; continue; fi
         if [ "$_cwait" = 1 ]; then
           case "$_c" in person|review|release|none) _cwait=2; continue ;; esac
           say "--waiting says what the task waits on: person, review, release or none (got $_c)."; exit 2
         fi
-        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --commit) _ccommit=1 ;; --waiting) _cwait=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release|none] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)" "$_c" ;; esac
+        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --check) _ccheck=1 ;; --commit) _ccommit=1 ;; --waiting) _cwait=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--waiting person|review|release|none] [--file <path> ...] [--check <file-name> ...] [--commit <ref>]   (a note on how each check went, if it has checks; --waiting says what it waits on; --file sends a delivered file's fingerprint, once per file; --check checks only the files named, as another agent; --commit records the commit a code fix landed as; or --clear to take the mark off)" "$_c" ;; esac
       done
       [ "$_cfile" != 1 ] || { say "--file needs the path of the delivered file."; exit 2; }
+      [ "$_ccheck" != 1 ] || { say "--check needs the name of a file the task was marked built with (kosmos task show lists them)."; exit 2; }
       [ "$_ccommit" != 1 ] || { say "--commit needs the commit the fix landed as, for example --commit HEAD."; exit 2; }
       [ "$_cwait" != 1 ] || { say "--waiting says what the task waits on: person, review, release or none."; exit 2; } ;;
     assign)
@@ -7821,15 +7823,18 @@ cmd_task() {
       # #3951: mark a task built, waiting to be released or checked (the Tasks page's "Built but waiting"), or take
       # the mark off with --clear. Every arg after the number that is not --clear or --file <path> is the note, folded as message does.
       # The agent token names who marked it (the pane is the fallback, as for message).
-      local project num note="" clear=false _b file="" _bfile=0 cref="" _bcommit=0 waiting="" _bwait=0
+      local project num note="" clear=false _b file="" _bfile=0 cref="" _bcommit=0 waiting="" _bwait=0 _bcheck=0
+      local -a files=() checks=()   # kosmos#9105: every --file, and every --check <name>
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       local _bpast=0
       for _b in "$@"; do
-        if [ "$_bfile" = 1 ]; then file="$_b"; _bfile=2; continue; fi
+        if [ "$_bfile" = 1 ]; then files+=("$_b"); _bfile=2; continue; fi
+        if [ "$_bcheck" = 1 ]; then checks+=("$_b"); _bcheck=2; continue; fi
         if [ "$_bcommit" = 1 ]; then cref="$_b"; _bcommit=2; continue; fi
         if [ "$_bwait" = 1 ]; then waiting="$_b"; _bwait=2; continue; fi
         if [ "$_bpast" = 0 ] && [ "$_b" = "--" ]; then _bpast=1; continue; fi   # kosmos#4889
         if [ "$_bpast" = 0 ] && [ "$_b" = "--file" ]; then _bfile=1; continue; fi   # #6330 slice 2
+        if [ "$_bpast" = 0 ] && [ "$_b" = "--check" ]; then _bcheck=1; continue; fi   # kosmos#9105
         if [ "$_bpast" = 0 ] && [ "$_b" = "--commit" ]; then _bcommit=1; continue; fi   # #7508
         if [ "$_bpast" = 0 ] && [ "$_b" = "--waiting" ]; then _bwait=1; continue; fi   # kosmos#8934
         if [ "$_bpast" = 0 ] && [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
@@ -7843,32 +7848,60 @@ cmd_task() {
         case "$waiting" in person|review|release|none) ;; *) say "--waiting says what the task waits on: person, review, release or none."; exit 2 ;; esac
       fi
       # #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file.
-      local fingerprint="" file_abs="" file_json=""
+      # kosmos#9105: once for each --file; the first is also sent the older way (fingerprint, file_path), so a board from
+      # before more than one file still keeps it.
+      local fingerprint="" file_abs="" file_json="" files_json="" check_json="" _fi _fname _fnames="/"
+      local -a fps=() abss=() fnames=()
+      if [ "$_bcheck" -gt 0 ]; then
+        [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no --check. Run it without --check."; exit 2; }
+        [ "$_bfile" = 0 ] || { say "--check is another agent's check of the files sent, so it takes no --file. Run it without --file."; exit 2; }
+        for _fname in ${checks[@]+"${checks[@]}"}; do
+          case "$_fname" in ''|*/*|*[[:cntrl:]]*|.|..) say "--check needs the name of a file the task was marked built with, without its folder (got $_fname)."; exit 2 ;; esac
+          check_json="${check_json:+$check_json,}\"$(printf '%s' "$_fname" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')\""
+        done
+        check_json=",\"check\":[$check_json]"
+      fi
       if [ "$_bfile" = 2 ]; then   # given, even as "" (an unset variable): refused below as Windows refuses it (review 2)
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
-        [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
-        # kosmos#6849: the fingerprint `kosmos fingerprint` and `kosmos handoff` give (engine/fileprint.js): plain sha256,
-        # except that a PDF's own dates and document ID are left out, so a re-render of the same source matches. The path
-        # is the script's argument, after the script, so a leading - is not read as an option. `|| fingerprint=""`: under
-        # set -e a failed read (a folder privacy controls block) ended the script silently (review 7).
-        local _fnode _fmod
-        _fnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to fingerprint that file."; exit 1; }
-        _fmod="$(kosmos_engine_module fileprint).js"
-        [ -f "$_fmod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
-        # kosmos#8214: and its absolute path here, so `kosmos task files` can check it again: its folder resolved as the
-        # kernel resolves it (-P, so link/.. is the folder the hash read), and the fingerprint is then taken of that path,
-        # as the Windows CLI does, so the two always name the same file. A path the board would refuse (control
-        # characters, a network path, over 1024 characters) is sent as none, and the mark goes without it.
-        local _fdir; _fdir=$(CDPATH= cd -P -- "$(dirname -- "$file")" 2>/dev/null && pwd -P) || _fdir=""
-        case "$_fdir" in /*) file_abs="${_fdir%/}/$(basename -- "$file")" ;; *) file_abs="" ;; esac
-        # $( ) strips a trailing newline from a folder or a name, which would name another file (review 3): a path
-        # given with any control character is sent as none, and the file is hashed by the path as given.
-        case "$file" in *[[:cntrl:]]*) file_abs="" ;; esac
-        # The board's own rule (engine/fileprint.js keptPath), asked of the same module that fingerprints the file: a path
-        # it would refuse goes as none. An older module without the rule sends none either.
-        [ -z "$file_abs" ] || "$_fnode" -e 'process.exit(require(process.argv[1]).keptPath?.(process.argv[2]) ? 0 : 1)' "$_fmod" "$file_abs" 2>/dev/null || file_abs=""
-        fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
-        case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
+        for file in "${files[@]}"; do
+          file_abs=""
+          [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
+          # kosmos#6849: the fingerprint `kosmos fingerprint` and `kosmos handoff` give (engine/fileprint.js): plain sha256,
+          # except that a PDF's own dates and document ID are left out, so a re-render of the same source matches. The path
+          # is the script's argument, after the script, so a leading - is not read as an option. `|| fingerprint=""`: under
+          # set -e a failed read (a folder privacy controls block) ended the script silently (review 7).
+          local _fnode _fmod
+          _fnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to fingerprint that file."; exit 1; }
+          _fmod="$(kosmos_engine_module fileprint).js"
+          [ -f "$_fmod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
+          # kosmos#8214: and its absolute path here, so `kosmos task files` can check it again: its folder resolved as the
+          # kernel resolves it (-P, so link/.. is the folder the hash read), and the fingerprint is then taken of that path,
+          # as the Windows CLI does, so the two always name the same file. A path the board would refuse (control
+          # characters, a network path, over 1024 characters) is sent as none, and the mark goes without it.
+          local _fdir; _fdir=$(CDPATH= cd -P -- "$(dirname -- "$file")" 2>/dev/null && pwd -P) || _fdir=""
+          case "$_fdir" in /*) file_abs="${_fdir%/}/$(basename -- "$file")" ;; *) file_abs="" ;; esac
+          # $( ) strips a trailing newline from a folder or a name, which would name another file (review 3): a path
+          # given with any control character is sent as none, and the file is hashed by the path as given.
+          case "$file" in *[[:cntrl:]]*) file_abs="" ;; esac
+          # The board's own rule (engine/fileprint.js keptPath), asked of the same module that fingerprints the file: a path
+          # it would refuse goes as none. An older module without the rule sends none either.
+          [ -z "$file_abs" ] || "$_fnode" -e 'process.exit(require(process.argv[1]).keptPath?.(process.argv[2]) ? 0 : 1)' "$_fmod" "$file_abs" 2>/dev/null || file_abs=""
+          fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
+          case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
+          # kosmos#9105: the file's name is how the board knows it: its own name, given once.
+          _fname=$(basename -- "${file_abs:-$file}")
+          # One such file goes the older way only (no name, as before #9105); among several, it cannot be told apart.
+          case "$_fname" in *[[:cntrl:]]*) [ "${#files[@]}" -eq 1 ] || { say "Kosmos cannot send a file whose name has control characters in it among several files: rename it first."; exit 2; }; _fname="" ;; esac
+          case "$_fnames" in *"/$_fname/"*) say "Two files named $_fname: give each file once (the board knows a file by its name)."; exit 2 ;; esac
+          _fnames="$_fnames$_fname/"
+          fps+=("$fingerprint"); abss+=("$file_abs"); fnames+=("$_fname")
+        done
+        fingerprint="${fps[0]}"; file_abs="${abss[0]}"; file="${files[0]}"
+        for _fi in "${!fps[@]}"; do
+          files_json="${files_json:+$files_json,}{\"name\":\"$(printf '%s' "${fnames[$_fi]}" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')\",\"fingerprint\":\"${fps[$_fi]}\"${abss[$_fi]:+,\"file_path\":\"$(printf '%s' "${abss[$_fi]}" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')\"}}"
+        done
+        files_json=",\"files\":[$files_json]"
+        [ -n "${fnames[0]}" ] || files_json=""
       fi
       # #7508: the commit a code fix landed as, resolved here in this checkout: its full sha, the repository's shared git
       # directory (it outlives a removed worktree) and whether a remote branch has it. The board checks only the shape.
@@ -7906,7 +7939,7 @@ cmd_task() {
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
         -H 'content-type: application/json' \
-        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}${waiting:+,\"waiting_on\":\"$waiting\"}$file_json$commit_json}" 2>/dev/null) || rc=$?
+        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}${waiting:+,\"waiting_on\":\"$waiting\"}$file_json$files_json$check_json$commit_json}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "mark that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
@@ -7929,8 +7962,14 @@ cmd_task() {
             # Review 4: none asks for no value, so an answer without one is what was asked, never "not recorded".
             case "$waiting" in none) ;; ?*) case "$body" in *"\"builtWaitingOn\":\"$waiting\""*) ;; *) say "This Kosmos did not record what it waits on: it may be older than --waiting. Update it, then mark the task again." ;; esac ;; esac
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
-            [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
-            [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
+            # kosmos#9105: one line per file.
+            for _fi in ${fps[@]+"${!fps[@]}"}; do
+              say "Fingerprint sent: ${fps[$_fi]} for ${files[$_fi]}"
+              [ "${#fps[@]}" -gt 1 ] || [ -n "${abss[$_fi]}" ] || say "Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
+              [ "${#fps[@]}" -eq 1 ] || [ -n "${abss[$_fi]}" ] || say "The path of ${files[$_fi]} was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check it."
+            done
+            # An older board keeps only the first file (it does not know files) and answers without builtFiles.
+            if [ "${#fps[@]}" -gt 1 ]; then case "$body" in *'"builtFiles":'*) ;; *) say "This Kosmos kept only the first file, ${files[0]}: it may be older than more than one --file. Update it, then mark the task again." ;; esac; fi
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
             # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then

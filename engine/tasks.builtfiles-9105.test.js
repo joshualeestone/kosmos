@@ -217,3 +217,16 @@ test('#9105: a view without local paths has no path in any file, and a clear dro
   tasks.clearBuilt(pid, n, { by: 'mona' });
   assert.equal('builtFiles' in get(n), false);
 });
+
+test('#9105: a Mac name may hold a backslash; a path sent the older way is named after its own last separator', () => {
+  const n = freshTask();
+  mark(n, { by: 'mona', files: [{ name: 'odd\\name.txt', fingerprint: A }] });
+  assert.equal(get(n).builtFiles[0].name, 'odd\\name.txt');
+  const m = freshTask();
+  mark(m, { by: 'mona', fingerprint: A, filePath: path.join(SANDBOX, 'odd\\name.txt') });
+  assert.equal(get(m).builtFiles[0].name, 'odd\\name.txt', 'a Mac path was split at a backslash');
+  const w = freshTask();
+  mark(w, { by: 'mona', fingerprint: A });
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => { if (x.number !== w) return x; const y = { ...x, builtFilePath: 'C:\\Users\\me\\out\\deck.pdf' }; delete y.builtFiles; return y; }) }));
+  assert.equal(tasks.filesOf(get(w))[0].name, 'deck.pdf', 'a Windows path was not split at its backslash');
+});

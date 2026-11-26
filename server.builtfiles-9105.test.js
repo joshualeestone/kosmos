@@ -182,3 +182,85 @@ test('#9105: the sender\'s mark with no file withdraws both, and the answer name
   assert.doesNotMatch(r.json.summary, /["\\]/, 'the CLI sed cannot read a quote or backslash');
 });
 
+
+/* The Mac CLI (install/kosmos), driven as server.builtsha-6330.test.js drives it. */
+const crypto = require('node:crypto');
+const { execFile } = require('node:child_process');
+const sha = (s) => 'sha256:' + crypto.createHash('sha256').update(s).digest('hex');
+const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
+fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
+fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
+fs.symlinkSync(path.join(__dirname, 'engine'), path.join(MAC_HOME, 'engine'));
+function mac(args, extra = {}, port = server.address().port) {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '', ...extra };
+  return new Promise((resolve, reject) => {
+    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
+      resolve({ code: err ? err.code : 0, out: (stdout || '') + (stderr || '') });
+    });
+  });
+}
+const OUT = path.join(SANDBOX, 'out');
+fs.mkdirSync(path.join(OUT, 'other'), { recursive: true });
+fs.writeFileSync(path.join(OUT, 'report.md'), 'the report\n');
+fs.writeFileSync(path.join(OUT, 'data.csv'), 'a,b\n');
+fs.writeFileSync(path.join(OUT, 'other', 'report.md'), 'another report\n');
+const macOnly = { skip: process.platform === 'win32' && 'the Mac CLI' };
+
+test('#9105 Mac: --file twice sends both files, each fingerprinted, and prints each', macOnly, async () => {
+  const n = tasks.create(projectId, { sentence: 'Mac two files', who: 'mona' }).number;
+  const tok = sendertoken.mint('mona').token;
+  const r = await mac(['task', 'built', projectId, String(n), 'both', '--file', path.join(OUT, 'report.md'), '--file', path.join(OUT, 'data.csv')], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(r.code, 0, r.out);
+  const real = fs.realpathSync(OUT);
+  assert.deepEqual(stored(n).builtFiles.map((e) => [e.name, e.fingerprint, e.path]),
+    [['report.md', sha('the report\n'), path.join(real, 'report.md')], ['data.csv', sha('a,b\n'), path.join(real, 'data.csv')]]);
+  assert.equal(stored(n).builtNote, 'both');
+  assert.ok(r.out.includes('Fingerprint sent: ' + sha('the report\n') + ' for ' + path.join(OUT, 'report.md')), r.out);
+  assert.ok(r.out.includes('Fingerprint sent: ' + sha('a,b\n') + ' for ' + path.join(OUT, 'data.csv')), r.out);
+  assert.doesNotMatch(r.out, /kept only the first file/, 'a board that keeps both was called older');
+});
+
+test('#9105 Mac: --check checks only the file named', macOnly, async () => {
+  const n = tasks.create(projectId, { sentence: 'Mac check one', who: 'mona' }).number;
+  await mark(n, asAgent('mona'), { files: two() });
+  const r = await mac(['task', 'built', projectId, String(n), 'read the data', '--check', 'data.csv'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(stored(n).builtFiles.map((e) => e.checkedBy), [[], ['zed']]);
+  const bad = await mac(['task', 'built', projectId, String(n), 'x', '--check', 'nope.txt'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('zed').token });
+  assert.equal(bad.code, 1, bad.out);
+  assert.match(bad.out, /no file named/);
+});
+
+test('#9105 Mac: two files of one name, --check with --file, and a bare --check are refused before the board', macOnly, async () => {
+  const n = tasks.create(projectId, { sentence: 'Mac refusals', who: 'mona' }).number;
+  const tok = sendertoken.mint('mona').token;
+  const dup = await mac(['task', 'built', projectId, String(n), '--file', path.join(OUT, 'report.md'), '--file', path.join(OUT, 'other', 'report.md')], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(dup.code, 2, dup.out);
+  assert.match(dup.out, /Two files named report\.md/);
+  const mixed = await mac(['task', 'built', projectId, String(n), '--file', path.join(OUT, 'report.md'), '--check', 'report.md'], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(mixed.code, 2, mixed.out);
+  assert.match(mixed.out, /takes no --file/);
+  const bare = await mac(['task', 'built', projectId, String(n), '--check'], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(bare.code, 2, bare.out);
+  assert.match(bare.out, /--check needs the name of a file/);
+  assert.equal(stored(n).builtAt, undefined, 'a refused command marked the task');
+});
+
+test('#9105 Mac: a board that answers without builtFiles is said to have kept only the first file', macOnly, async () => {
+  // A board from before #9105 answers with the task as it stored it, which has no builtFiles; stand in for it here.
+  const orig = tasks.setBuilt;
+  tasks.setBuilt = (...a) => { const r = orig(...a); if (r && r.task) { const { builtFiles: _f, ...t } = r.task; r.task = t; } return r; };   // eslint-disable-line no-unused-vars
+  try {
+    const n = tasks.create(projectId, { sentence: 'Mac older board', who: 'mona' }).number;
+    const r = await mac(['task', 'built', projectId, String(n), 'both', '--file', path.join(OUT, 'report.md'), '--file', path.join(OUT, 'data.csv')], { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token });
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /This Kosmos kept only the first file, .*report\.md: it may be older/);
+    // CONTROL: one file to the same board says nothing of the kind.
+    const one = await mac(['task', 'built', projectId, String(n), 'one', '--file', path.join(OUT, 'report.md')], { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token });
+    assert.equal(one.code, 0, one.out);
+    assert.doesNotMatch(one.out, /kept only the first file/);
+  } finally {
+    tasks.setBuilt = orig;
+  }
+});

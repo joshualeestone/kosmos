@@ -1056,14 +1056,17 @@ function sameList(a, b) {
 }
 /* kosmos#9105: at most this many files on one built mark, so a looping sender cannot grow the store. */
 const BUILT_FILES_MAX = 20;
-/* A file's name as sent: its base name, no folder, no control characters. */
+/* A file's name as sent: its base name, no folder (no /), no control characters. A backslash is kept: on a Mac a name
+   can hold one, and the Windows CLI sends the name after its own last separator. */
 function builtFileName(v) {
   return typeof v === 'string' && v.length > 0 && v.length <= 255 && v !== '.' && v !== '..'
-    && !/[\\/\u0000-\u001f\u007f]/.test(v) ? v : '';
+    && !/[/\u0000-\u001f\u007f]/.test(v) ? v : '';
 }
-/* The base name of a kept path ('' for none), for a fingerprint sent the older way with its path. */
+/* The base name of a kept path ('' for none), for a fingerprint sent the older way with its path: after the last / of a
+   Mac path, after the last / or \ of a Windows one. */
 function fileNameOf(p) {
-  return typeof p === 'string' && p ? builtFileName(p.split(/[\\/]/).pop()) : '';
+  if (typeof p !== 'string' || !p) return '';
+  return builtFileName(p.split(p.startsWith('/') ? '/' : /[\\/]/).pop());
 }
 /* The files a mark sends, checked: [{ name, fingerprint, path }], or a string saying what is wrong. */
 function builtFilesValue(files) {
