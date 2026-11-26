@@ -44975,7 +44975,7 @@ function keptDrafts(kind) {
       else localStorage.removeItem(k);
     }
   } catch { unsaved.add('*'); }
-  const write = (key, v) => {
+  const keepEntry = (key, v) => {   // not `write`: a page handler of that name is bound to resize (web.click-bindings)
     try {
       const words = typeof v === 'string' ? v : (v && v.text) || '';
       if (String(words).trim()) localStorage.setItem(prefix + key, JSON.stringify({ v, t: Date.now() }));
@@ -44984,8 +44984,8 @@ function keptDrafts(kind) {
     } catch { unsaved.add(key); }
   };
   const kept = new Proxy(map, {
-    set(o, key, v) { o[key] = v; if (typeof key === 'string') write(key, v); return true; },
-    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') write(key, undefined); return true; },
+    set(o, key, v) { o[key] = v; if (typeof key === 'string') keepEntry(key, v); return true; },
+    deleteProperty(o, key) { delete o[key]; if (typeof key === 'string') keepEntry(key, undefined); return true; },
   });
   KEPT_DRAFT_UNSAVED.set(kept, unsaved);
   KEPT_DRAFT_PREFIX.set(kept, prefix);

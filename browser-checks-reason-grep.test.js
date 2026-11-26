@@ -427,6 +427,7 @@ const SITE_COUNTS = {
   'render-import-name-4962.js': [1, 0],
   'render-imports-recovery-8039.js': [1, 0],
   'render-inline-field-errors-2606.js': [1, 0],
+  'render-keepdrafts-9132.js': [1, 0],
   'render-keyed-install-3713.js': [3, 2],
   'render-layer-gutter-4494.js': [3, 2],
   'render-limit-until-5805.js': [1, 1],

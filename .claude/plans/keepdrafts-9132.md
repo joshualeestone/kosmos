@@ -147,3 +147,11 @@ No BLOCKER, no SHOULD-FIX. Converged. NITs, not taken: two tabs typing in the sa
 leaves the removed agent's box words (unproven path, narrow); the silent 14-day age-out and the load-failure
 "not kept" (decided above). The "any key" fallback was checked: a match means storage holds those words, so nothing
 is lost on a reload.
+
+#### Full validation 1 (Mortals, 11-26 10:06 to 10:19, at 2e8cae481e): RED on 2 of 31,350, both mine
+
+- browser-checks-reason-grep: a new browser check needs its SITE_COUNTS line ('render-keepdrafts-9132.js': [1, 0]):
+  added.
+- web.click-bindings: keptDrafts' inner `write` shared its name with a page handler bound to resize, which the
+  binding scan reads by name: renamed keepEntry.
+Both pass here (with web.keepdrafts-9132: 25 of 25); render-keepdrafts-9132 passes. Revalidating on Mortals.
