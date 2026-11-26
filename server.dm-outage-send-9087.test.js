@@ -203,7 +203,7 @@ test('#9087 the channel card agrees with snapshot\'s card for the same Windows r
   const fromSnapshot = status.snapshot().agents.find((a) => a.sessionName === 'raph');
   assert.ok(fromSnapshot, 'CONTROL: snapshot builds a card for the row');
   const built = status.channelCardFor('raph', '');
-  for (const k of ['name', 'sessionName', 'session', 'target', 'isAgentPane', 'isAgentSession', 'isFleetSession', 'isNamedOurs', 'paneless', 'reachedByChannel', 'runner']) {
+  for (const k of ['name', 'sessionName', 'session', 'target', 'isAgentPane', 'isAgentSession', 'isFleetSession', 'isNamedOurs', 'paneless', 'reachedByChannel', 'runner', 'swarm']) {   // swarm: kosmos#9090 review 1
     assert.deepEqual(built[k], fromSnapshot[k], k);
   }
   assert.equal(built.state, status.STATE.UNKNOWN, 'nobody looked, so its state is not claimed');

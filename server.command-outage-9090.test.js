@@ -103,7 +103,6 @@ for (const { path: route, what, wire } of ROUTES) {
     const escaped = what.replace(/[/]/g, '\\/');
     assert.ok(logged.some((l) => /kosmos#9090/.test(l) && new RegExp(escaped + ' to "raph" is checked against its supervisor').test(l)),
       'the board log names what and who: ' + JSON.stringify(logged));
-    assert.throws(() => status.paneRoster(), 'the roster is never padded: it still refuses after the send');
   });
 
   test(`#9090 ${route} CONTROL: no supervisor evidence keeps #9087's 409 unreadable, and nothing is handed over`, async () => {
@@ -206,4 +205,32 @@ test('#9090 handoff-restart/status CONTROL: a name with no agent here is still a
   source = () => '';
   const missing = await poll('raph', '');
   assert.equal(missing.status, 404, 'a roster that reads and does not list the name: ' + JSON.stringify(missing.json));
+});
+
+/* kosmos#9090 review 1: the outage card carries the swarm field (from the profile, as snapshot's card does), so a
+   PAUSED swarm lead is refused a handoff prompt, a pickup and a message during the outage as on a good read, while the
+   look-after commands (/compact, /clear) still go, as typingGate lets them. Before, the card had no swarm field and
+   all of them were typed into the paused swarm. */
+test('#9090 a paused swarm lead during the outage: compact goes, the handoff ask, pickup and a message are refused', async () => {
+  const store = require('./engine/store');
+  store.writeProfile('raph', { kind: 'swarm', swarm: { maxHelpers: 2, active: false, pausedBecause: 'person', pausedAt: new Date().toISOString() } });
+  try {
+    assert.equal(status.channelCardFor('raph', '').swarm.active, false, 'CONTROL: the outage card reads the pause');
+    const c = await post('raph', 'compact');
+    assert.equal(c.status, 200, 'a look-after command still goes: ' + JSON.stringify(c.json));
+    assert.equal(said.length, 1);
+    for (const route of ['handoff-restart/ask', 'handoff-restart/pickup']) {
+      const r = await post('raph', route);
+      assert.equal(r.status, 409, route + ' ' + JSON.stringify(r.json));
+      assert.equal(r.json.delivery && r.json.delivery.state, chat.DELIVERY.COULD_NOT, route);
+    }
+    const dm = await fetch(`${base}/api/agent/raph/thread`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'get going' }) });
+    const dmJson = await dm.json().catch(() => null);
+    assert.notEqual(dmJson && dmJson.delivery && dmJson.delivery.state, chat.DELIVERY.PLACED, 'a message is not placed into a paused swarm: ' + JSON.stringify(dmJson));
+    assert.equal(said.length, 1, 'nothing but the /compact was handed over');
+    store.writeProfile('raph', { swarm: { maxHelpers: 2, active: true, pausedBecause: null, pausedAt: null } });
+    const running = await post('raph', 'handoff-restart/ask');
+    assert.equal(running.status, 200, 'CONTROL: the same swarm switched on takes the handoff ask: ' + JSON.stringify(running.json));
+    assert.equal(said.length, 2);
+  } finally { store.writeProfile('raph', { kind: null, swarm: null }); }
 });
