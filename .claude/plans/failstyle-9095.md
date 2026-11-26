@@ -59,3 +59,7 @@ whole file is the scope and what it cannot see); the sampled Mac screen shows "l
 network for it. Left, and said on the card: the hook reaches the web tabs only, so the Agents tab's Mac screen with its
 switcher is shot from a real sleeping Mac or not at all; Palette.primary/secondary matches are view-wide (NIT).
 The source test has 6 tests (an earlier line here said 5/5, before the hook's test was added).
+Review 6 (sonnet, blind, whole branch): NITs only, so converged at round 6. Left: a disabled Try again dims its dark
+words on gold while Trying (as the old white-on-blue did; the mac,trying shot will show whether it reads); the
+sampled last-heard uses Date() not the injected clock (Debug hook only); the Debug-only test checks order, not
+that KOSMOS_SAMPLE_FAILURE is read exactly once.
