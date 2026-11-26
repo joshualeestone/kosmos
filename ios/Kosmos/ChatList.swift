@@ -40,8 +40,6 @@ struct ChatList: UIViewRepresentable {
     // modes), then what the list did, for a check. KOSMOS_SAMPLE_A11YFOCUS and KOSMOS_SAMPLE_A11YACTIONS report through it too.
     var sampleA11y: ((String) -> Void)? = nil
 
-    // kosmos#9002: how long after two panes go a width change still redraws the drawn cells.
-    static let redrawAfterTwoPanes: CFTimeInterval = 2
     // How close to the end still counts as at the newest message after the person's own scroll.
     static let endSlack: CGFloat = 40
     // kosmos#8221 slice 11: how long after a scroll is asked for without a finger its first move still counts as the person's
@@ -166,8 +164,7 @@ struct ChatList: UIViewRepresentable {
         var movedAt: CFTimeInterval = 0
         func moving() -> Bool { CACurrentMediaTime() - movedAt < 0.25 }
 
-        var wasTwoPanes = false   // kosmos#9002: whether two panes showed at the last update
-        var leftTwoPanesAt: CFTimeInterval = -.infinity   // kosmos#9002: when two panes last went
+        var hasShownTwoPanes = false   // kosmos#9002: whether this list has ever been drawn beside another pane
         func redrawAtNewWidth() {
             guard let source, let list else { return }
             for ip in list.indexPathsForVisibleItems {
@@ -1081,14 +1078,12 @@ struct ChatList: UIViewRepresentable {
         co.landing = landing
         let wasWide = co.environment.paneWidth
         co.environment = context.environment
-        // kosmos#9002: a fold changes the pane's width; cells already drawn are drawn again at the new one. While two panes show,
-        // and for two seconds after they go (a fold can report the inner screen's width, then the outer's, one update apart),
-        // every width change redraws. A phone never shows two panes, so its rotation keeps its drawn cells as it always did.
-        let two = TwoPanes.shows(context.environment.horizontalSizeClass, context.environment.verticalSizeClass)
-        if co.wasTwoPanes && !two { co.leftTwoPanesAt = CACurrentMediaTime() }
-        co.wasTwoPanes = two
-        if abs(wasWide - co.environment.paneWidth) > 0.5,
-           two || CACurrentMediaTime() - co.leftTwoPanesAt < ChatList.redrawAfterTwoPanes {
+        // kosmos#9002: once this list has shown in two panes, every width change redraws the drawn cells. A phone never shows two
+        // panes, so its rotation keeps its drawn cells as it always did.
+        if TwoPanes.shows(context.environment.horizontalSizeClass, context.environment.verticalSizeClass) {
+            co.hasShownTwoPanes = true
+        }
+        if co.hasShownTwoPanes, abs(wasWide - co.environment.paneWidth) > 0.5 {
             co.redrawAtNewWidth()
         }
         co.apply(ids, dropped: dropped)
