@@ -21,7 +21,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'win32chan-owner-1765-')));
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wo1765-')));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const channel = require('./win32channel');
