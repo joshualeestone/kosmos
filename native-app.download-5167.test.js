@@ -462,4 +462,16 @@ test('#9093: a refusal in a replaced window offers a restart, before the Save pa
   assert.match(offer.slice(0, 4000), /relaunchPageQuestion/, 'the page is asked whether a restart would lose words');
   assert.match(offer.slice(0, 4000), /relaunch\(mine: mine, theirs: onDisk, target: target, waited: 0, asked: true, askedBefore: true\)/,
     'Restart Kosmos goes through the stale-app relaunch (the new copy first, then this one quits)');
+  // Round 2: guards that had no pin. Never with another alert up; Return and Escape go to Cancel; a same-version restart
+  // clears the #1182 marker; only a page answer of false says words would be lost.
+  assert.match(fail.slice(restartAt - 200, restartAt), /alertsOnScreen == 0/, 'the restart question can stack on another alert');
+  assert.match(offer, /alert\.addButton\(withTitle: "Cancel"\)[\s\S]{0,400}for b in alert\.buttons \{ b\.keyEquivalent = "" \}\s*\n\s*alert\.buttons\.last\?\.keyEquivalent = "\\r"/,
+    'Return (and Escape, by the title Cancel) no longer goes to the safe answer');
+  assert.match(offer.slice(0, 4000), /if onDisk == mine \{ self\.relaunchedAtVersion = nil \}/);
+  assert.match(offer.slice(0, 4000), /once\(\(result as\? Bool\) == false\)/);
+  // Round 2: another place is voided by a page that changed while the person decided (as #5167 review 1 inside offerSaveElsewhere).
+  const branch = fail.slice(restartAt, panelAt);
+  assert.match(branch, /let failedOn = \(commits: pageCommits, page: committedPageURL\)/);
+  assert.match(branch, /guard self\.pageCommits == failedOn\.commits, self\.committedPageURL == failedOn\.page else \{/);
+  assert.ok(branch.indexOf('failedOn.page else {') < branch.indexOf('self.offerSaveElsewhere('), 'the page is checked after offerSaveElsewhere is called');
 });

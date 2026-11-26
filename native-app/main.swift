@@ -847,10 +847,11 @@ let downloadUpdatedTitle = "Kosmos was updated or moved while it was open"
 /// connects to another one, so it is said only where this computer runs them. Review 2: words not sent yet are named when
 /// the page says a restart would lose them. Review 4: another place is offered when the Save panel question would be.
 func downloadUpdatedWords(connect: Bool, losing: Bool, elsewhere: Bool) -> String {
-    "macOS will not let this window save to Downloads until Kosmos restarts. Restart Kosmos, then download the file again."
-        + (elsewhere ? " Or choose another place to save it." : "")
-        + (losing ? " Words you have not sent yet in this window will be lost." : "")
+    "macOS did not let this window save to Downloads. Restarting Kosmos onto the new version should let it save again: "
+        + "restart, then download the file again."
+        + (losing ? " If you restart, words you have not sent yet in this window will be lost." : "")
         + (connect ? "" : " Your agents keep running.")
+        + (elsewhere ? " Or choose another place to save it now." : "")
 }
 
 /// #5167 (11-06): PURE. A failed download for the unified log, in domains and numbers only (logToSystem's rule: no address,
@@ -4910,7 +4911,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Restart Kosmos")
             if elsewhere != nil { alert.addButton(withTitle: "Choose Where to Save\u{2026}") }
-            alert.addButton(withTitle: "Not Now")
+            alert.addButton(withTitle: "Cancel")   // round 2: NSAlert gives Escape only to a button titled Cancel
             // As in #5167 review 3: a failing download decides when this appears, so Return is the safe answer.
             for b in alert.buttons { b.keyEquivalent = "" }
             alert.buttons.last?.keyEquivalent = "\r"
@@ -4962,8 +4963,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 logLine("#9093: macOS refused a save in a window whose app was replaced on disk, so a restart is offered")
                 // Review 4: another place stays on offer when the Save panel question would be (not measured in such a window).
                 let again = saveElsewhereRequest(download, dest: dest, begunOn: begunOn)
+                // Review 2 round 2: the page as it was at the failure. The question takes time, and a page that changed
+                // meanwhile voids the other place, as #5167 review 1 voids it inside offerSaveElsewhere (which reads the page
+                // only when it is called, so it would compare the new page with itself).
+                let failedOn = (commits: pageCommits, page: committedPageURL)
                 offerRestartAfterUpdate(webView: download.webView, elsewhere: again.map { r in { [weak self] in
-                    self?.offerSaveElsewhere(error, request: r.request, webView: r.webView, name: r.name) } })
+                    guard let self else { return }
+                    guard self.pageCommits == failedOn.commits, self.committedPageURL == failedOn.page else {
+                        logLine("#9093: the page changed while the person decided, so the file was not saved")
+                        self.tellDownloadFailed("The page changed while you decided, so the file was not saved. Try again.")
+                        return
+                    }
+                    self.offerSaveElsewhere(error, request: r.request, webView: r.webView, name: r.name) } })
             } else if downloadRefusedByMacOS(error), alertsOnScreen == 0,
                       let again = saveElsewhereRequest(download, dest: dest, begunOn: begunOn) {
                 /* Review 2: only a GET is asked for again (a POST would be sent twice), and only while the page it began on
@@ -9228,7 +9239,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         fr(before != nil && before == unchanged, "\(String(describing: before))", "#9093: CONTROL: a file read twice, another file beside it, is the same file")
         fr(renamed == 0 && after != nil && after != before && replacedSinceLaunch(launched: before, now: after), "\(String(describing: after))", "#9093: a file replaced by a rename over it, as an update does, reads as replaced")
         let plain = downloadUpdatedWords(connect: false, losing: false, elsewhere: false)
-        fr(!plain.contains("System Settings") && plain.contains("Restart Kosmos") && plain.contains("Your agents keep running")
+        fr(!plain.contains("System Settings") && plain.contains("Restarting Kosmos") && plain.contains("Your agents keep running")
            && !downloadUpdatedTitle.contains("\u{2014}") && !plain.contains("\u{2014}"), plain, "#9093: the restart question names the remedy, not Settings")
         let viaConnect = downloadUpdatedWords(connect: true, losing: false, elsewhere: false)
         fr(!viaConnect.contains("agents keep running"), viaConnect, "#9093 review 1: a connect computer is not told its agents keep running")
