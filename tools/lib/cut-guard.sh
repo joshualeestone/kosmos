@@ -1801,7 +1801,8 @@ _kosmos_old_qh_waiter_live() {
 # from pending files arrive out of order). Spaces
 # and tabs in <id> become "_" (an id is one field). Review 1: every append and the trim happen under one mkdir lock, so
 # a rename cannot drop a line appended meanwhile. Review 2: the hold is short (the time is read before the lock, and the
-# file is trimmed only past 500 lines, back to 400, so most appends never rewrite it); a writer waits up to about 10 s;
+# file is trimmed only past 500 lines, back to 400 plus the partners of the ids kept (at most two lines each), so most
+# appends never rewrite it); a writer waits up to about 10 s;
 # a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
 # writer that still has not got it writes a pending file instead (#9139 follow-up, below) and skips the trim; it falls
 # back to an unlocked append only if mktemp fails (a lost line costs less than a CI step that waits).
@@ -1872,10 +1873,16 @@ kosmos_note_beside_run() {
     done
   fi
   if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
-    # Review 3: the last 400 lines AND any earlier line whose id is among them, so a start and its end are never split
-    # at the cut (a fold can put an end above its start, and the kept start then read as still going).
-    { awk -v keep=400 'NR == FNR { n = FNR; if (FNR > 0) ln[FNR] = $2; next } FNR == 1 { for (i = n - keep + 1; i <= n; i++) if (i > 0) ids[ln[i]] = 1 }
-         FNR > n - keep || ($2 in ids) { print }' "$f" "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
+    # Review 3: the last 400 lines and, for an id among them, its partner from earlier, so a start and its end are never
+    # split at the cut (a fold can put an end above its start, and the kept start then read as still going). Review 4:
+    # only that id's newest start and largest end are kept from before the cut (every line of a repeated id grew the
+    # log without limit), and an empty id is never a partner.
+    { awk -v keep=400 'NR == FNR { n = FNR; ln[FNR] = $2
+           if ($1 == "S" && (!($2 in bs) || $3 + 0 >= bsv[$2])) { bs[$2] = FNR; bsv[$2] = $3 + 0 }
+           if ($1 == "E" && (!($2 in be) || $3 + 0 > bev[$2])) { be[$2] = FNR; bev[$2] = $3 + 0 }
+           next }
+         FNR == 1 { for (i = n - keep + 1; i <= n; i++) if (i > 0 && ln[i] != "") ids[ln[i]] = 1 }
+         FNR > n - keep || (($2 in ids) && (FNR == bs[$2] || FNR == be[$2])) { print }' "$f" "$f" > "$f.tmp.$$"; } 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null || true
   fi
   if [ "$got" = 1 ]; then rmdir "$l" 2>/dev/null || true; fi
   return 0
@@ -1887,7 +1894,7 @@ kosmos_note_beside_run() {
 # as still going for up to that long, and a run noted beside a suite that itself runs longer than it is dropped. A new start line for an id clears its old end. A
 # line whose epoch is not a number is skipped. The date is printed with the time, so an older run cannot read as today.
 kosmos_beside_runs_since() {
-  local f t0="${1:-0}" now omax what id st en; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
+  local f t0="${1:-0}" now omax what id st en sr er; f="$(_kosmos_marker_dir)/beside-runs.log"; now="$(date +%s)"
   # Review 1: pending lines count while the log does not exist yet too.
   [ -r "$f" ] || ls "$f".pending.* >/dev/null 2>&1 || return 0
   case "$t0" in ''|*[!0-9]*) t0=0 ;; esac
@@ -1897,7 +1904,9 @@ kosmos_beside_runs_since() {
   # #9139 follow-up: the pending files too, through cat (an unmatched glob stays literal, and macOS awk stops at a file
   # it cannot open; cat goes on past it).
   # Review 1: grouped with || true: cat of an unmatched glob exits 1, and under set -eo pipefail that ended the caller.
-  { cat "$f" "$f".pending.* 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
+  # Review 4: the pending files FIRST: a fold appends to the log before it removes a pending file, so a line is always
+  # in a file cat has not read yet (log first, a fold between the two reads hid it for that read).
+  { cat "$f".pending.* "$f" 2>/dev/null || true; } | awk -v t0="$t0" -v now="$now" -v omax="$omax" '
     # Review 3: ORDER-INDEPENDENT (folded lines arrive in any order): the newest start and the largest end per id; a run
     # has ended only if that end is at or after that start. Epochs more than a day ahead are malformed and skipped.
     ($1 == "S" || $1 == "E") && ($3 !~ /^[0-9]+$/ || $3 + 0 > now + 86400) { next }
@@ -1910,8 +1919,9 @@ kosmos_beside_runs_since() {
             else if (now - s[id] > omax + 0) continue
             printf "%s\t%s\t%s\t%s\n", (what[id] == "" ? "a run" : what[id]), id, s[id], ((id in e) ? e[id] : "-") } }' 2>/dev/null |
   while IFS="$(printf '\t')" read -r what id st en; do
-    st="$(date -d "@$st" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$st" '+%m-%d %H:%M:%S' 2>/dev/null)" || st="epoch $st"   # review 3: never ends an errexit caller
-    if [ "$en" = - ]; then en="still going"; else en="$(date -d "@$en" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$en" '+%m-%d %H:%M:%S' 2>/dev/null)" || en="epoch $en"; fi
+    # Review 3: never ends an errexit caller. Review 4: the raw epoch is kept apart (the assignment emptied it first).
+    sr="$st"; st="$(date -d "@$sr" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$sr" '+%m-%d %H:%M:%S' 2>/dev/null)" || st="epoch $sr"
+    if [ "$en" = - ]; then en="still going"; else er="$en"; en="$(date -d "@$er" '+%m-%d %H:%M:%S' 2>/dev/null || date -r "$er" '+%m-%d %H:%M:%S' 2>/dev/null)" || en="epoch $er"; fi
     printf '%s (%s), from %s to %s\n' "$what" "$id" "$st" "$en"
   done
   return 0

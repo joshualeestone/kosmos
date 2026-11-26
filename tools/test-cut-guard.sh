@@ -1549,7 +1549,7 @@ nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 # Review 1 (besidefix): the reader's first stage cannot fail (cat of an unmatched pending glob exits 1, which under the
 # caller's errexit and pipefail ended the caller). Pinned in the SOURCE, not run: this file may not turn pipefail on
 # (the #8195 ratchet would then count every pipeline in it as new).
-awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ cat "$f" "$f".pending.* 2>/dev/null || true; } | awk' \
+awk '/^kosmos_beside_runs_since\(\)/{p=1} p{print} p&&/^}/{exit}' "$HERE/lib/cut-guard.sh" | grep -qF '{ cat "$f".pending.* "$f" 2>/dev/null || true; } | awk' \
   && pass "#9139 the reader's cat stage cannot fail its pipeline (source pin)" || fail "#9139 the reader's cat stage is no longer guarded with || true"
 # Review 1 (besidefix): an older end folded after a newer start of the same id does not end the newer run. The marker
 # dir is made here: an earlier arm removes it, and these two write their lines by hand (not through the writer).
@@ -1591,6 +1591,12 @@ mkdir "$MB/beside-runs.log.lock"
 o6=$( set -e; PATH="$MB/mvbin:$PATH" KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=2 kosmos_note_beside_run start mvrace "a race"; echo CALLER-SURVIVED )
 rmdir "$MB/beside-runs.log.lock"; rm -rf "$MB/mvbin"
 [ "$o6" = CALLER-SURVIVED ] && pass "#9139 a gave-up writer whose temp file was taken by a fold does not end an errexit caller" || fail "#9139 a racing fold ended the errexit caller ($o6)"
+# Review 4 (besidefix): a repeated id keeps only its newest start and largest end from before the cut, so the log
+# still shrinks (every line of it was kept, and 700 lines of one id never went).
+: > "$MB/beside-runs.log"; for _i in $(seq 1 450); do echo "S same $_i rep" >> "$MB/beside-runs.log"; echo "E u$_i 1" >> "$MB/beside-runs.log"; done
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start same "rep"
+nr9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"
+[ "$nr9139" -le 402 ] && pass "#9139 a repeated id does not keep the log from shrinking ($nr9139 lines after the trim)" || fail "#9139 a repeated id kept the log at $nr9139 lines"
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
