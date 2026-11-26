@@ -104,36 +104,57 @@ _qh_pid_start() {
 # start time, so a reused pid (another run's renewer or watcher, any shell) is never signalled. A file whose pid is gone
 # (ESRCH, not a refused probe) is stale and removed.
 if [ "${1:-}" = --withdraw ]; then
-  _qw="${2:-}"; { [ -n "$_qw" ] && [ "$#" = 2 ]; } || { echo "usage: queued-heavy.sh --withdraw \"<what>\"" >&2; exit 2; }
-  _qd="$(_qh_marker_dir_raw)"; _qn=0; _qp=""; _qfg=0; _qbad=0
+  # Review 3: more than one live match is refused unless --all is given (labels are free text on a shared Mac, so one
+  # owner's "store shots" can be another's too). The matches are listed (pid, state, age) so the owner can pick.
+  _qw="${2:-}"; _qall=""; [ "${3:-}" = --all ] && _qall=1
+  { [ -n "$_qw" ] && { [ "$#" = 2 ] || { [ "$#" = 3 ] && [ -n "$_qall" ]; }; }; } || { echo "usage: queued-heavy.sh --withdraw \"<what>\" [--all]" >&2; exit 2; }
+  _qd="$(_qh_marker_dir_raw)"; _qn=0; _qp=""; _qfg=0; _qbad=0; _qc=""; _qcn=0; _qgmax=60
   _qgone() { local e; e="$(LC_ALL=C kill -0 "$1" 2>&1)" && { case "$(ps -o stat= -p "$1" 2>/dev/null)" in Z*) return 0 ;; esac; return 1; }; case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac; }
+  _qnot() { echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: $*"; }
   for _qf in "$_qd"/qh-label.*; do
     [ -e "$_qf" ] || continue   # an unmatched glob stays literal
-    _q="${_qf##*.}"; case "$_q" in ''|*[!0-9]*) continue ;; esac
+    _q="${_qf##*.}"
+    case "$_q" in
+      ''|*[!0-9]*) _qt="${_q%.tmp}"; case "$_qt" in ''|*[!0-9]*) ;; *) _qgone "$_qt" && rm -f "$_qf" ;; esac; continue ;;   # a dead run's .tmp
+    esac
     [ "$_q" = "$$" ] && continue
     if _qgone "$_q"; then rm -f "$_qf"; continue; fi
-    case "$(ps -ww -o command= -p "$_q" 2>/dev/null)" in *queued-heavy.sh*) ;; *) continue ;; esac
-    { IFS= read -r _ql1; IFS= read -r _ql2; IFS= read -r _ql3; } < "$_qf" 2>/dev/null || continue
-    [ "$_ql1" = "$_qw" ] || continue
-    if [ -z "$_ql3" ]; then
-      echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: pid $_q ($_qw) has no start time in its label, so it cannot be told from a reused pid"
-      _qbad=$((_qbad + 1)); continue
+    _ql1=""; _ql2=""; _ql3=""; _ql4=""
+    if ! { IFS= read -r _ql1; IFS= read -r _ql2; IFS= read -r _ql3; IFS= read -r _ql4; true; } < "$_qf" 2>/dev/null; then
+      _qnot "the label file of pid $_q could not be read"; _qbad=$((_qbad + 1)); continue
     fi
-    [ "$(_qh_pid_start "$_q")" = "$_ql3" ] || continue   # a reused pid: not the run that wrote this label
+    [ "$_ql1" = "$_qw" ] || continue
+    _qcmd="$(ps -ww -o command= -p "$_q" 2>/dev/null)"; _qnow="$(_qh_pid_start "$_q")"
+    # Review 3: an EMPTY live read (ps refused, a hidden /proc) is "cannot verify", never "not a run".
+    if [ -z "$_qcmd" ] || [ -z "$_qnow" ] || [ -z "$_ql3" ]; then _qnot "pid $_q ($_qw) could not be verified (no command line or start time)"; _qbad=$((_qbad + 1)); continue; fi
+    case "$_qcmd" in *queued-heavy.sh*) ;; *) continue ;; esac   # a reused pid running something else
+    [ "$_qnow" = "$_ql3" ] || continue                             # a reused pid: not the run that wrote this label
     if [ "$_ql2" = fg ]; then
-      echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: pid $_q ($_qw) runs its command in the foreground of a terminal; a TERM would release its claim and leave the command running. Stop it in that terminal (Ctrl-C)."
+      _qnot "pid $_q ($_qw) runs its command in the foreground of a terminal; a TERM would not stop it. Stop it in that terminal (Ctrl-C)."
       _qfg=$((_qfg + 1)); continue
     fi
-    if kill -TERM "$_q" 2>/dev/null; then _qp="$_qp $_q"; _qn=$((_qn + 1)); echo "QUEUED-HEAVY $(date '+%H:%M:%S') withdrawing pid $_q: $_qw"
-    else echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: pid $_q ($_qw) could not be signalled"; _qbad=$((_qbad + 1)); fi
+    _qc="$_qc $_q"; _qcn=$((_qcn + 1))
+    case "$_ql4" in ''|*[!0-9]*) ;; *) [ "$_ql4" -gt "$_qgmax" ] && _qgmax="$_ql4" ;; esac
   done
-  # Review 2: 1 only when nothing live matched at all; 5 when a match could not be verified or signalled; 4 a fg holder.
+  if [ "$_qcn" -gt 1 ] && [ -z "$_qall" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') NOT withdrawn: $_qcn live runs are labelled \"$_qw\"; nothing was signalled. They are:"
+    for _q in $_qc; do echo "  pid $_q: $(sed -n 2p "$_qd/qh-label.$_q" 2>/dev/null), running for $(ps -o etime= -p "$_q" 2>/dev/null | tr -d ' ')"; done
+    echo "  Withdraw all of them with: queued-heavy.sh --withdraw \"$_qw\" --all"
+    exit 6
+  fi
+  for _q in $_qc; do
+    if kill -TERM "$_q" 2>/dev/null; then _qp="$_qp $_q"; _qn=$((_qn + 1)); echo "QUEUED-HEAVY $(date '+%H:%M:%S') withdrawing pid $_q: $_qw"
+    else _qnot "pid $_q ($_qw) could not be signalled"; _qbad=$((_qbad + 1)); fi
+  done
+  # Exit codes: 1 only when nothing live matched at all; 5 a match could not be verified or signalled; 4 a fg holder.
   if [ "$_qn" = 0 ]; then
     [ "$_qbad" -gt 0 ] && exit 5; [ "$_qfg" -gt 0 ] && exit 4
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') no live run labelled \"$_qw\" to withdraw"; exit 1
   fi
-  _qe="${QUEUED_HEAVY_WITHDRAW_WAIT_S:-90}"; case "$_qe" in ''|*[!0-9]*|?????*) _qe=90 ;; esac
-  _qe=$(( $(date +%s) + 10#$_qe ))
+  # Review 3: the wait covers the longest grace a withdrawn holder recorded (its label's line 4), plus 30 s.
+  _qe="${QUEUED_HEAVY_WITHDRAW_WAIT_S:-90}"; case "$_qe" in ''|*[!0-9]*|?????*) _qe=90 ;; esac; _qe=$((10#$_qe))
+  [ "$_qe" -ge $((_qgmax + 30)) ] || _qe=$((_qgmax + 30))
+  _qe=$(( $(date +%s) + _qe ))
   while :; do
     _ql=""; for _q in $_qp; do _qgone "$_q" || _ql="$_ql $_q"; done   # review 1: a zombie counts as ended
     [ -n "${_ql// /}" ] || break
@@ -504,7 +525,7 @@ echo "QUEUED-HEAVY $(date '+%H:%M:%S') waiting for a turn: $WHAT (class ${KOSMOS
 # carrying this run's own cookie, so they are no-ops for a run that never claimed.
 QH_LABEL="$(_qh_marker_dir_raw)/qh-label.$$"
 trap '[ -n "$QH_LABEL" ] && rm -f "$QH_LABEL"; [ "$(cat "$(_qh_marker_dir_raw)/queued-heavy-take.lock/pid" 2>/dev/null)" = "$$" ] && rm -rf "$(_qh_marker_dir_raw)/queued-heavy-take.lock"; type kosmos_unmark_suite_waiting >/dev/null 2>&1 && kosmos_unmark_suite_waiting; type kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine; type kosmos_release_light_side >/dev/null 2>&1 && kosmos_release_light_side' EXIT
-_qh_label() { [ -n "$QH_LABEL" ] && printf '%s\n%s\n%s\n' "$WHAT" "$1" "$(_qh_pid_start $$)" > "$QH_LABEL.tmp" 2>/dev/null && mv -f "$QH_LABEL.tmp" "$QH_LABEL" 2>/dev/null; }
+_qh_label() { [ -n "$QH_LABEL" ] && { printf '%s\n%s\n%s\n%s\n' "$WHAT" "$1" "$(_qh_pid_start $$)" "$STOP_GRACE_S" > "$QH_LABEL.tmp"; } 2>/dev/null && mv -f "$QH_LABEL.tmp" "$QH_LABEL" 2>/dev/null; }   # line 4: this run's grace (review 3)
 _qh_label waiting || QH_LABEL=""
 # The claim line is labelled "release ${V}" by the library; say plainly that this is not a cut.
 # #4911: a light turn says so in its label, so a light run asking for a side turn never starts beside it.
@@ -769,7 +790,11 @@ if [ -n "$QH_FG" ]; then _qh_label fg; else _qh_label bg; fi   # #9118 item 1: -
 # dies at once and releases the claim; the command runs on unclaimed). With a trap, bash runs it only after the
 # foreground command ends, so the claim is held for as long as the command runs. Covers a --withdraw that read
 # "waiting" just before this run took its turn, and any other TERM. Ctrl-C (INT) reaches the command itself.
-[ -n "$QH_FG" ] && { trap 'exit 143' TERM; trap 'exit 129' HUP; }
+# Review 3: the trap only RECORDS it (an `exit` there replaced the command's own rc with 143 and skipped the END line):
+# the command runs to its end, its rc is kept, and the end says a signal came. A group-wide HUP or TERM (a terminal
+# hanging up) also ends the renewer, which shares this group in the foreground: the claim then lapses CLAIM_MIN later.
+QH_FGSIG=""
+[ -n "$QH_FG" ] && { trap 'QH_FGSIG=TERM' TERM; trap 'QH_FGSIG=HUP' HUP; }
 [ -n "$QH_FG" ] || { trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; }
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
@@ -866,6 +891,7 @@ if [ "$LANE" = side ]; then
   fi
 elif [ -n "$QH_FG" ]; then
   "$@"; rc=$?   # a terminal: in the foreground, as before #9118 (see QH_FG above)
+  [ -n "$QH_FGSIG" ] && echo "QUEUED-HEAVY $(date '+%H:%M:%S') a $QH_FGSIG came while $WHAT ran in the foreground; it ran to its end (#9118)"
 else
   # kosmos#9118: the command in its own process group, as a side turn's is, so a signal to this script can stop all of
   # it (_qh_end). stdin is kept (no terminal here: QH_FG). An INT to this script reaches the command as a TERM.
