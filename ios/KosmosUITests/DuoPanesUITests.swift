@@ -62,6 +62,14 @@ class DuoPanesCase: XCTestCase {
         while Date() < end { if what() { return true }; usleep(300_000) }
         return what()
     }
+    // For a "never shows" check (review 23): true within `seconds`, then still true on every sample for `settle` more, so a
+    // first sample taken mid-transition cannot pass it.
+    func stays(_ seconds: TimeInterval, settle: TimeInterval = 2, _ what: () -> Bool) -> Bool {
+        guard holds(seconds, what) else { return false }
+        let end = Date().addingTimeInterval(settle)
+        while Date() < end { if !what() { return false }; usleep(300_000) }
+        return true
+    }
 
     // Back belongs to one column: beside its list there is nothing to go back to.
     func backShows(_ app: XCUIApplication) -> Bool {
@@ -126,7 +134,7 @@ final class DuoPanesUITests: DuoPanesCase {
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "CONTROL: the words were not typed")
         XCTAssertTrue(holds(50) { self.alone(app) }, "the fold never came, or Dana's chat is gone (box exists \(box(app).exists))")
         XCTAssertTrue(holds(5) { self.backShows(app) }, "folded, the open chat has no back button to its list")
-        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "folded, the tab bar is over the chat")
+        XCTAssertTrue(stays(5) { !self.tabsShow(app) }, "folded, the tab bar is over the chat")
         shot(app, "folded")
         XCTAssertTrue(((box(app).value as? String) ?? "").contains("kept words"), "folded, the draft is gone (the box reads \((box(app).value as? String ?? "").debugDescription))")
         XCTAssertTrue(holds(60) { self.beside(app) }, "the unfold never came, or Dana's chat is gone (box exists \(box(app).exists))")
@@ -179,7 +187,7 @@ final class DuoPanesUITests: DuoPanesCase {
         let about = words(app, "What it is for")
         XCTAssertTrue(about.waitForExistence(timeout: 10) && holds(5) { self.pastMiddle(app, about) }, "the project's page is not beside the list")
         XCTAssertTrue(holds(50) { self.atLeft(app, about) }, "folded, the project's page is gone (exists \(about.exists))")
-        XCTAssertTrue(holds(5) { !self.tabsShow(app) }, "folded, the tab bar is over the project's page")
+        XCTAssertTrue(stays(5) { !self.tabsShow(app) }, "folded, the tab bar is over the project's page")
         shot(app, "project page, folded")
         XCTAssertTrue(holds(60) { self.pastMiddle(app, about) }, "unfolded again, the project's page is gone")
         XCTAssertTrue(holds(5) { self.tabsShow(app) }, "unfolded again, the tabs are gone beside the project's page")
