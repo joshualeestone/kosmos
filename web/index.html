@@ -12311,6 +12311,36 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
 /* kosmos#9103: the starfield belongs to the navy skin, which the app does not use. */
 html.kapptabs #plus-stars { display: none; }
+/* kosmos#9103: the section's own colours were written for its navy ground (white text, white-tinted fills and borders,
+   light status colours, navy fields). Inside the app it stands on the board's ground, so each one takes the board's
+   token: ink and secondary ink for words, rule and sunk for lines and fills, the meaning colours for state. */
+html.kapptabs #s-sec-plus .plus-pill { background: var(--k-sunk); color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus .plus-pill[data-state="up"] { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+html.kapptabs #s-sec-plus .plus-pill[data-state="connecting"] { background: var(--k-sunk); color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus .plus-pill[data-state="down"] { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+html.kapptabs #s-sec-plus .plus-chip { background: var(--k-sunk); border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .plus-cx-art { color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus :is(.plus-cx-row, .plus-foot), html.kapptabs #s-sec-plus #plus-org { border-top-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .plus-qr-box { border: 1px solid var(--k-rule); }
+html.kapptabs #s-sec-plus :is(.plus-qr figcaption, .plus-chip-say, .plus-chip-say b) { color: var(--k-ink); }
+html.kapptabs #s-sec-plus .plus-apps-say { color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus .plus-store { border-color: var(--k-rule); background: var(--k-sunk); color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus a.plus-store { color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .plus-sash { background: var(--k-ink); color: var(--k-bg); }
+html.kapptabs #s-sec-plus .plus-chip .btn { color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .devrow .btn { border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus :is(.plus-remove-link, .plus-remove-link:hover, #pb-restore-msg, #pb-job) { color: var(--danger); }
+html.kapptabs #plus-join .plus-join-done::before { background: var(--ok); }
+html.kapptabs #plus-state2 :is(#plus-si-computer-hint, #plus-si-computer-says) { color: var(--k-ink-2); }
+html.kapptabs #plus-state2 :is(#plus-si-computer-says b, .plus-si-lead b) { color: var(--k-ink); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:not(select) { --danger: inherit; background: var(--k-surface, var(--k-bg));
+  color: var(--k-ink); -webkit-text-fill-color: var(--k-ink); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp::placeholder, html.kapptabs #plus-state2 .plus-si-otp::placeholder { color: var(--k-ink-2); -webkit-text-fill-color: var(--k-ink-2); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--k-bg) inset; }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:focus { outline-color: var(--gold); border-color: var(--gold); }
+html.kapptabs #plus-state2 .otp-cell { background: var(--k-surface, var(--k-bg)); border-color: var(--k-rule); }
+html.kapptabs #plus-state2 .otp-boxes:focus-within .otp-cell { border-color: var(--k-ink-2); }
+html.kapptabs #plus-state2 .otp-cell.on { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold) inset; }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
