@@ -2897,6 +2897,9 @@
       "icon": "shield",
       "rank": 12.5,
       "since": "0.8.23",
+      "platforms": [
+        "mac"
+      ],
       "status": "pending"
     },
     {
