@@ -44974,8 +44974,11 @@ const KEPT_DRAFT_SIG = new WeakMap();       // kosmos#9157: a kept map -> what o
 function keptDraftWords(v) { return String(typeof v === 'string' ? v : (v && v.text) || ''); }
 /* kosmos#9157: a reply being written (DM_REPLY, PJ_REPLY) is kept whenever it exists; it counts as kept when storage
    names the same message (`at` in a chat, `id` in a room) and the same @mention Reply put in the box. */
-const KEPT_REPLY_OPTS = { present: (v) => !!v,
-  sig: (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '') };
+/* Review 1: a reply is written once (at the click) while its words are written on every keystroke, so a reply ages
+   out with its draft (`pair`): while that draft is still stored and fresh, the reply is kept however old it is. */
+const KEPT_REPLY_SIG = (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '');
+const KEPT_DM_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'talk' };
+const KEPT_PJ_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'room' };
 /* kosmos#9157: `opts` lets a map keep entries that are not words (a reply's target): `present(v)` says whether an entry
    is worth storing (default: it has words) and `sig(v)` what of it must match storage for it to count as kept
    (default: its words). */
@@ -44992,7 +44995,14 @@ function keptDrafts(kind, opts) {
       if (!k || k.indexOf(prefix) !== 0) continue;
       let rec = null;
       try { rec = JSON.parse(localStorage.getItem(k)); } catch { rec = null; }
-      if (rec && rec.v != null && typeof rec.t === 'number' && rec.t > cutoff) map[k.slice(prefix.length)] = rec.v;
+      const fresh = (r) => !!r && r.v != null && typeof r.t === 'number' && r.t > cutoff;
+      let keep = fresh(rec);
+      if (!keep && rec && rec.v != null && opts && opts.pair) {   // review 1: kept while its paired draft is
+        let paired = null;
+        try { paired = JSON.parse(localStorage.getItem('kosmos.draft.' + opts.pair + '.' + k.slice(prefix.length))); } catch { paired = null; }
+        keep = fresh(paired);
+      }
+      if (keep) map[k.slice(prefix.length)] = rec.v;
       else localStorage.removeItem(k);
     }
   } catch { unsaved.add('*'); }
@@ -45075,6 +45085,7 @@ function forgetAgentDrafts(name) {
   forgetDrafts([TALK_DRAFTS, TERM_DRAFTS, typeof DM_REPLY !== 'undefined' && DM_REPLY], name);   // kosmos#9157: and its reply
   if (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === name && typeof document !== 'undefined') {
     for (const id of ['d-say', 'd-term-say']) { const b = document.getElementById(id); if (b) b.value = ''; }
+    if (typeof dmReplyPaint === 'function') dmReplyPaint(name);   // kosmos#9157 review 1: its reply strip goes too
   }
 }
 /* Logged out of this browser's Kosmos+ session: every kept draft goes from storage (the page reloads to the sign-in
@@ -45488,7 +45499,7 @@ if (typeof document !== 'undefined' && document.addEventListener) {
    DM's hover bar lives; any row that answers another carries the header. */
 /* kosmos#9157: kept across a reload with its draft (keptDrafts), so a half-written reply comes back still answering
    its message and no longer holds the Mac window's restart onto an update. */
-const DM_REPLY = keptDrafts('dmreply', KEPT_REPLY_OPTS);
+const DM_REPLY = keptDrafts('dmreply', KEPT_DM_REPLY_OPTS);
 let DM_REPLY_SENDING = null;   // { agent, at } of the reply on its way, so x knows whether THIS one already left
 let DM_JUMP_FOCUS = null;      // the `at` of the message a jump focused, so a repaint can put focus back on it
 let DM_ROWS = new Map();
@@ -81661,7 +81672,7 @@ function openProject(id) {
    reaches two must never render as sent. */
 const PJ_ROOM_DRAFTS = keptDrafts('room');   // kosmos#9132
 /* #3745: the post a reply is answering, one per project (like the drafts): { id, who, words }. */
-const PJ_REPLY = keptDrafts('pjreply', KEPT_REPLY_OPTS);   // kosmos#9157: kept with its draft, as DM_REPLY
+const PJ_REPLY = keptDrafts('pjreply', KEPT_PJ_REPLY_OPTS);   // kosmos#9157: kept with its draft, as DM_REPLY
 /* #3745: the room's posts by id, refreshed on every paint, so a reply's header can name the post it
    answers and the jump can tell "gone" from "hidden by your search". */
 let PJ_ROOM_POSTS = new Map();

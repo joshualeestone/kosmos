@@ -50,9 +50,24 @@ reload.
 - web.replykeep-9157.test.js (6): all 6 fail on main's page; removing the `!keptMap(DM_REPLY)` guard fails exactly
   the test that names it.
 - docs/browser-checks/render-replykeep-9157.js: real Chromium, real typing, a reload, Enter posts reply_to; control
-  arm (storage refusing writes) holds the restart and shows no strip. Against main's page: the 4 kept-reply
-  assertions fail.
+  arm (round 1: storage refusing only the reply's key) holds the restart and shows no strip. Against main's page: the
+  4 kept-reply assertions fail.
 - web.keepdrafts-9132 (premise regex widened for `opts`) and every test lifting updateNothingToLose or keptDrafts
   (83), web.rename-followups-4423, fixture-discipline, no-brand-refs, no-name-refs (38), browser-checks-reason-grep
   (SITE_COUNTS line, sorted): pass.
 - bc-pr-select: 53 checks. Surface gate: passes; its control (a fake s-nav change) fails as it should.
+
+#### Iteration 1 (blind review, opus)
+
+- [SHOULD-FIX] taken: a reply aged out before its words (the 14-day age-out runs per entry; a reply is written once at
+  the click, its words on every keystroke), so a day-15 restart brought the words back plain. A reply now ages out
+  with its paired draft (KEPT_DM_REPLY_OPTS.pair 'talk', KEPT_PJ_REPLY_OPTS.pair 'room'): kept while that draft is
+  stored and fresh. Tested (15-day reply, 5-day words: kept; control: an old reply with no words goes); removing the
+  pairing fails exactly that test.
+- [NIT] taken: removing the open agent repaints its reply strip; the browser check's control refuses only the
+  reply's key, so it isolates the reply hold (deleting the hold now fails it); the mention test changes only the
+  mention; the in-place-write guard matches any field of either map and ignores ==/=== (checked on four samples).
+- [NIT] recorded, not built: a reply picked with nothing typed is kept too, so an abandoned one comes back (the strip
+  shows and x ends it; nothing goes out wrongly); a reload during a reply's send can bring back its strip (the
+  automatic restart is held then anyway); another tab's room reply can bring a @mention not in this box (harmless);
+  the browser check covers the chat, the room is unit-tested.

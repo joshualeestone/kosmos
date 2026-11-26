@@ -5,8 +5,9 @@
  * What this asserts, in a real page: Reply is started on April's message and words are TYPED after it (real
  * keystrokes); the reply is written to localStorage and updateNothingToLose() says nothing would be lost. After a
  * reload, opening April's chat shows the "Replying to" strip again and the words in the box, and pressing Enter posts
- * them with reply_to naming the original message. CONTROL: with storage refusing writes, the same reply leaves
- * updateNothingToLose() false (the restart still waits), and after a reload no strip shows.
+ * them with reply_to naming the original message. CONTROL: with storage refusing only the reply's key (the words are
+ * kept), the same reply leaves updateNothingToLose() false (the restart still waits), and after a reload the words
+ * are back with no strip.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-replykeep-9157.js
@@ -47,7 +48,15 @@ async function boot(page, refuseStorage) {
       if (u.includes('/api/status')) return enc({ agents: [], version: '0.0.0' });
       return enc({});
     };
-    if (refuse) Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); };
+    /* CONTROL arm (review 1): storage refuses only the reply's key, so the words ARE kept and the reply hold alone is
+       what still stops the restart. */
+    if (refuse) {
+      const setItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k, v) {
+        if (String(k).indexOf('kosmos.draft.dmreply.') === 0) throw new Error('QuotaExceededError');
+        return setItem.call(this, k, v);
+      };
+    }
   }, [THREAD, refuseStorage]);
   await page.goto(PAGE);
 }
@@ -90,8 +99,8 @@ async function run(browser, refuseStorage) {
     chk(!!typed.stored && JSON.parse(typed.stored).v.at === AT, `${arm}: the reply is written to localStorage`);
     chk(typed.safe === true, `${arm}: a kept reply with words does not hold the restart`);
   } else {
-    chk(typed.stored === null, `${arm}: nothing reached storage`);
-    chk(typed.safe === false, `${arm}: a reply storage refused still holds the restart`);
+    chk(typed.stored === null, `${arm}: the reply did not reach storage`);
+    chk(typed.safe === false, `${arm}: a reply storage refused still holds the restart, though its words are kept`);
   }
   await page.reload();
   await openApril(page);
@@ -108,7 +117,7 @@ async function run(browser, refuseStorage) {
     chk(posts.length === 1 && posts[0].text === WORDS && posts[0].reply_to === AT,
       `${arm}: Enter posts the words as a reply to the original message`);
   } else {
-    chk(!back.strip.shown, `${arm}: after a reload no reply strip shows (it was never kept)`);
+    chk(!back.strip.shown && back.box === WORDS, `${arm}: after a reload the words are back but no reply strip shows (it was never kept)`);
   }
   chk(errs.length === 0, `${arm}: no page errors`, errs.join(' | '));
   await context.close();
