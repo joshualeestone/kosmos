@@ -26037,8 +26037,10 @@ function updateNothingToLose() {
       : t.id === 'd-term-say' ? (typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS)
       : t.id === 'pj-say' ? (typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS)
       : t.id === 'pj-post' ? (typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS) : null;
+    /* Round 3: a project's boxes keep their words after Back (which nulls PJ_CURRENT), so they belong to the project
+       last OPENED (PJ_LAST_OPENED, written only by openProject, which is also what fills them). */
     const key = (t.id === 'd-say' || t.id === 'd-term-say') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
-      : (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT);
+      : ((typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) || (typeof PJ_LAST_OPENED !== 'undefined' && PJ_LAST_OPENED));
     const stored = map && key ? keptDraftStored(map, key) : null;   // review 1: what a reload brings back, read now
     return !!map && !!key && keptMap(map) && stored != null && stored.trim() === String(t.value || '').trim();
   };
@@ -44990,8 +44992,11 @@ function keptDrafts(kind) {
         const key = e.key.slice(prefix.length);
         let rec = null;
         try { rec = e.newValue == null ? null : JSON.parse(e.newValue); } catch { rec = null; }
+        const was = map[key];
         if (rec && rec.v != null) map[key] = rec.v; else delete map[key];
         unsaved.delete(key);
+        // Round 3: the open box follows too, when it still shows this page's old copy (see keptDraftHeard).
+        try { if (typeof keptDraftHeard === 'function') keptDraftHeard(kind, key, was, rec && rec.v != null ? rec.v : ''); } catch { /* the box is the page's */ }
       });
     }
   } catch { /* no window: a test's sandbox */ }
@@ -45016,6 +45021,22 @@ function keptDraftStored(m, key) {
 function forgetDrafts(maps, key) {
   if (key == null) return;
   for (const m of maps) { try { if (m && key in m) delete m[key]; } catch { /* nothing to forget */ } }
+}
+/* Round 3: another tab changed the draft of the chat or room open here. The box follows when it still shows this page's
+   old copy of that draft (the person has not typed anything newer here), so the two tabs agree and a reload or restart
+   brings back what this box shows. A box holding newer words is left alone: those are this person's, and they hold the
+   restart until they park. */
+function keptDraftHeard(kind, key, was, now) {
+  if (typeof document === 'undefined') return;
+  const box = kind === 'talk' ? 'd-say' : kind === 'term' ? 'd-term-say' : kind === 'pj' ? 'pj-say' : kind === 'room' ? 'pj-post' : null;
+  const open = (kind === 'talk' || kind === 'term') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
+    : ((typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) || (typeof PJ_LAST_OPENED !== 'undefined' && PJ_LAST_OPENED));
+  const el = box && document.getElementById(box);
+  if (!el || !open || open !== key) return;
+  const words = (v) => String(typeof v === 'string' ? v : (v && v.text) || '');
+  if (String(el.value || '').trim() !== words(was).trim()) return;
+  el.value = words(now);
+  if ((box === 'd-say' || box === 'pj-say' || box === 'pj-post') && typeof pjGrowComposer === 'function') pjGrowComposer(el);
 }
 /* Logged out of this browser's Kosmos+ session: every kept draft goes from storage (the page reloads to the sign-in
    right after, so its own copies go with it). */
@@ -89281,6 +89302,9 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not remove that project');
     forgetDrafts([PJ_DRAFTS, PJ_ROOM_DRAFTS], p.id);   // kosmos#9132 review 1
+    /* Round 3: and the project's own boxes, which keep their words until another project opens: the project is gone,
+       so they would otherwise hold the restart until then. */
+    if (PJ_LAST_OPENED === p.id) for (const id of ['pj-say', 'pj-post']) { const b = document.getElementById(id); if (b) b.value = ''; }
     PJ_CURRENT = null;
     await loadProjects();
     pjView('list');

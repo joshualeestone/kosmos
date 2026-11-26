@@ -53,15 +53,15 @@ function fakeWindow() {
 
 // updateNothingToLose as the page has it, given the four maps, the typed boxes and the open agent and project.
 function nothingToLose({ maps, typed = [], current = null, pjCurrent = null, draftsKept, keptDraftStored = () => null,
-  dmReply = {}, pjReply = {}, composingSince = 0 }) {
+  dmReply = {}, pjReply = {}, composingSince = 0, pjLastOpened = null }) {
   const typedSet = new Set(typed.map((t) => ({ isConnected: true, ...t })));
   return new Function('TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'UPDATE_TYPED', 'CURRENT', 'PJ_CURRENT',
     'draftsKept', 'keptDraftStored', 'DM_REPLY', 'PJ_REPLY', 'ATTACH_PENDING', 'tipModalOpen',
-    'UPDATE_COMPOSING_SINCE', 'UPDATE_COMPOSING_MAX_MS',
+    'UPDATE_COMPOSING_SINCE', 'UPDATE_COMPOSING_MAX_MS', 'PJ_LAST_OPENED',
     page.liftAll(SCRIPT, ['updateNothingToLose']) + '\nreturn updateNothingToLose();')(
     maps.talk || {}, maps.term || {}, maps.pj || {}, maps.room || {}, typedSet, current, pjCurrent,
     draftsKept, keptDraftStored, dmReply, pjReply, { room: {}, agent: {} }, () => false,
-    composingSince, 60 * 1000);
+    composingSince, 60 * 1000, pjLastOpened);
 }
 
 test('#9132 premise: the helper was found in the page', () => {
@@ -171,11 +171,11 @@ test('#9132 review 1: a removed agent\'s or project\'s drafts are forgotten, and
   const storage = memoryStorage();
   const h = helper(storage);
   const talk = h.keptDrafts('talk'), room = h.keptDrafts('room');
-  talk.april = 'for April'; talk.ben = 'for Ben'; room.p1 = 'a post';
+  talk.april = 'for April'; talk.roo = 'for Roo'; room.p1 = 'a post';
   h.forgetDrafts([talk, h.keptDrafts('term')], 'april');
   assert.equal(storage.data.has('kosmos.draft.talk.april'), false, 'a removed agent\'s draft stayed in storage');
   assert.equal(helper(storage).keptDrafts('talk').april, undefined, 'a new agent of the same name would inherit the old words');
-  assert.equal(storage.data.has('kosmos.draft.talk.ben'), true, 'CONTROL: another agent\'s draft was forgotten too');
+  assert.equal(storage.data.has('kosmos.draft.talk.roo'), true, 'CONTROL: another agent\'s draft was forgotten too');
   storage.data.set('other.key', 'kept');
   h.forgetAllDrafts();
   assert.deepEqual([...storage.data.keys()], ['other.key'], 'logging out left a kept draft, or took something that is not one');
@@ -202,15 +202,47 @@ test('#9132 round 2: another tab sending or changing a draft updates this tab\'s
   win.fire({ key: 'kosmos.draft.talk.april', newValue: null });
   assert.equal(talk.april, undefined, 'a draft another tab sent stayed in this tab\'s copy');
   assert.equal(h.draftsKept(talk), true, 'this tab still counted words that are gone everywhere');
-  // Another tab typed more for Ben.
+  // Another tab typed more for Roo.
   const rec = JSON.stringify({ v: 'from the other tab', t: Date.now() });
-  storage.data.set('kosmos.draft.talk.ben', rec);
-  win.fire({ key: 'kosmos.draft.talk.ben', newValue: rec });
-  assert.equal(talk.ben, 'from the other tab');
-  assert.equal(storage.data.get('kosmos.draft.talk.ben'), rec, 'hearing the event wrote it back (a new time)');
-  win.fire({ key: 'kosmos.draft.term.ben', newValue: JSON.stringify({ v: 'a terminal draft', t: Date.now() }) });
-  assert.equal(talk.ben, 'from the other tab', 'CONTROL: an event for another kind of draft changed this map');
+  storage.data.set('kosmos.draft.talk.roo', rec);
+  win.fire({ key: 'kosmos.draft.talk.roo', newValue: rec });
+  assert.equal(talk.roo, 'from the other tab');
+  assert.equal(storage.data.get('kosmos.draft.talk.roo'), rec, 'hearing the event wrote it back (a new time)');
+  win.fire({ key: 'kosmos.draft.term.roo', newValue: JSON.stringify({ v: 'a terminal draft', t: Date.now() }) });
+  assert.equal(talk.roo, 'from the other tab', 'CONTROL: an event for another kind of draft changed this map');
   assert.equal(talk['__proto__'], undefined, 'premise');
   talk['__proto__'] = 'an agent named __proto__';
   assert.equal(helper(storage).keptDrafts('talk')['__proto__'], 'an agent named __proto__', 'an odd agent name was not kept as a key');
+});
+
+test('#9132 round 3: a project box after Back (PJ_CURRENT null) belongs to the project last opened, and does not hold the restart', () => {
+  const h = helper(memoryStorage());
+  const room = h.keptDrafts('room');
+  room.p7 = 'a post for the room';
+  const typed = [{ id: 'pj-post', value: 'a post for the room' }];
+  assert.equal(nothingToLose({ maps: { room }, typed, pjCurrent: null, pjLastOpened: 'p7', draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), true,
+    'words left in a room box after Back held the restart until another project was opened');
+  assert.equal(nothingToLose({ maps: { room }, typed, pjCurrent: null, pjLastOpened: null, draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false,
+    'CONTROL: with no project to belong to, the words hold the restart');
+  assert.equal(nothingToLose({ maps: { room }, typed: [{ id: 'pj-post', value: 'newer words' }], pjCurrent: null, pjLastOpened: 'p7',
+    draftsKept: h.draftsKept, keptDraftStored: h.keptDraftStored }), false, 'words beyond the kept draft did not hold the restart');
+});
+
+test('#9132 round 3: another tab\'s change reaches the open box when it still shows the old copy, never over newer typing', () => {
+  const box = { id: 'd-say', value: 'old words' };
+  const sessionName = 'april';
+  const openAgent = { sessionName };   // the page's CURRENT (the open agent), not an agent card
+  const heard = new Function('document', 'CURRENT', 'PJ_CURRENT', 'PJ_LAST_OPENED', 'pjGrowComposer',
+    page.liftAll(SCRIPT, ['keptDraftHeard']) + '\nreturn keptDraftHeard;')(
+    { getElementById: (id) => (id === 'd-say' ? box : null) }, openAgent, null, null, () => {});
+  heard('talk', 'april', 'old words', 'newer words from the other tab');
+  assert.equal(box.value, 'newer words from the other tab', 'the open box kept a copy storage no longer holds');
+  box.value = 'typed here since';
+  heard('talk', 'april', 'newer words from the other tab', 'yet another');
+  assert.equal(box.value, 'typed here since', "the other tab's words replaced this person's newer typing");
+  box.value = 'x';
+  heard('talk', 'roo', 'x', 'for Roo');
+  assert.equal(box.value, 'x', 'CONTROL: a change for another agent reached the open box');
+  heard('talk', 'april', 'x', '');
+  assert.equal(box.value, '', 'a draft the other tab sent stayed in the open box');
 });

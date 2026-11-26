@@ -96,3 +96,20 @@ pass; bc-pr-select 81.
 - [NIT] not taken: the org chart's mid-run leave skips forgetting for agents already removed (the 14-day age-out
   bounds it); a write per keystroke (fine, as the reviewer says); MULTI_KOSMOS world scoping (off by default).
 web.keepdrafts-9132 11 of 11 and the related suites pass (92); render-keepdrafts-9132 passes.
+
+#### Iteration 3 (blind review of the whole branch, opus)
+
+- [BLOCKER] taken: words left in a project's box after Back held the restart until another project opened: Back
+  nulls PJ_CURRENT and leaves the boxes, so the box check had no key. The project boxes now belong to PJ_CURRENT or,
+  after Back, PJ_LAST_OPENED (written only by openProject, which also fills them). On project removal its boxes are
+  emptied with its drafts. Tested: after Back the kept words do not hold; with no project to belong to they do; newer
+  words do.
+- [SHOULD-FIX] taken: another tab's change left this tab's open box showing an old copy (holding the restart, and the
+  next keystroke would write the older words back). keptDraftHeard: the open box follows when it still shows this
+  page's old copy; never over words typed here since. Tested both, and another agent's change.
+- [NIT] not taken: a reply with words holds until sent or cancelled (keeping the reply target is a larger change);
+  rm-go's reportDiscarded route (the modal reopened for another agent mid-answer) does not forget (14-day age-out);
+  the 14-day age-out drops words silently (a product call; a card if Josh wants it longer); a failed load stays
+  "not kept" for the page's life (conservative).
+- Also: the test's second fixture name was a real outside person's name (no-name-refs-3071 red): now "roo".
+web.keepdrafts-9132 13 of 13 and the related suites and tree guards pass (104); render-keepdrafts-9132 passes.
