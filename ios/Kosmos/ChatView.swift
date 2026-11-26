@@ -191,9 +191,11 @@ struct ChatView: View {
     @State private var keepAtEndTick = 0
     // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
     @State private var endSeen = false
-    /// kosmos#9089 review 1: the person's own scrolls (counted when one rests, or a sample walk starts), so the open's later
-    /// looks stand down once they moved: atBottom alone cannot say so while the end has never shown (endVisible keeps its
-    /// starting true, and a rest copies it).
+    /// kosmos#9089 review 1: every scroll that comes to rest (PersonScroll's rested: a person's own, and an animated one
+    /// such as a status-bar tap), and a sample walk's start, so the open's later looks stand down once anything has
+    /// scrolled: atBottom alone cannot say so while the end has never shown (endVisible keeps its starting true, and a
+    /// rest copies it). Round 3: if an animation rests during the open, the later looks stand down too (measured by the
+    /// with-fix arm passing).
     @State private var personMoves = 0
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []

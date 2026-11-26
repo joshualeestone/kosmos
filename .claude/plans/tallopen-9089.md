@@ -72,3 +72,15 @@ All 17 logic suites pass.
 - [NIT] not taken: a look does not check positionId/anchorLetGo (the atBottom guard covers the let-go paths); a return
   from the info page schedules new looks, as goNewest there already goes to the end; the test header's "both lists".
 All 17 logic suites pass.
+
+#### Iteration 3 (blind review of the whole branch, opus)
+
+No BLOCKER; no code SHOULD-FIX. Converged on the code.
+- [SHOULD-FIX] (evidence): the head has never been run, and personMoves counts every scroll that rests (PersonScroll
+  calls rested on any change to idle, animated ones too), so an animation resting during the open would silence the
+  later looks. Measured by the three-arm run at the head: lazy WITH the fix must pass, lazy WITHOUT must fail, UIKit
+  passes. Merge waits for it.
+- [NIT] taken: personMoves' comment says what it counts.
+- [NIT] not taken: CI's run sets no trace (a CI pass still means the newest is wholly on screen); no scenePhase check
+  (a background scroll is harmless); an end marker's onAppear just below the box can make a look stand down early
+  (not the measured case).
