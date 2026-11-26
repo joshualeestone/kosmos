@@ -419,7 +419,7 @@ STOP_GRACE_S=$((10#$STOP_GRACE_S))   # #9118 review 1: 08 and 09 are not octal e
 # #9118 review 6: the renewer is stopped before the grace, so the claim must outlive it: at most one renewal period
 # has passed since the last renewal, so the claim has at least CLAIM_MIN*60 - RENEW_SEC seconds left. A longer grace
 # would let the claim lapse while the command is still being stopped, and another run start beside it.
-_qh_glim=$(( CLAIM_MIN * 60 - RENEW_SEC )); [ "$_qh_glim" -ge 1 ] || _qh_glim=1
+_qh_glim=$(( 10#$CLAIM_MIN * 60 - 10#$RENEW_SEC )); [ "$_qh_glim" -ge 1 ] || _qh_glim=1   # review 7: 10#, so 08 stays a number
 [ "$STOP_GRACE_S" -le "$_qh_glim" ] || STOP_GRACE_S=$_qh_glim
 _qh_clear() {
   kosmos_refuse_if_machine_claimed "$WHAT" || return 1
@@ -661,7 +661,8 @@ _qh_end() {
     _g=20; [ "$LANE" = side ] || _g=$(( STOP_GRACE_S * 2 ))
     [ "$LANE" = side ] || echo "QUEUED-HEAVY $(date '+%H:%M:%S') STOPPING: $WHAT (this script is ending before its command did); TERM to its process group, KILL after ${STOP_GRACE_S}s"
     kill -TERM -- "-$CMD" 2>/dev/null
-    _i=0; while kill -0 -- "-$CMD" 2>/dev/null && [ "$_i" -lt "$_g" ]; do sleep 0.5; _i=$((_i + 1)); done
+    # Review 7: a clock deadline, not a count of 0.5 s turns (under load each turn runs long, past the grace promised).
+    _end=$(( $(date +%s) + _g / 2 )); while kill -0 -- "-$CMD" 2>/dev/null && [ "$(date +%s)" -lt "$_end" ]; do sleep 0.5; done
     kill -KILL -- "-$CMD" 2>/dev/null
   fi
   [ "$LANE" = side ] && _qh_kill_desc   # round 16 (Opus): what left the group (Playwright's detached browsers), before the release
@@ -681,7 +682,10 @@ trap _qh_end EXIT
 # where bash runs a trap only after the command ends). Before, a TERM to a main turn's wrapper ended bash and left the
 # command running unclaimed: on 11-25 two killed validations left their run-tests.sh suites running for about 70
 # minutes (52 processes). A SIGKILL of this script (or a KILL to its caller's process group), which no trap sees, is
-# covered by the main turn's watcher below, within about 5 s.
+# covered by the main turn's watcher below, within about 5 s. Review 7: the cost is that the claim reads free
+# meanwhile (its holder is dead) while the watcher stops the command through its grace, so another run can start
+# beside that cleanup. Before #9118 a KILL to the caller's group ended the command at once; now it gets its TERM
+# cleanup instead, which for run-tests.sh is what stops its shards.
 # #9118 review 1: NOT when this script has a terminal on stdin, stdout or stderr (a person running it by hand). There
 # the command stays in the foreground as before: a background command that reads or sets the terminal (sudo, ssh, a
 # pager) is stopped by the system and `wait` never returns, and Ctrl-C and Ctrl-Z already reach a foreground command.
@@ -811,8 +815,8 @@ else
       # claim reads free meanwhile (its holder is dead). Review 5: that second TERM can cut a command's cleanup short if
       # the cleanup does not itself ignore TERM (run-tests.sh's does, after its first step).
       if _qh_wrapper_gone "$$"; then
-        kill -TERM -- "-$CMD" 2>/dev/null; i=0
-        while kill -0 -- "-$CMD" 2>/dev/null && [ "$i" -lt $(( STOP_GRACE_S * 2 )) ]; do sleep 0.5; i=$((i + 1)); done
+        kill -TERM -- "-$CMD" 2>/dev/null; end=$(( $(date +%s) + STOP_GRACE_S ))   # review 7: a clock deadline
+        while kill -0 -- "-$CMD" 2>/dev/null && [ "$(date +%s)" -lt "$end" ]; do sleep 0.5; done
         kill -KILL -- "-$CMD" 2>/dev/null; exit 0
       fi
     done ) </dev/null >/dev/null 2>&1 &
