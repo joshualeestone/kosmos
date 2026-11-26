@@ -80,6 +80,11 @@ test('#9095 the failure screenshot hook names all four screens and is Debug only
     assert.match(body, new RegExp(`case "${word}": failure = \\.${kase}\\b`), `KOSMOS_SAMPLE_FAILURE=${word} does not reach .${kase}`);
   }
   assert.match(content, /if let failure = Self\.sampleFailure\?\.failure \?\? shell\.failure \{/, 'Today does not show the sampled failure');
+  // A launch with no account opens on the sign-in screen; the hook must start past it, inside the same Debug guard.
+  const from = content.indexOf('private static var startsSignedOut');
+  assert.ok(from > -1, 'startsSignedOut moved or was renamed');
+  const starts = content.slice(from, content.indexOf('return SessionKeychain.live.load() == nil', from));
+  assert.match(starts, /#if DEBUG[\s\S]*environment\["KOSMOS_SAMPLE_FAILURE"\] != nil \{ return false \}/, 'a sampled failure launch still opens on the sign-in screen');
   assert.match(body, /raw\.lowercased\(\)/, 'the value is matched case-sensitively');
   assert.match(body, /parts\.dropFirst\(\)\.contains\("trying"\)/, 'the ",trying" form is not read');
   const shown = content.slice(content.indexOf('if let failure = Self.sampleFailure'), content.indexOf('lastHeard:', content.indexOf('if let failure = Self.sampleFailure')));

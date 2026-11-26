@@ -63,3 +63,7 @@ Review 6 (sonnet, blind, whole branch): NITs only, so converged at round 6. Left
 words on gold while Trying (as the old white-on-blue did; the mac,trying shot will show whether it reads); the
 sampled last-heard uses Date() not the injected clock (Debug hook only); the Debug-only test checks order, not
 that KOSMOS_SAMPLE_FAILURE is read exactly once.
+Shots run 1 (11-26 03:0x, 9ef1f41b0d): all ten showed "Sign in to Kosmos+". The weakest premise was false: a launch
+with no account starts signed out, so the web tabs (and the hook's overlay) never draw. Fixed: startsSignedOut answers
+false under KOSMOS_SAMPLE_FAILURE (Debug only), exactly as KOSMOS_SAMPLE_AGENTS does beside it. Test arm added; a
+mutant answering true turns it red. Two lines mirroring the neighbouring sample: no further review round.

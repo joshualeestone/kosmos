@@ -130,6 +130,8 @@ struct ContentView: View {
         // samples never do.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] != nil { return true }
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return false }
+        // kosmos#9095: the failure screenshot hook draws over the web tabs, so it starts past the sign-in screen.
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FAILURE"] != nil { return false }
         #endif
         return SessionKeychain.live.load() == nil
         #endif
