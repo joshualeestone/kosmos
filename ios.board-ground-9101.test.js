@@ -78,7 +78,7 @@ test('#9101 inside the app, the board\'s own header bar stands on the page\'s gr
   assert.match(rule[1], /color: var\(--k-ink\)/, 'the in-app header\'s words are not the page\'s ink');
   const block = PAGE.slice(PAGE.indexOf('html.kremote.kapptabs .kplus-bar {'), PAGE.indexOf('.kapp-comp, .kapp-me { display: none; }'));
   assert.ok(block.length > 0);
-  assert.doesNotMatch(block, /#17233d|#fff\b|rgba\(255,\s*255,\s*255/i, 'navy or white left in the in-app header (written for the navy bar)');
+  assert.doesNotMatch(block, /#17233d|#fff(?:fff)?\b|(?<![-\w])white(?![-\w])|rgba\(255,\s*255,\s*255/i, 'navy or white left in the in-app header (written for the navy bar)');
 });
 
 test('#9101 boardGround and the native ground (Palette.ground) are the same two colours', () => {

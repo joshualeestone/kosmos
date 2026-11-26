@@ -1684,9 +1684,10 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
      two lines (the native bar does their job); this computer's name left when there is another computer to switch to,
      the person's face right, both opening the phone menu. */
   /* kosmos#9101 (Josh 11-25 16:49: no blue background anywhere in the app): inside the app the bar stands on the board's
-     own ground and ink, with a hairline under it; Kosmos+ in a browser keeps its navy bar. */
+     own ground and ink, with a hairline under it (a shadow, so the 44px of content are kept); Kosmos+ in a browser keeps
+     its navy bar. */
   html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; background: var(--k-bg); color: var(--k-ink);
-    border-bottom: 1px solid var(--k-rule); }
+    box-shadow: inset 0 -1px 0 var(--k-rule); }
   html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }
   html.kremote.kapptabs .kplus-bar-end { margin-left: auto; }
   html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; height: 44px;
