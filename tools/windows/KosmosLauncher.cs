@@ -2086,6 +2086,22 @@ class KosmosLauncher
         return Path.Combine(baseDir, "runtime", "node.exe");
     }
 
+    // 🛑 REVIEW 2: THE ANCHORED COPY IS REPAIRED ONLY FROM THE SAME VERSION. ensureAnchored refuses to let an older
+    // Kosmos.exe downgrade the fleet (#3016); a repair copying THIS folder's runtime over a newer anchored one would do
+    // exactly that. The fault on the box was the same bytes with a bad image, so the same SIZE is the gate (the
+    // anchor's own discriminator: a node version change moves the size). Different sizes, or either missing, or the
+    // same file: nothing is checked or offered for the anchored copy.
+    internal static bool SameRuntimeVersion(string node, string anchored)
+    {
+        try
+        {
+            if (!File.Exists(node) || !File.Exists(anchored)) return false;
+            if (string.Equals(Path.GetFullPath(anchored), Path.GetFullPath(node), StringComparison.OrdinalIgnoreCase)) return false;
+            return new FileInfo(node).Length == new FileInfo(anchored).Length;
+        }
+        catch { return false; }
+    }
+
     internal static string DamagedRuntimeQuestion(string words)
     {
         return "Kosmos's runtime (node.exe) is damaged on this computer: " + words + ".\n\n" + RepairDoesWhat + " Repair it now?";
@@ -2096,15 +2112,19 @@ class KosmosLauncher
     // a No all go on as before.
     static int? CheckRuntimesBeforeStarting(string here, string node)
     {
+        // Review 2: an update swaps runtime\ files itself; a repair renaming the same files could race it, so while one
+        // is under way here nothing is checked or offered (the update's own checks run instead).
+        if (UpdateUnderWayHere(here)) return null;
         RuntimeCheck own = CheckRuntime(node);
         if (own.LooksDamaged)
         {
             if (!showMessageBoxes)
             {
+                // Fail open here too (review 2): with nobody to ask, say so and go on, so one odd exit never stops a run.
                 Console.Error.WriteLine();
-                Console.Error.WriteLine("Kosmos's runtime (" + node + ") is damaged on this computer: " + own.Words + ".");
-                Console.Error.WriteLine("To repair it, run: Kosmos.exe " + RepairRuntimeFlag);
-                return 1;
+                Console.Error.WriteLine("Kosmos's runtime (" + node + ") looks damaged on this computer: " + own.Words + ".");
+                Console.Error.WriteLine("If Kosmos does not start, run: Kosmos.exe " + RepairRuntimeFlag);
+                return null;
             }
             if (!AskRepair(DamagedRuntimeQuestion(own.Words))) return null;
             string problem = RepairRuntime(node, node, ExpectedRuntimeSha256(here));
@@ -2112,7 +2132,7 @@ class KosmosLauncher
         }
         else if (!own.Finished || !own.Started) return null;   // says nothing either way: the launch goes on as before
         string anchored = AnchoredRuntimePath();
-        if (!File.Exists(anchored) || string.Equals(Path.GetFullPath(anchored), Path.GetFullPath(node), StringComparison.OrdinalIgnoreCase)) return null;
+        if (!SameRuntimeVersion(node, anchored)) return null;
         RuntimeCheck task = CheckRuntime(anchored);
         if (!task.LooksDamaged || !showMessageBoxes) return null;
         if (!AskRepair(DamagedRuntimeQuestion(task.Words))) return null;
@@ -2132,6 +2152,7 @@ class KosmosLauncher
         foreach (string target in new string[] { node, anchored })
         {
             if (!File.Exists(target)) continue;
+            if (target == anchored && !SameRuntimeVersion(node, anchored)) { said.Add(target + ": another version than this folder's, left as it is."); continue; }
             RuntimeCheck c = CheckRuntime(target);
             if (!c.LooksDamaged) { said.Add(target + ": runs (" + (c.Finished ? "exit 0" : c.Words) + "), left as it is."); continue; }
             string problem = RepairRuntime(node, target, expected);
@@ -2164,6 +2185,13 @@ class KosmosLauncher
     {
         string dir = Path.GetDirectoryName(target);
         string copy = Path.Combine(dir, RepairCopyPrefix + Process.GetCurrentProcess().Id + ".exe");
+        // Review 2: a launcher killed mid-repair leaves its copy; nothing else sweeps that name, so an old one goes here.
+        try
+        {
+            foreach (string stale in Directory.GetFiles(dir, RepairCopyPrefix + "*.exe"))
+                if (DateTime.UtcNow - File.GetLastWriteTimeUtc(stale) > TimeSpan.FromMinutes(10)) TryDeleteFile(stale);
+        }
+        catch { /* a leftover is named for what it is */ }
         try
         {
             if (!File.Exists(from)) return "its file is missing (" + from + ")";
@@ -2186,7 +2214,11 @@ class KosmosLauncher
             foreach (string old in Directory.GetFiles(dir, DamagedRuntimePrefix + "*")) TryDeleteFile(old);
             string damaged = Path.Combine(dir, DamagedRuntimePrefix + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
             bool hadTarget = File.Exists(target);
-            if (hadTarget) File.Move(target, damaged);
+            if (hadTarget)
+            {
+                string why = MoveWithRetry(target, damaged);
+                if (why != null) { TryDeleteFile(copy); return "the old runtime could not be moved aside (" + why + ")"; }
+            }
             try { File.Move(copy, target); }
             catch (Exception e)
             {
@@ -2235,6 +2267,19 @@ class KosmosLauncher
         }
     }
 
+    // A rename that a scanner or an indexer holding the file for a moment can refuse: tried for about a second, as
+    // engine/win32swap.js renameWithRetry does. null when moved, or the last reason.
+    static string MoveWithRetry(string from, string to)
+    {
+        string last = null;
+        for (int i = 0; i < 6; i++)
+        {
+            try { File.Move(from, to); return null; }
+            catch (Exception e) { last = e.Message; Thread.Sleep(200); }
+        }
+        return last;
+    }
+
     static void TryDeleteFile(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { /* a leftover copy is named for what it is */ }
@@ -2256,13 +2301,13 @@ class KosmosLauncher
                 Thread.Sleep(AfterHandOffPollMs);
             }
             string anchored = AnchoredRuntimePath();
-            if (!File.Exists(anchored)) return;
+            if (!SameRuntimeVersion(node, anchored) || UpdateUnderWayHere(here)) return;
             RuntimeCheck task = CheckRuntime(anchored);
             if (!task.LooksDamaged) return;
             if (!AskRepair(DamagedRuntimeQuestion(task.Words))) return;
             string problem = RepairRuntime(node, anchored, ExpectedRuntimeSha256(here));
             if (problem != null) ShowMessageBox(RepairFailedMessage(problem), true);
-            else ShowNotice("Kosmos's runtime is repaired. Open Kosmos again to start it.");
+            else ShowNotice("Kosmos's runtime is repaired. Open Kosmos again to start it; if it still does not open, restart this computer.");
         }
         catch { /* a look that fails says nothing */ }
     }

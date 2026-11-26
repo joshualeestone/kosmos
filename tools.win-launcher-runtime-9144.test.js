@@ -85,6 +85,17 @@ test('#9144: the anchored path follows engine/win32anchor.js anchorDir\'s rule',
   assert.match(fs.readFileSync(path.join(REPO, 'engine', 'store.js'), 'utf8'), /const APP = 'Kosmos';/);
 });
 
+test('#9144 review 2: the anchored copy is repaired only from the same version, and nothing runs during an update', () => {
+  const check = method('static int? CheckRuntimesBeforeStarting(string here, string node)');
+  assert.match(check, /^static int\? CheckRuntimesBeforeStarting\(string here, string node\)\n\s+\{\n(\s+\/\/[^\n]*\n)+\s+if \(UpdateUnderWayHere\(here\)\) return null;/, 'the check runs while an update swaps files');
+  assert.match(check, /if \(!SameRuntimeVersion\(node, anchored\)\) return null;\n\s+RuntimeCheck task = CheckRuntime\(anchored\);/);
+  assert.match(method('static void LookAfterHandOff(string here, string node, int port)'), /if \(!SameRuntimeVersion\(node, anchored\) \|\| UpdateUnderWayHere\(here\)\) return;/);
+  assert.match(method('static int RepairRuntimeFromConsole(string here)'), /if \(target == anchored && !SameRuntimeVersion\(node, anchored\)\)/);
+  assert.match(method('internal static bool SameRuntimeVersion(string node, string anchored)'), /return new FileInfo\(node\)\.Length == new FileInfo\(anchored\)\.Length;/);
+  /* Console with nobody to ask: says so and goes on (fail open). */
+  assert.match(check, /Console\.Error\.WriteLine\("If Kosmos does not start, run: Kosmos\.exe " \+ RepairRuntimeFlag\);\n\s+return null;/);
+});
+
 test('#9144: damaged means it RAN, finished, and did not end with 0; Windows refusing to start it is never repaired', () => {
   assert.match(SOURCE, /public bool LooksDamaged \{ get \{ return Started && Finished && ExitCode != 0; \} \}/);
   const check = method('static int? CheckRuntimesBeforeStarting(string here, string node)');
@@ -105,7 +116,7 @@ test('#9144: the repair makes a NEW file, checks it, and only then swaps it in, 
     'string got = FileSha256Hex(copy);',
     'RuntimeCheck fresh = CheckRuntime(copy);',
     'foreach (string old in Directory.GetFiles(dir, DamagedRuntimePrefix + "*")) TryDeleteFile(old);',
-    'if (hadTarget) File.Move(target, damaged);',
+    'string why = MoveWithRetry(target, damaged);',
     'try { File.Move(copy, target); }',
     'RuntimeCheck after = CheckRuntime(target);',
   ].map((s) => { const at = repair.indexOf(s); assert.ok(at > -1, s + ' is gone from RepairRuntime'); return at; });
@@ -164,8 +175,8 @@ test('#9144: the launcher stays C# 5 (the in-box .NET Framework compiler verify-
 /* A fake runtime: exit 139 when this file's ID (volume serial and file index) is listed in crash-ids.txt beside it, or
    when the list says ALWAYS; else 0. A copy is a new file with a new ID; a rename keeps the ID. */
 const FILE_ID = `
-  [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-  struct BHFI { public uint attr; public long c, a, w; public uint vol, sizeHi, sizeLo, links, idxHi, idxLo; }
+  [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 4)]
+  struct BHFI { public uint attr; public uint c1, c2, a1, a2, w1, w2; public uint vol, sizeHi, sizeLo, links, idxHi, idxLo; }
   [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
   static extern bool GetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle h, out BHFI info);
   internal static string FileId(string path) {
@@ -193,6 +204,7 @@ class RuntimeProbe {
 ${FILE_ID}
   static int Main(string[] a) {
     if (a[0] == "fileid") { Console.WriteLine(FileId(a[1])); return 0; }
+    if (a[0] == "sameversion") { Console.WriteLine(KosmosLauncher.SameRuntimeVersion(a[1], a[2])); return 0; }
     if (a[0] == "check") {
       KosmosLauncher.RuntimeCheck c = KosmosLauncher.CheckRuntime(a[1]);
       Console.WriteLine(!c.Started ? "NOTSTARTED" : !c.Finished ? "UNFINISHED" : c.ExitCode.ToString());
@@ -253,6 +265,11 @@ test('#9144 probe: RepairRuntime on a crashing runtime, a crashing anchored copy
   assert.equal(run('check', anchored.node), '0');
   assert.equal(kept(anchored.rt).length, 1);
   assert.equal(kept(install.rt).length, 0, 'the healthy source was touched');
+  assert.equal(run('sameversion', install.node, anchored.node), 'True');
+  /* Review 2: another version (another size) is never the anchored copy's source. */
+  const other = runtimeDir(true);
+  fs.appendFileSync(other.node, Buffer.alloc(16));
+  assert.equal(run('sameversion', install.node, other.node), 'False', 'a different-size anchored copy would be overwritten (a downgrade)');
 
   /* B: the manifest names another sha256: refused, nothing swapped, no copy left. */
   const b = runtimeDir(true);
