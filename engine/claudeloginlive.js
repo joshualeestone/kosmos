@@ -37,6 +37,9 @@ function setReaderForTests(fn) { reader = typeof fn === 'function' ? fn : null; 
    platform rule, so a test can show the live read runs off macOS and passes the folder. */
 let credReader = null;
 function setCredReaderForTests(fn) { credReader = typeof fn === 'function' ? fn : null; }
+/* kosmos#9097 review 3: whether the row's live read runs, as one pure rule a test can hold on every platform: always,
+   except inside `node --test` with no seam set (never a real credential in a test). There is NO platform condition. */
+function liveReadAllowed({ seam = !!credReader, testCtx = !!process.env.NODE_TEST_CONTEXT } = {}) { return seam || !testCtx; }
 
 const cache = new Map();      // service name -> { at, until, works, gen }: gen is the login generation it was read under (#5018);
                               // works (#5168) is when the access token Claude Code holds runs out
@@ -66,7 +69,7 @@ function validUntil(row, now = Date.now()) {
         /* A test reader returns the login date, or (#5168) { until, works } with the access token's date too. */
         const got = await reader(ccd);
         if (got && typeof got === 'object') { until = got.until; works = got.works; } else until = got;
-      } else if (credReader || !process.env.NODE_TEST_CONTEXT) {
+      } else if (liveReadAllowed()) {
         // kosmos#9097: every platform. readCredAsync reads the Keychain on macOS and the folder's credentials file
         // elsewhere, which is where Claude Code keeps it on Windows and Linux.
         const body = await (credReader || loginexpiry.readCredAsync)(service, ccd);
@@ -157,5 +160,5 @@ function checkRefused(dir, newerOutcomeAt = null) {
 /* Whether that good login also turns the row green: only with the switch on. */
 function greenFromLogin(args) { return GREEN_FROM_LOGIN && loginGood(args); }
 
-module.exports = { validUntil, validUntilWithin, signedInAfter, worksUntil, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, setCredReaderForTests, _clearForTest,
+module.exports = { validUntil, validUntilWithin, signedInAfter, worksUntil, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, setCredReaderForTests, liveReadAllowed, _clearForTest,
   GREEN_FROM_LOGIN, CACHE_MS, MISS_CACHE_MS, READ_BUDGET_MS };
