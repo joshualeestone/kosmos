@@ -101,7 +101,7 @@ test('#9159: a TERM to run-tests.sh ALONE stops its node --test, the file it was
     assert.ok(gone, `after a TERM to run-tests.sh (${bashPid}), its node --test (${nodePid}: ${alive(nodePid) ? 'alive' : 'gone'}), ` +
       `the file (${filePid}: ${alive(filePid) ? 'alive' : 'gone'}) and the file's own child (${kidPid}: ${alive(kidPid) ? 'alive' : 'gone'}) were not all stopped`);
   } finally {
-    { const k = firstPid(KIDS); if (k) { try { process.kill(k, 'SIGKILL'); } catch { /* gone */ } } }   // it left the group
+    { const k = firstPid(KIDS); if (k) { try { process.kill(k, 'SIGKILL'); } catch { /* gone */ } } }   // by pid as well as by group
     try { process.kill(-perl.pid, 'SIGTERM'); } catch { /* gone */ }
     await sleep(500);
     try { process.kill(-perl.pid, 'SIGKILL'); } catch { /* gone */ }

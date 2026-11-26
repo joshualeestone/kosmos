@@ -377,14 +377,18 @@ rt_stop_own_node() {
   # Review 1: the WHOLE tree under this run's own node runners, from ONE ps snapshot taken before the first signal: a
   # test file's own children (a stub server, a browser) outlived a TERM to node alone, and they stay in the caller's
   # process group, so a group kill is not an option (it would stop the caller: queued-heavy, CI). Also the shell part's
-  # foreground `node .../shell-shard.js run` (serial and CI paths), the same shape one step over. KILL only a pid whose
-  # command line is still the one noted (a pid reused during the grace is not ours; as the file watchdog does).
-  local snap roots="" p pp cmd list i alive keep
+  # foreground `node .../shell-shard.js run` when it is this bash's direct child (the serial run and a plain
+  # KOSMOS_SHELL_SHARD); NOT under the cut-shape subshell on a GitHub runner, where it is a grandchild (a cancel there
+  # signals the whole tree anyway). KILL only a pid whose command line is still the one noted (a reused pid is not ours).
+  # The root's node path is anchored at the start of the command line, so a node path with a space in it is not seen;
+  # unanchored, a `node --test` quoted inside a `bash -c` string would match.
+  local snap roots="" p cmd list i alive
   snap="$(ps -A -ww -o pid=,ppid=,command= 2>/dev/null)" || return 0
+  # Review 2: space-separated (macOS awk refuses a -v value with a newline in it, so two roots stopped nothing).
   roots="$(printf '%s\n' "$snap" | awk -v me="$$" '$2 == me {
       c = $0; sub(/^ *[0-9]+ +[0-9]+ +/, "", c)
-      if (c ~ /^([^ ]*\/)?node --test / || c ~ /^([^ ]*\/)?node [^ ]*shell-shard\.js run( |$)/) print $1 }')"
-  [ -n "$roots" ] || return 0
+      if (c ~ /^([^ ]*\/)?node --test / || c ~ /^([^ ]*\/)?node [^ ]*shell-shard\.js run( |$)/) print $1 }' | tr '\n' ' ')"
+  [ -n "${roots// /}" ] || return 0
   # Every descendant of those roots, from the same snapshot (breadth-first; a pid seen twice is listed once).
   list="$(printf '%s\n' "$snap" | awk -v roots="$roots" '
       { pid[NR] = $1; par[NR] = $2; c = $0; sub(/^ *[0-9]+ +[0-9]+ +/, "", c); cmd[$1] = c; n = NR }
