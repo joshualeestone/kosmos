@@ -22,7 +22,7 @@ converged: true
 - [NIT] touch-down hop, VoiceOver hint and button trait, a backwards frame date, Reduce Motion making no model --> FIXED
 
 ### Iteration 2 (opus)
-- [IMPORTANT] a cancelled touch left  stuck and froze the game --> FIXED (GestureState)
+- [IMPORTANT] a cancelled touch left the pressed flag stuck and froze the game --> FIXED (GestureState)
 - [IMPORTANT] the panel swallowed swipes inside the scroll view --> FIXED (simultaneous gesture)
 - [NIT] "Tap to play again" during the restart delay; the score in the VoiceOver label --> FIXED
 - Shots: the K's lit foot read as obstacles --> FIXED (K stands above the ground, dimmer lit dots)
