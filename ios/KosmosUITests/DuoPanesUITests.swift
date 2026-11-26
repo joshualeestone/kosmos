@@ -30,6 +30,9 @@ class DuoPanesCase: XCTestCase {
     }
     // Alone: the box starts near the left edge, so the chat has the whole width.
     func alone(_ app: XCUIApplication) -> Bool { box(app).exists && box(app).frame.width > 0 && box(app).frame.minX < app.frame.width * 0.25 }
+    // The most of that pane a bubble's text may take. The app allows 0.78 of its own measure of the pane, which is wider than
+    // the navigation bar read here; a bubble sized to the whole screen still fails it.
+    let bubbleShare: CGFloat = 0.85
     // The chat's pane: the right-most navigation bar (the list has its own in two panes; folded there is one).
     func chatPane(_ app: XCUIApplication) -> CGRect {
         let bars = app.navigationBars.allElementsBoundByIndex.map(\.frame).filter { $0.width > 0 }
@@ -220,8 +223,7 @@ final class DuoPanesUITests: DuoPanesCase {
         print("UI-NOTE kosmos#9002 widest bubble text \(Int(widest)) in a pane of \(Int(pane.width)), window \(Int(app.frame.width))")
         XCTAssertGreaterThan(widest, 0, "CONTROL: no messages drawn in the chat's pane")
         XCTAssertLessThan(pane.width, app.frame.width * 0.9, "CONTROL: the chat's navigation bar spans the window, so the pane was not measured")
-        // A bubble's text may take at most 0.78 of its pane; one sized to the screen fills the row instead.
-        let limit = pane.width * 0.78
+        let limit = pane.width * bubbleShare
         print("UI-NOTE kosmos#9002 bound \(Int(limit))")
         XCTAssertLessThanOrEqual(widest, limit, "a bubble's text is wider than its pane's share")
     }
