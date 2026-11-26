@@ -4807,27 +4807,39 @@ function outageChannelCard(name) {
     return require('./engine/status').channelCardFor(name, String(rows[0].runner || ''));   // the recorded runner, as make passes it
   } catch { return null; }
 }
-/* kosmos#9087: the log line for a message sent through the pipe while the roster could not be read. Never throws. */
-function noteOutageSend(name) {
+/* kosmos#9087: the log line for a message sent through the pipe while the roster could not be read. `what` names a
+   command (kosmos#9090: "a /compact", "a handoff request"); a message when absent. Never throws. */
+function noteOutageSend(name, what) {
   const why = claudeReadProblem();
   try {
-    console.error('[kosmos#9087] the running agents could not all be read' + (why ? ' (' + why + ')' : '')
-      + '; a message to ' + JSON.stringify(String(name)) + ' is checked against its supervisor, which is up, instead');
+    console.error('[kosmos#9087]' + (what ? '[kosmos#9090]' : '') + ' the running agents could not all be read' + (why ? ' (' + why + ')' : '')
+      + '; ' + (what || 'a message') + ' to ' + JSON.stringify(String(name)) + ' is checked against its supervisor, which is up, instead');
   } catch { /* never fatal */ }
 }
 /* The 409 body for a send the gate found unreadable: nothing was sent, and the same thing can be sent again. */
 const UNREADABLE_SEND_WORDS = 'we could not check which agents are running, so nothing was sent. Try again in a moment.';
 function unreadableSendBody() { return { error: UNREADABLE_SEND_WORDS, because: 'unreadable', retry: true }; }
 /* kosmos#9087: the gate for the routes that send one command (compact/clear, handoff-restart ask and pickup), which
-   answered a bare 404 from knownAgent. Answers the refusal itself and returns null, or returns the gate's card. These
-   routes have no outage path: only the DM send goes through the pipe while the roster cannot be read. */
+   answered a bare 404 from knownAgent. Answers the refusal itself and returns null, or returns the gate's card.
+   kosmos#9090: while the roster cannot be read, a supervised Windows agent of ours is sent its command through its
+   pipe, as the DM send is (kosmos#9087 Part B): the card returned is then outageChannelCard's, marked `outageCard:
+   true`, and the caller hands delivery that one card (commandRoster) instead of a roster read. These routes type one
+   command and press no button, so the DM route's button exception does not arise. Everything else unreadable keeps
+   the 409 to retry. */
 function commandGate(res, name, what) {
   const gate = sendGate(name);
   if (gate.known) return gate.card;
-  if (gate.rosterUnreadable) { noteUnreadableSend(name, what); sendJson(res, 409, unreadableSendBody()); return null; }
+  if (gate.rosterUnreadable) {
+    const outage = outageChannelCard(name);
+    if (outage) { noteOutageSend(name, what); return outage; }
+    noteUnreadableSend(name, what); sendJson(res, 409, unreadableSendBody()); return null;
+  }
   sendJson(res, 404, { error: 'no agent by that name' });
   return null;
 }
+/* kosmos#9090: the roster a command route hands delivery: the one outage card commandGate returned, never added to a
+   roster read (which is the read that is failing), or a fresh read as before. */
+function commandRoster(card) { return card && card.outageCard === true ? [card] : safeRoster(); }
 
 /* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
    sentences are written once. */
@@ -11769,7 +11781,8 @@ const server = http.createServer(async (req, res) => {
   if (ctx && req.method === 'POST') {
     const name = decodeSegment(ctx[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    if (!commandGate(res, name, 'a /' + ctx[2])) return;   // kosmos#9087: an unreadable roster is a 409 to retry, not a 404
+    const ctxCard = commandGate(res, name, 'a /' + ctx[2]);   // kosmos#9087: an unreadable roster is a 409 to retry, not a 404
+    if (!ctxCard) return;
     /* #3939: a Muse agent's pane takes every line as a prompt, so "/clear" would run a Muse turn and clear nothing. */
     let ctxRunner = null;
     try { ctxRunner = create.recordedRunner(name); } catch { ctxRunner = null; }
@@ -11779,7 +11792,7 @@ const server = http.createServer(async (req, res) => {
     }
     const command = '/' + ctx[2];
     let delivery;
-    try { delivery = await chat.deliverAsync(name, command, safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, command, commandRoster(ctxCard), undefined, undefined); }   // kosmos#9090
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
     return;
@@ -11933,7 +11946,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined, { movedNote: false }); }   // #5400 review 3: the note rides the restarted session's pickup line
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), commandRoster(askCard), undefined, undefined, { movedNote: false }); }   // kosmos#9090: the outage card too   // #5400 review 3: the note rides the restarted session's pickup line
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -11954,8 +11967,19 @@ const server = http.createServer(async (req, res) => {
     // route's 404 is a deliberate "read = no such agent" special case, not the
     // pattern to follow for a freshness probe.)
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
-    const session = sessionOf(name);
+    /* kosmos#9090: the dialog's freshness poll survives an unreadable roster. It reads only the handoff file's mtime,
+       so it needs the session, which a supervised Windows agent's outage card carries (the same session a good read
+       gives). It answered a bare 404 from knownAgent there, which the dialog's wait reads as "not written yet" until
+       it gives up, so a handoff the agent did write ended in "has not finished its handoff yet". Anything else
+       unreadable is a 409 to retry, never a 404: nothing is sent here, so the words are the read's. */
+    const gate = sendGate(name);
+    let statusCard = gate.known ? gate.card : null;
+    if (!statusCard && gate.rosterUnreadable) {
+      statusCard = outageChannelCard(name);
+      if (!statusCard) { sendJson(res, 409, { error: 'we could not check which agents are running', because: 'unreadable', retry: true }); return; }
+    }
+    if (!statusCard) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = statusCard.session || null;   // the same read as the verdict (sessionOf would read the roster again)
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     let baseline = '';
     try { baseline = new URL(req.url, ROUTING_BASE).searchParams.get('baseline') || ''; } catch { baseline = ''; }
@@ -12006,7 +12030,7 @@ const server = http.createServer(async (req, res) => {
        through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
        below, and the page shows its manual line. */
     // #4588 ask 3: the person's own restart click started this, so the Gemini cap does not hold it (the quota does).
-    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined, { cap: false }); }
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), commandRoster(pickupCard), undefined, undefined, { cap: false }); }   // kosmos#9090
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
