@@ -412,6 +412,7 @@ case "$RENEW_SEC" in ''|*[!0-9]*) RENEW_SEC=600 ;; esac
 case "$MAX_RENEWALS" in ''|*[!0-9]*) MAX_RENEWALS=12 ;; esac
 STOP_GRACE_S="${QUEUED_HEAVY_STOP_GRACE_S:-60}"   # kosmos#9118: TERM to KILL, for a main turn's command group
 case "$STOP_GRACE_S" in ''|*[!0-9]*) STOP_GRACE_S=60 ;; esac
+while [ "${#STOP_GRACE_S}" -gt 1 ] && [ "${STOP_GRACE_S#0}" != "$STOP_GRACE_S" ]; do STOP_GRACE_S="${STOP_GRACE_S#0}"; done   # review 3: 00060 is 60
 case "$STOP_GRACE_S" in ?????*) STOP_GRACE_S=600 ;; esac   # #9118 review 2: five digits or more is past the clamp (and no overflow)
 STOP_GRACE_S=$((10#$STOP_GRACE_S))   # #9118 review 1: 08 and 09 are not octal errors (an error inside the EXIT trap ended it part way)
 [ "$STOP_GRACE_S" -le 600 ] || STOP_GRACE_S=600
@@ -646,11 +647,13 @@ _qh_end() {
   # (QUEUED_HEAVY_STOP_GRACE_S, default 60 s): run-tests.sh does its own cleanup on a TERM (its EXIT trap stops its
   # shards and runs the leak guard, which can take tens of seconds), and a KILL before that ends would strand the
   # shards that cleanup stops, which are in process groups of their own.
-  # #9118 review 1: for a main turn, only when this script was SIGNALLED. A command that ended on its own keeps what it
-  # left in its group running, as a main turn always has (a stop there also printed a false "signalled" line).
-  if [ -n "$CMD" ] && { [ "$LANE" = side ] || [ -n "$QH_SIGNALLED" ]; } && kill -0 -- "-$CMD" 2>/dev/null; then
+  # #9118 review 1: for a main turn, only when this script ends BEFORE its command did (QH_DONE unset). A command that
+  # ended on its own keeps what it left in its group running, as a main turn always has. Review 3: keyed on that, not
+  # on which signal arrived: an ALRM (a perl alarm deadline), QUIT or USR1 also ends bash through this trap, and keyed on
+  # TERM/INT/HUP alone it released the claim, left the command running and then stopped the watcher that would have.
+  if [ -n "$CMD" ] && { [ "$LANE" = side ] || [ -z "$QH_DONE" ]; } && kill -0 -- "-$CMD" 2>/dev/null; then
     _g=20; [ "$LANE" = side ] || _g=$(( STOP_GRACE_S * 2 ))
-    [ "$LANE" = side ] || echo "QUEUED-HEAVY $(date '+%H:%M:%S') STOPPING: $WHAT (this script was signalled); TERM to its process group, KILL after ${STOP_GRACE_S}s"
+    [ "$LANE" = side ] || echo "QUEUED-HEAVY $(date '+%H:%M:%S') STOPPING: $WHAT (this script is ending before its command did); TERM to its process group, KILL after ${STOP_GRACE_S}s"
     kill -TERM -- "-$CMD" 2>/dev/null
     _i=0; while kill -0 -- "-$CMD" 2>/dev/null && [ "$_i" -lt "$_g" ]; do sleep 0.5; _i=$((_i + 1)); done
     kill -KILL -- "-$CMD" 2>/dev/null
@@ -679,9 +682,10 @@ trap _qh_end EXIT
 # #9118 review 2: a controlling terminal counts too (stdio redirected from a terminal, as `cmd </dev/null >log 2>&1`):
 # a background command that opens /dev/tty (an ssh or git prompt, sudo) is stopped the same way. An agent's shell has
 # none, so it takes the background path.
-QH_FG=""; QH_SIGNALLED=""; QH_PEND=""
-[ "$LANE" != side ] && { [ -t 0 ] || [ -t 1 ] || [ -t 2 ] || { : </dev/tty; } 2>/dev/null; } && QH_FG=1
-[ -n "$QH_FG" ] || { trap 'QH_SIGNALLED=1; exit 143' TERM; trap 'QH_SIGNALLED=1; exit 130' INT; trap 'QH_SIGNALLED=1; exit 129' HUP; }
+QH_FG=""; QH_PEND=""; QH_DONE=""
+# Review 3: the /dev/tty probe in a SUBSHELL: in posix mode (POSIXLY_CORRECT) a failed redirection on `:` ends the shell.
+[ "$LANE" != side ] && { [ -t 0 ] || [ -t 1 ] || [ -t 2 ] || ( : </dev/tty ) 2>/dev/null; } && QH_FG=1
+[ -n "$QH_FG" ] || { trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; }
 if [ "$LANE" = side ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN: running $WHAT beside the heavy holder (#4911; stopped if it runs past ${SIDE_MIN} min)"
 else
@@ -782,9 +786,9 @@ else
   # it (_qh_end). stdin is kept (no terminal here: QH_FG). An INT to this script reaches the command as a TERM.
   # Review 2: a signal between the fork and CMD=$! would find CMD empty and stop nothing, so for that moment the traps
   # only RECORD it, and it is acted on once CMD is set. Not `trap ''`: an ignored signal stays ignored in the command.
-  trap 'QH_SIGNALLED=1; QH_PEND=143' TERM; trap 'QH_SIGNALLED=1; QH_PEND=130' INT; trap 'QH_SIGNALLED=1; QH_PEND=129' HUP
+  trap 'QH_PEND=143' TERM; trap 'QH_PEND=130' INT; trap 'QH_PEND=129' HUP
   set -m; "$@" & CMD=$!
-  trap 'QH_SIGNALLED=1; exit 143' TERM; trap 'QH_SIGNALLED=1; exit 130' INT; trap 'QH_SIGNALLED=1; exit 129' HUP
+  trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
   [ -n "$QH_PEND" ] && { set +m; exit "$QH_PEND"; }
   # The watcher, in its own process group too (so a KILL to this script's group does not reach it), stopped by
   # _qh_stop_capper like a side turn's capper. Every 5 s: once the command's GROUP has gone it exits; once THIS script
@@ -794,6 +798,8 @@ else
   ( trap - EXIT TERM INT HUP; trap '' PIPE
     while kill -0 -- "-$CMD" 2>/dev/null; do
       sleep 5 </dev/null >/dev/null 2>&1
+      # Review 3: if this script was KILLed during its own grace, this TERMs again and gives a second full grace: a
+      # slower stop than needed, never a missed one, and the claim reads free meanwhile (its holder is dead).
       if _qh_wrapper_gone "$$"; then
         kill -TERM -- "-$CMD" 2>/dev/null; i=0
         while kill -0 -- "-$CMD" 2>/dev/null && [ "$i" -lt $(( STOP_GRACE_S * 2 )) ]; do sleep 0.5; i=$((i + 1)); done
@@ -802,7 +808,7 @@ else
     done ) </dev/null >/dev/null 2>&1 &
   CAPPER=$!; set +m
   disown "$CAPPER" 2>/dev/null   # review 2: bash would print a "Killed: 9" job report for it in every main turn's log
-  wait "$CMD"; rc=$?
+  wait "$CMD"; rc=$?; QH_DONE=1   # the command ended on its own (a trapped signal exits from inside the wait instead)
   _qh_stop_capper
 fi
 echo "QUEUED-HEAVY $(date '+%H:%M:%S') END rc=$rc: $WHAT"
