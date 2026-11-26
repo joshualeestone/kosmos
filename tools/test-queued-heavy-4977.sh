@@ -805,9 +805,22 @@ held2=1; [ -e $S/mfg2/machine-claim ] && ! gone $((U+5)) && kill -0 "$WP" 2>/dev
 for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done
 until_true 30 '[ ! -e $S/mfg2/machine-claim ] && ! kill -0 "$WP" 2>/dev/null'; rl2=$?
 ok "#9118: a TERM to a foreground holder keeps its claim while its command runs, and releases it when the command ends" '[ "$pre9118" = 0 ] && [ "$sg" = 0 ] && [ -n "$WP" ] && [ "$held2" = 0 ] && [ "$rl2" = 0 ]'
+ok "#9118: ... and says a TERM came, with the run's own END line (not an exit 143 in its place)" 'tr -d "\r" < $S/fg2.log | grep -q "a TERM came while t9118-fg2" && tr -d "\r" < $S/fg2.log | grep -q "END rc="'
 until_true 20 '! kill -0 $FG2 2>/dev/null'; reap $FG2 20 2>/dev/null
 
-EXPECTED=170   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, eight #9118 withdraw arms
+# #9118 A2 review 3: two live runs with ONE label are not withdrawn without --all (labels are free text on a shared Mac):
+# exit 6, both listed, neither signalled. With --all, both go.
+mkdir -p $S/mdup; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > $S/mdup/machine-claim
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mdup exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "dup" true ) </dev/null > $S/dup1.log 2>&1 & D1=$!; BG="$BG $D1"
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mdup exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "dup" true ) </dev/null > $S/dup2.log 2>&1 & D2=$!; BG="$BG $D2"
+until_true 30 '[ -e $S/mdup/qh-label.$D1 ] && [ -e $S/mdup/qh-label.$D2 ] && [ -e $S/mdup/suitewait.$D1 ] && [ -e $S/mdup/suitewait.$D2 ]'; sd=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mdup /bin/bash $QH --withdraw "dup" 2>&1); rw=$?
+ok "#9118: two live runs with one label: --withdraw lists them, signals neither, exits 6" '[ "$sd" = 0 ] && [ "$rw" = 6 ] && [[ "$o" == *"pid $D1"* && "$o" == *"pid $D2"* ]] && kill -0 $D1 2>/dev/null && kill -0 $D2 2>/dev/null'
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mdup /bin/bash $QH --withdraw "dup" --all 2>&1); rw=$?
+ok "#9118: --withdraw \"<what>\" --all withdraws every run with that label" '[ "$rw" = 0 ] && [[ "$o" == *"withdrew 2 run"* ]] && ! kill -0 $D1 2>/dev/null && ! kill -0 $D2 2>/dev/null'
+reap $D1 20 2>/dev/null; reap $D2 20 2>/dev/null; rm -f $S/mdup/machine-claim
+
+EXPECTED=173   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, eleven #9118 withdraw arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
