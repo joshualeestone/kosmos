@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9095 (Josh, 11-25 16:49: "we are not going to have the blue background anywhere in the app"): the iPhone's
  * four failure screens (LoadFailureView: offline, Kosmos+ not answering, a Mac not answering, a page that did not load)
