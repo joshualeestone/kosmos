@@ -27,9 +27,11 @@ function homeWithLogin() {
 // running would land in the next test and move the login generation there).
 const realReadFile = fs.readFile;
 const inflight = new Map();
+const startedReads = new Map();   // every read ever started, per file (review 2: a control must be able to see one)
 fs.readFile = function (p, ...rest) {
   const cb = rest.pop();
   inflight.set(p, (inflight.get(p) || 0) + 1);
+  startedReads.set(p, (startedReads.get(p) || 0) + 1);
   return realReadFile.call(this, p, ...rest, (...a) => { inflight.set(p, inflight.get(p) - 1); cb(...a); });
 };
 process.on('exit', () => { fs.readFile = realReadFile; });
@@ -146,13 +148,59 @@ test('kosmos#9107 review 1: a sign-in starts a new read at once, so the old noti
   fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL + 86400000 }));
   le.loginChanged();
   const g1 = le.loginGeneration();
+  const before = startedReads.get(f) || 0;
   assert.strictEqual(le.fileBodyNow(f, at + 10), body({ refreshTokenExpiresAt: UNTIL }), 'the old body until the new read lands');
+  assert.strictEqual(startedReads.get(f), before + 1, 'the sign-in started a read, inside the minute');
   await until(() => le.loginGeneration() > g1);
   assert.strictEqual(le.fileBodyNow(f, at + 20), body({ refreshTokenExpiresAt: UNTIL + 86400000 }), 'the new date, well inside the re-read minute');
-  // CONTROL: with no sign-in, inside the minute, the file is not read again.
+  // CONTROL: with no sign-in, inside the minute, no read starts, and once any would have landed the body is unchanged.
+  await until(() => !pendingRead(f));
   fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL + 2 * 86400000 }));
-  await new Promise((r) => setTimeout(r, 50));
-  assert.strictEqual(le.fileBodyNow(f, at + 30), body({ refreshTokenExpiresAt: UNTIL + 86400000 }));
+  const settled = startedReads.get(f);
+  le.fileBodyNow(f, at + 30);
+  assert.strictEqual(startedReads.get(f), settled, 'no read without a sign-in inside the minute');
+  await until(() => !pendingRead(f));
+  assert.strictEqual(le.fileBodyNow(f, at + 40), body({ refreshTokenExpiresAt: UNTIL + 86400000 }));
+});
+
+test('kosmos#9107 review 2: at most FILE_READS_MAX reads run at once, however many files stall', () => {
+  le._resetForTests();
+  const files = [0, 1, 2, 3].map(() => path.join(homeWithLogin(), '.claude', '.credentials.json'));
+  const orig = fs.readFile;
+  let started = 0;
+  fs.readFile = function (p, ...rest) { if (files.includes(p)) { started += 1; return; } return orig.call(this, p, ...rest); };   // never call back
+  try {
+    for (const f of files) assert.strictEqual(le.fileBodyNow(f, 0), null);
+    assert.strictEqual(started, le.FILE_READS_MAX, 'the rest wait for a free slot');
+    assert.ok(le.FILE_READS_MAX < 4, 'fewer than libuv\'s default pool of 4');
+  } finally { fs.readFile = orig; le._resetForTests(); }
+});
+
+test('kosmos#9107 review 2: a body caught mid-rewrite keeps the last good one and is read again next time', async () => {
+  const h = homeWithLogin();
+  const f = path.join(h, '.claude', '.credentials.json');
+  le._resetForTests();
+  le.fileBodyNow(f, 0);
+  await until(() => !pendingRead(f) && le.fileBodyNow(f, 0) !== null);
+  const good = body({ refreshTokenExpiresAt: UNTIL });
+  const g = le.loginGeneration();
+  fs.writeFileSync(f, '{"claudeAiOauth": {"refreshTok');   // half written
+  const late = Date.now() + le.FILE_REREAD_MS + 10;
+  le.fileBodyNow(f, late);
+  await until(() => !pendingRead(f));
+  assert.strictEqual(le.fileBodyNow(f, Date.now()), good, 'the last good body, not the torn one');
+  assert.strictEqual(le.loginGeneration(), g, 'no recompute for a torn read');
+  // The file is whole again: the next call reads it at once, not a minute later.
+  await until(() => !pendingRead(f));
+  fs.writeFileSync(f, body({ refreshTokenExpiresAt: UNTIL + 5 }));
+  le.fileBodyNow(f, Date.now());
+  await until(() => !pendingRead(f));
+  assert.strictEqual(le.fileBodyNow(f, Date.now()), body({ refreshTokenExpiresAt: UNTIL + 5 }), 'read again at once after a torn read');
+  // CONTROL: after a good read, the minute applies again: no read starts.
+  await until(() => !pendingRead(f));
+  const n = startedReads.get(f);
+  le.fileBodyNow(f, Date.now());
+  assert.strictEqual(startedReads.get(f), n);
 });
 
 test('kosmos#9107 review 1: an access-token refresh rewrites the file but does not move the login generation', async () => {

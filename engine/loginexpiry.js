@@ -149,8 +149,13 @@ function credPathOf(ccd, home, userHome, service) {
  * the next one: null the first time for a file, and a read that never returns holds back only that file's next read.
  * A read is started when the last is a minute old, or when the login generation moved since it (a sign-in, review 1:
  * else the old notice stayed up to the advisory cache's 5 minutes, #5018). A read that finds a new refresh-token expiry
- * moves the generation, so the advisories recompute; an access-token refresh alone does not. */
+ * moves the generation, so the advisories recompute; an access-token refresh alone does not.
+ * Review 2: at most FILE_READS_MAX reads run at once over all files, since each stalled one holds a thread of libuv's
+ * shared pool (4 by default; dns and crypto use it too); and a body that does not parse (caught mid-rewrite) keeps the
+ * last one that did and is read again on the next call, rather than hiding the warning for a minute. */
 const FILE_REREAD_MS = 60 * 1000;
+const FILE_READS_MAX = 2;
+let fileReadsRunning = 0;
 const fileReads = new Map();   // file -> { body, until, at, gen, reading }
 function refreshUntilOf(body) {
   if (body == null) return 'none';
@@ -159,20 +164,24 @@ function refreshUntilOf(body) {
 function fileBodyNow(f, now = Date.now()) {
   let r = fileReads.get(f);
   if (!r) { r = { body: null, until: 'none', at: -Infinity, gen: -1, reading: false }; fileReads.set(f, r); }
-  if (!r.reading && (now - r.at >= FILE_REREAD_MS || r.gen !== loginGen)) {
+  if (!r.reading && fileReadsRunning < FILE_READS_MAX && (now - r.at >= FILE_REREAD_MS || r.gen !== loginGen)) {
     r.reading = true;
+    fileReadsRunning += 1;
     const startGen = loginGen;
     try {
       fs.readFile(f, 'utf8', (err, body) => {
+        fileReadsRunning -= 1;
+        r.reading = false;
         const next = err ? null : body;
         const until = refreshUntilOf(next);
+        if (until === 'unread' && r.until !== 'none' && r.until !== 'unread') { r.at = -Infinity; return; }   // torn: keep the last good one
         const changed = until !== r.until;
-        r.body = next; r.until = until; r.at = Date.now(); r.reading = false;
-        const signInDuring = startGen !== loginGen;
+        r.body = next; r.until = until; r.at = Date.now();
+        const movedDuring = startGen !== loginGen;   // a sign-in, or another file's new date
         if (changed) loginGen += 1;
-        r.gen = signInDuring ? startGen : loginGen;   // a sign-in during this read: read again next time
+        r.gen = movedDuring ? startGen : loginGen;   // moved during this read: read again next time
       });
-    } catch { r.reading = false; r.at = now; r.gen = loginGen; }
+    } catch { fileReadsRunning -= 1; r.reading = false; r.at = now; r.gen = loginGen; }
   }
   return r.body;
 }
@@ -369,5 +378,6 @@ module.exports = {
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
   daysLeftOf, daysLeftInWindow, fileBodyNow, FILE_REREAD_MS, REFUSAL_WORDS,
   _setRefusalLogForTests: (fn) => { refusalLog = fn; },
-  _resetForTests: () => { refusalsSaid.clear(); fileReads.clear(); },
+  _resetForTests: () => { refusalsSaid.clear(); fileReads.clear(); fileReadsRunning = 0; },
+  FILE_READS_MAX,
 };
