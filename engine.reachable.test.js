@@ -22,6 +22,7 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   setCredReaderForTests: 'test seam (kosmos#9097): engine/claudeloginlive.js reads a Claude login file through this off macOS, so engine/loginexpiry-file-9097.test.js can show the account row reads its own folder in a throwaway home. Production leaves it null and reads the real file only outside node --test.',
+  _setRefusalLogForTests: 'test seam (kosmos#9107): engine/loginexpiry.js says why no login warning shows through this log, which is silent under node --test, so engine/loginexpiry-why-9107.test.js can read the lines it writes. Production writes them to the board log.',
   setSecretsRunner: 'test seam (kosmos#8992): engine/feedbackpull.js asks the secrets map through this (spawnSync-shaped), so engine/feedbackpull-tokenwhy-8992.test.js can give each answer (read, timed out, not in the map, no tool) without the real map. Production runs secrets-map.sh.',
   keepLastGood: 'test seam (kosmos#8863): engine/storecheck.js runs one whole last-good pass at once, so engine/storecheck-8863.test.js can assert what it copied and pruned. Production runs the same pass in steps through startKeepingLastGood (keepLastGoodInSteps).',
   setProbeRealHomeForTests: 'test seam (kosmos#9082 review 3): engine/create.js claudeProbeDir compares the default folder with the OS home (os.userInfo), so tests whose sandbox replaces HOME name that HOME as the real one.',
