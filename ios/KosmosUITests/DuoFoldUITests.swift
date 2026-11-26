@@ -39,16 +39,11 @@ final class DuoFoldUITests: DuoPanesCase {
         let app = try launch("tap", ["KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"])
         XCTAssertTrue(box(app).waitForExistence(timeout: 30) && holds(8) { self.beside(app) }, "CONTROL: unfolded, the list is not beside the chat")
         UIKitListArm.assertDrawn(app)
-        // The widest message text in the chat's pane, and that pane's width (its message box less the 16 pt margins).
-        func widest() -> (text: CGFloat, pane: CGFloat) {
-            let b = box(app).frame
-            let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260'")).allElementsBoundByIndex
-                .filter { $0.frame.width > 0 && $0.frame.minX >= b.minX - 20 }
-            return (rows.map(\.frame.width).max() ?? 0, b.width + 32)
-        }
+        func widest() -> (text: CGFloat, pane: CGFloat) { let p = chatPane(app); return (widestMessage(app, in: p), p.width) }
         sleep(3)
         let open = widest()
         XCTAssertGreaterThan(open.text, 0, "CONTROL: no messages drawn in the chat's pane")
+        XCTAssertLessThan(open.pane, app.frame.width * 0.9, "CONTROL: unfolded, the chat's pane was not measured apart from the list")
         XCTAssertLessThanOrEqual(open.text, open.pane * 0.78, "unfolded, a bubble's text is wider than its pane's share")
         fold(app, "sample folded")
         XCTAssertTrue(holds(10) { self.alone(app) }, "CONTROL: folded, the chat is not alone")
