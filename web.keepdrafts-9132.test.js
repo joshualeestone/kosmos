@@ -115,7 +115,9 @@ test('#9132: the open chat box whose words are its kept draft does not hold the 
   const h = helper(storage);
   const talk = h.keptDrafts('talk');
   talk.april = 'half a sentence';
-  const current = { sessionName: 'april' };
+  // The page's CURRENT (the open agent, which keys the chat box's draft), not an agent card or roster row.
+  const sessionName = 'april';
+  const current = { sessionName };
   assert.equal(nothingToLose({ maps: { talk }, typed: [{ id: 'd-say', value: 'half a sentence' }], current, draftsKept: h.draftsKept }), true,
     'the chat box holding exactly its kept draft held the restart');
   assert.equal(nothingToLose({ maps: { talk }, typed: [{ id: 'd-say', value: 'half a sentence and more' }], current, draftsKept: h.draftsKept }), false,
