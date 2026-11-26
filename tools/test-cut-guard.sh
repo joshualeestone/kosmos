@@ -1597,6 +1597,16 @@ rmdir "$MB/beside-runs.log.lock"; rm -rf "$MB/mvbin"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run start same "rep"
 nr9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"
 [ "$nr9139" -le 402 ] && pass "#9139 a repeated id does not keep the log from shrinking ($nr9139 lines after the trim)" || fail "#9139 a repeated id kept the log at $nr9139 lines"
+# Review 5 (besidefix): the trim keeps an id's NEWEST start and LARGEST end from before the cut (not just some line),
+# and never a future-dated line in their place.
+: > "$MB/beside-runs.log"
+printf 'S keep %s old\nS keep %s new\nE keep %s\nE keep %s\nE keep 99999999999999999999\n' $((now9139 - 900)) $((now9139 - 500)) $((now9139 - 800)) $((now9139 - 100)) >> "$MB/beside-runs.log"
+for _i in $(seq 1 399); do echo "E kpad$_i 1" >> "$MB/beside-runs.log"; done
+echo "E keep $((now9139 - 300))" >> "$MB/beside-runs.log"
+for _i in $(seq 1 100); do echo "E kpadb$_i 1" >> "$MB/beside-runs.log"; done
+KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end keep-trim
+{ grep -q "^S keep $((now9139 - 500)) new" "$MB/beside-runs.log" && grep -q "^E keep $((now9139 - 100))$" "$MB/beside-runs.log" && ! grep -q "^S keep $((now9139 - 900))" "$MB/beside-runs.log" && ! grep -q '^E keep 99999' "$MB/beside-runs.log"; } \
+  && pass "#9139 the trim keeps an id's newest start and largest end, never a future-dated line" || fail "#9139 the trim kept the wrong partners: $(grep '^[SE] keep ' "$MB/beside-runs.log" | tr '\n' '|')"
 # Review 1 (besidefix): a pending line is read while the log does not exist yet.
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
