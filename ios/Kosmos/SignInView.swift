@@ -415,11 +415,6 @@ final class SignInModel: ObservableObject {
         step = .allow(matchCode: code, hasComputer: true)
     }
 
-    /// kosmos#9111: the Mac's gate said no while this screen waited. As when Kosmos+ says it (watchAllow's .denied).
-    func macSaidNo() {
-        guard case .allow(_, true) = step else { return }
-        attempt += 1; watch?.cancel(); step = .denied(asking: false)
-    }
 
     /// A call that did not get an answer. A device key this iPhone cannot keep is not a network problem and would fail
     /// the same way every time, so that goes to the web sign-in page (review round 1).

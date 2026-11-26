@@ -274,14 +274,13 @@ struct ContentView: View {
             if step == .done { nativeSignIn = false; todayBoard = false; tab = AppTabs.todayTab ? .today : .agents }
             knockIfWaiting()
         }
-        // kosmos#9111: while the sign-in screen knocks, the run's answers move it: the Mac's own code, let in, or a no.
+        // kosmos#9111: while the sign-in screen knocks, the run's answers move it: the Mac's own code, or let in.
         .onChange(of: board.phase) { phase in
             guard knocking else { return }
             switch phase.allowScreen(step: signIn.step) {
             case .keep: break
             case .code(let code, let mac): signIn.showGateCode(code, mac: mac)
             case .done: signIn.continueToApp()
-            case .denied: signIn.macSaidNo()
             case .knockAgain:
                 // The run gave up (review 1): knocked again after 15 s, as the board's own run retries a Mac that is not
                 // answering, while the screen still waits and nothing else started a run meanwhile. Round 2: only the

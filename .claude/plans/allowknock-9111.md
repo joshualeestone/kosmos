@@ -98,3 +98,15 @@ Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room p
   knockRetries (reset per knock) only sets the wait.
 - [NIT] taken: the "backed out" test's words now claim only what it covers (BoardClient.stop ends the knocking).
 Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room pass.
+
+#### Iteration 4 (blind review of the whole branch, sonnet)
+
+- [SHOULD-FIX] taken: the same stale no can reach the first Allow step too (deny on the Mac, sign in again so
+  Kosmos+ files a fresh Allow, sign in once more before the Mac's poll: Kosmos+ says pending, the gate says the old
+  denied). So the gate's no is never final on this screen, on either step: it knocks again (with the growing wait),
+  and a real no comes from Kosmos+'s own poll (watchAllow's .denied -> "Your Mac said no"), exactly as on main.
+  AllowScreen.denied and SignInModel.macSaidNo are gone.
+- [NIT] not taken: the Mac's name shows only when the gate's code differs from Kosmos+'s (with the same code there is
+  nothing to tell apart); .signInHere/.signInAgain keep the screen waiting with Continue as the way on (only the
+  person can cure those, in the app, where the tab says so).
+Main logic suite PASS 2789/2789; settings, automation, actions, taskpage, room pass.

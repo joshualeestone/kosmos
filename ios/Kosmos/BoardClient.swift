@@ -72,23 +72,23 @@ final class BoardClient: ObservableObject {
         /// "Continue to the app", and a person who waited as told waited for ever). The gate's own code wins over the
         /// one Kosmos+ gave: a gate with the board-v2 marker answers a keyed code, which is the one the Mac shows
         /// (kosmos-relay proxy.rs), named with its Mac, since an account with two Macs knocks at one of them. Let in: the
-        /// screen moves on. The Mac said no: the screen says so. A run that gave up (the Mac or Kosmos+ not answering, a
-        /// refusal a new handoff may cure, no computer yet): knock again shortly, or the wait is endless once more.
-        enum AllowScreen: Equatable { case keep, code(String, mac: String), done, denied, knockAgain }
+        /// screen moves on. A run that gave up (the Mac or Kosmos+ not answering, a refusal a new handoff may cure, no
+        /// computer yet), or the gate's no: knock again shortly, or the wait is endless once more. The gate's no is
+        /// never taken as final here (rounds 3, 4): Kosmos+ turns a no into a fresh Allow when the person signs in
+        /// again, and the Mac's denied list catches up only at its next poll (kosmos-relay proxy.rs, kosmos#6407), so a
+        /// knock can get an old no on either step. A real no is Kosmos+'s to say (watchAllow's .denied), as before.
+        enum AllowScreen: Equatable { case keep, code(String, mac: String), done, knockAgain }
         func allowScreen(step: SignIn.Step) -> AllowScreen {
             switch step {
             case .allow(let shown, true):
                 switch self {
                 case .live: return .done
                 case .waitingForAllow(let mac, let code?) where code != shown: return .code(code, mac: mac)
-                case .denied: return .denied
+                case .denied: return .knockAgain
                 default: return endedRun ? .knockAgain : .keep
                 }
             case .denied(asking: true):
-                // Asked again after an earlier no: the same knock, so a yes now moves the screen on. The gate's no here
-                // is knocked again, not taken as final (round 3): Kosmos+ has made it a fresh Allow, but the Mac's
-                // denied list catches up only at its next poll (kosmos-relay proxy.rs, kosmos#6407), so the first
-                // knocks can get the old no. A real second no is Kosmos+'s to say (watchAllow's .denied), as before.
+                // Asked again after an earlier no: the same knock, so a yes now moves the screen on.
                 if case .live = self { return .done }
                 if case .denied = self { return .knockAgain }
                 return endedRun ? .knockAgain : .keep

@@ -4838,7 +4838,7 @@ section("native board loop: connecting")
         check(P.waitingForAllow(mac: "Studio", code: "AB12").allowScreen(step: waiting) == .keep, "the same code: nothing to change")
         check(P.waitingForAllow(mac: "Studio", code: nil).allowScreen(step: waiting) == .keep, "a gate with no code: Kosmos+'s stays")
         check(P.live(mac: mac).allowScreen(step: waiting) == .done, "let in: the screen moves on to the app")
-        check(P.denied(mac: "Studio").allowScreen(step: waiting) == .denied, "the Mac said no: the screen says so")
+        check(P.denied(mac: "Studio").allowScreen(step: waiting) == .knockAgain, "the gate's no is knocked again, never final here: it can be old (a no turned into a fresh Allow reaches the Mac at its next poll); a real no is Kosmos+'s to say")
         check(P.live(mac: mac).allowScreen(step: .denied(asking: true)) == .done, "asked again after a no, then let in: the screen moves on")
         check(P.denied(mac: "Studio").allowScreen(step: .denied(asking: true)) == .knockAgain, "asked again and the gate still says no: knocked again, not final (its denied list catches up at the next poll; a real no is Kosmos+'s to say)")
         for phase in [P.starting, .connecting(mac: "Studio"), .signedOut, .kosmosPlusRefused, .signInAgain(mac: "Studio"), .signInHere(mac: "Studio")] {
