@@ -217,12 +217,20 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 # a different stand-in arm each time). A failure is retried twice, then the gate cannot tell. Its pids go in GATE_PIDS
 # (not printed), so cannot's exit ends the gate, not a $( ) subshell.
 _gate_pgrep() {
-  local rc=0 i
+  local rc=0 i ef why
+  ef="$(mktemp "${TMPDIR:-/tmp}/tunnel-gate-pgrep.XXXXXX" 2>/dev/null)" || ef=/dev/null
   for i in 1 2 3; do
-    GATE_PIDS="$(pgrep -f "$1" 2>/dev/null)"; rc=$?
-    case "$rc" in 0|1) return 0 ;; esac
-    sleep 0.2
+    GATE_PIDS="$(pgrep -f "$1" 2>"$ef")"; rc=$?
+    case "$rc" in 0|1) [ "$ef" = /dev/null ] || rm -f "$ef"; return 0 ;; esac
+    # Review 1: say each failure (its code and pgrep's own words) on stderr, so a rescued one is in the log too and the
+    # next Mortals red can tell "pgrep failed" from "pgrep found nothing".
+    why="$(head -c 300 "$ef" 2>/dev/null | tr '\n' ' ')"
+    say "pgrep exited $rc on attempt $i of 3${why:+: $why}" >&2
+    [ "$i" = 3 ] || sleep 0.2
   done
+  [ "$ef" = /dev/null ] || rm -f "$ef"
+  # Review 1: exit 2 is a pattern or option pgrep refused, not a process list it could not read.
+  [ "$rc" = 2 ] && cannot "pgrep refused the pattern for the scan for another connector with the gate's identity (exit 2); this is a gate defect"
   cannot "could not list this computer's processes to look for another connector with the gate's identity (pgrep exited $rc, three times); run it again"
 }
 state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
