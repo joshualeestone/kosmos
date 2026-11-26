@@ -264,3 +264,31 @@ test('#9105 Mac: a board that answers without builtFiles is said to have kept on
     tasks.setBuilt = orig;
   }
 });
+
+test('#9105 Mac: task show lists each file, its checks and what it replaced; task files checks every file', macOnly, async () => {
+  const n = tasks.create(projectId, { sentence: 'Mac reads', who: 'mona' }).number;
+  const tok = sendertoken.mint('mona').token;
+  const r = await mac(['task', 'built', projectId, String(n), 'both', '--file', path.join(OUT, 'report.md'), '--file', path.join(OUT, 'data.csv')], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(r.code, 0, r.out);
+  assert.equal((await mark(n, asAgent('zed'), { check: ['report.md'], note: 'read it' })).status, 200);
+  const show = await mac(['task', 'show', projectId, String(n)], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(show.code, 0, show.out);
+  assert.match(show.out, /Delivered files: +2 \(check them again: kosmos task files/);
+  assert.match(show.out, new RegExp('File "?report\\.md"?: +' + sha('the report\n') + ', sent by "?mona'));
+  assert.match(show.out, new RegExp('File "?data\\.csv"?: +' + sha('a,b\n')));
+  assert.match(show.out, /Checked: +by "?zed"? \(marked built after it was sent\)/);
+  assert.equal((show.out.match(/Checked:/g) || []).length, 1, 'a check was shown on the file nobody checked: ' + show.out);
+  // One file changed on disk since the mark: task files says so for that file and matches the other.
+  fs.writeFileSync(path.join(OUT, 'data.csv'), 'a,b,c\n');
+  try {
+    const files = await mac(['task', 'files', projectId], { KOSMOS_AGENT_TOKEN: tok });
+    const mine = files.out.split('\n');
+    const at = mine.findIndex((l) => l.includes('#' + n + ' '));
+    assert.ok(at >= 0, files.out);
+    const block = mine.slice(at + 1, at + 3).join('\n');
+    assert.match(block, /matches +.*report\.md/, files.out);
+    assert.match(block, /CHANGED since it was marked +.*data\.csv/, files.out);
+  } finally {
+    fs.writeFileSync(path.join(OUT, 'data.csv'), 'a,b\n');
+  }
+});
