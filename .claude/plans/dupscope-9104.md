@@ -12,3 +12,10 @@ PigeonPete (Fleet Builders, 2026-11-26 02:3x): whoever merges second drops their
 ## Measured
 - test-support.tmpscope-first-9104.test.js: 2 of 2 (the remaining line satisfies the guard).
 - server.dm-rollover-5841.test.js: 21 of 21.
+
+## Review round 1 (03:24): CONVERGED, no blocker, no should-fix
+- The remaining require (line 14) has only 'use strict', a blank line and the header above it; the first tmpdir/mkdtemp
+  is at 19 and the first non-builtin require at 35. Nothing depends on the removed line.
+- Control (measured 03:25): with line 14 also removed, the guard fails naming this file ("never requires"); restored
+  from a scratch copy, no diff.
+- NIT: the branch is 21 commits behind main, none touching these files.
