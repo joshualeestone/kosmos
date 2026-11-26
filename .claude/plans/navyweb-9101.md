@@ -47,12 +47,12 @@ render-apptabs-6846 (gated) is changed and not yet run: it goes in the queue wit
 Still owed: an iOS build and screenshots (a board page, Today, the Close bar, light and dark).
 
 ## Review ledger
-3 blind rounds (1 opus, 2 sonnet, 3 opus). Converged at round 3: its findings were the README row, the hairline's
-half pixel and test-guard nits, all fixed; the owed run is recorded below. Fixed: boardGround's dark value read from
-the wrong token (round 1, a BLOCKER), the navy in-app header the native code matched (1), render-apptabs-6846 S1's
-white (round 2, a BLOCKER), the Palette.ground tie (2), the hairline drawn as an inset shadow so the bar keeps 44px of
-content (3), the catalogue row (3), the guard's #ffffff and the word white (3).
-Deferred: one value in two copies (boardGround and Palette.ground), pinned equal by test 5.
+Rounds: 1 opus, 2 sonnet, 3 opus, 4 sonnet. Fixed: boardGround's dark value read from the wrong token (1, BLOCKER),
+the navy in-app header the native code matched (1), render-apptabs-6846 S1's white (2, BLOCKER), the Palette.ground
+tie (2), the hairline as an inset shadow (3), the catalogue row (3), the guard's #ffffff and the word white (3), the
+ios README and stale navy wording in two UI tests, the sweep script and the check's header (4).
+Deferred: one value in two copies (boardGround and Palette.ground), pinned equal by test 5; the hidden
+.kplus-bar-menu's white (display:none inside the app; outside it is the browser's Kosmos+ bar, navy by design).
 
 ## Still owed before the card is done
 render-apptabs-6846 run on both engines (light lane, after the App Store gate); an iOS build; screenshots of a board

@@ -1,7 +1,7 @@
 import Network
 import XCTest
 
-// kosmos#8953: a web page an agent sent opens on the phone, in WebFileView, never on the computer's board (the navy page
+// kosmos#8953: a web page an agent sent opens on the phone, in WebFileView, never on the computer's board (the page
 // with a Close bar), and nothing in it reaches the network. The sample chat with Cleo carries "Launch page.html"
 // (KOSMOS_SAMPLE_WEBFILE=1); the sample's page names this test's own listener (KOSMOS_SAMPLE_WEBFILE_PROBE) in a sample
 // of the ways a page can load something: a stylesheet, an @import, a font, a script, preconnect, dns-prefetch, prefetch,
@@ -85,7 +85,7 @@ final class WebFileUITests: XCTestCase {
         let page = app.webViews["webfile.page"]
         XCTAssertTrue(page.waitForExistence(timeout: 10), "the web page did not open on the phone")
         XCTAssertTrue(page.staticTexts["Launch page"].waitForExistence(timeout: 10), "the page's own words are not drawn")
-        XCTAssertFalse(app.buttons["Close"].exists, "the board's navy page opened (its Close bar is on screen)")
+        XCTAssertFalse(app.buttons["Close"].exists, "the board's page opened (its Close bar is on screen)")
         XCTAssertTrue(app.buttons["Done"].exists && app.staticTexts["Pictures and styles this page loads from elsewhere are not shown, and its links do not open."].exists,
                       "the viewer's Done and its line about blocked loads are missing")
         // No link is left in the page (Board.withoutLinks), so none can be activated by VoiceOver or a keyboard either.

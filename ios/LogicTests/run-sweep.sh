@@ -66,7 +66,7 @@ have_gold=$( { grep -E '^let golds' "$here/../tools/launch-sweep/main.swift" | g
   || { echo "VERDICT: FAIL (the launch mark's golds are $(echo $have_gold) but Palette.starGold is $(echo $gold))"; exit 1; }
 echo "ok   the launch mark's golds are Palette.starGold, light and dark ($(echo $gold))"
 # The launch ground is right because a shipped launch opens on a native screen (sign-in or Agents). With the Today tab
-# on, it opens on the navy board instead, so turning it on must bring the launch screen back into question.
+# on, it opens on the board instead (the board's ground since kosmos#9101, navy before), so turning it on must bring the launch screen back into question.
 # This reads the shipped (#else) line only: the KOSMOS_STORE_SHOTS build turns Today on and opens on the board, and is
 # out of scope (it makes App Store screenshots, never a launch a person sees).
 grep -qE '^[[:space:]]*static let todayTab = false([[:space:]]|$)' "$src/ShellLogic.swift" \
