@@ -99,10 +99,10 @@ test('kosmos#9097 review 1: on Windows the login warning finds the folder of eac
   // Review 4: Windows-shaped rows, as win32roster emits them: its command, and a claim equal to the session (the
   // only ownership evidence a Windows row carries, launchidentity.paneSessionIsOurs).
   const roster = require('./win32roster');
-  const panes = ['amy', 'ben'].map((n, i) => status.parsePanes(fleet.line({ session: n, pane: '0.' + i, command: roster.WIN32_COMMAND, claim: n }))[0]);
+  const panes = ['roo', 'pixel'].map((n, i) => status.parsePanes(fleet.line({ session: n, pane: '0.' + i, command: roster.WIN32_COMMAND, claim: n }))[0]);
   // Controls: the fixture really is a Windows row and passes the pane filter (else every assertion below is vacuous).
   assert.ok(panes.every((p) => roster.isWin32Pane(p) && status.isNamedOurs(p)), 'Windows rows, and ours: ' + JSON.stringify(panes.map((p) => [p.command, p.claim])));
-  const jobs = { amy: { runner: 'claude', configDir: null }, ben: { runner: 'claude', configDir: path.join(h, '.claude-b') } };
+  const jobs = { roo: { runner: 'claude', configDir: null }, pixel: { runner: 'claude', configDir: path.join(h, '.claude-b') } };
   const lines = [];
   const opts = {
     platform: 'win32', readJob: (n) => jobs[n] || null, readCred: winRead(h), cache: { at: 0, value: [] },
@@ -114,13 +114,13 @@ test('kosmos#9097 review 1: on Windows the login warning finds the folder of eac
   assert.ok(lines.some((l) => l.includes('from its launch job')), 'the log names the launch job: ' + JSON.stringify(lines));
   assert.ok(!lines.some((l) => l.includes('ps eww')), 'no ps eww claim on Windows: ' + JSON.stringify(lines));
   const named = adv.flatMap((a) => a.agents || []);
-  assert.ok(named.includes('amy'), 'a default-account agent is warned about: ' + JSON.stringify(adv));
-  assert.ok(named.includes('ben'), 'an agent on its own folder is warned about: ' + JSON.stringify(adv));
+  assert.ok(named.includes('roo'), 'a default-account agent is warned about: ' + JSON.stringify(adv));
+  assert.ok(named.includes('pixel'), 'an agent on its own folder is warned about: ' + JSON.stringify(adv));
   // An agent with no readable Claude job is skipped, never guessed onto the default account.
-  const noJob = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? null : jobs[n]), cache: { at: 0, value: [] }, logState: { sig: '' } });
-  assert.ok(!noJob.flatMap((a) => a.agents || []).includes('amy'), 'no job, no warning for that agent');
-  const codex = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'amy' ? { runner: 'codex' } : jobs[n]), cache: { at: 0, value: [] }, logState: { sig: '' } });
-  assert.ok(!codex.flatMap((a) => a.agents || []).includes('amy'), 'a non-Claude job is never in a Claude login warning');
+  const noJob = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'roo' ? null : jobs[n]), cache: { at: 0, value: [] }, logState: { sig: '' } });
+  assert.ok(!noJob.flatMap((a) => a.agents || []).includes('roo'), 'no job, no warning for that agent');
+  const codex = status.computeLoginAdvisories(panes, now, { ...opts, readJob: (n) => (n === 'roo' ? { runner: 'codex' } : jobs[n]), cache: { at: 0, value: [] }, logState: { sig: '' } });
+  assert.ok(!codex.flatMap((a) => a.agents || []).includes('roo'), 'a non-Claude job is never in a Claude login warning');
   // CONTROL: the pane reader (the path Windows took before) finds no folder, so no warning: the 11-25 board's [].
   const before = status.computeLoginAdvisories(panes, now, { ...opts, readDetail: () => ({ ccd: undefined, pid: null }), cache: { at: 0, value: [] }, logState: { sig: '' } });
   assert.strictEqual(before.length, 0);
@@ -129,12 +129,12 @@ test('kosmos#9097 review 1: on Windows the login warning finds the folder of eac
 test('kosmos#9097 review 2: off macOS an explicit <HOME>/.claude and an unset folder are ONE login, one warning', () => {
   const h = home();
   const now = UNTIL - 3 * 86400000;
-  const agents = [{ name: 'amy' }, { name: 'ben' }];
-  const ccdOf = { amy: null, ben: path.join(h, '.claude') };
+  const agents = [{ name: 'roo' }, { name: 'pixel' }];
+  const ccdOf = { roo: null, pixel: path.join(h, '.claude') };
   const run = (platform) => le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: winRead(h), platform, userHome: h });
   const win = run('win32');
   assert.strictEqual(win.length, 1, 'one notice for one login: ' + JSON.stringify(win));
-  assert.deepStrictEqual(win[0].agents.sort(), ['amy', 'ben']);
+  assert.deepStrictEqual(win[0].agents.sort(), ['roo', 'pixel']);
   assert.strictEqual(win[0].ccd, null, 'the shared bucket is the default account, so its notice names the default row');
   // CONTROL: on macOS they stay two credentials (the #2129 class: the Keychain entry name differs).
   const mac = le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: () => body({ refreshTokenExpiresAt: UNTIL }), platform: 'darwin', userHome: h });
@@ -176,8 +176,8 @@ test('kosmos#9097 review 3: off macOS a non-default credential with no folder re
 test('kosmos#9097 review 3: on Windows the explicit default folder matches without case', () => {
   const h = home();
   const now = UNTIL - 3 * 86400000;
-  const agents = [{ name: 'amy' }, { name: 'ben' }];
-  const ccdOf = { amy: null, ben: path.join(h, '.CLAUDE') };
+  const agents = [{ name: 'roo' }, { name: 'pixel' }];
+  const ccdOf = { roo: null, pixel: path.join(h, '.CLAUDE') };
   const win = le.agentAdvisories({ agents, readCcd: (a) => ccdOf[a.name], now, readCred: winRead(h), platform: 'win32', userHome: h });
   assert.strictEqual(win.length, 1, JSON.stringify(win));
 });
