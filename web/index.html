@@ -12315,7 +12315,7 @@ html.kapptabs #plus-stars { display: none; }
    light status colours, navy fields). Inside the app it stands on the board's ground, so each one takes the board's
    token: ink and secondary ink for words, rule and sunk for lines and fills, the meaning colours for state. */
 html.kapptabs #s-sec-plus .plus-pill { background: var(--k-sunk); color: var(--k-ink-2); }
-html.kapptabs #s-sec-plus .plus-pill[data-state="up"] { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+html.kapptabs #s-sec-plus .plus-pill[data-state="up"] { background: color-mix(in srgb, var(--ok) 8%, transparent); color: var(--ok); }   /* 8%: 4.5:1 at its size (review 1) */
 html.kapptabs #s-sec-plus .plus-pill[data-state="connecting"] { background: var(--k-sunk); color: var(--k-ink-2); }
 html.kapptabs #s-sec-plus .plus-pill[data-state="down"] { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 html.kapptabs #s-sec-plus .plus-chip { background: var(--k-sunk); border-color: var(--k-rule);
@@ -12350,6 +12350,30 @@ html.kapptabs #plus-state2 .btn.uprime, html.kapptabs #plus-state2 .btn.uprime:h
   border-color: var(--gold-bright); color: #14161a; }
 html.kapptabs #plus-state2 .btn:not(.uprime) { color: var(--k-ink); border-color: var(--k-rule); }
 html.kapptabs #plus-state2 .btn:not(.uprime):hover { border-color: var(--k-ink-2); background: var(--k-sunk); }
+/* kosmos#9103 review 1: the rest of the navy-era colours these screens can show in the app. */
+html.kapptabs #plus-state2 :is(.plus-si-addr b, .plus-si-key code) { color: var(--k-ink); }
+html.kapptabs #plus-state2 .plus-si-key { background: var(--k-sunk); border-color: var(--k-rule); }
+html.kapptabs .plus-signin-link { color: var(--k-ink); text-decoration: underline; text-underline-offset: 3px; }
+html.kapptabs :is(.plus-signin-link, .plus-si-childbox > summary.fhint):focus-visible { outline-color: var(--k-ink); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:not(select) { caret-color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-text-fill-color: var(--k-ink); }
+html.kapptabs #pb .tk-inp:not(select) { --danger: inherit; background: var(--k-surface, var(--k-bg)); color: var(--k-ink);
+  -webkit-text-fill-color: var(--k-ink); caret-color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #pb .tk-inp::placeholder { color: var(--k-ink-2); -webkit-text-fill-color: var(--k-ink-2); }
+html.kapptabs #pb .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--k-bg) inset; }
+/* The request sheets (a computer asking in, a code to type) were a navy gradient with a blue Allow: the board's own
+   card and its gold primary in the app. */
+html.kapptabs :is(.askreq, .askcard) { background: var(--k-sunk); border-color: var(--k-rule); color: var(--k-ink); }
+html.kapptabs .askreq :is(.asksay, .askcodetype label) { color: var(--k-ink); }
+html.kapptabs .askreq :is(.askwho span, .askwait, .waitmeta) { color: var(--k-ink-2); }
+html.kapptabs .askreq .askdev { background: var(--k-surface, var(--k-bg)); }
+html.kapptabs .askreq .askdev svg { stroke: var(--k-ink-2); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein) { border-color: var(--k-rule); background: var(--k-surface, var(--k-bg)); color: var(--k-ink); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein)::placeholder { color: var(--k-ink-2); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein):focus-visible { outline-color: var(--gold); }
+html.kapptabs :is(.askreq, .askcard) .btn.uprime, html.kapptabs :is(.askreq, .askcard) .btn.uprime:hover,
+  html.kapptabs .askreq .acts .btn.uprime[aria-disabled="true"] { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+html.kapptabs .askreq .btn.quiet { color: var(--k-ink-2); }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
