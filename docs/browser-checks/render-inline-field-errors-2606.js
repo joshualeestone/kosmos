@@ -6,13 +6,9 @@
  * field-level (red border + message beside the field + focus), not as small text
  * far below the submit button (Josh's review; same structural defect as #1303 G,
  * one form along). Drives the SHIPPED pjFieldBad/pjFieldOk helper and the real
- * #pj-create empty-name gate against the real page, served by a real board on a sandboxed
- * home (#9158). It used to open web/index.html as file://, with no board; the page's own
- * start-up fetches then fail as CORS refusals, and once the board added more of them the
- * console guard below read every one as a FAIL, so the check was red on main and nothing ran it.
- * With a board those fetches answer, so the guard keeps its full meaning: ANY console error fails.
- * G0 plants one console error on every run and requires the guard to catch it, so a guard that
- * stopped listening would fail here rather than pass quietly.
+ * #pj-create empty-name gate against the real page, served by a board on a sandboxed home
+ * (#9158; why it moved off file:// is in .claude/plans/fielderrs-9158.md). Any console error
+ * is a FAIL; G0 plants one per page and fails if the guard does not hear it.
  *
  * Controls that can return the dangerous answer: the red border is read from
  * getComputedStyle (not the class alone), so the broadened `.frow input.bad`
@@ -56,10 +52,12 @@ function isColored(c) { return /^rgb/.test(c || '') && !/rgba\(0,\s*0,\s*0,\s*0\
 const PLANTED = 'kosmos-9158-planted-console-error';
 
 (async () => {
-  const server = await srv.start(0);
-  const URL = 'http://127.0.0.1:' + server.address().port;
-  const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
+  let server = null;
+  let browser = null;
   try {
+  server = await srv.start(0);
+  const URL = 'http://127.0.0.1:' + server.address().port;
+  browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: theme });
     page.on('pageerror', (e) => problems.push(`[${theme}] pageerror: ${e.message}`));
@@ -76,8 +74,7 @@ const PLANTED = 'kosmos-9158-planted-console-error';
     });
     await page.goto(URL, { waitUntil: 'networkidle' });
     const t = `[${theme}]`;
-    // A new board opens its first-run guide, and the guide holds focus while it is open, so it is closed the way a
-    // person closes it (Escape). Hiding it from script, as the file:// version did, leaves its focus where it was.
+    // A new board opens its first-run guide; close it with Escape, as a person does.
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
     ok(`${t} the first-run guide is closed before the forms are read`, !(await page.$('#firstrun:not([hidden])')));
     await page.evaluate((s) => console.error(s), PLANTED);
@@ -90,7 +87,6 @@ const PLANTED = 'kosmos-9158-planted-console-error';
     // proves the slot exists, the message lands beside the field, the input is flagged +
     // focused, and the broadened .frow input.bad selector actually paints a red border.
     const agent = await page.evaluate(() => {
-      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
       const pc = document.getElementById('panel-create'); if (pc) pc.hidden = false;
       if (typeof cstep === 'function') cstep('name'); // show #cstep-name so fields are visible + focusable
       const read = (inputId, errId) => {
@@ -139,7 +135,6 @@ const PLANTED = 'kosmos-9158-planted-console-error';
     // first gate in #pj-create after the resets, before any round trip, so it does not depend
     // on what the board answers.
     const project = await page.evaluate(() => {
-      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
       const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = false;
       if (typeof openAddProject === 'function') openAddProject(); // reset + wire the add form
       const view = document.getElementById('pj-add-view'); if (view) view.hidden = false;
@@ -166,8 +161,8 @@ const PLANTED = 'kosmos-9158-planted-console-error';
     await page.close();
   }
   } finally {
-    await browser.close();
-    server.close();
+    if (browser) await browser.close().catch(() => {});
+    if (server) server.close();
     for (const d of SANDBOXES) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
   console.log(`${pass} passed, ${problems.length} failed`);

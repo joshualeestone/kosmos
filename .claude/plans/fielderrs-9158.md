@@ -45,3 +45,11 @@ So both halves of the card's premise are off, and the defect is narrower and rea
   files 55/55.
 
 ## Reviews
+- Round 1 (opus): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT.
+  - WARNING: the header comment retold the card's premise (red on main, nothing runs it), which the measurement above
+    disproves. Fixed by cutting the history out of the comment; it lives here.
+  - NIT taken: srv.start and the browser launch ran before the try, so a launch failure skipped teardown. Both now
+    inside it, with null guards in the finally.
+  - NIT taken: two leftover `#firstrun` hides in the evaluate blocks, from the file:// version. Removed; the guide is
+    closed with Escape and asserted closed.
+  - NIT not taken: one try per teardown step (low value; browser.close now cannot throw out of the finally).
