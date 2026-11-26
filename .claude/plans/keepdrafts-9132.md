@@ -63,3 +63,22 @@ restart would lose kept words; measuring it on the app (type, let it restart, re
   79, render-dm-emoji-3744 74, render-room-reply-3745 71, render-phone-taps-5218 47, render-dm-reply-4256 22,
   render-type-to-focus-3283 19, render-gutter-return-4506 15, render-dm-sendjump-4639 8. Each carries a
   Browser-check-surface trailer saying so.
+
+#### Iteration 1 (blind review, opus)
+
+- [SHOULD-FIX] taken: a reply being written (DM_REPLY, PJ_REPLY: kept only on the page) lost its target on a restart
+  once the box stopped holding it (Send would post a plain message). Now a reply with words in its agent's or project's
+  draft holds the restart; a reply picked with nothing typed holds nothing, as before.
+- [SHOULD-FIX] taken: two tabs on one agent: a tab whose stored draft another tab overwrote counted its words as kept.
+  draftsKept now also checks every word on the page against what storage holds NOW, and the box check reads storage
+  (keptDraftStored), not the page's copy.
+- [SHOULD-FIX] taken: nothing forgot a draft. forgetDrafts on a confirmed agent removal (both remove dialogs, and the
+  org chart's removal for each one done) and a project removal; forgetAllDrafts on a successful Kosmos+ log out. A new
+  agent given a removed one's name no longer inherits its words. Not on a single message's delete (the draft still
+  belongs to that conversation).
+- [NIT] taken: an open IME composition holds the restart (UPDATE_COMPOSING); the PJ_DRAFTS comment no longer says
+  nothing is written to disk.
+- [NIT] not taken: the browser check covers d-say only (the other three restore by the same map read, covered by the
+  unit test's pj-say case); keys are not scoped by world under MULTI_KOSMOS (off by default, a separate card).
+Tests: web.keepdrafts-9132 9 of 9 and the related suites (439, 0 failed); render-keepdrafts-9132 passes; both gates
+pass; bc-pr-select 81.
