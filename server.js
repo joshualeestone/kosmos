@@ -589,8 +589,12 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
      no longer counts; once each, after the assignees and the parent's holders. One who has left the project is said as
      not told (the tell step below), as an assignee who left is. */
   // Review 7: only a replacement reaches them; a withdrawal is said to the marker alone (in the mark's answer).
-  const replacedPrint = replaced && replaced.kind === 'replaced' && tasks.FINGERPRINT_RE.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
-  const oldCheckers = replacedPrint && Array.isArray(replaced.checkedBy) ? replaced.checkedBy.filter((m) => typeof m === 'string' && m) : [];
+  /* kosmos#9105: `replaced` is one record (a route from before #9105) or every file the mark replaced or withdrew. */
+  const reps = (Array.isArray(replaced) ? replaced : replaced ? [replaced] : [])
+    .filter((x) => x && x.kind === 'replaced' && tasks.FINGERPRINT_RE.test(x.fingerprint || ''));
+  const replacedPrint = reps.length ? reps[0].fingerprint : '';
+  const checkersOf = (x) => (Array.isArray(x.checkedBy) ? x.checkedBy.filter((m) => typeof m === 'string' && m) : []);
+  const oldCheckers = [].concat(...reps.map(checkersOf));
   const forChecker = [...new Set(oldCheckers)].filter(notMe)
     .filter((m) => !others.concat(forParent).some((o) => sameAgentName(o, m, false)));
   const checkedOld = (m) => oldCheckers.some((o) => sameAgentName(o, m, false));
@@ -609,6 +613,8 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   const who = clean(by) || 'An agent';
   const note = clean(t.builtNote || '');
   const WAITS_ON_WORDS = { person: 'the person', review: 'a review', release: 'a release' };   // kosmos#8934
+  // kosmos#9105: the current files this marker sent (a checker's mark names none, as #6330 review 5 asks).
+  const sentByMarker = tasks.filesOf(t).filter((e) => e.fingerprint && t.builtBy && e.by === t.builtBy);
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     // kosmos#8934: what it waits on, when the mark says (a fixed word, never the sender's text).
@@ -617,10 +623,16 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
-    + (tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
+    + (sentByMarker.length > 1 ? ' - files ' + sentByMarker.map((e) => clean(e.name || 'a file') + ' ' + e.fingerprint).join(', ')
+      + ' (check your copy with: kosmos fingerprint <file> <its fingerprint>)' : '')   // kosmos#9105
+    + (sentByMarker.length <= 1 && tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
     /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
-    + (replacedPrint ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
+    + (reps.length === 1 ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
       + (checkedOld(m) ? ': you checked that one' : '') : '')
+    // kosmos#9105: several replaced at once are named, and each checker hears which of them it checked.
+    + (reps.length > 1 ? ' - it replaces ' + reps.length + ' files sent earlier (' + reps.map((x) => clean(x.name || 'a file') + ' ' + x.fingerprint).join(', ')
+      + '), so a check of those no longer counts'
+      + (checkedOld(m) ? ': you checked ' + reps.filter((x) => checkersOf(x).some((o) => sameAgentName(o, m, false))).map((x) => clean(x.name || 'a file')).join(', ') : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -28103,7 +28115,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane?, fingerprint?, file_path?, commit? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     { note?, clear?, from_pane?, fingerprint?, file_path?, commit?, files?, check? } (files, check: kosmos#9105). Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token, or the agent's own token via
@@ -28368,7 +28380,12 @@ const server = http.createServer(async (req, res) => {
           // #7508: an agent's mark may name the commit a code fix landed as (the CLI resolved it); the screen sends none.
           commit: !viaScreen && body.commit != null ? body.commit : null,
           // kosmos#8934: what it waits on (person, review or release), from an agent; the screen sends none.
-          waitingOn: !viaScreen && body.waiting_on != null ? body.waiting_on : null });
+          waitingOn: !viaScreen && body.waiting_on != null ? body.waiting_on : null,
+          /* kosmos#9105: every delivered file, [{ name, fingerprint, file_path? }]. A CLI sending one file also sends it
+             as fingerprint and file_path for a board from before #9105, so here the list wins and those are not passed. */
+          ...(!viaScreen && body.files != null ? { files: body.files, fingerprint: null, filePath: null } : {}),
+          // kosmos#9105: the files a checker's mark checks, by name (without it, every one).
+          check: !viaScreen && body.check != null ? body.check : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -28391,7 +28408,7 @@ const server = http.createServer(async (req, res) => {
             const no = taskMessageRefusal();
             if (!no) taskMessageValveRecord();
             return no;
-          }, out.replaced || null);   // kosmos#8307
+          }, out.replacedFiles || out.replaced || null);   // kosmos#8307; kosmos#9105: every file it replaced
         } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
@@ -28414,7 +28431,13 @@ const server = http.createServer(async (req, res) => {
          marker hears it and how to keep the file. Review 7: only the marker; a later different file tells the checkers.
          It claims no delivery. No double quote, backslash
          or control character, which the CLI's sed could not read. */
-      if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
+      // kosmos#9105: several files withdrawn at once are said as several (their names are plain, checked by the engine).
+      const withdrawnFiles = Array.isArray(out.replacedFiles) ? out.replacedFiles.filter((x) => x && x.kind === 'withdrawn') : [];
+      if (!viaScreen && body.clear !== true && withdrawnFiles.length > 1) {
+        summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the ' + withdrawnFiles.length + ' files you sent are withdrawn ('
+          + withdrawnFiles.map((x) => String(x.name || '').replace(/["\\\u0000-\u001f\u007f]/g, ' ')).join(', ') + ').'
+          + ' To keep them, mark it again with --file and each path.';
+      } else if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
         summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn.'
           + ' To keep it, mark it again with --file and its path.';   // review 3: no claim of who was told
       }
