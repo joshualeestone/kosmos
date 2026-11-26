@@ -5,13 +5,15 @@ import WebKit
 // other four show the board in ONE shared WKWebView, each opening its own section through the board's door.
 // Optionally gated behind a biometric unlock (KosmosConfig.requireBiometricUnlock).
 struct ContentView: View {
-    // kosmos#9095: KOSMOS_SAMPLE_FAILURE=offline|unreachable|mac|other, with ",trying" for the Try again wait, holds Today
-    // on that failure screen whatever the page does, so all four can be photographed in both appearances. A Debug
-    // build only: a Release build has no way to reach it.
+    // kosmos#9095: KOSMOS_SAMPLE_FAILURE=offline|unreachable|mac|other, with ",trying" for the Try again wait, holds every
+    // web tab (Today among them) on that failure screen whatever the page does, so all four can be photographed in both
+    // appearances. Launch without KOSMOS_SAMPLE_AGENTS: with it Today is native and draws no web tab. Its buttons do
+    // nothing while it holds, so a tap never starts a real load or leaves the screen. A Debug build only: a Release
+    // build has no way to reach it.
     static let sampleFailure: (failure: Shell.LoadFailure, trying: Bool)? = {
         #if DEBUG
         guard let raw = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FAILURE"] else { return nil }
-        let parts = raw.split(separator: ",").map(String.init)
+        let parts = raw.lowercased().split(separator: ",").map(String.init)
         let failure: Shell.LoadFailure
         switch parts.first {
         case "offline": failure = .offline
@@ -748,7 +750,10 @@ struct ContentView: View {
                 .ignoresSafeArea(.keyboard)
             if let failure = Self.sampleFailure?.failure ?? shell.failure {
                 LoadFailureView(failure: failure, detail: Self.sampleFailure.map { _ in "The request timed out." } ?? shell.failureDetail,
-                                retrying: Self.sampleFailure?.trying ?? shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer,
+                                retrying: Self.sampleFailure?.trying ?? shell.retrying,
+                                onRetry: Self.sampleFailure == nil ? shell.retry : {},
+                                onBack: Self.sampleFailure == nil ? shell.back : {},
+                                onOtherComputer: Self.sampleFailure == nil ? shell.otherComputer : {},
                                 macName: Self.sampleFailure.map { _ in "Studio Mac" } ?? shell.failureMac,
                                 lastHeard: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
                     // kosmos#7416 review 3 and 4: keyed on the failure, the computer and each Try again, not on the view

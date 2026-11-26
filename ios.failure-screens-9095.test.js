@@ -81,4 +81,13 @@ test('#9095 the failure screenshot hook names all four screens and is Debug only
     assert.match(body, new RegExp(`case "${word}": failure = \\.${kase}\\b`), `KOSMOS_SAMPLE_FAILURE=${word} does not reach .${kase}`);
   }
   assert.match(content, /if let failure = Self\.sampleFailure\?\.failure \?\? shell\.failure \{/, 'Today does not show the sampled failure');
+  assert.match(body, /raw\.lowercased\(\)/, 'the value is matched case-sensitively');
+  assert.match(body, /parts\.dropFirst\(\)\.contains\("trying"\)/, 'the ",trying" form is not read');
+  const shown = content.slice(content.indexOf('if let failure = Self.sampleFailure'), content.indexOf('lastHeard:', content.indexOf('if let failure = Self.sampleFailure')));
+  assert.match(shown, /retrying: Self\.sampleFailure\?\.trying \?\? shell\.retrying/, 'the sampled Trying is not shown');
+  assert.match(shown, /detail: Self\.sampleFailure\.map \{ _ in "The request timed out\." \}/, 'the "other" screen has no sampled detail');
+  assert.match(shown, /macName: Self\.sampleFailure\.map \{ _ in "Studio Mac" \}/, 'the Mac screen has no sampled name');
+  for (const action of ['retry', 'back', 'otherComputer']) {
+    assert.match(shown, new RegExp(`Self\\.sampleFailure == nil \\? shell\\.${action} : \\{\\}`), `a sampled screen's ${action} acts on the real page`);
+  }
 });

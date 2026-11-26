@@ -50,3 +50,7 @@ states can be shot in light and dark. Decided: one env hook beside the 100+ KOSM
 that Today's web tab draws its overlay in a sample (no account) launch; unmeasured until the iOS build. Test: the new
 arm in ios.failure-screens-9095.test.js; a mutant moving the read above #if DEBUG turns it red. Needs one more blind
 review round (this is new code after convergence).
+Review 4 (sonnet, blind, on the hook): no BLOCKER. Fixed: the comment now says every web tab and to launch without
+KOSMOS_SAMPLE_AGENTS (that makes Today native); the buttons do nothing while the hook holds (a real Try again reloaded
+the page behind it); the value is lowercased; the test now pins Trying, the detail, the Mac name and all three no-op
+buttons (seven mutants, each red). Left: an unknown value silently does nothing (NIT; the shot shows it at once).
