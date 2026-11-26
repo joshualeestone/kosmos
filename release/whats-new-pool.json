@@ -2935,7 +2935,7 @@
     },
     {
       "title": "Windows warns before a Claude login ends",
-      "line": "On Windows, an agent whose Claude login is near its end gets the same warning and Refresh login button as on the Mac.",
+      "line": "On Windows, an agent whose Claude login is near its end now gets a warning and a Refresh login button.",
       "icon": "shield",
       "platforms": [
         "windows"
