@@ -1093,7 +1093,8 @@ if [ "$NODE_STATUS" -ne 0 ]; then
     fi
   fi
   if [ -n "$_rt_beside" ]; then
-    echo "Runs that went beside this one while it ran, and said so (#9139):"
+    echo
+    echo "=== runs that went beside this one while it ran, and said so (#9139) ==="
     printf '%s\n' "$_rt_beside" | sed 's/^/  /'
     echo "A red inside one of these windows is contention first: rerun the failing file alone before calling it a defect."
   fi

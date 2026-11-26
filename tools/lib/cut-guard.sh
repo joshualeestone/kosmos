@@ -1800,12 +1800,19 @@ _kosmos_old_qh_waiter_live() {
 # file is trimmed only past 500 lines, back to 400, so most appends never rewrite it); a writer waits up to about 10 s;
 # a lock older than 10 s (a writer killed while holding it: a real hold lasts milliseconds) is broken and retried. A
 # lock still not got appends anyway and skips the trim (a lost line costs less than a CI step that waits).
+# Review 3: GNU stat first. GNU `stat -f` means "file system": it prints lines of text and THEN fails, so a BSD-first
+# fallback fed text into the arithmetic and bash dropped the whole call on Linux (as launchagent-leak-guard.sh:27
+# already orders it; BSD stat rejects -c at once). A stale lock is first renamed to a name of this writer's own, and
+# removed only if that rename won, so two writers that both see it stale cannot both break it (and one remove the
+# other's new lock). A marker dir that cannot be written gives up at once instead of spinning.
+_kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
 _kosmos_beside_lock() {
   local d="$1" i=0 age
+  [ -w "${d%/*}" ] || return 1
   until mkdir "$d" 2>/dev/null; do
     i=$((i + 1)); [ "$i" -ge 100 ] && return 1
-    age=$(( $(date +%s) - $(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || date +%s) ))
-    [ "$age" -gt 10 ] && rmdir "$d" 2>/dev/null && continue
+    age=$(( $(date +%s) - $(_kosmos_beside_mtime "$d") ))
+    if [ "$age" -gt 10 ] && mv "$d" "$d.stale.$$" 2>/dev/null; then rmdir "$d.stale.$$" 2>/dev/null; continue; fi
     sleep 0.1
   done
   return 0
@@ -1813,10 +1820,11 @@ _kosmos_beside_lock() {
 kosmos_note_beside_run() {
   local f l id got=0 now; f="$(_kosmos_marker_dir)/beside-runs.log"; l="$f.lock"; now="$(date +%s)"
   mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null
-  id="$(printf '%s' "${2:-unnamed}" | tr -s ' \t' '__')"; [ -n "$id" ] || id=unnamed
+  local what; what="$(printf '%s' "${3:-}" | tr '\n\r' '  ')"   # review 3: one record is one line
+  id="$(printf '%s' "${2:-unnamed}" | tr -s ' \t\n\r' '____')"; [ -n "$id" ] || id=unnamed
   case "${1:-}" in start|end) ;; *) return 2 ;; esac
   _kosmos_beside_lock "$l" && got=1
-  if [ "$1" = start ]; then printf 'S %s %s %s\n' "$id" "$now" "${3:-}" >> "$f" 2>/dev/null
+  if [ "$1" = start ]; then printf 'S %s %s %s\n' "$id" "$now" "$what" >> "$f" 2>/dev/null
   else printf 'E %s %s\n' "$id" "$now" >> "$f" 2>/dev/null; fi
   if [ "$got" = 1 ] && [ "$(wc -l < "$f" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
     tail -n 400 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null
