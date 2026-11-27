@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: pgrepbytes-9149
-diff_hash: 10a81a9e096b3d8b309574561abe2945882f51bfc2a4ff4318e3666fc5fdcd76
+diff_hash: 4b9696d1ce43bf69f72cfd1da3e1cf6313e33f720700a8baf7fd2274525baa02
 validation: the four touched test files run green on this Mac (test-tunnel-handshake-gate 66/66, test-running-anchor-5470 0 failures, tools.heavy-gate-3805.test.js 47 pass 0 fail, sleep-control guard clean); the full suite is the PR's CI. Not a local full suite: the 0.8.27 cut waits on this fix.
 subdir_audit: not run (no CLAUDE.md in the diff)
-timestamp: 2026-11-27T02:46:00Z
+timestamp: 2026-11-27T03:33:00Z
 iterations: 2
 converged: true
 ---
@@ -40,3 +40,4 @@ converged: true
 - [SHOULD-FIX] the live arms put the very fault on the shared Mac (April's red tonight) --> FIXED: stubs that refuse unless LC_ALL=C
 - [NIT] `_kosmos_drop_test_fixtures`'s `[[ =~ ]]` misses a fixture whose own line holds a bad byte --> DEFERRED: fails toward busy, the safe side
 - [NIT] the heavy-gate awk-under-C check tests awk, not the gate --> DEFERRED: the source pin is the guard and can fail (measured)
+- (After the PR's first CI: the #8195 pipefail ratchet read the edited anchor-test line as new --> FIXED: its baseline entry replaced. The other tests naming the touched code pass.)
