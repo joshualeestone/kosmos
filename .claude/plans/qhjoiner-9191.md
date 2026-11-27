@@ -13,14 +13,15 @@ whose arguments file is in its own $S.
   waiter. Replaces the three `pgrep -o -f "^/bin/bash $REAL_QH --queued-args"` picks: the gitlive and idxlock arms the
   card names, and the live-holder arm, which had the same shape.
 - `kill_waiters`: KILLs this run's waiters, called in the EXIT trap before $S is removed and in the watchdog's KILL
-  stage, before the sleep sweep (so a waiter cannot start a sleep after it). The watchdog's KILL stage now kills the
-  file's children one by one and leaves itself out (its own pid from `perl -e 'print getppid'`, bash 3.2 having no
+  stage, before the sleep sweep (so a waiter cannot start a sleep after it). The watchdog's KILL stage now kills, in
+  order, the file's children (one by one, leaving itself out), this run's waiters, this run's sleeps (last, so nothing
+  still alive can start one after the sweep), then the file. It leaves itself out (its own pid from `perl -e 'print getppid'`, bash 3.2 having no
   BASHPID), so its last `kill -KILL` of the file still runs; the old `pkill -P` matched the watchdog itself where pkill
   does not leave out its caller's parent (procps, Linux). Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
   whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters. Both are KILLed only when the command line has
   a waiter's shape (a bash running a script with --queued-args; for a listed pid also its forms before the re-exec,
   perl about to run this tree's wrapper, or that wrapper with its first arguments, since it is listed only while its
-  own arm runs). The stale-TMPDIR arm (#5467) needs the second kind:
+  own arm runs; a separate "a script in $S" branch was dropped in round 7, as nothing real could reach it). The stale-TMPDIR arm (#5467) needs the second kind:
   its TMPDIR does not exist, so the wrapper falls back to /tmp and the arguments file is outside $S. That arm now runs
   as `( ... exec perl ... ) &` and lists its pid (the waiter's, through perl's exec and the wrapper's re-exec) only
   while it runs (between the fork and its listing, and between the wait and its unlisting, a stop would miss or keep it;
@@ -55,9 +56,11 @@ whose arguments file is in its own $S.
   queue scans on the Mac would see); the source check above is what catches a call site reverted to pgrep -o.
 - Whole file after rounds 2 and 3: 177/177 each; after round 5, run as CI runs it (`bash tools/...`, a relative
   $0): 178/178.
-- The watchdog's KILL stage in a harness (its real block, a 2 s deadline, a foreground sleep TERM cannot interrupt, a
-  waiter stand-in in $S): the file is KILLed (137) and the stand-in is gone. macOS only; the Linux pkill case is
-  reasoned.
+- The watchdog's KILL stage in a harness built from the file's own watchdog and kill_waiters (a 2 s deadline, a
+  foreground sleep the TERM cannot interrupt, a waiter stand-in in $S): the stand-in is gone and the file ends. Round 6
+  code: KILLed (137). Round 7 code (children first): the foreground sleep is one of those children, so the file's TERM
+  trap then runs (124) before the KILL is needed. macOS only; the Linux pkill case is reasoned.
+- Whole file after round 6: 178/178.
 - Whole file after round 1: 177/177.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
   `.../queued-heavy.sh --queued-args` command line, so other agents' lib-move scans could see it and say "another

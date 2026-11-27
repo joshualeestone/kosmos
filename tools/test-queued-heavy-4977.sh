@@ -38,7 +38,7 @@ ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
 # watchdog, forked before any arm, reads it as it is now.
 kill_waiters() { local p
   for p in $(LC_ALL=C pgrep -f -- "--queued-args $S/" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash "*" --queued-args $S/"*) kill -KILL "$p" 2>/dev/null;; esac; done
-  for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"/bin/bash $S/"*" --queued-args "*|"perl -e alarm"*" /bin/bash $REAL_QH "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
+  for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"perl -e alarm"*" /bin/bash $REAL_QH "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
 # own_waiter <pid> lists a pid for kill_waiters, unown_waiter <pid> takes it off again: an arm lists its waiter only
 # while that arm runs (kill_waiters also accepts its pre-exec forms, which is safe only for a pid still its own), so
 # every arm that lists one must unlist it when its wait returns. Only that pid's line goes; others stay.
@@ -51,17 +51,18 @@ QH_FILE_DEADLINE="${QH_FILE_DEADLINE:-900}"
 trap 'exit 124' TERM
 # It checks every 5 s that this file is still running (its pid, its own command line) and ends with it, so it never
 # signals a pid reused after the file was killed from outside. A TERM reaches the file only between foreground commands;
-# when one is hung, the KILL 15 s later stops the file's children, this run's sleeps and waiters (kill_waiters), and then
+# when one is hung, the KILL 15 s later stops the file's children, this run's waiters (kill_waiters) and sleeps, and then
 # the file (its EXIT trap does not run then, so $S can be left behind: the limit).
 ( trap - EXIT TERM; me=$$; t0=$(date +%s); wd=$(exec perl -e 'print getppid')   # kosmos#9191: this watchdog's own pid ($$ is the file's here, and bash 3.2 has no BASHPID)
   alive() { case "$(ps -o command= -p "$me" 2>/dev/null)" in *test-queued-heavy-4977*) return 0;; *) return 1;; esac; }
   while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
   echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
   kill -TERM "$me" 2>/dev/null; sleep 15; alive || exit 0
-  kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
-  # kosmos#9191: the file's children one by one, leaving out this watchdog (also its child), so the KILL of the file
-  # below still runs; a `pkill -P` here matches the watchdog itself where pkill does not leave out its caller's parent.
+  # kosmos#9191: the file's children first, one by one, leaving out this watchdog (also its child), so the KILL of the
+  # file below still runs (a `pkill -P` matches the watchdog itself where pkill does not leave out its caller's parent);
+  # then this run's waiters; then its sleeps, last, so nothing still alive can start one after the sweep.
   for p in $(pgrep -P "$me" 2>/dev/null); do [ "$p" = "$wd" ] || kill -KILL "$p" 2>/dev/null; done
+  kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
   kill -KILL "$me" 2>/dev/null ) & WD=$!
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
@@ -869,13 +870,13 @@ bash -c 'exec -a "perl -e alarm(shift); exec @ARGV or die 60 /bin/bash $1/fakeqh
 # Ready once each has exec'd: before that its bash -c line already holds the words --queued-args, unexpanded.
 until_true 10 'ps -ww -o command= -p $KA9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KB9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && ps -ww -o command= -p $KD9191 | grep -q "^/bin/bash $S/fakeqh9191.sh stale" && ps -ww -o command= -p $KE9191 | grep -q "^perl -e alarm"'; k9191_up=$?
 # KC is listed too: a listed pid whose command is not a waiter of this run (a reused pid) must be left alone.
-# Called mid-run: it also ends any other live waiter of this run, and none is alive at this point.
+# Called mid-run: any other waiter of this run still alive here is ended too.
 own_waiter $KB9191; own_waiter $KC9191; own_waiter $KD9191; own_waiter $KE9191; REAL_QH="$S/fakeqh9191.sh" kill_waiters
 for p in $KB9191 $KC9191 $KD9191 $KE9191; do unown_waiter $p; done
 dead9191() { local st; st="$(ps -o stat= -p "$1" 2>/dev/null)"; st="${st// /}"; [ -z "$st" ] || [ "${st#Z}" != "$st" ]; }   # gone, or a zombie not yet reaped (kill -0 succeeds on those)
 until_true 10 'dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191'
 ok "#9191: kill_waiters ends a waiter whose arguments file is in this run's dir and the listed ones in each form (re-exec'd, before it, perl), and leaves a listed pid that is not its waiter alone" '[ "$k9191_up" = 0 ] && dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191 && ! dead9191 $KC9191'
-kill -KILL $KC9191 2>/dev/null; wait $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 2>/dev/null
+kill -KILL $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 2>/dev/null; wait $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 2>/dev/null
 # kosmos#9191: joiner_under finds the waiter under the pid it is given, not an OLDER process with the same command line
 # (the stray a killed earlier run left behind, which `pgrep -o` picked). This guards the helper; the three #5923 arms
 # that call it are not run here with a stray beside them (that needs a real-path stand-in, which other agents' queue
