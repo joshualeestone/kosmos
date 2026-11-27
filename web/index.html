@@ -20308,7 +20308,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Idle agents</h3>
       <div class="setrow" id="idr-row" style="margin-top:14px;">
         <div><b>Retire agents that have not run in a while</b>
-          <p class="dhint" style="margin:2px 0 0;">Once a day, Kosmos removes each agent that has not run in the number of days you pick. Nothing is deleted: a retired agent is under Removed agents on the Agents page, and Restore puts it back. Kosmos never retires the setup guide, an agent waiting on you, an agent named on an open task, or an agent on a project that is not archived.</p>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos removes each agent that has not run in the number of days you pick, a few each hour. Only days Kosmos was running count, so a computer left off for a month retires nobody. Nothing is deleted: a retired agent is under Removed agents on the Agents page, and Restore puts it back. Kosmos never retires the setup guide, an agent that is busy or waiting on you, an agent named on an open task, or an agent on a project that is not archived. The lists below show what it would do before you turn it on.</p>
           <p class="dhint" style="margin:8px 0 0;">Off by default.</p></div>
         <button class="toggle" id="idr-toggle" role="switch" aria-label="Retire agents that have not run in a while" hidden><i></i></button>
       </div>
@@ -30311,13 +30311,14 @@ function paintIdleRetireFrom(r) {
     }
     if (document.activeElement !== sel) sel.value = String(s.days);
   }
+  /* The days and the lists show while it is off too: the person sees who would go before turning it on. */
   const daysRow = document.getElementById('idr-days-row');
   const lists = document.getElementById('idr-lists');
-  if (daysRow) daysRow.hidden = !on;
-  if (lists) lists.hidden = !on;
+  if (daysRow) daysRow.hidden = false;
+  if (lists) lists.hidden = false;
   const v = Array.isArray(r.verdicts) ? r.verdicts : [];
   const limit = Number(s.days) || 30;
-  idrList('idr-retire', 'idr-retire-h', 'Would be retired at the next daily check:',
+  idrList('idr-retire', 'idr-retire-h', on ? 'Would be retired at the next check:' : 'Would be retired if you turn this on:',
     v.filter((x) => x.verdict === 'retire').map((x) => x.shownAs + ': ' + x.why));
   idrList('idr-keep', 'idr-keep-h', 'Idle that long, but kept:',
     v.filter((x) => x.verdict === 'keep' && typeof x.days === 'number' && x.days >= limit).map((x) => x.shownAs + ': ' + x.why));
@@ -30358,6 +30359,7 @@ async function saveIdleRetire(change) {
     if (!res.ok) failed = true;
     if (mine !== IDR_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    if (!Array.isArray(out.verdicts)) { failed = true; return; }   // saved, but the lists could not be read: the re-read says so
     paintIdleRetireFrom(out);
     if (msg) msg.textContent = '';
   } catch {
