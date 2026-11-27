@@ -210,7 +210,7 @@ const USAGE = {
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
     '       kosmos feedback list [--mine]      (--mine: only the days holding your own report)',
     '       kosmos feedback day [--date YYYY-MM-DD]   (your own day on this computer, for writing the report; --date an earlier one)',
-    '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
+    '       kosmos feedback pull [--dir PATH] [--all]  (bring collected reports down for triage; --all fetches ones already there too)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
     "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)",
     '       (write reads piped text to its END: text that stops for 3 s without ending is refused, not saved)',
@@ -3726,8 +3726,10 @@ async function feedbackTriage(ctx, args) {
 
 async function feedbackPull(ctx, args) {
   let dir = '';
+  let all = false;
   while (args.length) {
     const a = args.shift();
+    if (a === '--all') { all = true; continue; }   // kosmos#9180, as install/kosmos
     if (a !== '--dir') { ctx.err('Unknown option for pull: ' + a); return 2; }
     if (!args.length) { ctx.err('--dir needs a path'); return 2; }
     dir = args.shift();
@@ -3735,7 +3737,8 @@ async function feedbackPull(ctx, args) {
   let r; let lines; let next;
   try {
     const fp = ctx.engine('feedbackpull');
-    r = await fp.pull(dir || undefined);
+    // kosmos#9180, as install/kosmos: progress on stderr while it runs (an older engine has no progressLine: nothing said).
+    r = await fp.pull(dir || undefined, { all, onProgress: (p) => { if (typeof fp.progressLine === 'function') ctx.err(fp.progressLine(p)); } });
     if (r.ok) lines = fp.summaryLines(r);
   } catch { ctx.err('could not pull the collected feedback'); return 1; }
   /* #6265: plain when it is the default folder. Outside the pull's try (review 7): a pull that wrote its reports is

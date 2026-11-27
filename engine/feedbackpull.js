@@ -55,6 +55,13 @@ const PREFIX = 'feedback/';
 // non-terminating cursor must not loop forever / grow unbounded).
 const REQUEST_TIMEOUT_MS = 15000;
 const MAX_PAGES = 10000;
+/* kosmos#9180: a pull fetched every report one at a time, and every one again on each pull, with nothing printed until
+   the end (over a minute), so a caller with a timeout lost it silently. Now a few reports are fetched at once, a report
+   already pulled into the folder is not fetched again (indexPath), and progress goes to the caller's onProgress. */
+const FETCH_AT_ONCE = 6;
+// The index lives under the data root, one per folder (by its resolved path), never in the folder, which holds reports only.
+const INDEX_DIR = 'feedbackpull-index';
+const PROGRESS_EVERY_MS = 3000;
 
 // fetch with a bounded timeout; every path clears the timer.
 async function fetchBounded(url, init) {
@@ -356,15 +363,55 @@ async function pull(dir, opts) {
   // message points at the local disk, with the error.
   let unwritten = 0;
   let lastWriteError = '';
-  for (const b of (Array.isArray(blobs) ? blobs : [])) {
-    if (!b || typeof b.url !== 'string') { skipped += 1; continue; }
-    let text;
-    try { text = await tp.get(b.url, tok); }
-    catch (e) {
-      skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
+  /* kosmos#9180: what this folder already holds, by store object. A re-sent report is a NEW object (the collect route
+     writes a new blob and deletes the old one), and the key carries its upload time and size too, so a changed report is
+     never taken for one already here. A report is skipped only while the file it was saved as is still in the folder;
+     `all` fetches everything again. An index that cannot be read is an empty one: the cost is one full pull. */
+  const listed = Array.isArray(blobs) ? blobs : [];
+  const before = o.all === true ? {} : readIndex(target);
+  const index = {};
+  let alreadyHere = 0;
+  const toFetch = [];
+  for (const b of listed) {
+    const key = indexKey(b);
+    const had = key && Object.prototype.hasOwnProperty.call(before, key) ? before[key] : null;
+    if (had && isSavedName(had) && fs.existsSync(path.join(target, had))) { index[key] = had; alreadyHere += 1; continue; }
+    toFetch.push(b);
+  }
+  /* A few at a time, each result kept in its list place, then written IN LIST ORDER below, so two same-day blobs of one
+     install (the collect route's brief write-then-delete window) resolve exactly as the one-at-a-time loop did. */
+  const progress = typeof o.onProgress === 'function' ? o.onProgress : null;
+  const fetched = new Array(toFetch.length);
+  let done = 0;
+  let lastSaid = Date.now();
+  let next = 0;
+  const every = Number.isFinite(o.progressEveryMs) && o.progressEveryMs >= 0 ? o.progressEveryMs : PROGRESS_EVERY_MS;   // tests set it
+  const say = () => { try { progress({ fetched: done, toFetch: toFetch.length, alreadyHere, total: listed.length }); } catch { /* a progress line never fails a pull */ } };
+  if (progress && toFetch.length) say();   // at once: the pull lives, and says how much it has to fetch
+  const worker = async () => {
+    while (next < toFetch.length) {
+      const i = next++;
+      const b = toFetch[i];
+      if (!b || typeof b.url !== 'string') { fetched[i] = { bad: true }; }
+      else {
+        try { fetched[i] = { text: await tp.get(b.url, tok) }; }
+        catch (e) { fetched[i] = { error: String((e && e.message) || e) }; }
+      }
+      done += 1;
+      if (progress && done < toFetch.length && Date.now() - lastSaid >= every) { lastSaid = Date.now(); say(); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FETCH_AT_ONCE, toFetch.length) }, worker));
+  for (let i = 0; i < toFetch.length; i++) {
+    const b = toFetch[i];
+    const got = fetched[i];
+    if (got.bad) { skipped += 1; continue; }
+    if (got.error !== undefined) {
+      skipped += 1; unreadable += 1; lastGetError = got.error;
       if (REFUSED_STATUS.test(lastGetError) && !/token withheld/.test(lastGetError)) denied += 1;
       continue;
     }
+    const text = got.text;
     let rec;
     try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
@@ -377,12 +424,16 @@ async function pull(dir, opts) {
          so only this report's own dead temps are reaped there; the mode is the umask default, as before. */
       require('./securewrite').writeSecret(dest, toMarkdown(rec), null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
       written += 1;
+      const key = indexKey(b);
+      if (key) index[key] = path.basename(dest);
     } catch (e) {
       // The code and the report's own name, not the raw message, which would name securewrite's long internal temp path.
       skipped += 1; unwritten += 1; lastWriteError = ((e && e.code) || 'error') + ' saving ' + path.basename(dest);
     }
   }
-  const total = Array.isArray(blobs) ? blobs.length : 0;
+  const total = listed.length;
+  // Only what the store still lists is kept, so the index never outgrows the store. A failed save costs a re-fetch next time.
+  writeIndex(target, index);
   /* Whether the listing came from a PUBLIC blob store (<store>.public.<BLOB_HOST>, the
      shape @vercel/blob builds). Before kosmos#3878's migration that is correct; after
      it, it means the token filed as FEEDBACK_TOKEN_TARGET is still the old public
@@ -396,18 +447,50 @@ async function pull(dir, opts) {
   // Every skip took exactly one branch above, so what is left is the malformed ones
   // (no url, not JSON, the wrong shape). Counted ONCE, here, for both results.
   const malformed = skipped - unreadable - unwritten;
-  const counts = { written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
+  const counts = { written, alreadyHere, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
     unwritten, lastWriteError: unwritten ? lastWriteError : '', malformed, fromPublicStore, total, dir: target };
   /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
      be read (#3878), were malformed, or failed to save here. Any of those is a failure
      with its reasons, never "pulled 0" as a success. */
-  if (written === 0 && skipped > 0) {
+  if (written === 0 && alreadyHere === 0 && skipped > 0) {
     return { ok: false, ...counts,
       because: 'the store listed ' + reports(total) + ' and none was pulled: ' + reasonClauses(counts).join('; ')
         + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.
   return { ok: true, ...counts };
+}
+
+/* kosmos#9180: a folder's index of what is already pulled, { "<store path>|<uploaded>|<size>": "<file name>" }. */
+function indexKey(b) {
+  /* Only a listing that says WHEN the object was uploaded can be skipped: without it, a store that rewrote one path in
+     place would look unchanged, so such a report is always fetched (as before #9180). Vercel Blob lists uploadedAt. */
+  if (!b || typeof b !== 'object' || typeof b.uploadedAt !== 'string' || !b.uploadedAt) return '';
+  const where = typeof b.pathname === 'string' && b.pathname ? b.pathname : (typeof b.url === 'string' ? b.url : '');
+  return where ? where + '|' + b.uploadedAt + '|' + String(b.size == null ? '' : b.size) : '';
+}
+// A name fileName could have made, so an index someone edited cannot point the existence check outside the folder.
+function isSavedName(n) { return typeof n === 'string' && /^[\w.-]+\.md$/.test(n) && n === path.basename(n) && !n.startsWith('.'); }
+function indexPath(dir) {
+  const id = require('node:crypto').createHash('sha256').update(path.resolve(dir)).digest('hex').slice(0, 32);
+  return path.join(store.ROOT, INDEX_DIR, id + '.json');
+}
+function readIndex(dir) {
+  try {
+    const j = JSON.parse(fs.readFileSync(indexPath(dir), 'utf8'));
+    return j && typeof j === 'object' && !Array.isArray(j) ? j : {};
+  } catch { return {}; }
+}
+function writeIndex(dir, index) {
+  try {
+    fs.mkdirSync(path.dirname(indexPath(dir)), { recursive: true });
+    require('./securewrite').writeSecret(indexPath(dir), JSON.stringify(index) + '\n', null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
+  }
+  catch { /* the reports are saved; without the index the next pull fetches them again */ }
+}
+/* kosmos#9180: the progress line the three callers print on stderr (the summary stays on stdout). */
+function progressLine(p) {
+  return 'pulling feedback: ' + p.fetched + ' of ' + p.toFetch + ' fetched' + (p.alreadyHere ? ' (' + p.alreadyHere + ' already here)' : '') + '...';
 }
 
 /* The public-store hint, one wording for the success summary and the failure. It is
@@ -451,7 +534,7 @@ function reasonClauses(r) {
  * them (kosmos#3878).
  */
 function summaryLines(r) {
-  const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
+  const out = ['pulled ' + r.written + ' report(s)' + (r.alreadyHere ? ', ' + r.alreadyHere + ' already here' : '') + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
   // After the migration a stale public token lists an EMPTY store and reads cleanly,
   // so "pulled 0" alone would be the silent success this module refuses elsewhere.
   if (r.total === 0) {
@@ -487,11 +570,14 @@ function summaryLines(r) {
 async function runCli(argv, opts) {
   const a = Array.isArray(argv) ? argv.slice() : [];
   let dir;
+  let all = false;
   while (a.length) {
     const t = a.shift();
+    if (t === '--all') { all = true; continue; }   // kosmos#9180
     if (t === '--help' || t === '-h') {
       process.stdout.write('usage: node engine/feedbackpull.js [--dir <path>]\n'
-        + 'Pulls collected feedback reports into <path> (default: collected-feedback under the data root, which triage reads with no --dir) as triage-readable .md files.\n');
+        + 'Pulls collected feedback reports into <path> (default: collected-feedback under the data root, which triage reads with no --dir) as triage-readable .md files.\n'
+        + 'Reports already pulled into <path> are not fetched again; --all fetches every one.\n');
       return 0;
     }
     if (t === '--dir') {
@@ -510,7 +596,7 @@ async function runCli(argv, opts) {
     }
   }
   let r;
-  try { r = await pull(dir || undefined, opts); }
+  try { r = await pull(dir || undefined, { onProgress: (p) => process.stderr.write(progressLine(p) + '\n'), ...(opts || {}), ...(all ? { all: true } : {}) }); }
   catch (e) { process.stderr.write('could not pull the collected feedback: ' + String((e && e.message) || e) + '\n'); return 1; }
   if (!r.ok) { process.stderr.write(r.because + '\n'); return 1; }
   for (const line of summaryLines(r)) process.stdout.write(line + '\n');
@@ -529,5 +615,5 @@ if (require.main === module) {
 module.exports = {
   pull, runCli, setTransport, setSecretsRunner, tokenReading, noTokenBecause, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, nextLine, blobApi, DEFAULT_BLOB_API,
-  defaultList, defaultGet, tokenMayGoTo, summaryLines,
+  defaultList, defaultGet, tokenMayGoTo, summaryLines, progressLine, indexPath, FETCH_AT_ONCE,
 };
