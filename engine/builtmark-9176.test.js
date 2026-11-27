@@ -23,13 +23,13 @@ const tasks = require('./tasks');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
-const BUILT = { builtAt: '2026-11-26T12:00:00Z', builtBy: 'ada', builtNote: 'waiting on the release' };
+const BUILT = { builtAt: '2026-11-26T12:00:00Z', builtBy: 'ada', builtWho: ['ada'], builtNote: 'waiting on the release' };
 const task = (number, extra) => Object.assign({ number, sentence: 'task ' + number, who: 'ada' }, extra);
 const lineOf = (body, proj, n) => body.split('\n').find((l) => l.includes(`task ${n} of ${proj}:`)) || '';
 
 test('#9176: a built task is listed, marked built; an open task beside it is not marked (control)', () => {
   const body = projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: [task(1, BUILT), task(2)] }], 'ada');
-  assert.match(lineOf(body, 'Live', 1), /\[built: waiting on a release or a check; nothing to do on it unless it is reopened\]$/, body);
+  assert.match(lineOf(body, 'Live', 1), /\[built: done and waiting; nothing to do on it unless it is reopened\]$/, body);
   assert.ok(lineOf(body, 'Live', 2), 'control: the open task is missing: ' + body);
   assert.doesNotMatch(lineOf(body, 'Live', 2), /\[built|\[on hold/, 'control: an open task was marked');
 });
@@ -41,12 +41,17 @@ test('#9176: a built task on hold reads on hold, not built (the hold is what sto
   assert.doesNotMatch(line, /\[built/, 'two marks on one task');
 });
 
-test('#9176: the mark follows kosmos task list --mine: a task is marked built exactly when listGroup calls it built', () => {
-  const list = [task(1), task(2, BUILT), task(3, { onHold: true }), task(4, { ...BUILT, onHold: true })];
-  const body = projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: list }], 'ada');
-  for (const t of list) {
-    assert.equal(/\[built:/.test(lineOf(body, 'Live', t.number)), tasks.listGroup(t) === 'built', `task ${t.number}: ${body}`);
-  }
+test('#9176 review 1: on a task with two holders, one holder\'s mark marks only that holder; the other still has its part', () => {
+  const shared = (extra) => ({ number: 7, sentence: 'shared', parts: [{ id: 1, who: 'ada' }, { id: 2, who: 'bo' }], ...extra });
+  const bodyFor = (who, t) => projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: [t] }], who);
+  const byAda = shared({ builtAt: '2026-11-26T12:00:00Z', builtBy: 'ada', builtWho: ['ada'] });
+  assert.match(lineOf(bodyFor('ada', byAda), 'Live', 7), /\[built:/, 'ada marked it, so it is built for ada');
+  const bo = lineOf(bodyFor('bo', byAda), 'Live', 7);
+  assert.ok(bo, 'bo still holds a part, so the task is on its list');
+  assert.doesNotMatch(bo, /\[built:/, 'bo was told there is nothing to do on its open part: ' + bo);
+  // The person's mark frees everyone on it: both are marked.
+  const byPerson = shared({ builtAt: '2026-11-26T12:00:00Z', builtByPerson: true, builtFreesAll: true });
+  for (const who of ['ada', 'bo']) assert.match(lineOf(bodyFor(who, byPerson), 'Live', 7), /\[built:/, who + ' after the person marked it');
 });
 
 test('#9176: a built task in a paused project reads on hold only, not also built (the pause is what stops it)', () => {
