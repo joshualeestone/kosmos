@@ -68,7 +68,7 @@ const GAP = '[^\\p{L}\\p{N}]{0,6}';
 const phrase = (...words) => words.join(GAP);
 const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('project', 'paused'), phrase('project', 'is', 'paused'),
   phrase('added', 'by'), phrase('subtasks', 'done'), 'repeats', 'waits', 'woke\\s*:', phrase('checks', 'reported'), phrase('outside', 'text'),
-  // Review 3: "through task N" too (the long list's "(owner: X, through task N)").
+  // Review 3: "through task N" too (the long list's "(owner: X, through task N)", which installs older than kosmos#9237 print).
   'through\\s*(?:#|task)\\s*#?\\s*\\d+', phrase('under', 'task'), 'owner\\s*:', phrase('reported', 'finished'), phrase('still', 'to', 'finish'),
   phrase('last', 'activity'), 'quiet\\s*\\d+', phrase('left', 'under', 'closed'),
   // Review 2: the compact and across lists' other words in parentheses.
@@ -77,7 +77,10 @@ const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('pr
   // Review 3: the built mark's words ("[built, waiting on a review]", "the person", "a release"), "(seen by the person",
   // and a hold's "until task N is closed".
   phrase('waiting', 'on', '(?:a|the)', '(?:review|person|release)'), phrase('seen', 'by', 'the', 'person'),
-  phrase('until', 'task') + '\\s*#?\\s*\\d+'];
+  phrase('until', 'task') + '\\s*#?\\s*\\d+',
+  // kosmos#9237: a task owned only through its tree, as both long lists ("(nobody has taken it; ask X, who holds task N
+  // in its tree)") and the compact list ("nobody (X holds #N)") print it.
+  phrase('nobody', 'has', 'taken'), 'holds' + GAP + '(?:task\\s*#?|#)\\s*\\d+'];
 // Review 3: "done" in brackets or parentheses ANYWHERE ("release notes [done]", "fix login (done)"), as the list prints it;
 // a bare "done" still counts only as the first word.
 const BRACKET_DONE = /[[(]\s*done\s*[\])]/iu;

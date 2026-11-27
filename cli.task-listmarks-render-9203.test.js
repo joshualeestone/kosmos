@@ -220,8 +220,8 @@ test('#9203 every mark the printers print, set in a title, is caught by usesList
   // The marks reached are real ones: these must all have been printed and checked somewhere.
   const seen = rows.map((r) => r.row).join('\n');
   for (const m of ['[done]', '[not run]', '[replaced by 9]', '[on hold]', '[project paused]', '[built, waiting on the person]',
-    '[added by mara]', 'subtasks done', '[repeats every Monday', '[woke: the branch moved]', '(under task 2)', '(owner: mara',
-    '(through #3)', 'outside text from webhook', 'still to finish', 'last activity', 'quiet ', 'left under closed task #5',
+    '[added by mara]', 'subtasks done', '[repeats every Monday', '[woke: the branch moved]', '(under task 2)', '(nobody has taken it; ask mara',
+    'nobody (mara holds #3)', 'outside text from webhook', 'still to finish', 'last activity', 'quiet ', 'left under closed task #5',
     'seen by the person since built', 'marked built by the person', 'only the person can lift it']) {
     assert.ok(seen.includes(m), 'no printer printed "' + m + '": a fixture stopped reaching its mark');
   }

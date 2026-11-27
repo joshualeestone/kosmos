@@ -243,7 +243,7 @@ test('#5678 `task list` names the owner of a subtask nobody is on directly, on M
   assert.deepEqual(row.whoNames, [], 'fixture: the child has nobody on it directly');
   assert.deepEqual(row.ownerNames, ['mara']);
   assert.equal(row.ownerFrom, top);
-  const want = new RegExp('Loose child \\(owner: mara, through task ' + top + '\\)');
+  const want = new RegExp('Loose child \\(nobody has taken it; ask mara, who holds task ' + top + ' in its tree\\)');
   const m = await mac(['task', 'list', projectId]);
   assert.equal(m.code, 0, m.out);
   assert.match(m.out, want, 'the Mac list does not name the owner');
