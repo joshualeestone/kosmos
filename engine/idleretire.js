@@ -40,6 +40,7 @@ const KEEP_LOG = 50;        // the retirements kept for the Settings list, newes
 const KEEP_UP_DAYS = 120;   // running days kept, more than the longest choice
 const MAX_PER_TICK = 3;     // remove() is synchronous; a long first day is spread over the hourly ticks
 const RETIRABLE_STATES = Object.freeze(['idle', 'stopped']);
+const RETRY_AFTER_MS = 7 * DAY_MS;   // a refused or partial removal is tried again a week later, not every day
 
 /* Read at each use, never frozen at load (store.js #1443). */
 function settingFile() { return path.join(store.ROOT, 'idleretire.json'); }
@@ -73,10 +74,15 @@ function writeSetting(change) {
 const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 
 /* { up: [running days, oldest first], tried: { day, names }, retired: [newest first] }. Unreadable reads empty, which
-   counts no running days, so it can only retire fewer. */
+   counts no running days, so it can only retire fewer. A file that is there but damaged is set aside (renamed, never
+   deleted) before the next write starts a fresh one, so its history is not overwritten. */
 function readLog() {
   try {
-    const v = JSON.parse(fs.readFileSync(logFile(), 'utf8'));
+    let v;
+    try { v = JSON.parse(fs.readFileSync(logFile(), 'utf8')); } catch (e) {
+      if (!(e && e.code === 'ENOENT')) { try { fs.renameSync(logFile(), logFile() + '.damaged-' + Date.now()); } catch { /* then it reads empty */ } }
+      throw e;
+    }
     const t = v && v.tried && typeof v.tried === 'object' ? v.tried : {};
     return {
       up: Array.isArray(v.up) ? v.up.filter(isDay).slice(-KEEP_UP_DAYS) : [],
@@ -100,6 +106,7 @@ function dayOf(now) {
 }
 
 const plural = (n) => n + (n === 1 ? ' day' : ' days');
+const WAITING = () => require('./selfreport').WAITING_ON_A_PERSON;
 
 /**
  * One verdict per agent row: { name, shownAs, verdict: 'retire'|'keep'|'unknown', days, why }.
@@ -133,7 +140,7 @@ function assess(rows, readers, { days, now = Date.now(), upDays } = {}) {
     if (!why) {
       try {
         const state = readers.latestState(name);
-        if (require('./selfreport').WAITING_ON_A_PERSON.includes(state)) why = 'its last word was a question or a block that waits on you';
+        if (WAITING().includes(state)) why = 'its last word was a question or a block that waits on you';
       } catch { why = 'its last report could not be read'; }
     }
     if (!why) { try { if (readers.onOpenTask(name)) why = 'it is named on an open task'; } catch { why = 'its tasks could not be read'; } }
@@ -174,7 +181,7 @@ function realReaders() {
  * The hourly sweep. deps: allowed() (live execution), roster() -> rows, remove(name) -> { outcome, because, dryRun },
  * readers (default realReaders()), now(), log(line). Each tick records today as a running day; when the setting is on,
  * it sends up to MAX_PER_TICK 'retire' verdicts through remove(), never forced, each name at most once a day (the
- * attempt is written down before it is made). A dry-run REMOVED did nothing (engine/remove.js markDryRun), so it is
+ * attempt is written down before it is made), and a name whose last attempt was refused or partial only after a week. A dry-run REMOVED did nothing (engine/remove.js markDryRun), so it is
  * recorded as refused. A refusal repeating the newest entry for that agent is not logged again.
  */
 function makeTick(deps) {
@@ -191,8 +198,13 @@ function makeTick(deps) {
       const rows = deps.roster();
       if (!Array.isArray(rows)) return { act: 'skip', because: 'the agent list could not be read' };
       if (log.tried.day !== today) log.tried = { day: today, names: [] };
+      const backingOff = (name) => {
+        const last = log.retired.find((x) => x && x.name === name);
+        const at = last && last.outcome !== 'removed' ? Date.parse(last.tried || last.at) : NaN;
+        return Number.isFinite(at) && t - at < RETRY_AFTER_MS;
+      };
       const due = assess(rows, deps.readers || realReaders(), { days: setting.days, now: t, upDays: log.up })
-        .filter((v) => v.verdict === 'retire' && !log.tried.names.includes(v.name)).slice(0, MAX_PER_TICK);
+        .filter((v) => v.verdict === 'retire' && !log.tried.names.includes(v.name) && !backingOff(v.name)).slice(0, MAX_PER_TICK);
       const did = [];
       for (const v of due) {
         log.tried.names.push(v.name);
@@ -206,7 +218,7 @@ function makeTick(deps) {
         did.push(entry);
         const last = log.retired.find((x) => x && x.name === v.name);
         const repeat = outcome !== 'removed' && last && last.outcome === outcome && last.because === entry.because;
-        if (!repeat) log.retired.unshift(entry);
+        if (repeat) last.tried = entry.at; else log.retired.unshift(entry);
         if (!writeLog(log) && deps.log) deps.log('idle-retire: ' + v.name + ' ' + outcome + ', but its record could not be written');
         if (deps.log) deps.log('idle-retire: ' + v.name + ' ' + outcome + ' - ' + entry.because);
       }

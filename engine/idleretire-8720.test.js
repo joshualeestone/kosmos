@@ -224,9 +224,17 @@ test('makeTick: a dry-run REMOVED is recorded as refused; a refusal repeated nex
   assert.deepEqual(r.did.map((d) => [d.name, d.outcome]), [['a', 'refused'], ['b', 'refused']]);
   clock = NOW + DAY;
   tick();
-  assert.deepEqual(removed, ['a', 'b', 'a', 'b'], 'control: the refused agents were tried again the next day');
-  assert.equal(ir.readLog().retired.filter((x) => x.name === 'b').length, 1, 'the same refusal was logged every day');
-  clock = NOW + 2 * DAY;
+  assert.deepEqual(removed, ['a', 'b'], 'a refused agent was tried again the next day, not a week later');
+  clock = NOW + 8 * DAY;
+  tick();
+  assert.deepEqual(removed, ['a', 'b', 'a', 'b'], 'control: a week later the refused agents are tried again');
+  const bs = ir.readLog().retired.filter((x) => x.name === 'b');
+  assert.equal(bs.length, 1, 'the same refusal was logged again');
+  assert.equal(bs[0].tried, new Date(NOW + 8 * DAY).toISOString(), 'the repeat did not record when it was tried');
+  clock = NOW + 9 * DAY;
+  tick();
+  assert.equal(removed.length, 4, 'a day after the weekly retry it was tried again');
+  clock = NOW + 16 * DAY;
   roster = null;
   assert.equal(tick().because, 'the agent list could not be read');
   assert.equal(removed.length, 4);
@@ -258,5 +266,22 @@ test('realReaders: an open task and a live project protect; a closed task and an
   fs.rmSync(f, { recursive: true, force: true });
   assert.equal(verdict().verdict, 'retire', 'control: with no report file it is retired');
   projects.writeAll([]);
+  clean();
+});
+
+test('a damaged log is set aside, not overwritten, and reads as no running days', () => {
+  clean();
+  const f = path.join(store.ROOT, 'idleretire-log.json');
+  fs.writeFileSync(f, '{damaged');
+  const log = ir.readLog();
+  assert.deepEqual(log.up, []);
+  const aside = fs.readdirSync(store.ROOT).filter((n) => n.startsWith('idleretire-log.json.damaged-'));
+  assert.equal(aside.length, 1, 'the damaged file was not set aside');
+  assert.equal(fs.readFileSync(path.join(store.ROOT, aside[0]), 'utf8'), '{damaged');
+  assert.equal(fs.existsSync(f), false);
+  /* CONTROL: a missing file is not "damaged", so nothing is set aside. */
+  ir.readLog();
+  assert.equal(fs.readdirSync(store.ROOT).filter((n) => n.startsWith('idleretire-log.json.damaged-')).length, 1);
+  for (const n of aside) fs.rmSync(path.join(store.ROOT, n), { force: true });
   clean();
 });
