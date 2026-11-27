@@ -16,7 +16,7 @@
 # archive carries the App Store screenshot switch (a Release build WITH it is the
 # control that must fail, #6262), and the hand-signing mode's export options and
 # archive arguments are right (with a stand-in xcodebuild), and every swiftc command in ios/LogicTests and ios/tools
-# is plainly -Onone (ios/tools/check-logic-onone.sh, #9213). It does NOT certify running
+# reads as -Onone to a text check (ios/tools/check-logic-onone.sh names what it cannot see, #9213). It does NOT certify running
 # on a simulator or device, a signed build or export, or APNs delivery.
 #
 # The asset catalog (icon, launch colour) only compiles on a Mac with an iOS
