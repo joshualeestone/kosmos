@@ -80,3 +80,13 @@ test('#9176 review 6: setRepeat reports, from inside its write, that it dropped 
   tasks.setRepeat(proj.id, plain.number, require('./taskrepeat').fromWords('day', { at: '09:00' }), { person: true, out: said2 });
   assert.equal(said2.droppedBuilt, false, 'CONTROL: nothing was built');
 });
+
+test('#9177: the block marks a task built exactly when tasks.builtFor says so for this agent', () => {
+  const at = '2026-11-26T12:00:00Z';
+  const list = [
+    task(1), task(2, { builtAt: at, builtWho: ['ada'] }), task(3, { builtAt: at, builtWho: ['bo'] }),
+    task(4, { builtAt: at, builtFreesAll: true }), task(5, { builtAt: at, builtWho: [] }),
+  ];
+  const body = projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: list }], 'ada');
+  for (const t of list) assert.equal(/\[built:/.test(lineOf(body, 'Live', t.number)), tasks.builtFor(t, 'ada'), `task ${t.number}: ${body}`);
+});

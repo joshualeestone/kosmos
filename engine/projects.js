@@ -4069,8 +4069,8 @@ function blockBody(projects, sessionName) {
     };
     /* kosmos#9176: a task marked built by the person (builtFreesAll) or by this agent (builtWho) is listed with a mark.
        Another holder's mark alone leaves it unmarked. A hold or a paused project is named first (held, as #5864). */
-    const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
-      && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
+    // kosmos#9177: the shared rule (tasks.builtFor), the one the Assigner reads.
+    const built = (t) => (typeof t.builtAt === 'string' && t.builtAt && require('./tasks').builtFor(t, sessionName)
       ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t) || built(t)}`)].join('\n');
   });
