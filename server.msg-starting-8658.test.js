@@ -90,7 +90,8 @@ test.before(async () => {
 });
 /* kosmos#9231: whether a message PAID the start wait is counted, not timed. The wait's own step hook (refresh, called
    once per 100 ms step while server.js waitForRosterRow is waiting) counts the steps, so a path that must not wait is
-   checked by 0 steps: no load on the box can make that red, and a path that wrongly waits makes about 19 (the CONTROL in
+   checked by 0 steps: ordinary load cannot make that red (only a stall longer than the whole 2 s wait, before its first
+   step, would end it with no step counted: review 2, stated), and a path that wrongly waits makes about 19 (the CONTROL in
    the "never appears" test proves the count moves). Time limits that remain are scaled (test-support/eventually.js).
    Review 1: so these checks say "without the start wait", not "at once": a NEW slowness on those paths (a delivery retry, a
    slow roster read) is not what they measure, and a fixed time limit there is what a loaded box reddened. */
