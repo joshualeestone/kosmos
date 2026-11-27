@@ -18,11 +18,10 @@ In the project block (engine/projects.js, the member rules every project member 
 instructions), beside the --no-reply rule that #9096 put there:
 - "or tests delivery" comes off the --no-reply line, which taught sending a probe (marked, but still typed into the
   receiver's pane);
-- a line after it: do not send a test message to see if your messages reach someone: send the real one, then run
-  `<cli> msg --status <id>` with the id your send printed; it says whether it has been typed to them and, when Kosmos
-  can tell, whether they read or answered it (msgstatus.js's own words; for a recipient with no turn reports it says
-  it cannot tell). Review round 5: naming only "a direct message you sent" left the card's own case, a probe before
-  any real message, with no guidance at all once "tests delivery" came off the --no-reply rule.
+- a line after it: do not send a test message to see if your direct messages reach someone: send the real one, then
+  run `<cli> msg --status <id>` with the id your send printed; it says whether it has been typed to them and, when
+  Kosmos can tell, whether they read or answered it; "not read yet" is no reason to send it again (msgstatus.js's own
+  words; for a recipient with no turn reports it says it cannot tell).
 So one block gives one answer. engine/probe-9240.test.js pins both (each reds under its own mutation), and
 fyihint-9096's pinned rule is updated to the new wording.
 
@@ -41,3 +40,8 @@ notice, too heavy for one sentence while the project block covers where agents m
 ## Weakest premise
 That agents read the guide at the moment they decide to probe. If probes keep coming, the next step is a hint printed
 by `kosmos msg` itself when the text is a single word.
+
+## Known, not handled
+- `msg --status` reads direct messages only; a room post has no receipt, so the line names direct messages.
+- A send that printed no id (a duplicate of a message the board already has, or an older board) leaves the agent no id
+  to ask about. Rare; the line says "the id your send printed".
