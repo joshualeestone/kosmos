@@ -21,7 +21,8 @@ const { localStamp } = require('./localstamp');
 /** The flags, and the board group each asks for. */
 const COMPACT = { open: 'open', blocked: 'held', built: 'built' };
 
-const markwords = require('./markwords');   // kosmos#9188
+// kosmos#9188: no typeof guard here (both CLIs have one): this file and markwords.js ship together in the same engine folder.
+const markwords = require('./markwords');
 const one = (v) => String(v).replace(/\s+/g, ' ').trim();
 /* As the long list's q() (install/kosmos and tools/windows/kosmos-cli.js taskList): quotes of every kind become single
    quotes and brackets of every kind parentheses, so outside words can neither close the quotation nor open a mark. */

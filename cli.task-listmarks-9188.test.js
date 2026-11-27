@@ -95,10 +95,15 @@ const rowOf = (text, words) => text.split('\n').find((l) => l.includes(words));
 test('#9188 engine: usesListMarkWord catches the list\'s marks, and only a FIRST "done"', () => {
   for (const t of ['[on hold] x', 'x [built]', '[done] x', 'Done: x', '[not run] x', '[replaced by 4] x', '[project paused] x',
     'x [added by mara]', 'x [2/3 subtasks done]', 'x [repeats weekly]', 'x [waits for #3]', 'x [woke: the branch]',
-    'x [1 of 2 checks reported met]', '[outside text from webhook "a"] x']) {
+    'x [1 of 2 checks reported met]', '[outside text from webhook "a"] x',
+    // Review 1: a time wake, a done row after the row's own label, and the lists' marks in parentheses.
+    'send the invoice [waits until tomorrow at 9am]', 'x (waits on the person)', '[7] [done] x', '#3 [done] x',
+    'fix it (through #4)', 'x (under task 2)', 'x (owner: otto, through task 2)', 'x (reported finished: mara)',
+    'x (still to finish: otto)', 'x (last activity today)', 'x (quiet 3 days, left under closed task #5)']) {
     assert.equal(markwords.usesListMarkWord(t), true, 'missed: ' + t);
   }
-  for (const t of ['tidy the docs', 'get it done', 'undone work', 'pre-done notes', 'a reporter checks in']) {
+  for (const t of ['tidy the docs', 'get it done', 'undone work', 'pre-done notes', 'a reporter checks in',
+    '3 done items', 'go through the list', 'a quiet room', 'under the bridge', 'the owner of the site', 'still running']) {
     assert.equal(markwords.usesListMarkWord(t), false, 'quoted an ordinary title: ' + t);
   }
   // It includes the instructions block's own test (#9179), never less.
