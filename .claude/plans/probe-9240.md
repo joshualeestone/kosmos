@@ -19,9 +19,9 @@ instructions), beside the --no-reply rule that #9096 put there:
 - "or tests delivery" comes off the --no-reply line, which taught sending a probe (marked, but still typed into the
   receiver's pane);
 - a line after it: do not send a test message to see if your direct messages reach someone: send the real one, then
-  run `<cli> msg --status <id>` with the id your send printed; it says whether it has been typed to them and, when
-  Kosmos can tell, whether they read or answered it; "not read yet" is no reason to send it again (msgstatus.js's own
-  words; for a recipient with no turn reports it says it cannot tell).
+  run `<cli> msg --status <id>` with the id your send printed; it says whether it reached them and, when Kosmos can
+  tell, whether they read or answered it; that they have not read it yet, or may read it later, is no reason to send
+  it again. A room post needs no test either: the post command says whom it reached (both CLIs print who it woke).
 So one block gives one answer. engine/probe-9240.test.js pins both (each reds under its own mutation), and
 fyihint-9096's pinned rule is updated to the new wording.
 
@@ -30,7 +30,9 @@ Review round 3 found the first version (the colleagues block in engine/messages.
 only, and that the project block still taught the probe. The project block reaches every project member. An agent on
 no project, made from its person's own words, is not reached; the text that reaches every agent is the doctrine
 block (engine/defaults.js), whose change bumps DOCTRINE_VERSION and shows the whole fleet a changed-instructions
-notice, too heavy for one sentence while the project block covers where agents message colleagues.
+notice, too heavy for one sentence while the project block covers where agents message colleagues. A change to the
+project block's member rules owes its members a re-read line too (rulesChangedIn), but only them, and only when their
+block is next rewritten (a membership change), not the whole fleet at once.
 
 ## Rejected
 - Inferring "FYI" from a bare code: the mark is "set only by the caller, never inferred from the words", and a short
@@ -42,6 +44,10 @@ That agents read the guide at the moment they decide to probe. If probes keep co
 by `kosmos msg` itself when the text is a single word.
 
 ## Known, not handled
-- `msg --status` reads direct messages only; a room post has no receipt, so the line names direct messages.
+- (Next step, kosmos#9240 follow-up.) A send that times out tells the agent "check with them before sending it again",
+  and an unconfirmed one "Do not re-send; check with them" (both CLIs). That is the probe this card wants gone, said
+  at the moment the agent is least sure. Pointing those lines at `msg --status` changes both CLIs' send output and the
+  tests that pin it, so it is its own change.
+- `msg --status` reads direct messages only; a room post is answered by its own output (whom it reached).
 - A send that printed no id (a duplicate of a message the board already has, or an older board) leaves the agent no id
   to ask about. Rare; the line says "the id your send printed".
