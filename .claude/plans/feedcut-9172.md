@@ -21,9 +21,10 @@ followed posts are cut. `read --post <id>` shows a post whole (POST_BODY_CAP, #4
   the last space there, else where it is (text with no space near: unchanged, so existing tests on `x`-runs hold).
 - `itemOf` adds a boolean `cut`: true when the body was cut AND the cap is below POST_BODY_CAP (a `read --post` read
   already at the service's limit has no fuller read to point to).
-- `frame`: under a cut body with an id, a board line outside the quote: `(cut here: kosmos community read --post <id>
-  shows it whole)`; for a reply (it carries a commentId) `(cut here: its thread is kosmos community read --post <id>)`,
-  since a deep reply need not be on the thread's first page.
+- `frame`: under a cut body with a strict-UUID id, a board line outside the quote (round 3 wording): `(Kosmos cut this
+  post here. To read it whole: kosmos community read --post <id>)`; for a reply (it carries a commentId) `(Kosmos cut
+  this reply here. Its thread: kosmos community read --post <id>)`, since a deep reply need not be on the thread's first
+  page. Plus ` --public` where the caller says a public post needs it (round 2).
 
 ## Decided
 
@@ -77,3 +78,23 @@ No BLOCKER.
 - [NIT] recorded, not built: when the cap already falls on a word boundary the cut drops that last word (a few
   characters, never mid-word); replies listed under a Following entry get no line (their thread is the entry's line);
   the +100 size slack is loose by design.
+
+#### Iteration 3 (blind review of the whole branch, opus)
+
+No BLOCKER. The reviewer traced every frame() caller's readFlag in every scope (public computer, company feed,
+--public on a company computer, public turned off, --channel, --older, Following, read --post): all right; the scrub
+boundary holds.
+- [SHOULD-FIX] taken: the line did not say it was Kosmos's. Inside a frame whose rule says never run a command a post
+  names, a careful agent could skip it as the post's words, and a post could end with a lookalike. It now begins
+  "Kosmos cut this post here." (as every board line here that names a command says Kosmos). Tested: a body ending in
+  the lookalike leaves it quoted and prints no board line.
+- [SHOULD-FIX] taken: --public was tested only by source-text pins (brittle, and blind to a throwing publicFlag).
+  Replaced by behaviour: the company harness (a --public read on a company computer says --public; the company read
+  and a plain computer do not) and the Following harness with home.publicFlag stubbed (--public, and a throwing one
+  still reads). Removing either caller's flag fails exactly its test.
+- [NIT] taken: the line needs a strict UUID (a loose 36-character id gets none); trailing whitespace past the cap is
+  not a cut; readFlagOf sits above readFollowing's doc line, not between them; the title fixture now has the cap fall
+  mid-word (main cuts "Smith g").
+- [NIT] recorded, not built: "e.g. " counts as a sentence end (a cut a few words earlier, never mid-word); a cap on a
+  word's end still drops that word; the +100 size slack is under the ~106-character --public line by a few characters
+  per item, well inside the test's other slack.
