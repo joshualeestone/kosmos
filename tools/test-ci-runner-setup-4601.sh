@@ -5,7 +5,7 @@
 # on PATH that logs its argv, under a sandbox HOME. A dry run must leave the log free of every changing call and the
 # HOME byte-identical; the CONTROL is the same stage with --apply, which must reach the stubs, so this test can see
 # a call when one happens.
-unset LC_ALL   # kosmos#9149: the byte-refusing pgrep arms must be able to fail (they pass vacuously under an inherited C)
+unset LC_ALL   # kosmos#9149: hygiene only here (run() uses env -i, so the script never inherits it); the arms set their own
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
@@ -149,6 +149,7 @@ case "$me" in
         else echo $((n - 1)) > "$wu"; fi; fi
       [ "$pl" = "$(cat .svc-pid 2>/dev/null || echo 4343)" ] && [ -f "$wu" ] && { echo 4242; exit 0; }; exit 1 ;; esac
     case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ] || [ -f "$(dirname "$CALL_LOG")/relay-worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
+    [ -n "${FX_LIVE_ESC:-}" ] && { printf '%b\n' "$FX_LIVE_ESC"; exit 0; }   # kosmos#9149: escapes decoded here, never in an argv
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
     printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB-31457280}" ;;
@@ -177,7 +178,9 @@ case "$me" in
     # An idle runner as svc.sh starts it (actions/runner runsvc.sh): its service host is node.
     printf '%s\n' "/bin/bash /Users/kosmos-ci/actions-runner/runsvc.sh" "./externals/node24/bin/node ./bin/RunnerService.js" \
       "/Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service"
-    [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS" ;;
+    [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS"
+    # kosmos#9149: FX_PS_ESC holds backslash escapes (ASCII), decoded only here, so no argv of the test ever holds the byte.
+    [ -z "${FX_PS_ESC:-}" ] || printf '%b\n' "$FX_PS_ESC" ;;
   gh)
     [ "${FX_GH_FAIL:-0}" = 1 ] && exit 1
     [ "${FX_GH_500:-0}" = 1 ] && { echo "gh: Server Error (HTTP 500)" >&2; exit 1; }
@@ -275,6 +278,13 @@ refuse() {  # refuse <case> <expected REFUSE text> <env...>
 refuse launchd "non-Apple launchd job(s) still loaded" FX_JOBS=com.kosmos.board
 refuse crontab "crontab still has lines" "FX_CRON=*/10 * * * * mcp-sweep-alert.sh"
 refuse suite "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh"
+# kosmos#9149: a live suite line holding a byte that is not UTF-8, in a UTF-8 locale: the refusal still names the whole
+# line (tr used to stop at the byte and print its own error into the message).
+# Read under C here: this test's own grep (has) in a UTF-8 locale skips a line holding such a byte.
+run pf-suite-badbyte "$H" LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 'FX_LIVE_ESC=123 bash x\0377y/tools/run-tests.sh after-the-byte' -- preflight
+if [ "$(rc pf-suite-badbyte)" = 1 ] && LC_ALL=C grep -q -F "tools/run-tests.sh after-the-byte" "$T/pf-suite-badbyte.out" \
+   && ! LC_ALL=C grep -q "Illegal byte sequence" "$T/pf-suite-badbyte.out"; then pass "preflight: a refusal naming a line with a stray byte names all of it, with no tr error"
+else fail "preflight suite-badbyte: rc $(rc pf-suite-badbyte): $(LC_ALL=C grep -a REFUSE "$T/pf-suite-badbyte.out" | LC_ALL=C cut -c1-160)"; fi
 # kosmos#5488: the owner's suite still refuses when the owner is known, and a runner's suite beside it does not hide it.
 refuse suite-owner "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh" "FX_LIVE_USERS=123=agent1"
 refuse suite-mixed "123 bash tools/run-tests.sh" "FX_LIVE=456 bash tools/run-tests.sh
@@ -1091,8 +1101,11 @@ vcase() {  # vcase <name> <want rc> <want text> <env...>
 vcase clear 0 "verify: clear"
 # kosmos#9149: a CI-user process whose argv is not valid UTF-8 (a job's leftover), in a UTF-8 locale: verify still reaches
 # its verdict (macOS awk used to exit 2 on it, and set -e ended verify silently). A line in a stand-in ps, no live process.
-# The byte is in the FIRST word: awk aborts where its sub() rewrites the program name (measured: in a later word it reads on).
-vcase badbyte 0 "no tmux or node left" LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 "FX_PS=$(printf 'zz\377job-leftover --x')"
+# Two shapes, both measured to stop macOS awk: the byte in the FIRST word (its sub() rewrites the name), and a node line
+# with the byte in a later word (its regex then reads the whole line). The byte is decoded inside the stand-in ps from an
+# ASCII escape, so no argument of this test ever holds it (a live argv with it reds other agents' pgrep on this Mac).
+vcase badbyte 0 "no tmux or node left" LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 'FX_PS_ESC=zz\0377job-leftover --x'
+vcase badbyte-node 1 "still runs: " LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 'FX_PS_ESC=node --x\0377'
 vcase labels 1 "labels are 'arm64,macos,self-hosted'" "FX_RUNNER_ROW=online false arm64,macos,self-hosted"
 vcase offline 1 "kosmos-ci-agent1s is offline" "FX_RUNNER_ROW=offline false arm64,kosmos-ci,macos,self-hosted"
 vcase missing 1 "no runner named kosmos-ci-agent1s" FX_RUNNER_ROW=

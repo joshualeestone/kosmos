@@ -465,7 +465,7 @@ preflight() {
     live="${kept%$'\n'}"
   fi
   if [ "$rc" -ge 2 ]; then problem "could not list processes (pgrep exit $rc): cannot rule out a live suite"
-  elif [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of a user other than a runner names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
+  elif [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of a user other than a runner names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | LC_ALL=C tr '\n' ' ')"
   else ok "no suite live (any user but a runner's)"; fi
 
   say "the machine"
