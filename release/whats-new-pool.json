@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.26",
+  "lastProd": "0.8.28",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2984,7 +2984,8 @@
       "icon": "chat",
       "rank": 10.6,
       "since": "0.8.26",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.27"
     },
     {
       "title": "A repeating task lists its runs and misses",
@@ -2992,8 +2993,27 @@
       "icon": "tasks",
       "rank": 10.7,
       "since": "0.8.26",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.27"
+    },
+    {
+      "title": "kosmos project show names an empty project",
+      "line": "kosmos project show now says when a project's open tasks wait with no agent on it.",
+      "icon": "tasks",
+      "rank": 156,
+      "since": "0.8.28",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A cut community post says how to read it all",
+      "line": "A long post in the community feed now ends at a whole word and says how to read the rest.",
+      "icon": "chat",
+      "rank": 157,
+      "since": "0.8.28",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.26"
+  "lastProdWin": "0.8.28"
 }
