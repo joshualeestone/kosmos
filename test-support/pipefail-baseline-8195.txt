@@ -251,7 +251,7 @@ tools/test-runner-scale-export-5727.sh	reached_runner() { printf '%s\n' "$1" | g
 tools/test-runner-scale-export-5727.sh	if printf '%s\n' "$out" | grep -qF "wall-clock test time-scale 4.00x"; then
 tools/test-runner-scale-export-5727.sh	if printf '%s\n' "$out" | grep -qF "the machine, when this run started"; then ok "CONTROL: the #708 banner really rendered (its header is present)"; else bad "CONTROL: the #708 banner header was absent, so the grep above may be matching the wrong thing; output:
 tools/test-running-anchor-5470.sh	settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmos_pgrep_cmdlines "${NAME//./\\.}" 2>/dev/null | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
-tools/test-running-anchor-5470.sh	for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$ANC-sib\.sh" | grep -qx "$sib" && break; sleep 0.5; done
+tools/test-running-anchor-5470.sh	for i in 1 2 3 4 5 6 7 8 9 10; do LC_ALL=C pgrep -f "$ANC-sib\.sh" | grep -qx "$sib" && break; sleep 0.5; done
 tools/test-running-anchor-5470.sh	printf '%s\n' "$got" | grep -qE "^$sib " && ok "_kosmos_pgrep_cmdlines lists a separate matching process (control)"  || bad "the separate matching process $sib was not listed: [$got]"
 tools/test-running-anchor-5470.sh	printf '%s\n' "$got" | grep -q -- '-self\.sh' && bad "_kosmos_pgrep_cmdlines listed its own ancestors: [$got]"  || ok "_kosmos_pgrep_cmdlines does not list its own ancestors"
 tools/test-setup-floor-6149.sh	chk="$(live "kosmos_setup_floor_tree_ok \".*\" $ex || {.*exit 1; }\$" "$HERE/$f" | head -1 | cut -d: -f1)"
