@@ -6820,17 +6820,20 @@ cmd_feedback() {
       # `triage` reads (with no --dir when it is the default folder, #6265).
       # READ-ONLY against the store; needs the blob token (read via secrets-map, so this is not blocked on token provisioning -- it
       # returns a message naming the next step until it can read the token, kosmos#8992).
-      local p_dir=""
+      local p_dir="" p_all=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --dir) p_dir="${2:-}"; shift 2 || { say "--dir needs a path"; exit 2; } ;;
+          --all) p_all=1; shift ;;   # kosmos#9180: fetch every report again, even ones already in the folder
           *) say "Unknown option for pull: $1"; exit 2 ;;
         esac
       done
-      KOSMOS_PULL_DIR="$p_dir" "$NODE" -e '
+      KOSMOS_PULL_DIR="$p_dir" KOSMOS_PULL_ALL="$p_all" "$NODE" -e '
         const fp = require(process.argv[1] + "/engine/feedbackpull");
         const dir = process.env.KOSMOS_PULL_DIR || "";
-        fp.pull(dir || undefined).then((r) => {
+        // kosmos#9180: progress on stderr while it runs; the summary stays on stdout.
+        const opts = { all: process.env.KOSMOS_PULL_ALL === "1", onProgress: (p) => process.stderr.write(fp.progressLine(p) + "\n") };
+        fp.pull(dir || undefined, opts).then((r) => {
           if (!r.ok) { console.error(r.because); process.exit(1); }
           for (const line of fp.summaryLines(r)) process.stdout.write(line + "\n");
           // #6265: plain when it is the default folder; a pull that wrote its reports is never failed by this line.
@@ -6847,7 +6850,7 @@ cmd_feedback() {
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
       say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
       say "       kosmos feedback day [--date YYYY-MM-DD]   (your own day on this computer, for writing the report; --date an earlier one)"
-      say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
+      say "       kosmos feedback pull [--dir PATH] [--all]  (bring collected reports down for triage; --all fetches ones already there too)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
       say "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)"
       exit 2
