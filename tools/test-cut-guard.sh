@@ -1600,6 +1600,32 @@ bk9139="$( ( d="$MB/bk.lock"; : > "$MB/bk.n"; eval "orig9139$(declare -f _kosmos
   [ -e "$d.break/W.2" ] && echo survived || echo removed; true ) 2>/dev/null )"
 rm -rf "$MB/bk.lock" "$MB/bk.lock.break" "$MB/bk.n"
 [ "$bk9139" = survived ] && pass "#9139 a fresh break lock survives a waiter that judged the old one" || fail "#9139 a fresh break lock was removed (got '$bk9139')"
+# Review 8: a non-empty pid that changes between the first read and the second is not broken. The first pid is dead,
+# so the outer check calls the lock stale; under the break lock live A is read; A releases and live C takes the lock.
+rm -rf "$MB/eq.lock"; eq9139="$( ( d="$MB/eq.lock"; sleep 300 & A=$!; sleep 300 & C=$!; mkdir "$d"; echo 99998 > "$d/pid"
+  : > "$MB/eq.nc"; nk=0
+  cat() { echo x >> "$MB/eq.nc"; [ "$(wc -l < "$MB/eq.nc" | tr -d ' ')" = 2 ] && echo "$A" > "$d/pid"; command cat "$@"; }
+  kill() { if [ "$1" = -0 ]; then nk=$((nk + 1)); [ "$nk" = 2 ] && { rm -f "$d/pid"; rmdir "$d"; command kill "$A"; wait "$A" 2>/dev/null; mkdir "$d"; echo "$C" > "$d/pid"; }; fi; command kill "$@"; }
+  if KOSMOS_BESIDE_LOCK_TRIES=2 _kosmos_beside_lock "$d"; then echo two-holders; else echo refused; fi
+  unset -f cat kill; command kill "$A" "$C" 2>/dev/null; true ) 2>/dev/null )"
+rm -rf "$MB/eq.lock" "$MB/eq.nc"
+[ "$eq9139" = refused ] && pass "#9139 a pid that changes between the two reads is not broken" || fail "#9139 a lock was broken on a pid it no longer held (got '$eq9139')"
+# Review 8: an OLD break lock left by a killed breaker is taken over, and the dead lock under it is then broken (without
+# this, one leftover break lock stops every break for good and nothing is folded again).
+rm -rf "$MB/to.lock" "$MB/to.lock.break"; mkdir "$MB/to.lock"; echo 99998 > "$MB/to.lock/pid"; mkdir "$MB/to.lock.break"; : > "$MB/to.lock.break/old.1"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 400 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 400 ))" +%Y%m%d%H%M.%S)" "$MB/to.lock.break"
+to9139="$( ( if KOSMOS_BESIDE_LOCK_TRIES=5 _kosmos_beside_lock "$MB/to.lock"; then echo got; else echo stuck; fi ) 2>/dev/null )"
+rm -rf "$MB/to.lock" "$MB/to.lock.break"
+[ "$to9139" = got ] && pass "#9139 an old break lock is taken over and the dead lock under it broken" || fail "#9139 an old break lock blocked the break (got '$to9139')"
+# Review 8: a taker that finds a second token in its fresh break dir (the dir was removed and made again by another
+# taker) does not break, and removes only its own token. The hook drops that other token in just after mkdir.
+rm -rf "$MB/tw.lock" "$MB/tw.lock.break"; mkdir "$MB/tw.lock"; echo 99998 > "$MB/tw.lock/pid"
+tw9139="$( ( d="$MB/tw.lock"
+  mkdir() { command mkdir "$@" || return 1; [ "$1" = "$d.break" ] && : > "$d.break/other.1"; return 0; }
+  if KOSMOS_BESIDE_LOCK_TRIES=2 _kosmos_beside_lock "$d"; then printf took; else printf refused; fi
+  unset -f mkdir; [ "$(ls "$d.break" 2>/dev/null)" = other.1 ] && printf '+left'; true ) 2>/dev/null )"
+rm -rf "$MB/tw.lock" "$MB/tw.lock.break"
+[ "$tw9139" = refused+left ] && pass "#9139 two tokens in one break dir: the taker backs off and leaves the other" || fail "#9139 two takers in one break dir (got '$tw9139')"
 # Review 6: the release removes the lock only while it carries this writer's pid (a ceiling break may have handed it on).
 rm -rf "$MB/rel.lock"; rel9139="$( ( _KOSMOS_BESIDE_OWN=424242; mkdir "$MB/rel.lock"; echo 999999 > "$MB/rel.lock/pid"
   _kosmos_beside_unlock "$MB/rel.lock"; [ -d "$MB/rel.lock" ] && printf kept; echo 424242 > "$MB/rel.lock/pid"
