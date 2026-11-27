@@ -31,8 +31,12 @@ The installed copy (~/.cache/claude-handoffs/queued-heavy.sh) is updated separat
 ## Handled after review
 - The detached `kosmos heavy start` carries the label in its argv for up to about 17 s,
   where #5467 took the run's name out of argv. So the label has / and .sh broken up ("cut tools/release.sh" becomes
-  "cut tools release sh"): no word of it can read as a script path to heavy-gate.sh or a cut wrapper's pgrep.
+  "cut tools release sh"): no word of it can read as a script path to heavy-gate.sh or a cut wrapper's pgrep. The
+  hyphenated script names an unanchored pgrep might look for (run-tests, browser-checks, test-install) are broken up too.
 - A name starting with `-` is skipped, with a line saying so (the board refuses such a label).
 
 ## Known, not handled
 - `.sh` inside a word is broken up too ("a.shape" becomes "a shape"): cosmetic.
+- A plain word such as "release" stays in the label, so an unanchored `pgrep -f release` sees it for those few seconds;
+  breaking it would garble ordinary names. Measured 2026-11-27: no `pgrep -f` in tools/ outside the tests matches a
+  bare word; each matches a script path (such as `run-tests\.sh`), a listener pattern or a sandbox path.
