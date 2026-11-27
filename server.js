@@ -717,11 +717,14 @@ function owesNotice(projectId, holder, by, all = null) {
    change (task and part close and reopen; `by` from a token, or a part route's pane claim, else null). Each assignee
    owesNotice answers for is owed a re-read of its projects section (projects.syncAgent byOther). Without `notice`,
    nobody is owed one for the task change (as before). */
-function tellEveryoneOn(t, roster, { notice } = {}) {
+function tellEveryoneOn(t, roster, { notice, except } = {}) {
   const named = tasks.whoOf(t);
   if (!named.length) return undefined;
   if (!roster) roster = safeRoster();
-  const byOtherFor = (one) => !!notice && owesNotice(notice.projectId, one, notice.by);
+  /* kosmos#9178: `except` names holders already told about this very change another way (a new assignee's heard line,
+     the Assigner's failover source told by engine/failovertell.js): still synced, never owed a second message. */
+  const told = new Set((Array.isArray(except) ? except : []).filter((x) => typeof x === 'string' && x));
+  const byOtherFor = (one) => !!notice && !told.has(one) && owesNotice(notice.projectId, one, notice.by);
   let last;
   for (const one of named) {
     try { last = projects.syncAgent(one, roster, { byOther: byOtherFor(one) }); }
@@ -832,7 +835,12 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (before && before !== who && !tasks.whoOf(out.task).includes(before)) {
       try { projects.syncAgent(before, r, { byOther: before !== failoverFrom && owesNotice(projectId, before, screen ? null : (by || null)) }); } catch { /* the give stands; the next sync catches up */ }
     }
-    return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
+    /* kosmos#9178: a part given open drops the task's built mark (#3951), and every holder's block said built (#9176), so
+       the other holders are owed a re-read. Not the new assignee (its heard line is this news) and not the failover
+       source (failovertell owes it one line about this move); syncAgent owes nothing where no block changed. */
+    const dropNotice = out.changed && tasks.droppedBuiltForWork(out.task)
+      ? { notice: { projectId, by: screen ? null : (by || null) }, except: [who, failoverFrom] } : {};
+    return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r, dropNotice), heard: heardResult };
   };
   /* #4588 ask 3 review 6: DEFENSIVE. heardBy turns a rejected tell into a failed verdict today, so finish runs and gives
      the slot back; this handler only matters if heardBy ever lets a rejection through. */
@@ -28994,7 +29002,15 @@ const server = http.createServer(async (req, res) => {
         } else {
           heard = heardBudgetSkipped(body && body.who);
         }
-        sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster), heard });
+        /* kosmos#9178: a new part is new work, so it dropped the built mark (#3951) that every holder's block showed (#9176):
+           they are owed a re-read, except the part's new holder (its heard line is this news) and the agent that added it. */
+        let dropNotice = {};
+        if (tasks.droppedBuiltForWork(out.task)) {
+          let addedBy = null;
+          if (!screen) { try { const c = processCaller(req, body, roster, false, 'the part was added'); addedBy = !c.refusal && c.card ? c.card.sessionName : null; } catch { addedBy = null; } }
+          dropNotice = { notice: { projectId: id, by: addedBy }, except: [body && body.who] };
+        }
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster, dropNotice), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
