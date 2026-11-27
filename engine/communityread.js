@@ -183,17 +183,18 @@ const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u11
  *  there could start a line that looks like another post's header. PURE. */
 function scrub(value, cap, oneLine) { return scrubCut(value, cap, oneLine).text; }
 /* kosmos#9172 (#9166 item 4): where a cut falls, and whether there was one. A cut ends at a word (a sentence end when one
-   is within the last CUT_LOOKBACK characters), never mid-word; text with no space that near is cut where it is, as
-   before. Returns { text, cut }. PURE. */
+   is near the end), never mid-word; text with no space near the end is cut where it is, as before. "Near" is the last
+   fifth of the cap, at most CUT_LOOKBACK characters (review 1: a fixed 200 searched a 120-character title end to end,
+   so "Mr. Smith ..." came out "Mr. [cut]"). A cut never leaves nothing. PURE. */
 const CUT_LOOKBACK = 200;
 function cutAtWord(s, cap) {
-  let piece = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '');
-  const floor = Math.max(0, piece.length - CUT_LOOKBACK);
+  const piece = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '');
+  const floor = Math.max(0, piece.length - Math.min(CUT_LOOKBACK, Math.floor(cap / 5)));
   const tail = piece.slice(floor);
-  const sentence = Math.max(tail.lastIndexOf('. '), tail.lastIndexOf('! '), tail.lastIndexOf('? '), tail.lastIndexOf('.\n'));
-  if (sentence >= 0) return piece.slice(0, floor + sentence + 1);
+  const sentence = Math.max(...['. ', '! ', '? ', '.\n', '!\n', '?\n'].map((m) => tail.lastIndexOf(m)));
+  if (sentence >= 0 && floor + sentence + 1 > 0) return piece.slice(0, floor + sentence + 1);
   const space = tail.search(/\s\S*$/);
-  if (space > 0) return piece.slice(0, floor + space);
+  if (space >= 0 && floor + space > 0) return piece.slice(0, floor + space);
   return piece;
 }
 function scrubCut(value, cap, oneLine) {

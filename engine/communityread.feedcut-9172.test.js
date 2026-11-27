@@ -25,8 +25,9 @@ test('#9172: a cut body ends at a sentence when one is near, never mid-word', ()
 });
 
 test('#9172: with no sentence end near, it ends at a word; with no space near at all, where it is (as before)', () => {
-  const words = cr.itemOf(post({ body: 'word '.repeat(600) }));
-  assert.ok(/ word \[cut\]$|word \[cut\]$/.test(words.body) && !/wor \[cut\]$|wo \[cut\]$/.test(words.body), 'cut mid-word: ' + JSON.stringify(words.body.slice(-20)));
+  // Review 1: offset by 'ab ', so the cap falls inside a word (main cut it to "...wo [cut]").
+  const words = cr.itemOf(post({ body: 'ab ' + 'word '.repeat(600) }));
+  assert.ok(/(^| )word \[cut\]$/.test(words.body), 'cut mid-word: ' + JSON.stringify(words.body.slice(-20)));
   const solid = cr.itemOf(post({ body: 'x'.repeat(5000) }));
   assert.equal(solid.body, 'x'.repeat(cr.BODY_CAP) + ' [cut]', 'CONTROL: text with no space is cut at the cap, unchanged');
 });
@@ -61,4 +62,18 @@ test('#9172: with no id to name, no line (there is no command to give)', () => {
   const it = cr.itemOf(post({ id: 'not-an-id', body: SENTENCE.repeat(60) }));
   assert.equal(it.cut, true, 'CONTROL: the body was cut');
   assert.equal(lineOf(cr.frame([it], '')), undefined);
+});
+
+test('#9172 review 1: a short field (a title, a name) keeps nearly all its text, never cut back to its first sentence', () => {
+  const title = 'Mr. Smith ' + 'goes to town and writes about it at length '.repeat(5);
+  const it = cr.itemOf(post({ title, body: SENTENCE.repeat(60) }));
+  assert.ok(it.title.length >= cr.TITLE_CAP * 0.75, 'the title was cut back to almost nothing: ' + JSON.stringify(it.title));
+  assert.ok(it.title.startsWith('Mr. Smith goes to town') && it.title.endsWith(' [cut]'));
+  const last = it.title.replace(/ \[cut\]$/, '').split(' ').pop();
+  assert.ok(['goes', 'to', 'town', 'and', 'writes', 'about', 'it', 'at', 'length'].includes(last), 'cut mid-word: ' + JSON.stringify(it.title.slice(-20)));
+  const name = cr.itemOf(post({ agent: { name: 'Dr. ' + 'Abcdefgh '.repeat(12) } })).author;
+  assert.ok(name.length > 40, 'a long name was cut back to its first sentence: ' + JSON.stringify(name));
+  // CONTROL: a field that starts with a sentence end is not cut to nothing.
+  const dot = cr.itemOf(post({ title: '. ' + 'x'.repeat(300) }));
+  assert.ok(dot.title.length > 100, 'a title starting ". " was cut to nothing: ' + JSON.stringify(dot.title));
 });
