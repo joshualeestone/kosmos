@@ -729,7 +729,7 @@ function history(sessionName, tailBytes, opts) {
     // #5635 F2: an operator's clear is marked, so a reader can tell it from the agent stopping (projectview.workExcused).
     // kosmos#8634: the hook's and the agent's own are marked too, so a reader can tell the agent's own wait from an automatic one.
     const by = row.by === 'operator' || row.by === 'auto' || row.by === 'agent' ? row.by : null;
-    // kosmos#8634: and a held question (#7915), so a reminder to ask it again says --held and buzzes nobody.
+    // kosmos#8634: and a held question (#7915), so a reminder to ask it again says it comes back held and buzzes nobody (kosmos#9219's --again).
     const held = row.state === 'needs_you' && row.held === true;
     /* kosmos#8961: the report hook's turn marks, by the same rule toolloop.endsTurn reads them (its prompt sentence
        starts a turn, its idle ends one), so engine/msgstatus.js can tell a turn's start and end from other reports. */
