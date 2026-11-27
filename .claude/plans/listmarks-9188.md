@@ -35,7 +35,8 @@ On markwords-9179 (= main for these files), an open task titled "[on hold] ship 
   quoted).
 - Fixture titles in five older tests used mark words as labels ("Task built", "Task a-built", "waits for a task"):
   renamed to "ready" and "held for" (their tests check order, groups and holds, not the title).
-- Parenthesised marks ("(under task N)", "(owner: ...)") are out of scope (the card names the bracket marks).
+- Review 1: the parenthesised marks with fixed words are in (below); an owner's bare name, "(otto)", has no word to
+  test and is #9201.
 
 ## Weakest premise
 
@@ -49,3 +50,19 @@ the wake words (engine/taskwake.js waitWords: "waits for ..."); a new mark added
   Each surface put back to the base fails its test.
 - Every cli.task-* test, server.webhooks-1307, the Windows CLI's 570/verbs/parity/shims tests, the #9179 test,
   tasklist.next-8576, the reachability and tree guards (533: 512 pass, 0 fail).
+
+#### Iteration 1 (blind review, opus)
+
+- [BLOCKER] taken: the word list missed "waits until" (a time wake prints `[waits until ...]`; I had only "waits for"),
+  so "send the invoice [waits until tomorrow at 9am]" passed for a woken task. My stated weakest premise, the
+  completeness of the list, was the defect. Now "waits" alone (for, until, and the compact list's "(waits on ...)").
+  Re-read every mark the printers emit: added the compact, across and long lists' parenthesised marks with fixed words:
+  "(through #N)", "(under task N)", "(owner: ...)", "(reported finished: ...)", "(still to finish: ...)",
+  "(last activity ...)", "(quiet N days", ", left under closed task #N". Tested; dropping "waits" fails the test.
+- [SHOULD-FIX] taken: a "[done]" after the row's own label ("[7] [done] x", "#3 [done] x") passed the first-word rule.
+  Now a bracket or # and digits may come before it; a bare number ("3 done items") stays plain. Tested both ways.
+- [SHOULD-FIX] split out: an owner's bare name in parentheses ("fix the login (otto)") has no fixed word; filed #9201.
+- [NIT] taken: a comment on why tasklist.js needs no typeof guard (it ships beside markwords.js).
+- [NIT] recorded, not built: no test of the Windows CLI with no markwords.js in its engine folder (the fallback is
+  read correct, as the Mac one is tested); the agent nudges were not checked for titles printed beside marks.
+cli.task-listmarks-9188 4 of 4 and the neighbouring set (533: 512 pass, 0 fail).
