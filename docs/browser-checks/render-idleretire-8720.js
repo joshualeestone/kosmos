@@ -13,6 +13,8 @@
  *    draws no heading;
  *  - pressing the switch sends { on: false } once; picking 90 days sends { days: 90 } once;
  *  - a save the board took but could not list agents for re-reads, and that read failing hides the switch and says so;
+ *  - on but paused on this computer (active false): the heading says retiring is paused;
+ *  - a days change while a save is in flight is put back and sends nothing, and the in-flight answer is drawn;
  *  - at 390 px nothing scrolls sideways.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-idleretire-8720.js
@@ -63,6 +65,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           if (url.indexOf('/api/idle-retire') !== -1) {
             if (opts && opts.method === 'PUT') {
               puts.push(JSON.parse(opts.body));
+              if (current && current.slow) { const answer = current.slow; return new Promise((res) => { window.releaseSave = () => res({ ok: true, json: async () => answer }); }); }
               if (current === 'saved-no-list') { current = 'fail'; return Promise.resolve({ ok: true, json: async () => ({ setting: { on: true, days: 30, ok: true }, choices: [14, 30, 60, 90], verdicts: null, recent: null }) }); }
               return Promise.resolve({ ok: true, json: async () => current });
             }
@@ -116,6 +119,19 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         document.getElementById('idr-toggle').click();
         for (let i = 0; i < 50 && look().checked !== null; i += 1) await new Promise((res) => setTimeout(res, 20));
         out.savedNoList = look();
+        current = { ...on, active: false }; await paintIdleRetire(); out.paused = look();
+        current = on; await paintIdleRetire();
+        puts.length = 0;
+        const sel2 = document.getElementById('idr-days');
+        current = { slow: { ...on, setting: { ...on.setting, days: 90 } } };
+        sel2.value = '90'; sel2.dispatchEvent(new Event('change'));
+        await new Promise((res) => setTimeout(res, 50));
+        sel2.value = '14'; sel2.dispatchEvent(new Event('change'));
+        await new Promise((res) => setTimeout(res, 50));
+        const during = { value: sel2.value, msg: document.getElementById('idr-msg').textContent.trim() };
+        window.releaseSave();
+        for (let i = 0; i < 50 && sel2.value !== '90'; i += 1) await new Promise((res) => setTimeout(res, 20));
+        out.inflight = { during, after: sel2.value, puts: puts.slice() };
         return out;
       }, { on: ON, off: OFF, emptyOn: EMPTY_ON });
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
@@ -133,6 +149,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(JSON.stringify(r.afterClick.puts) === JSON.stringify([{ on: false }]) && r.afterClick.checked === 'false' && /if you turn this on/.test(r.afterClick.retireHead), tag + ' pressing the switch sends { on: false } once and draws off', JSON.stringify(r.afterClick.puts));
       say(r.savedNoList.checked === null && r.savedNoList.togHidden && /could not read/.test(r.savedNoList.msg), tag + ' a save with no agent list re-reads, and a failed read hides the switch and says so', JSON.stringify(r.savedNoList));
       say(JSON.stringify(r.afterDays.puts) === JSON.stringify([{ days: 90 }]) && r.afterDays.days === '90', tag + ' picking 90 days sends { days: 90 } once', JSON.stringify(r.afterDays.puts));
+      say(/paused on this computer/.test(r.paused.retireHead) && r.paused.checked === 'true', tag + ' on but paused: the heading says retiring is paused', r.paused.retireHead);
+      say(r.inflight.during.value === '60' && /Still saving/.test(r.inflight.during.msg) && r.inflight.after === '90' && JSON.stringify(r.inflight.puts) === JSON.stringify([{ days: 90 }]),
+        tag + ' a days change during a save is put back and sends nothing; the save that was in flight is drawn', JSON.stringify(r.inflight));
       say(!r.on.sideways, tag + ' nothing scrolls sideways');
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();

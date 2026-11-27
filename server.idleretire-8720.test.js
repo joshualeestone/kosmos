@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, _clearSweepRosterForTest } = require('./server');
 const store = require('./engine/store');
 
 let port = 0;
@@ -105,6 +105,7 @@ test('#8720: the setup guide is kept on the live path (its row is marked from it
     const up = Array.from({ length: 41 }, (_, i) => ir.dayOf(Date.now() - (40 - i) * 86400000));
     fs.writeFileSync(path.join(store.ROOT, 'idleretire-log.json'), JSON.stringify({ up }));
     assert.equal(ir.writeSetting({ days: 30 }).ok, true);
+    _clearSweepRosterForTest();   // the view reads the sweeps' 20 s roster, filled by an earlier test with no fleet
     const r = await call('GET', '/api/idle-retire');
     assert.equal(r.status, 200);
     const v = (n) => r.json.verdicts.find((x) => x.name === n);

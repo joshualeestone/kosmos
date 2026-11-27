@@ -103,10 +103,11 @@ function readLog({ setAside = false } = {}) {
 /* A name the tick will not try now: tried today, or its last attempt was refused or partial under a week ago. Returns
    the local day it is tried again, or null. */
 function heldUntil(log, name, t) {
-  if (log.tried.day === dayOf(t) && log.tried.names.includes(name)) return dayOf(t + DAY_MS);
+  const triedToday = log.tried.day === dayOf(t) && log.tried.names.includes(name) ? dayOf(t + DAY_MS) : null;
   const last = log.retired.find((x) => x.name === name);
   const at = last && last.outcome !== 'removed' ? Date.parse(last.tried || last.at) : NaN;
-  return Number.isFinite(at) && t - at < RETRY_AFTER_MS ? dayOf(at + RETRY_AFTER_MS) : null;
+  const backOff = Number.isFinite(at) && t - at < RETRY_AFTER_MS ? dayOf(at + RETRY_AFTER_MS) : null;
+  return [triedToday, backOff].filter(Boolean).sort().pop() || null;   // the later of the two holds
 }
 function writeLog(log) {
   try {
@@ -154,6 +155,7 @@ function assess(rows, readers, { days, now = Date.now(), upDays } = {}) {
     else if (!RETIRABLE_STATES.includes(a.state)) why = 'the board shows it as ' + (typeof a.state === 'string' && a.state ? a.state.replace(/_/g, ' ') : 'unknown') + ' right now';
     else if (a.isNamedOurs === false) why = 'it is not an agent Kosmos runs';
     else if (a.isGuide === true) why = 'it is the setup guide';
+    else if (a.isGuide === null) why = 'Kosmos could not tell whether it is the setup guide';
     if (!why) {
       try {
         const state = readers.latestState(name);
@@ -243,8 +245,9 @@ function makeTick(deps) {
 }
 
 /** What Settings shows: the setting, every verdict (shown while off too, as a preview), and the recent retirements.
- * A retire verdict the tick would hold (heldUntil) is shown as kept, with the day it is tried again. */
-function view(rows, readers, now = Date.now()) {
+ * A retire verdict the tick would hold (heldUntil) is shown as kept, with the day it is tried again. `active` is whether
+ * the sweep acts on this board now, for the screen to say when it is paused. */
+function view(rows, readers, now = Date.now(), { active = true } = {}) {
   const setting = readSetting();
   const log = readLog();
   const up = log.up.includes(dayOf(now)) ? log.up : log.up.concat([dayOf(now)]);   // the next tick counts today before it judges
@@ -252,7 +255,7 @@ function view(rows, readers, now = Date.now()) {
     const until = v.verdict === 'retire' ? heldUntil(log, v.name, now) : null;
     return until ? { ...v, verdict: 'keep', why: 'its last removal did not go through, so Kosmos tries again on ' + until } : v;
   });
-  return { setting, choices: DAY_CHOICES, verdicts, recent: log.retired, unreadable: log.unreadable === true };
+  return { setting, choices: DAY_CHOICES, verdicts, recent: log.retired, unreadable: log.unreadable === true, active: active === true };
 }
 
 module.exports = { readSetting, writeSetting, assess, makeTick, view, realReaders, readLog, dayOf, DAY_CHOICES, DEFAULT_DAYS, KEEP_LOG, MAX_PER_TICK };

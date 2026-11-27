@@ -30289,6 +30289,7 @@ document.getElementById('asg-fo-toggle') && document.getElementById('asg-fo-togg
    only the agents idle long enough to be retired and protected from it; an agent that ran recently needs no reason. */
 let IDR_EPOCH = 0;
 let IDR_SAVING = false;
+let IDR_DAYS = null;   // the days last painted from the store, to put the select back to when a change is refused
 function idrList(id, headId, head, items) {
   const ul = document.getElementById(id);
   const h = document.getElementById(headId);
@@ -30315,7 +30316,8 @@ function paintIdleRetireFrom(r) {
       sel.replaceChildren();
       for (const d of choices) { const o = document.createElement('option'); o.value = String(d); o.textContent = d + ' days'; sel.appendChild(o); }
     }
-    if (document.activeElement !== sel) sel.value = String(s.days);
+    IDR_DAYS = String(s.days);
+    if (document.activeElement !== sel) sel.value = IDR_DAYS;
   }
   /* The days and the lists show while it is off too: the person sees who would go before turning it on. */
   const daysRow = document.getElementById('idr-days-row');
@@ -30324,7 +30326,9 @@ function paintIdleRetireFrom(r) {
   if (lists) lists.hidden = false;
   const v = Array.isArray(r.verdicts) ? r.verdicts : [];
   const limit = Number(s.days) || 30;
-  idrList('idr-retire', 'idr-retire-h', on ? 'Would be retired soon, a few each hour:' : 'Would be retired if you turn this on:',
+  const paused = on && r.active === false;
+  idrList('idr-retire', 'idr-retire-h', paused ? 'Would be retired, but retiring is paused on this computer:'
+    : on ? 'Would be retired soon, a few each hour:' : 'Would be retired if you turn this on:',
     v.filter((x) => x.verdict === 'retire').map((x) => x.shownAs + ': ' + x.why));
   idrList('idr-keep', 'idr-keep-h', 'Idle that long, but kept:',
     v.filter((x) => x.verdict === 'keep' && typeof x.days === 'number' && x.days >= limit).map((x) => x.shownAs + ': ' + x.why));
@@ -30345,7 +30349,7 @@ async function paintIdleRetire(keepMsg) {
     const r = await res.json();
     if (mine !== IDR_EPOCH) return;
     paintIdleRetireFrom(r);
-    if (msg && !keepMsg) msg.textContent = '';
+    if (msg && !keepMsg) msg.textContent = r.setting && r.setting.ok === false ? 'The saved setting could not be read, so it shows Off.' : '';
   } catch {
     if (mine !== IDR_EPOCH) return;
     paintSwitch('idr-toggle', null);
@@ -30355,7 +30359,14 @@ async function paintIdleRetire(keepMsg) {
 }
 async function saveIdleRetire(change) {
   const msg = document.getElementById('idr-msg');
-  if (IDR_SAVING) { if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.'; paintIdleRetire(true); return; }
+  if (IDR_SAVING) {
+    /* Like the Recommender: put the control back and leave the save in flight alone (a repaint here would drop its
+       answer). The switch only moves on an answer, so only the days can need putting back. */
+    const sel = document.getElementById('idr-days');
+    if (sel && IDR_DAYS !== null) sel.value = IDR_DAYS;
+    if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.';
+    return;
+  }
   IDR_SAVING = true;
   const mine = ++IDR_EPOCH;
   let failed = false;
