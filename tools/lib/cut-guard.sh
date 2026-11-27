@@ -1850,7 +1850,13 @@ _kosmos_beside_stale_h() {   # _kosmos_beside_stale_h <lock dir> <pid as read>
 # Review 7: the break lock holds a file named by its taker's TOKEN. A waiter that takes over an old break lock first
 # notes the name in it, then judges the age, and removes only that name, then rmdir: a fresh break lock taken meanwhile
 # holds another name, so its rmdir fails. A taker whose token write fails (its fresh dir was removed in the moment
-# before) does not break anything.
+# before) does not break anything. Review 8: that dir can be removed AND made again by a third taker, so two tokens can
+# land in one dir: a taker breaks only if its token is the ONLY entry; otherwise it removes its own and backs off.
+_kosmos_beside_break_mine() {   # <break dir> <token>: 0 when the token is the dir's only entry
+  local e n=0
+  for e in "$1"/*; do [ -e "$e" ] && n=$((n + 1)); done
+  [ "$n" = 1 ] && [ -e "$1/$2" ]
+}
 _kosmos_beside_lock() {
   local d="$1" i=0 h1 tk t1
   [ -w "${d%/*}" ] || return 1
@@ -1859,7 +1865,9 @@ _kosmos_beside_lock() {
     if _kosmos_beside_stale "$d"; then
       if mkdir "$d.break" 2>/dev/null; then
         tk="$$.$RANDOM$RANDOM"
-        if { : > "$d.break/$tk"; } 2>/dev/null; then
+        if { : > "$d.break/$tk"; } 2>/dev/null && ! _kosmos_beside_break_mine "$d.break" "$tk"; then
+          rm -f "$d.break/$tk" 2>/dev/null || true   # review 8: another taker wrote into this dir too: both back off
+        elif [ -e "$d.break/$tk" ]; then
           h1="$(cat "$d/pid" 2>/dev/null)"
           if _kosmos_beside_stale_h "$d" "$h1" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ] \
             && { [ -n "$h1" ] || _kosmos_beside_stale_h "$d" ""; }; then
