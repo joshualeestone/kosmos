@@ -7,11 +7,14 @@ After #9214 merged, a content check on main found ios/LogicTests/run-updates.sh 
 
 ## Change
 1. ios/LogicTests/run-updates.sh: -O to -Onone.
-2. .github/workflows/ios.yml: a step before the logic suites that fails on any `swiftc -O` under ios/LogicTests or ios/tools.
+2. ios/tools/check-logic-onone.sh: exit 1 on any swiftc line under ios/LogicTests or ios/tools (*.sh, comments skipped) that turns an optimizer on: -O, -Osize, -Ounchecked, after any whitespace, anywhere on the line. Exit 2 when it checked nothing (a folder missing, grep failed, no swiftc line at all), never a pass.
+3. .github/workflows/ios.yml: the build job ends with a step that runs it. Last, so a stray flag never hides the suites and builds above.
+4. tools/test-ios-logic-onone-9213.sh (in test:shell): runs the real script on a copy of the two folders, once per spelling above plus the control, the comment case, both exit-2 cases and the reported count; and pins the step as the build job's last.
 
 ## Verified
-- The guard step's own `run` text, extracted from the YAML and run from the worktree root: rc 0 on the fixed tree; with -O put back in run-updates.sh, rc 1 and it names the file and line.
-- run-updates.sh passes at -Onone.
+- The new test: all arms pass; each mutation arm first checks its edit changed the file. Its YAML arm caught a real defect while this branch was being edited (an edit had left ios.yml unparseable), so it can fail.
+- tools/test-ci-ios-route-8993.sh still passes on the edited ios.yml.
+- run-updates.sh passes at -Onone (121/121).
 
 ## Weakest premise
-The pattern `swiftc +-O( |$)` covers how these scripts spell the flag today (`xcrun swiftc -O -o`). A flag placed later on the line (`swiftc -o out -O`) or split onto a continuation line would pass it. Every current script puts it first.
+The check reads one line at a time. A flag on a continuation line by itself (`  -O \`, after a `swiftc ... \` line) is not on a swiftc line, so it passes. No script puts a flag there today.
