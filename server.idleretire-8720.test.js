@@ -137,10 +137,10 @@ test('#9228: the sweep deps are wired to the real roster and the real Remove (dr
   const liveness = require('./engine/liveness');
   const ir = require('./engine/idleretire');
   const board = fleet.install([fleet.agent('wired', { displayName: 'Wired One' })]);
+  const name = board.card('wired').sessionName;
   let r;
   const lines = [];
   try {
-    const name = board.card('wired').sessionName;
     liveness.seen(name, new Date(Date.now() - 40 * 86400000).toISOString());
     const up = Array.from({ length: 41 }, (_, i) => ir.dayOf(Date.now() - (40 - i) * 86400000));
     fs.writeFileSync(path.join(store.ROOT, 'idleretire-log.json'), JSON.stringify({ up }));
@@ -160,6 +160,6 @@ test('#9228: the sweep deps are wired to the real roster and the real Remove (dr
     board.restore();
     ir.writeSetting({ on: false });
     fs.rmSync(path.join(store.ROOT, 'idleretire-log.json'), { force: true });
-    try { liveness.forget(board.card('wired').sessionName); } catch { /* the card read can fail after restore; the sandbox goes at exit */ }
+    liveness.forget(name);
   }
 });
