@@ -12,7 +12,7 @@ final class ChatTallReopenProbeUITests: XCTestCase {
     private func composer(_ app: XCUIApplication) -> XCUIElement {
         app.textFields.matching(NSPredicate(format: "placeholderValue BEGINSWITH %@", "Message ")).firstMatch
     }
-    private func probe(_ arm: String, noLooks: Bool, danaIdle: Bool = false, stillDots: Bool = false, noRow: Bool = false, noPosId: Bool = false) throws {
+    private func probe(_ arm: String, noLooks: Bool, danaIdle: Bool = false, stillDots: Bool = false, noRow: Bool = false, noPosId: Bool = false, oldOpen: Bool = false) throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "tall20"]
@@ -24,6 +24,8 @@ final class ChatTallReopenProbeUITests: XCTestCase {
         if noRow { app.launchEnvironment["KOSMOS_SAMPLE_NOWORKINGROW"] = "1" }
         if stillDots { app.launchEnvironment["KOSMOS_SAMPLE_STILLDOTS"] = "1" }
         if let out = ProcessInfo.processInfo.environment["KOSMOS_PROBE_OUT"] { app.launchEnvironment["KOSMOS_SAMPLE_STDOUT"] = out + "/stdout-\(arm)-\(Int(Date().timeIntervalSince1970)).txt" }
+        if oldOpen { app.launchEnvironment["KOSMOS_SAMPLE_ANCHORATOPEN"] = "1" }
+        if ProcessInfo.processInfo.environment["KOSMOS_ANCHORATOPEN"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_ANCHORATOPEN"] = "1" }   // the old open
         app.launch()
         XCTAssertTrue(composer(app).waitForExistence(timeout: 30), "\(arm): the chat did not open at launch")
         Thread.sleep(forTimeInterval: 2.0)   // past the last look (1.6 s), as ChatTallOpenUITests waits
@@ -48,6 +50,7 @@ final class ChatTallReopenProbeUITests: XCTestCase {
     }
 
     func testReopenWithTheLooks() throws { try probe("looks", noLooks: false) }
+    func testReopenWithTheLooksOldOpen() throws { try probe("oldopen", noLooks: false, oldOpen: true) }
     func testReopenWithoutTheLooks() throws { try probe("nolooks", noLooks: true) }
     func testReopenWithTheLooksStillDots() throws { try probe("looks-stilldots", noLooks: false, stillDots: true) }
     func testReopenWithTheLooksNoWorkingRow() throws { try probe("looks-norow", noLooks: false, noRow: true) }
