@@ -22,3 +22,11 @@ re-read was owed. A plain hold, the control, was owed.
 `engine/projects.holdsof-9187.test.js`: each form (plain as the control, until, waiting on the person) set and lifted
 owes a re-read; a sync that changes nothing owes none. Red on main for the two new forms; dropping either half of the
 pattern turns its test red. Neighbours (hold, re-read, pause tests) 381/381.
+
+## Review round 1 (opus, blind): no critical
+- [WARNING] an until with a TIME (its ISO spelling, colons inside) and the person's hold that waits were untested --> ADDED both; the regex covered them (reviewer probe), now pinned.
+- [WARNING] the "owed" assertion did not prove the re-read came from the hold --> each set and lift now also asserts syncAgent's verdict says rulesChanged.
+- [NIT] a task's own words ending "[on hold, ..." now read as a hold --> ACCEPTED here: #9179 quotes such titles (in review); the old "[on hold: ..." spelling already did this.
+- [NIT] the rulesChangedIn comment said "on the screen" --> reworded (an agent's holds too, every form).
+- Reviewer measured: no hold's words change over time (waits words are fixed strings), so no re-read on every sync; the debt consumers show the same section.
+On main the four new forms fail and the plain hold and the control pass; with the fix 6/6.

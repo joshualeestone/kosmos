@@ -4160,8 +4160,8 @@ function blockRules(sessionName, cliShown) {
    listed? `oldText` and `newText` are the file before and after the write. Only added rules count: a rule taken out
    needs no re-read, except a project's test-project line (kosmos#8236), whose removal lifts a limit. False when there was no block (joining is announced by its own line, membershipLine) or none is
    left (nothing to read). A task arriving or closing is not a change here (the agent's own task close changes those
-   lines). A pause or hold set or lifted on the screen is: the room is not told of a screen pause, so the re-read is how
-   a running agent learns it. The tasks rules count only when the old block listed a task in today's spelling
+   lines). A pause or hold set or lifted is (on the screen, or by an agent; every form held() prints, kosmos#9187): the
+   room is not told of a screen pause, so the re-read is how a running agent learns it. The tasks rules count only when the old block listed a task in today's spelling
    (`task <n> of`, #779): a first task is announced where it is assigned. */
 function rulesChangedIn(oldText, newText, sessionName) {
   if (!sessionName) return false;

@@ -51,6 +51,9 @@ const FORMS = [
   ['a plain hold (CONTROL: read before this card)', () => ({}), /\[on hold: do not start it/],
   ['a hold that waits for another task (#7180)', (s) => ({ until: { task: s.other.number } }), /\[on hold until task #?\d+ is closed: /],
   ['a hold waiting on the person (#7788)', () => ({ forPerson: true }), /\[on hold, waiting on your person: /],
+  // Review 1: an until with a time (its ISO spelling holds colons), and the person's own hold that waits.
+  ['a hold until a time (#7180)', () => ({ until: { at: new Date(Date.now() + 86400000).toISOString() } }), /\[on hold until \d{4}-\d{2}-\d{2}T[\d:.]+Z: /],
+  ['the person\'s hold that waits for another task', (s) => ({ viaScreen: true, until: { task: s.other.number } }), /\[on hold until task #?\d+ is closed: the person parked it/],
 ];
 
 for (const [name, opts, shape] of FORMS) {
@@ -58,12 +61,13 @@ for (const [name, opts, shape] of FORMS) {
     const s = setup();
     clear();
     assert.notEqual(tasks.setOnHold(s.p.id, s.k.number, true, opts(s)).ok, false, 'fixture: the hold was set');
-    projects.syncAgent('otto', board.roster);
+    // Review 1: owed BECAUSE the hold is read as a changed rule (rulesChanged), not for some other change to the line.
+    assert.equal(projects.syncAgent('otto', board.roster).rulesChanged, true, 'setting ' + name + ' was not read as a changed hold');
     assert.match(lineOf(s.file, s.k, s.p), shape, 'fixture: the section shows this form: ' + lineOf(s.file, s.k, s.p));
     assert.deepEqual(owed(), ['projects'], 'setting ' + name + ' owed no re-read');
     clear();
-    assert.notEqual(tasks.setOnHold(s.p.id, s.k.number, false).ok, false, 'fixture: the hold was lifted');
-    projects.syncAgent('otto', board.roster);
+    assert.notEqual(tasks.setOnHold(s.p.id, s.k.number, false, opts(s).viaScreen ? { viaScreen: true } : {}).ok, false, 'fixture: the hold was lifted');
+    assert.equal(projects.syncAgent('otto', board.roster).rulesChanged, true, 'lifting ' + name + ' was not read as a changed hold');
     assert.doesNotMatch(lineOf(s.file, s.k, s.p), /\[on hold/, 'fixture: the hold left the section');
     assert.deepEqual(owed(), ['projects'], 'lifting ' + name + ' owed no re-read');
   });
