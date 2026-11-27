@@ -3947,14 +3947,15 @@ heavy_usage() {
   say 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid)'
 }
 cmd_heavy() {
-  local sub="${1:-}" label="" pid="" _tok="" _bt _n body ans rc=0
+  local sub="${1:-}" label="" pid="" _tok="" _bt _n body ans rc=0 _pq
   case "$sub" in --help|-h) heavy_usage; exit 0 ;; esac
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
   if [ -z "$sub" ]; then
     if ! healthy; then say_not_up "it cannot list heavy jobs"; exit 1; fi
     _bt="$(agent_board_token || true)"
     _n="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read this."; exit 1; }
-    ans=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 "$URL/api/heavy" 2>/dev/null) || rc=$?
+    _pq=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')   # kosmos#9222: names a token-less agent, so it sees its own unchecked jobs
+    ans=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 "$URL/api/heavy?from_pane=$_pq" 2>/dev/null) || rc=$?
     [ "$rc" -eq 0 ] || { say_unreached "list heavy jobs" "$rc"; exit 1; }
     printf '%s' "$ans" | "$_n" -e '
       let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
@@ -3965,7 +3966,7 @@ cmd_heavy() {
         for (const x of j.jobs) {
           const t = new Date(x.since); const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0");
           console.log(x.label + " (" + (x.name || x.agent) + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")"
-            + (x.unchecked ? ": Kosmos could not check it, so the board does not show it; if it has finished, kosmos heavy end --pid " + x.pid : ""));
+            + (x.unchecked ? ": Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid " + x.pid : ""));
         }
       });' 2>/dev/null || { token_refused_hint "$_tok" "$ans"; exit 1; }
     exit 0

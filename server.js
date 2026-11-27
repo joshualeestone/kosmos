@@ -28444,7 +28444,9 @@ const server = http.createServer(async (req, res) => {
     // kosmos#9222: with the caller's own jobs no read could check, marked unchecked, so an agent can see (and end, which
     // only its own may) what holds its places. Another agent's, and anything for a caller it cannot name (the person,
     // a page), stay off the list, as off the board. The caller is named as POST names it, from its token or pane.
-    const caller = isViaScreen(req, {}) ? { card: null } : processCaller(req, {}, roster, false, 'nothing was listed');
+    let fromPane = '';
+    try { fromPane = new URL(req.url, ROUTING_BASE).searchParams.get('from_pane') || ''; } catch { fromPane = ''; }   // GET has no body
+    const caller = isViaScreen(req, {}) ? { card: null } : processCaller(req, { from_pane: fromPane }, roster, false, 'nothing was listed');
     const me = (caller && caller.card && caller.card.sessionName) || null;
     const jobs = heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null, Date.now(), { hidden: Boolean(me) })
       .filter((j) => !j.unchecked || j.agent === me);

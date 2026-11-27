@@ -292,7 +292,11 @@ test('a ps read for a heavy job is given a short timeout, not the 5 s default', 
   try { hj.defaultStartOf(94001, Date.now() + 3 * 60 * 60 * 1000, 'fresh'); } finally { Object.assign(rs, was); }
   assert.deepEqual(asked, [750]);
   if (process.platform === 'win32') return;
-  assert.equal(rs.processStart(process.pid, { timeoutMs: 1 }), undefined, 'a 1 ms timeout should stop ps (it cannot start and answer that fast): the option is not read');
+  // A fast ps can, rarely, answer inside 1 ms; with the option ignored (5 s) it answers every time. So one cut-off read
+  // in five tells them apart without depending on one read's timing.
+  let cut = 0;
+  for (let i = 0; i < 5 && !cut; i++) if (rs.processStart(process.pid, { timeoutMs: 1 }) === undefined) cut += 1;
+  assert.equal(cut, 1, 'five 1 ms reads all answered: the timeout option is not read');
   assert.equal(typeof rs.processStart(process.pid, { timeoutMs: 5000 }), 'string', 'control: a normal read still answers');
 });
 
@@ -477,4 +481,15 @@ test('kosmos#9222: announcing again while ps cannot answer keeps the recorded st
   assert.deepEqual([rec.pidStart, rec.since, rec.label], ['A', base, 'overnight, again'], 'the re-announce lost its recorded start');
   seen.start = 'A';
   assert.deepEqual(hj.live({ root: r, now: base + 20 * H }).map((j) => j.label), ['overnight, again'], 'and with it, its protection past the ceiling');
+}));
+
+test('kosmos#9222: announcing again past the ceiling while ps cannot answer keeps when it started', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 250 * H;
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99990, now: base }).ok, true);
+  seen.start = undefined;
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99990, now: base + 13 * H }).ok, true);
+  const rec = hj.readAll(r).find((j) => j.pid === 99990);
+  assert.deepEqual([rec.pidStart, rec.since], ['A', base], 'past the ceiling, the re-announce reset since');
 }));

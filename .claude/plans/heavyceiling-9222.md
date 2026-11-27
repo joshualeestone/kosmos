@@ -22,7 +22,7 @@ the file; it still counts toward its agent's four), or drop it.
   records get a real read, each pid asked once however many times it is judged.
 - A hidden record still counts toward the agent's four, so an agent cannot fill the file with them.
 - A hidden record is listed by `GET /api/heavy` (so `kosmos heavy`, on both CLIs) marked unchecked, with its pid and
-  how to end it, to the agent that holds it only (named from its token, as POST names it): a job an agent is told it
+  how to end it, to the agent that holds it only (named from its token or its pane, which the Mac CLI now sends): a job an agent is told it
   still has, or that holds one of its four places, is one it can see and end. Another agent's hidden jobs, and every
   hidden job for the person, stay off the list as off the board. "Not read" is never cached, so the next read asks ps
   again.

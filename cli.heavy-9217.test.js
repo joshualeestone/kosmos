@@ -81,6 +81,8 @@ test('a bare kosmos heavy lists what is running', { skip: SKIP_POSIX_SHELL }, ()
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^full test run \(ada, since \d\d:\d\d, process 4242\)$/m);
     assert.equal(hits[0].method, 'GET');
+    assert.deepEqual(hits.filter((h) => h.url.startsWith('/api/heavy')).map((h) => h.url), ['/api/heavy?from_pane=%2542'],
+      'the list did not name its pane, so a token-less agent never sees its own unchecked jobs');
   }));
 
 test('the board\'s refusal is said in its words and exits 1', { skip: SKIP_POSIX_SHELL }, () =>
@@ -145,5 +147,5 @@ test('kosmos#9222: a job Kosmos could not check is listed with how to end it', {
   withBoard(() => ({ ok: true, jobs: [{ agent: 'ada-discord', name: 'Ada', label: 'overnight', pid: 4242, since: Date.UTC(2026, 10, 27, 3, 5), unchecked: true }] }), async (port) => {
     const r = await runCli(['heavy'], envFor(port));
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it has finished, kosmos heavy end --pid 4242$/m);
+    assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid 4242$/m);
   }));
