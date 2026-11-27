@@ -151,7 +151,7 @@ if live="$(claim_live)"; then
   # none runs). A SIGTERM now could end the updater half way (ci-runner-setup.sh's keepalive refuses the same state).
   # Matched as setup's own_listener_re: this runner dir's bin*/Runner.Listener by its argv start, not the relay's.
   lre="^$(printf '%s' "$RUNNER_DIR" | sed 's/[.]/[.]/g')/bin[^/]*/Runner[.]Listener( |\$)"
-  # kosmos#9149: under C, or a command line that is not valid UTF-8 anywhere on the Mac makes pgrep exit 3.
+  # kosmos#9149: under C. Outside it, a command line that is not valid UTF-8 anywhere on the Mac makes pgrep exit 3.
   lrc=0; LC_ALL=C "$PGREP" -u "$uid" -f "$lre" >/dev/null 2>&1 || lrc=$?
   [ "$lrc" -lt 2 ] || { say "$why, but pgrep failed (exit $lrc), so the Listener cannot be checked: not stopping"; exit 1; }
   [ "$lrc" = 0 ] || { say "$why; $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating): waiting for the next tick"; exit 0; }

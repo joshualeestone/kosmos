@@ -1520,7 +1520,9 @@ EOF
   else
     # By program name (first word, path and any trailing colon stripped: on macOS a tmux server keeps the argv it
     # was started with, measured 05:12 CDT 10-14, but some builds retitle it "tmux: server"). The runner's own service host is node running RunnerService.js.
-    left="$(printf '%s\n' "$left" | awk '{ n = $1; sub(/.*\//, "", n); sub(/:$/, "", n) } (n == "tmux" || n == "node") && !/\/bin\/RunnerService\.js/ { print n }')"
+    # kosmos#9149: awk under C. A CI-user process whose argv is not valid UTF-8 (a job's leftover) made macOS awk exit 2
+    # ("towc: multibyte conversion failure"), which under set -e ended verify before it said anything.
+    left="$(printf '%s\n' "$left" | LC_ALL=C awk '{ n = $1; sub(/.*\//, "", n); sub(/:$/, "", n) } (n == "tmux" || n == "node") && !/\/bin\/RunnerService\.js/ { print n }')"
     if [ -z "$left" ]; then ok "no tmux or node left under $CI_USER"
     elif [ "$busy" = true ]; then ok "tmux or node running under $CI_USER, while a job is in flight (busy=true)"
     else problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')with no job in flight"; fi
