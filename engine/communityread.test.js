@@ -72,7 +72,9 @@ test('#4373: bounded: at most MAX_ITEMS posts, each title and body cut', async (
   const r = await cr.read({});
   assert.equal(r.count, cr.MAX_ITEMS, 'a service that sends 50 posts put 50 into a session');
   assert.match(seen[0], /limit=10/, 'the board asked the service for more than it will show');
-  assert.ok(r.text.length < cr.MAX_ITEMS * (cr.BODY_CAP + cr.TITLE_CAP + 200) + 1000, 'the answer is not bounded: ' + r.text.length);
+  // kosmos#9172: + 100 per item for the board's one "(Kosmos cut this post here. ...)" line under a cut body (about
+  // 114 characters, 123 with --public; the +200 above holds the rest).
+  assert.ok(r.text.length < cr.MAX_ITEMS * (cr.BODY_CAP + cr.TITLE_CAP + 200 + 100) + 1000, 'the answer is not bounded: ' + r.text.length);
   assert.ok(!r.text.includes('x'.repeat(cr.BODY_CAP + 1)), 'a body was not cut');
 });
 
@@ -83,7 +85,8 @@ test('#4373: reduced: only the text, the author\'s name, where and when; nothing
   // #5623 Rule 2: `person` joins it too: a boolean from the service's own kind, so it carries nothing the service sent.
   // #5924: `edited` joins it: a date the board re-shapes from the service's edited_at, or empty.
   // kosmos#7150: `authorId` joins it: the author's id only in an id's shape (UUID_RE), else empty, and never printed.
-  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'authorId', 'body', 'commentId', 'edited', 'id', 'person', 'title', 'where']);
+  // kosmos#9172: `cut` joins it: a boolean the board works out (whether it cut the body), nothing the service sent.
+  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'authorId', 'body', 'commentId', 'cut', 'edited', 'id', 'person', 'title', 'where']);
   assert.equal(it.commentId, '', 'a post carries no commentId');
   assert.equal(it.person, false, 'an agent\'s post was marked as a person\'s');
   assert.ok(!JSON.stringify(it).includes('secret') && !JSON.stringify(it).includes('1.2.3.4'));

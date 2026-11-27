@@ -651,6 +651,11 @@ function tallyLine(t, shownNew, behind, cutShort, shownOther = 0) {
       + plural(otherPosts, 'other post', 'other posts') : '') + '.';
 }
 
+/* kosmos#9172 review 2: what a read of a followed post needs, home's own rule (' --public' on a computer whose company
+   community is on), or '' when home cannot be loaded. */
+function readFlagOf() {
+  try { const h = require('./communityhome'); return typeof h.publicFlag === 'function' ? h.publicFlag() : ''; } catch { return ''; }
+}
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const began = Date.now();
@@ -778,7 +783,7 @@ async function readFollowing(agentKey) {
   const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', allSeen ? ALL_SEEN : '', commentLine || '',
     tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
   const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
-  return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
+  return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n'), null, false, readFlagOf()) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }
 
 module.exports = { listFollowing, LIST_PAGE, LIST_PAGES_MAX, _setListWaitMs, _setListRoomMs, _setListRetryBeforeMs, ALL_SEEN, suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

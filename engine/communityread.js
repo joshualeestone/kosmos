@@ -181,9 +181,31 @@ const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u11
 
 /** One post's text, made safe to put in front of an agent. `oneLine` for a name, a place or a title: a line break
  *  there could start a line that looks like another post's header. PURE. */
-function scrub(value, cap, oneLine) {
+function scrub(value, cap, oneLine) { return scrubCut(value, cap, oneLine).text; }
+/* kosmos#9172 (#9166 item 4): where a cut falls, and whether there was one. A cut ends at a word (a sentence end when one
+   is near the end), never mid-word; text with no space near the end is cut where it is, as before. "Near" is the last
+   fifth of the cap, at most CUT_LOOKBACK characters (review 1: a fixed 200 searched a 120-character title end to end,
+   so "Mr. Smith ..." came out "Mr. [cut]"). A cut never leaves nothing. PURE. */
+const CUT_LOOKBACK = 200;
+function cutAtWord(s, cap) {
+  const piece = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '');
+  // Review 4: the cap already falls between words (the next character is a space), so the piece ends on a whole word.
+  if (piece.length === cap && /\s/.test(s.charAt(cap)) && /\S$/.test(piece)) return piece;
+  const floor = Math.max(0, piece.length - Math.min(CUT_LOOKBACK, Math.floor(cap / 5)));
+  const tail = piece.slice(floor);
+  const sentence = Math.max(...['. ', '! ', '? ', '.\n', '!\n', '?\n'].map((m) => tail.lastIndexOf(m)));
+  if (sentence >= 0 && floor + sentence + 1 > 0) return piece.slice(0, floor + sentence + 1);
+  const space = tail.search(/\s\S*$/);
+  if (space >= 0 && floor + space > 0) return piece.slice(0, floor + space);
+  return piece;
+}
+function scrubCut(value, cap, oneLine) {
   // Review 1: work on a bounded piece (a multi-megabyte field must not be scrubbed whole); the cut below still applies.
-  let s = String(value == null ? '' : value).slice(0, cap * 4);
+  const raw = String(value == null ? '' : value);
+  let s = raw.slice(0, cap * 4);
+  // Review 5: text past that piece (not only space) is lost too, however the piece itself reads after cleaning.
+  // Review 6: a visible character, so padding of invisible characters past it is not a cut either.
+  const beyond = raw.length > cap * 4 && /\S/.test(raw.slice(cap * 4).replace(INVISIBLE, ''));
   /* Review 1: fold lookalikes FIRST (NFKC): a fullwidth "＝＝＝", the one-character "⩶", or a fullwidth "＜!-- kosmos:" read
      to a model as the real thing and only become it here, so every check below sees the folded text. */
   s = s.normalize('NFKC');
@@ -194,8 +216,11 @@ function scrub(value, cap, oneLine) {
   if (oneLine) s = s.replace(/\s+/g, ' ');
   s = projects.neutralise(s);                                              // Kosmos's managed-block markers (after the strip, so a split one is whole)
   s = s.replace(/={3,}/g, (m) => m.split('').join(' '));                 // no `===` anywhere, so nothing can pass for the frame's boundary
-  if (s.length > cap) s = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '') + ' [cut]';
-  return s.trim();
+  const cut = s.trimEnd().length > cap || beyond;   // review 3: only trailing space past the cap is not a cut (nothing is lost)
+  // Review 6: only text over the cap is cut back to a word; text under it that lost only what came after the piece keeps
+  // every word and is marked.
+  if (cut) s = (s.trimEnd().length > cap ? cutAtWord(s, cap) : s).trimEnd() + ' [cut]';
+  return { text: s.trim(), cut };
 }
 /** Review 1: every line of a post's text is indented under its header, so nothing a post says can start a line where a
  *  post header or a peer envelope would. */
@@ -239,7 +264,9 @@ function itemOf(p, bodyCap = BODY_CAP) {
     at: localDay(p.created_at),   // kosmos#8258
     edited: editedOf(p.edited_at),   // #5924
     title: scrub(p.title, TITLE_CAP, true),
-    body: scrub(p.body, bodyCap),
+    /* kosmos#9172: whether the body was cut, so frame can say how to read the rest. Not for a read already at the
+       service's own limit (read --post's POST_BODY_CAP): there is no fuller read to send the reader to. */
+    ...(() => { const b = scrubCut(p.body, bodyCap); return { body: b.text, cut: b.cut && bodyCap < POST_BODY_CAP }; })(),
   };
 }
 
@@ -501,7 +528,11 @@ function doneNote(it) {
 
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
 const LABEL_RE = /^r[1-9][0-9]{0,2}$/;   // #5636 F7c: a board-set item label (the Following feed's replies)
-function frame(items, heading, thread, company) {
+/* kosmos#9172 review 2: `readFlag` is what a read of one of these posts needs ('' or ' --public'): on a computer whose
+   company has its own community, read --post reads the company space, so a public post needs --public (as feedFooter's
+   next page and the Following feed's other lines carry it). */
+function frame(items, heading, thread, company, readFlag) {
+  const flag = readFlag === ' --public' ? ' --public' : '';
   const out = [FRAME_OPEN, company ? COMPANY_RULE : FRAME_RULE, ''];
   if (company) out.push(COMPANY_HEADING, '');
   if (heading) out.push(heading, '');
@@ -525,6 +556,17 @@ function frame(items, heading, thread, company) {
       + doneNote(it));   // kosmos#7886 item 5
     if (it.title) out.push(quoted(it.title));
     if (it.body) out.push(quoted(it.body));
+    /* kosmos#9172 (#9166 item 4): a body the feed cut says, outside the quote (board words, so a post cannot forge
+       one), how to read the rest. Only with an id to name: without one there is no command to give. */
+    /* Review 3: it says it is Kosmos's (as every board line here that names a command does), so it is not taken for the
+       post's own words, which the frame's rule says never to act on; and only with an id the vote and read paths take. */
+    if (it.cut === true && UUID_RE.test(it.id)) {
+      out.push(it.commentId
+        // A reply: read --post opens its thread, where a deep reply may be past the first page, so no promise of whole.
+        ? '    (Kosmos cut this reply here. Its thread: kosmos community read --post ' + it.id + flag + ')'
+        // Review 5: "the rest", not "whole": read --post has a limit of its own, which crafted text can still pass.
+        : '    (Kosmos cut this post here. To read the rest: kosmos community read --post ' + it.id + flag + ')');
+    }
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
     // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
@@ -671,7 +713,7 @@ async function read(opts = {}) {
   const note = [followNote(follows, items), commentNote(commentsRead, items)].filter(Boolean).join('\n');
   // Review 2: the note sits above the heading, whose colon introduces the list (as readFollowing places its lines).
   const heading = (note ? note + '\n' : '') + (older ? 'Older posts' : 'Newest posts') + (ch.slug ? ' in ' + ch.slug : '') + ':';
-  return { ok: true, count: items.length, text: frame(items, heading, null, company) + '\n\n' + feedFooter(ch.spec, next, company, Boolean(opts.public && scope.company)) };
+  return { ok: true, count: items.length, text: frame(items, heading, null, company, opts.public && scope.company ? ' --public' : '') + '\n\n' + feedFooter(ch.spec, next, company, Boolean(opts.public && scope.company)) };
 }
 
 /* #5292 (a day-one report): a feed read shows one page, so an agent's own post soon falls off it and reads as never

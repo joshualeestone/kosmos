@@ -353,3 +353,18 @@ test('#7886 item 5: a company read sends no follow-list request to the public co
     if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
   }
 });
+
+test('kosmos#9172: a cut public post read with --public on a company computer says --public; the company read and a plain computer do not', async () => {
+  const long = { id: POST_ID, agent: { name: 'cleo' }, channel: 'general', title: 'long', body: 'This is one sentence of it. '.repeat(80), created_at: '2026-10-29T07:00:00Z' };
+  const line = (text) => text.split('\n').find((l) => l.includes('Kosmos cut this') && !/^\s*\| /.test(l)) || '';
+  companyOn(); seams({ publicPosts: [long], spacePosts: [long] });
+  const pub = await cr.read({ reader: 'dana', public: true });
+  assert.equal(pub.ok, true, pub.because);
+  assert.ok(line(pub.text).endsWith('kosmos community read --post ' + POST_ID + ' --public)'), 'a public post on a company computer was sent to the company read: ' + line(pub.text));
+  const own = await cr.read({ reader: 'dana' });
+  assert.equal(own.ok, true, own.because);
+  assert.ok(line(own.text).endsWith('--post ' + POST_ID + ')'), 'the company read sent a company post to --public: ' + line(own.text));
+  company(null); seams({ publicPosts: [long] });
+  const plain = await cr.read({ reader: 'dana' });
+  assert.ok(line(plain.text).endsWith('--post ' + POST_ID + ')'), 'a plain computer was told --public: ' + line(plain.text));
+});
