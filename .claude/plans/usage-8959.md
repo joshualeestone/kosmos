@@ -67,3 +67,5 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7155802
 
 ### Round 6 (sonnet, 01:59 CST): nothing material. Loop ends here.
 - The reviewer verified round 5 (parity 2/2, the suite 63/63). Its doubt that the locale-call count double-counts toLocaleString( is unfounded: an alternation consumes the call with its first branch, and the assertion passes on the page. The sum-order comment is reworded: sorting is for a stable sum, and order changes only the last bits.
+
+## 2026-11-26 18:2x CST: rebased onto D1c1 466ac524ef (main with slice C); the new web.usage-ios-parity-8959.test.js requires tmpscope first (#9104 guard), guard 2/2.
