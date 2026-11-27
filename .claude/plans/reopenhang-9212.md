@@ -16,19 +16,22 @@ check on the fix only).
 - Opening with a one-off proxy.scrollTo("end") and naming the anchor when the end marker appears: 0 of 8 (80 re-opens). Chosen.
 
 ## The change
-- ChatView: the open scrolls to "end" without naming the anchor and sets a one-shot flag (anchorOnEndAppear); the end
-  marker's onAppear uses it up and names positionId "end" if nothing else named one and no person is scrolling (personScrolling,
-  or UIKit's own under-a-finger reading, since iOS 17 sets no personScrolling). A person's scroll (iOS 18+) and a fresh chat
-  clear the flag, as does a rebuild of the list, and it lapses 0.3 s after the open's last look (1.9 s), so a request the
-  end never met cannot outlive the open (a counter ties each lapse to its own open). The open also clears any anchor left
-  from an earlier list of the same chat (a refused read drops the list but kept positionId). A short chat whose end showed
-  before the open ran is brought to its end by the scroll and named at the lapse, if its end is still showing. While the flag is set and no path has named "end", goNewest (an arrival, a read that follows the newest) scrolls,
-  animated as asked, instead of naming the anchor.
-  The end's appearance names "end" over whatever SwiftUI may have written into the binding meanwhile, unless a person is
-  scrolling or search is open. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
+- ChatView, the open: when nothing names "end" yet, it goes there with a one-off proxy.scrollTo and names no anchor, and sets
+  a one-shot request (anchorOnEndAppear) that lapses 0.3 s after the open's last look (1.9 s; a counter ties each lapse to
+  its own open). While the request is set and nothing has named "end", goNewest (an arrival, a read that follows the newest)
+  only scrolls, unanimated, as goNewest always is under the anchor. The two delayed put-backs that name "end" after an
+  offset write (settleAtNewest, recoverEmpty's backInside) wait for it too.
+- The end marker's onAppear names "end" whenever nothing holds an anchor (positionId nil) and nothing let it go: not under a
+  person's scroll (personScrolling, or UIKit's under-a-finger reading, since iOS 17 sets no personScrolling), not after a
+  let-go (anchorLetGo), not in search. Its rows are drawn then. That also covers an end that first shows after the lapse,
+  and a short chat whose end appears before the open runs (the open then finds "end" named and does nothing).
+- A refused read that drops the list also drops its anchor, so the next list is not created anchored over estimates.
+- A person's scroll (iOS 18+), a fresh chat and a list rebuild clear the request. #9089's looks scroll the same way and
+  re-arm it within the open's window.
 - KOSMOS_SAMPLE_ANCHORATOPEN=1 (Debug only) restores the old open: the control.
 - ChatTallOpenUITests: a third check re-opens the chat 8 times in one launch; TEST_RUNNER_KOSMOS_ANCHORATOPEN=1 runs it
-  against the old open. ios/tools/ui-sample.sh: the class count is 3.
+  against the old open. ios/tools/ui-sample.sh: the class count is 3. LogicTests/room: two source pins follow the
+  put-backs' new guard.
 
 ## Rejected
 - Turning the id anchor off: #7265 added it so a reader's place holds while messages arrive.
@@ -42,9 +45,9 @@ check on the fix only).
 - The new check asks that each re-open draws the chat and its newest message, not that the newest is wholly on screen: the
   landing is the other two checks' job, and a freeze draws nothing at all.
 
-- Until the end appears (or the request lapses at 1.9 s) no id anchor holds the list, so an earlier page landing above in
-  that window is not held by it. A tall chat's top is far from its end, so its page is not asked for then; a short chat's end
-  shows at once and is anchored.
+- Until the end appears no id anchor holds the list, so an earlier page landing above before then is not held by it. A
+  tall chat's top is far from its end; the end's own appearance names the anchor before its settled page is asked for
+  (loadEarlier("settled") runs a turn later).
 
 ## Weakest premise
 The simulator, not a phone. And between the open and the end's appearance (a frame or two) no anchor holds the list;
