@@ -31,3 +31,7 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan comment 7156509
 - M3 one day of data drew an empty chart: a point mark then.
 - M1 kept: slice angles are pinned for contiguity, not against the page's arcs. The page exposes them only inside its SVG paths, and the legend's percentages, which are pinned to the page, catch a wrong fraction.
 - Measured: run-usage.sh PASS 75/75; typecheck 0 errors (app and UI test).
+
+## 2026-11-27 11:5x CST: CI could not type-check the chart in time
+- PR #9223 CI: UsageView.swift:138 "unable to type-check this expression in reasonable time" (logic tests + simulator build, and the UI build). Fixed: the chart is its own function (classChart) and the accessibility label is built in typed steps (chartLabel); nothing drawn or read changes.
+- Reasoned, not measured: this Mac type-checks both versions fine even at a 1 s per-expression limit (only an unrelated RoomView.swift:762 is flagged, in both), so it cannot reproduce the CI runner's timeout. CI decides.
