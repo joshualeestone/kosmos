@@ -26029,12 +26029,14 @@ function updateNothingToLose() {
   /* Review 1: a reply being written (the message it answers is kept only on this page) holds the restart while it has
      words: a reload would keep the words and lose what they reply to, and Send would post them as a plain message.
      A reply picked with nothing typed held nothing before and holds nothing now. Round 4: only the box the reply goes
-     with counts (an agent's chat box; a project room's post box). Known: a reply left half-written, its chat never
-     reopened, holds until it is sent or cancelled, as any unsaved words did before this change. */
+     with counts (an agent's chat box; a project room's post box). kosmos#9157: a reply is now kept with its words, so
+     only a reply map that is NOT kept holds (storage refused it, another tab overwrote it, or words newer than it were
+     typed where it was not, so a reload would bring the words back plain: see draftsKept); a reply left half-written
+     in a chat never reopened no longer holds the restart forever. */
   const wordsFor = (m, key) => !!m && String((m[key] && (typeof m[key] === 'string' ? m[key] : m[key].text)) || '').trim() !== '';
-  if (typeof DM_REPLY !== 'undefined' && DM_REPLY && Object.keys(DM_REPLY).some((k) => DM_REPLY[k]
+  if (typeof DM_REPLY !== 'undefined' && DM_REPLY && !keptMap(DM_REPLY) && Object.keys(DM_REPLY).some((k) => DM_REPLY[k]
     && wordsFor(typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, k))) return false;
-  if (typeof PJ_REPLY !== 'undefined' && PJ_REPLY && Object.keys(PJ_REPLY).some((k) => PJ_REPLY[k]
+  if (typeof PJ_REPLY !== 'undefined' && PJ_REPLY && !keptMap(PJ_REPLY) && Object.keys(PJ_REPLY).some((k) => PJ_REPLY[k]
     && wordsFor(typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS, k))) return false;
   for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
   /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
@@ -44968,7 +44970,46 @@ let TALK_FLIGHT = null;
 const KEPT_DRAFT_DAYS = 14;
 const KEPT_DRAFT_UNSAVED = new WeakMap();   // a kept map -> the keys whose last write failed ('*' when it could not load)
 const KEPT_DRAFT_PREFIX = new WeakMap();    // a kept map -> its localStorage prefix
-function keptDrafts(kind) {
+const KEPT_DRAFT_SIG = new WeakMap();       // kosmos#9157: a kept map -> what of an entry must match storage (default: its words)
+/* The words of a draft entry: a string, or an object's text. */
+function keptDraftWords(v) { return String(typeof v === 'string' ? v : (v && v.text) || ''); }
+/* kosmos#9157: a reply being written (DM_REPLY, PJ_REPLY) is kept with its words. It counts as kept when storage
+   names the same message (`at` in a chat, `id` in a room) and the same @mention Reply put in the box. `pair` names the
+   draft map its words live in ('talk', 'room').
+   Review 5 (the design, rebuilt): a reply is the reply TO the words beside it. Saving those words on a page that holds
+   the reply re-saves the reply too (KEPT_DRAFT_FOLLOW), so a kept reply is never older than its words; a reload
+   brings a reply back only when its words are stored, fresh, and NO NEWER than it. So words typed where the reply was
+   not (another tab, or after it ended) never come back as a reply, and a chat reply picked with nothing typed after
+   it is not brought back, as before this change. (Review 6: a room reply on an agent's post puts that agent's
+   @mention in the box, and those are words, so it does come back, mention and all.) A load writes and removes nothing but entries past the age-out, so it
+   cannot reach into another open tab. */
+const KEPT_REPLY_SIG = (v) => (v ? JSON.stringify([String(v.at || v.id || ''), String(v.mention || '')]) : '');
+/* Review 7: `sending(key, v)`: this reply is on its way. Words typed meanwhile belong to the NEXT message, so they do
+   not re-save it: a reload before the send answers brings them back plain, never as a second reply to a message
+   already answered. (If the send fails, the reply stays and the next keystroke re-saves it.) */
+const KEPT_DM_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'talk',
+  sending: (key, v) => typeof DM_REPLY_SENDING !== 'undefined' && !!DM_REPLY_SENDING && DM_REPLY_SENDING.agent === key && !!v && DM_REPLY_SENDING.at === v.at };
+const KEPT_PJ_REPLY_OPTS = { present: (v) => !!v, sig: KEPT_REPLY_SIG, pair: 'room',
+  sending: (key, v) => typeof PJ_REPLY_SENDING !== 'undefined' && !!PJ_REPLY_SENDING && PJ_REPLY_SENDING.project === key && !!v && PJ_REPLY_SENDING.id === v.id };
+const KEPT_DRAFT_FOLLOW = Object.create(null);   // a draft kind -> what re-saves the reply paired with it (by key)
+const KEPT_DRAFT_PAIR = new WeakMap();           // a kept reply map -> the draft kind its words live in
+/* The stored record for one key of a kind, or null. */
+function keptDraftRecord(kind, key) {
+  try { return JSON.parse(localStorage.getItem('kosmos.draft.' + kind + '.' + key)); } catch { return null; }
+}
+/* Whether a reload would bring this stored reply back: its words are stored, fresh and have text, and are no newer
+   than the reply. */
+function keptReplyComesBack(rec, paired, cutoff) {
+  const fresh = (r) => !!r && r.v != null && typeof r.t === 'number' && r.t > cutoff;
+  return fresh(rec) && fresh(paired) && !!keptDraftWords(paired.v).trim() && rec.t >= paired.t;
+}
+/* kosmos#9157: `opts` lets a map keep entries that are not words (a reply's target): `present(v)` says whether an entry
+   is worth storing (default: it has words), `sig(v)` what of it must match storage for it to count as kept (default:
+   its words), and `pair` the draft kind it goes with (above). */
+function keptDrafts(kind, opts) {
+  const present = (opts && opts.present) || ((v) => !!keptDraftWords(v).trim());
+  const sig = (opts && opts.sig) || keptDraftWords;
+  const pair = (opts && opts.pair) || null;
   const prefix = 'kosmos.draft.' + kind + '.';
   const map = Object.create(null);   // round 2: an agent or project named __proto__ is an ordinary key
   const unsaved = new Set();
@@ -44979,17 +45020,21 @@ function keptDrafts(kind) {
       if (!k || k.indexOf(prefix) !== 0) continue;
       let rec = null;
       try { rec = JSON.parse(localStorage.getItem(k)); } catch { rec = null; }
-      if (rec && rec.v != null && typeof rec.t === 'number' && rec.t > cutoff) map[k.slice(prefix.length)] = rec.v;
-      else localStorage.removeItem(k);
+      const fresh = !!rec && rec.v != null && typeof rec.t === 'number' && rec.t > cutoff;
+      if (!fresh) { localStorage.removeItem(k); continue; }   // past the age-out, or unreadable (as #9132)
+      // Review 5: a reply comes back only with its words (above); otherwise it is left where it is, untouched.
+      if (pair && !keptReplyComesBack(rec, keptDraftRecord(pair, k.slice(prefix.length)), cutoff)) continue;
+      map[k.slice(prefix.length)] = rec.v;
     }
   } catch { unsaved.add('*'); }
   const keepEntry = (key, v) => {   // not `write`: a page handler of that name is bound to resize (web.click-bindings)
     try {
-      const words = typeof v === 'string' ? v : (v && v.text) || '';
-      if (String(words).trim()) localStorage.setItem(prefix + key, JSON.stringify({ v, t: Date.now() }));
+      if (present(v)) localStorage.setItem(prefix + key, JSON.stringify({ v, t: Date.now() }));
       else localStorage.removeItem(prefix + key);
       unsaved.delete(key);
-    } catch { unsaved.add(key); }
+    } catch { unsaved.add(key); return; }
+    // Review 5: words saved: the reply this page holds beside them is saved again, so it is never older than them.
+    if (present(v)) { const follow = KEPT_DRAFT_FOLLOW[kind]; if (typeof follow === 'function') follow(key); }
   };
   const kept = new Proxy(map, {
     set(o, key, v) { o[key] = v; if (typeof key === 'string') keepEntry(key, v); return true; },
@@ -44997,6 +45042,14 @@ function keptDrafts(kind) {
   });
   KEPT_DRAFT_UNSAVED.set(kept, unsaved);
   KEPT_DRAFT_PREFIX.set(kept, prefix);
+  KEPT_DRAFT_SIG.set(kept, sig);
+  if (pair) {
+    KEPT_DRAFT_PAIR.set(kept, pair);
+    KEPT_DRAFT_FOLLOW[pair] = (key) => {
+      if (map[key] == null || (opts.sending && opts.sending(key, map[key]))) return;   // review 7: not while it is on its way
+      keepEntry(key, map[key]);
+    };
+  }
   /* Round 2: another tab of the same board wrote or cleared one of these (sent it, typed more): this page's copy
      follows, written to the map itself so nothing is written back. A box already holding words keeps them; the
      restart check reads storage for a box, so a box that now differs from storage holds the restart. */
@@ -45027,8 +45080,8 @@ function keptDraftStored(m, key) {
     const raw = localStorage.getItem(prefix + key);
     if (raw == null) return '';
     const rec = JSON.parse(raw);
-    const v = rec && rec.v;
-    return String(typeof v === 'string' ? v : (v && v.text) || '');
+    const sig = (typeof KEPT_DRAFT_SIG !== 'undefined' && KEPT_DRAFT_SIG.get(m)) || keptDraftWords;
+    return String(sig(rec && rec.v) || '');
   } catch { return null; }
 }
 /* Forget a draft for good (review 1): an agent removed, a project removed. Deleting through the kept map removes
@@ -45043,6 +45096,9 @@ function forgetDrafts(maps, key) {
    restart until they park. */
 function keptDraftHeard(kind, key, was, now) {
   if (typeof document === 'undefined') return;
+  /* kosmos#9157: another tab started, changed or ended a reply: the strip of the chat or room open here follows. */
+  if (kind === 'dmreply') { if (typeof dmReplyPaint === 'function' && typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === key) dmReplyPaint(key); return; }
+  if (kind === 'pjreply') { if (typeof pjReplyPaint === 'function' && typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT === key) pjReplyPaint(key); return; }
   const box = kind === 'talk' ? 'd-say' : kind === 'term' ? 'd-term-say' : kind === 'pj' ? 'pj-say' : kind === 'room' ? 'pj-post' : null;
   const open = (kind === 'talk' || kind === 'term') ? (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
     : ((typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) || (typeof PJ_LAST_OPENED !== 'undefined' && PJ_LAST_OPENED));
@@ -45056,9 +45112,10 @@ function keptDraftHeard(kind, key, was, now) {
 /* Round 4: an agent removed. Its kept drafts go, and so do the words in its chat and Terminal boxes when its chat is
    the open one: with the agent gone they belong to nobody, and would hold the restart until another agent opened. */
 function forgetAgentDrafts(name) {
-  forgetDrafts([TALK_DRAFTS, TERM_DRAFTS], name);
+  forgetDrafts([TALK_DRAFTS, TERM_DRAFTS, typeof DM_REPLY !== 'undefined' && DM_REPLY], name);   // kosmos#9157: and its reply
   if (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === name && typeof document !== 'undefined') {
     for (const id of ['d-say', 'd-term-say']) { const b = document.getElementById(id); if (b) b.value = ''; }
+    if (typeof dmReplyPaint === 'function') dmReplyPaint(name);   // kosmos#9157 review 1: its reply strip goes too
   }
 }
 /* Logged out of this browser's Kosmos+ session: every kept draft goes from storage (the page reloads to the sign-in
@@ -45077,9 +45134,23 @@ function draftsKept(m) {
   const unsaved = m && typeof KEPT_DRAFT_UNSAVED !== 'undefined' && KEPT_DRAFT_UNSAVED.get(m);
   if (!unsaved || unsaved.size !== 0) return false;
   // Review 1: and every word on this page is what storage holds now (another tab may have overwritten one).
+  const sig = (typeof KEPT_DRAFT_SIG !== 'undefined' && KEPT_DRAFT_SIG.get(m)) || keptDraftWords;
+  const pair = typeof KEPT_DRAFT_PAIR !== 'undefined' && KEPT_DRAFT_PAIR.get(m);
+  const prefix = KEPT_DRAFT_PREFIX.get(m);
+  const cutoff = Date.now() - KEPT_DRAFT_DAYS * 24 * 60 * 60 * 1000;
   for (const [key, v] of Object.entries(m)) {
-    const words = String(typeof v === 'string' ? v : (v && v.text) || '').trim();
+    const words = String(sig(v) || '').trim();
     if (words && (keptDraftStored(m, key) || '').trim() !== words) return false;
+    /* kosmos#9157 review 5: a reply is kept only if a reload would bring it back beside its words (words typed
+       elsewhere since, newer than it, would come back plain). A reply with no words beside it loses nothing. */
+    if (pair && v != null) {
+      const paired = keptDraftRecord(pair, key);
+      if (paired && keptDraftWords(paired.v).trim()) {
+        let rec = null;
+        try { rec = JSON.parse(localStorage.getItem(prefix + key)); } catch { rec = null; }
+        if (!keptReplyComesBack(rec, paired, cutoff)) return false;
+      }
+    }
   }
   return true;
 }
@@ -45469,7 +45540,9 @@ if (typeof document !== 'undefined' && document.addEventListener) {
    the drafts; the rows by `at` are refreshed on every paint so a header can name what it answers and a
    jump can tell "hidden by your search" from gone. Reply is offered on the agent's messages, where the
    DM's hover bar lives; any row that answers another carries the header. */
-const DM_REPLY = {};
+/* kosmos#9157: kept across a reload with its draft (keptDrafts), so a half-written reply comes back still answering
+   its message and no longer holds the Mac window's restart onto an update. */
+const DM_REPLY = keptDrafts('dmreply', KEPT_DM_REPLY_OPTS);
 let DM_REPLY_SENDING = null;   // { agent, at } of the reply on its way, so x knows whether THIS one already left
 let DM_JUMP_FOCUS = null;      // the `at` of the message a jump focused, so a repaint can put focus back on it
 let DM_ROWS = new Map();
@@ -81642,7 +81715,7 @@ function openProject(id) {
    reaches two must never render as sent. */
 const PJ_ROOM_DRAFTS = keptDrafts('room');   // kosmos#9132
 /* #3745: the post a reply is answering, one per project (like the drafts): { id, who, words }. */
-const PJ_REPLY = {};
+const PJ_REPLY = keptDrafts('pjreply', KEPT_PJ_REPLY_OPTS);   // kosmos#9157: kept with its draft, as DM_REPLY
 /* #3745: the room's posts by id, refreshed on every paint, so a reply's header can name the post it
    answers and the jump can tell "gone" from "hidden by your search". */
 let PJ_ROOM_POSTS = new Map();
@@ -81788,7 +81861,8 @@ function pjReplyMention(p, m, previous) {
   if (!input) return;
   /* While a post is on its way the box still holds the words being sent (they clear on success only
      if unchanged), so a Reply now records no mention and leaves the box alone. */
-  if (PJ_POSTING) { if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = null; return; }
+  // kosmos#9157: a new object, not a property set, so the kept map writes the change to storage.
+  if (PJ_POSTING) { if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT] = Object.assign({}, PJ_REPLY[PJ_CURRENT], { mention: null }); return; }
   const before = input.value;
   const caret = typeof input.selectionStart === 'number' ? input.selectionStart : before.length;
   let text = before;
@@ -81803,7 +81877,7 @@ function pjReplyMention(p, m, previous) {
   const named = !!agent && [...text.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)]
     .some((t) => { const hit = pjMentionResolve(t[2], roomKeys); return !!hit && hit.key === agent.key; });
   const ins = agent && !named ? '@' + agent.key + ' ' : '';
-  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
+  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT] = Object.assign({}, PJ_REPLY[PJ_CURRENT], { mention: ins || null });   // kosmos#9157
   const after = ins + text;
   if (after !== before) input.value = after;
   /* With a mention, the cursor goes right after it (the card), unless the box was unchanged and the
@@ -89389,7 +89463,7 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), { method: 'DELETE' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not remove that project');
-    forgetDrafts([PJ_DRAFTS, PJ_ROOM_DRAFTS], p.id);   // kosmos#9132 review 1
+    forgetDrafts([PJ_DRAFTS, PJ_ROOM_DRAFTS, PJ_REPLY], p.id);   // kosmos#9132 review 1; kosmos#9157 its reply too
     /* Round 3: and the project's own boxes, which keep their words until another project opens: the project is gone,
        so they would otherwise hold the restart until then. */
     if (PJ_LAST_OPENED === p.id) for (const id of ['pj-say', 'pj-post']) { const b = document.getElementById(id); if (b) b.value = ''; }
