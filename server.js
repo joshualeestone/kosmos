@@ -7738,7 +7738,7 @@ function heldByCaller(holder, caller) {
     : (sameAgentName(holder, caller.name, false) || (!caller.twins && sameAgentName(holder, caller.key, false)));
 }
 /* The open tasks a caller holds, in list order: GET /api/tasks/mine's rule, also the restart greeting's (kosmos#9239), so
-   the two cannot disagree. Throws when the projects cannot be read (the caller says so). */
+   the two cannot disagree. everyProject is the caller's own projects.readAll(), which is what can throw. */
 function myOpenTasks(caller, everyProject) {
   const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
   return tasks.inListOrder(
@@ -20250,19 +20250,20 @@ const server = http.createServer(async (req, res) => {
         digest = away.build({ name, sinceMs: win.sinceMs, untilMs: win.untilMs, rows: log && log.ok !== false ? log.rows : [], direct, namedIn: messages.namedIn });
       }
       /* kosmos#9239: what is waiting on the agent now (its open tasks, the person's messages it has not answered), at a
-         startup and by hand. Its own token names it if it sent one, else the name the sender resolved to. Best-effort: a
-         read that fails leaves that part out, never the rest of the answer. */
+         startup and by hand. The open tasks only when the caller's OWN agent token names it (below); the unanswered count
+         by the name the sender resolved to. Best-effort: a read that fails leaves that part out and changes nothing else
+         (review 2: it does not set `unread`, which is about what arrived, so "Nothing arrived" is never lost to it). */
       const openWork = { open: [], unanswered: 0 };
       try {
         // Review 1: only the caller's OWN token says whose tasks these are (GET /api/tasks/mine's rule). Without one (a
         // pane, or a key-only token whose key is shared), a name's key could match another agent's, so they are left out.
         const caller = agentTokenCaller(req);
         if (caller) openWork.open = myOpenTasks(caller, projects.readAll()).map((t) => ({ projectId: t.projectId, number: t.number }));
-      } catch { unread = true; }
+      } catch { openWork.open = []; }
       try {
         const rows = (chat.readThread(chat.DIRECT, name).messages || []).filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
         openWork.unanswered = unansweredOf(rows, name).length;
-      } catch { unread = true; }
+      } catch { openWork.unanswered = 0; }
       if (as === 'hook') { sendText(res, 200, away.hookJson(digest, wait, { openWork })); return; }
       if (as === 'text') {
         const cannot = 'Kosmos could not read every record just now, so this may not be everything; try again in a minute.';

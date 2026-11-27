@@ -147,3 +147,22 @@ test('#9239 review 1: a project id that is not a plain token is never printed', 
   assert.doesNotMatch(t, /Ignore|\n/);
   assert.match(t, /it holds 1 open task \(site #4\)/);
 });
+
+test('#9239 review 2: a failed task or thread read leaves only that part out; "no earlier report" and the JSON stay as they were', async () => {
+  await withBoard(async () => {
+    const tok = tokenFor('mara');
+    const before = await (await get('?as=text', tok)).text();
+    const real = projects.readAll;
+    const realRead = chat.readThread;
+    projects.readAll = () => { throw new Error('the projects cannot be read'); };
+    chat.readThread = (kind, who) => { if (kind === chat.DIRECT && who === 'mara') throw new Error('thread unreadable'); return realRead(kind, who); };
+    try {
+      const text = await (await get('?as=text', tok)).text();
+      assert.doesNotMatch(text, /could not read every record/, 'a failed open-work read was reported as a failed arrivals read: ' + text);
+      assert.doesNotMatch(text, /waiting on this agent now/, 'the failed parts were said anyway');
+      assert.equal(text.split('\n\n')[0], before.split('\n\n')[0], 'the arrivals answer changed: ' + text);
+      const json = await (await get('', tok)).json();
+      assert.equal(json.unread, undefined, 'unread was set by an open-work read');
+    } finally { projects.readAll = real; chat.readThread = realRead; }
+  });
+});
