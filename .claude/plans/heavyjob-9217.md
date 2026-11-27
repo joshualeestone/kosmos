@@ -46,6 +46,9 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
 - **The Windows CLI is in this slice.** The design comment said it would go to Homer; the parity test and Splinter's
   #4373 scope (a verb added to both CLIs is done Mac-side) say otherwise. Homer is asked for one real run on Windows.
 - Not in this slice: the `queued-heavy.sh` call (a follow-up PR), and turns or reservations (slice 2).
+- **Review stopped at round 8** (Splinter's usage rule, Fleet Builders m510 2026-10-26: past 8, WARNINGs go to a
+  follow-up card). Round 8's open WARNING, a `--pid` job dropped at the 12 h ceiling while its process is confirmed
+  running, is kosmos#9222.
 
 ## Tests
 
