@@ -153,7 +153,8 @@ function waitsWords(x, now = Date.now()) {
   // #8577 nit: the same built test as tasks.listGroup (a non-empty string), so a stray non-string builtAt is not built.
   // kosmos#8934: what the mark says it waits on; a review and close when it says nothing, as before.
   // kosmos#9177: on an agent's own list, another holder's mark does not cover its open part.
-  if (x.builtForCaller === false && typeof x.builtAt === 'string' && x.builtAt) return 'another holder marked it built; your part is still open';
+  if (x.builtForCaller === false && typeof x.builtAt === 'string' && x.builtAt) return 'a mark that does not name you; your part is still open'
+    + (x.projectPaused === true ? '; its project is paused' : '');
   if (typeof x.builtAt === 'string' && x.builtAt) return x.builtWaitingOn === 'person' ? 'waits on the person'
     : x.builtWaitingOn === 'release' ? 'waits on a release' : 'waits on a review and close';
   if (x.projectPaused === true) return 'waits on its project being resumed';
