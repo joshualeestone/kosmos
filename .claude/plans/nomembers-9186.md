@@ -62,3 +62,8 @@ screen, and the line says "tell your person" first.
     Fixed: "No agent is on this paused project ..." stands alone; a no-date test; perturbation (old words) red.
   - NITs: plan test count (now 8); the unreachable starter guard (kept: a newer board); parked + unstaffed reads "quiet
     is expected" then the staffing sentence (accurate: nothing moves them once holds lift).
+- Round 4 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT. Converged.
+  - WARNING DEFERRED: the count follows the project's member list, so a project whose only member no longer runs reads
+    as staffed. That is the card's definition ("no agent members"), and the Weakest premise above already names the
+    member list as what this reads; a running-agent check would be a different card.
+  - NITs not taken: "review 3" twice in one comment; an unused `id` parameter; listGroup computed twice per task.
