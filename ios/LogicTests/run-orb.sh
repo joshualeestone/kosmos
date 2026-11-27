@@ -8,5 +8,5 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -O -o "$out/orb-logic-tests" "$src/OrbLogic.swift" "$here/orb/main.swift"
+xcrun swiftc -Onone -o "$out/orb-logic-tests" "$src/OrbLogic.swift" "$here/orb/main.swift"
 "$out/orb-logic-tests"
