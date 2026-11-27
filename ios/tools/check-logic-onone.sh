@@ -27,16 +27,18 @@ report="$(awk '
       if (line ~ /^[[:space:]]*#/) next
       start = FNR
     }
+    # A trailing comment ends the line before any backslash in it can continue it, as in bash.
+    sub(/[[:space:]]#.*$/, "", line)
     if (line ~ /\\$/) { buf = buf substr(line, 1, length(line) - 1) " "; next }
     buf = buf line
     cmd = buf; buf = ""
-    sub(/[[:space:]]#.*$/, "", cmd)
-    if (cmd !~ /(^|[[:space:]\/])swiftc([[:space:]]|$)/) next
+    if (cmd !~ /(^|[^[:alnum:]_.-])swiftc([^[:alnum:]_.-]|$)/) next
     n++
     if (cmd !~ /[[:space:]]-Onone([[:space:]]|$)/ || cmd ~ /[[:space:]"\047=,]-O([^n]|$)/) print "BAD " FILENAME ":" start ": " cmd
   }
   END { print "COUNT " n + 0 }
-' "${files[@]}")"
+' "${files[@]}")"; rc=$?
+[ "$rc" -eq 0 ] || { echo "check-logic-onone: awk failed (rc $rc), so nothing can be trusted as checked"; exit 2; }
 count="$(printf '%s\n' "$report" | sed -n 's/^COUNT //p')"
 [ "${count:-0}" -gt 0 ] || { echo "check-logic-onone: no swiftc command found, so nothing was checked"; exit 2; }
 bad="$(printf '%s\n' "$report" | sed -n 's/^BAD //p')"
