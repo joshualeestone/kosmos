@@ -723,7 +723,7 @@ function tellEveryoneOn(t, roster, { notice, except } = {}) {
   if (!roster) roster = safeRoster();
   /* kosmos#9178: `except` names holders already told about this very change another way (a new assignee's heard line,
      the Assigner's failover source told by engine/failovertell.js): still synced, never owed a second message. */
-  const told = new Set((Array.isArray(except) ? except : []).filter((x) => typeof x === 'string' && x));
+  const told = new Set((Array.isArray(except) ? except : []).map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean));
   const byOtherFor = (one) => !!notice && !told.has(one) && owesNotice(notice.projectId, one, notice.by);
   let last;
   for (const one of named) {
@@ -836,10 +836,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
       try { projects.syncAgent(before, r, { byOther: before !== failoverFrom && owesNotice(projectId, before, screen ? null : (by || null)) }); } catch { /* the give stands; the next sync catches up */ }
     }
     /* kosmos#9178: a part given open drops the task's built mark (#3951), and every holder's block said built (#9176), so
-       the other holders are owed a re-read. Not the new assignee (its heard line is this news) and not the failover
-       source (failovertell owes it one line about this move); syncAgent owes nothing where no block changed. */
+       the other holders are owed a re-read. Not the new assignee when its heard line went out (that line is this news);
+       a heard line skipped by the budget or not delivered leaves it owed one too (review 1). The Assigner never gets
+       here with a dropped mark (it refuses a built task inside the write, engine/tasks.js), so `failoverFrom` is only a
+       backstop for failovertell's one line. syncAgent owes nothing where no block changed. */
+    const heardWent = (h) => !!h && (h.state === chat.DELIVERY.PLACED || h.state === chat.DELIVERY.UNCONFIRMED);
     const dropNotice = out.changed && tasks.droppedBuiltForWork(out.task)
-      ? { notice: { projectId, by: screen ? null : (by || null) }, except: [who, failoverFrom] } : {};
+      ? { notice: { projectId, by: screen ? null : (by || null) }, except: [heardWent(heardResult) ? who : null, failoverFrom] } : {};
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r, dropNotice), heard: heardResult };
   };
   /* #4588 ask 3 review 6: DEFENSIVE. heardBy turns a rejected tell into a failed verdict today, so finish runs and gives
@@ -28987,7 +28990,9 @@ const server = http.createServer(async (req, res) => {
         if (tasks.droppedBuiltForWork(out.task)) {
           let addedBy = null;
           if (!screen) { try { const c = processCaller(req, body, roster, false, 'the part was added'); addedBy = !c.refusal && c.card ? c.card.sessionName : null; } catch { addedBy = null; } }
-          dropNotice = { notice: { projectId: id, by: addedBy }, except: [body && body.who] };
+          // review 1: the new holder only when its heard line went out (skipped by the budget or undelivered: still owed).
+          const heardWent = !!heard && (heard.state === chat.DELIVERY.PLACED || heard.state === chat.DELIVERY.UNCONFIRMED);
+          dropNotice = { notice: { projectId: id, by: addedBy }, except: [heardWent ? body && body.who : null] };
         }
         sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster, dropNotice), heard });
       } catch (err) {

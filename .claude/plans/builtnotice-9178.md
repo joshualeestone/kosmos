@@ -25,3 +25,17 @@ kept the copy it read at its start, still saying built.
 ## Weakest premise
 The failover-source exclusion in the give helper is reasoned, not tested: it needs the Assigner's failover path. A
 second message there would be a duplicate, not a lost one.
+
+## Review round 1 (21:10): no blocker; fixed
+- SHOULD-FIX: the new holder was excepted whether or not its heard line went out (budget skip, COULD_NOT). Fixed at both
+  sites: excepted only when the heard line was PLACED or UNCONFIRMED; otherwise it is owed a re-read like the others.
+- SHOULD-FIX: the agent-adds test expected what the control expects, so it could pass with no notice at all. Fixed: a
+  third holder (nia) who must be owed one; plus a heard-did-not-go-out test at each site.
+- SHOULD-FIX (coverage): droppedBuiltForWork was only ever stubbed. Added engine/builtnotice-9178.test.js on the real
+  engine: an add on a built task (true), on a plain one (false), a give open (true), a keepBuilt give (refused inside
+  the write, writes nothing: measured), a part put back (true), and a fresh read of the task (false).
+- NIT fixed: `except` names are trimmed. NIT fixed in the comment: the Assigner never reaches the notice with a
+  dropped mark (it refuses a built task inside the write), so `failoverFrom` is only a backstop. That also answers this
+  plan's earlier weakest premise.
+- Measured: server test 7/7, engine test 5/5; mutant (always except the assignee) fails exactly the heard-did-not-go-out
+  give test, restored byte-identical; neighbours and meta 64/64.
