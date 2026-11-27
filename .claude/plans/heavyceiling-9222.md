@@ -10,8 +10,8 @@ longer than 12 hours left the board while it ran, which is when the line matters
 
 ## Change
 
-`isLive` becomes `judge`, which says what one read does with a record: show it, hide it (not shown, not counted toward
-the per-agent cap, but left in the file), or drop it.
+`isLive` becomes `judge`, which says what one read does with a record: show it, hide it (left off the board but kept in
+the file; it still counts toward its agent's four), or drop it.
 - A `--pid` record that recorded its process's start time is judged by that start, with no ceiling: the same start is
   the same process, shown while it runs (an overnight run stays); a different one is a reused number, dropped.
 - When the start is unread on a read (undefined: signal 0 answers, but ps was over the read's budget, timed out, or
@@ -22,10 +22,12 @@ the per-agent cap, but left in the file), or drop it.
   records get a real read, each pid asked once however many times it is judged.
 - A hidden record still counts toward the agent's four, so an agent cannot fill the file with them.
 - A hidden record is listed by `GET /api/heavy` (so `kosmos heavy`, on both CLIs) marked unchecked, with its pid and
-  how to end it, so a job an agent is told it still has, or that holds one of its four places, is one it can see and
-  end. The board's note shows only checked jobs. "Not read" is never cached, so the next read asks ps again.
-- Known edge, not handled: a job announced again while ps cannot answer records no start, so it loses this protection
-  and meets the ceiling 12 h after that announcement.
+  how to end it, to the agent that holds it only (named from its token, as POST names it): a job an agent is told it
+  still has, or that holds one of its four places, is one it can see and end. Another agent's hidden jobs, and every
+  hidden job for the person, stay off the list as off the board. "Not read" is never cached, so the next read asks ps
+  again.
+- A job announced again while ps cannot answer keeps the start (and the "since") its earlier record holds, so a
+  re-announce never costs it this protection.
 - The ceiling still drops a record with no process, and one that recorded no start (Windows, no ps).
 - A hung wrapper that never exits is kept on purpose: it is still running, and still holding what it holds. It is
   ended with `kosmos heavy end --pid N`.

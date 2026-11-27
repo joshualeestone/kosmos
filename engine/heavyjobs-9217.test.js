@@ -465,3 +465,16 @@ test('kosmos#9222: start stops reading the agent\'s aged records once its time i
     assert.ok(ps >= 1 && ps <= 2, 'ps ran ' + ps + ' times at 300 ms each inside one start');
   } finally { Object.assign(rs, was); }
 });
+
+test('kosmos#9222: announcing again while ps cannot answer keeps the recorded start and since', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 230 * H;
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99980, now: base }).ok, true);
+  seen.start = undefined;
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight, again', pid: 99980, now: base + 2 * H }).ok, true);
+  const rec = hj.readAll(r).find((j) => j.pid === 99980);
+  assert.deepEqual([rec.pidStart, rec.since, rec.label], ['A', base, 'overnight, again'], 'the re-announce lost its recorded start');
+  seen.start = 'A';
+  assert.deepEqual(hj.live({ root: r, now: base + 20 * H }).map((j) => j.label), ['overnight, again'], 'and with it, its protection past the ceiling');
+}));

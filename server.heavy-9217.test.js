@@ -248,8 +248,8 @@ test('kosmos#9217: a read that is not complete but shows the agent running keeps
   await asAgent(tok, { action: 'end' });
 });
 
-test('kosmos#9222: GET /api/heavy lists a job no read could check, marked; the board\'s status does not', async () => {
-  const { ada } = twoAgents();
+test('kosmos#9222: GET /api/heavy lists a job no read could check, marked, to the agent that holds it only; the board\'s status does not', async () => {
+  const { ada, bo } = twoAgents();
   const tok = sendertoken.mint(ada).token;
   const rs = require('./engine/restoresink');
   const hj = require('./engine/heavyjobs');
@@ -262,6 +262,9 @@ test('kosmos#9222: GET /api/heavy lists a job no read could check, marked; the b
     assert.deepEqual(await jobsInStatus(), [], 'the board showed a job it could not check');
     const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tok } })).json();
     assert.deepEqual(got.jobs.map((j) => [j.label, j.pid, j.unchecked]), [['overnight', 424242, true]]);
-  } finally { Object.assign(rs, was); }
-  await asAgent(tok, { action: 'end', pid: 424242 });
+    const other = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': sendertoken.mint(bo).token } })).json();
+    assert.deepEqual(other.jobs, [], 'another agent was shown, and told to end, a hidden job it cannot end');
+    const nobody = await (await fetch(`${base}/api/heavy`)).json();
+    assert.deepEqual(nobody.jobs, [], 'a caller with no agent named was shown a hidden job');
+  } finally { Object.assign(rs, was); await asAgent(tok, { action: 'end', pid: 424242 }); }
 });

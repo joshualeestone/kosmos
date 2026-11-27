@@ -163,6 +163,12 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     const s = startOf === defaultStartOf ? defaultStartOf(p, now, 'fresh') : startOf(p);
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
+    // kosmos#9222: announced again while ps cannot answer, the agent's own record for this process keeps the start it
+    // recorded (and with it its "since"), rather than becoming one the ceiling would drop while the process runs.
+    if (pidStart === null && s === undefined) {
+      const had = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart);
+      if (had) pidStart = had.pidStart;
+    }
   }
   const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };   // since: shown; at: the ceiling counts from it
   let othersOf = startOf;
@@ -212,7 +218,8 @@ function end({ root, agent, pid }) {
   return saved ? { ok: true, ended, others } : { ok: false, because: NOT_SAVED };
 }
 
-/* The live records, oldest first, each as { agent, label, pid, since }. Stale ones are removed from the file when its
+/* The live records, oldest first, each as { agent, label, pid, since } (and unchecked: true on a hidden one, with
+   hidden: true). Stale ones are removed from the file when its
    lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
    could not be saved changes nothing the reader is told. */
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null, hidden = false }) {
