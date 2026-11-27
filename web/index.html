@@ -30326,7 +30326,7 @@ function paintIdleRetireFrom(r) {
     v.filter((x) => x.verdict === 'unknown').map((x) => x.shownAs));
   const recent = Array.isArray(r.recent) ? r.recent : [];
   idrList('idr-recent', 'idr-recent-h', 'Recently retired (Restore is under Removed agents on the Agents page):',
-    recent.slice(0, 10).map((x) => x.shownAs + ', ' + String(x.at || '').slice(0, 10) + ': ' + (x.outcome === 'removed' ? 'retired, ' + x.because : 'not retired, ' + x.because)));
+    recent.slice(0, 10).map((x) => x.shownAs + ', ' + String(x.at || '').slice(0, 10) + ': ' + (x.outcome === 'removed' ? 'retired, ' : x.outcome === 'partial' ? 'partly removed, ' : 'not retired, ') + x.because));
 }
 async function paintIdleRetire(keepMsg) {
   const mine = ++IDR_EPOCH;

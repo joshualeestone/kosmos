@@ -86,3 +86,32 @@ test('#8720: only a screen may change it, and only to a real value; a refused ch
   const off = await call('PUT', '/api/idle-retire', { on: false }, screen());
   assert.deepEqual(settingOf(off), { on: false, days: 60, ok: true }, 'turning it off lost the chosen days');
 });
+
+test('#8720: the setup guide is kept on the live path (its row is marked from its folder); a plain agent idle as long is not (control)', async () => {
+  const fleet = require('./test-support/fleet');
+  const liveness = require('./engine/liveness');
+  const instructions = require('./engine/instructions');
+  const ir = require('./engine/idleretire');
+  const board = fleet.install([fleet.agent('guidey'), fleet.agent('plainy')]);
+  try {
+    const guide = board.card('guidey').sessionName;
+    const plain = board.card('plainy').sessionName;
+    const dir = path.dirname(instructions.fileFor(guide));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '.kosmos-setup-guide'), guide + '\n');
+    const at = new Date(Date.now() - 40 * 86400000).toISOString();
+    liveness.seen(guide, at);
+    liveness.seen(plain, at);
+    const up = Array.from({ length: 41 }, (_, i) => ir.dayOf(Date.now() - (40 - i) * 86400000));
+    fs.writeFileSync(path.join(store.ROOT, 'idleretire-log.json'), JSON.stringify({ up }));
+    assert.equal(ir.writeSetting({ days: 30 }).ok, true);
+    const r = await call('GET', '/api/idle-retire');
+    assert.equal(r.status, 200);
+    const v = (n) => r.json.verdicts.find((x) => x.name === n);
+    assert.equal(v(plain) && v(plain).verdict, 'retire', 'CONTROL: a plain agent idle 40 running days is not retired, so this proves nothing about the guide: ' + JSON.stringify(r.json.verdicts));
+    assert.equal(v(guide).verdict, 'keep', 'the setup guide would be retired');
+    assert.match(v(guide).why, /setup guide/);
+  } finally {
+    board.restore();
+  }
+});

@@ -165,7 +165,7 @@ function realReaders() {
     activeProject: (name) => {
       const p = everyProject().find((x) => x && !x.archived && Array.isArray(x.agents) && x.agents.includes(name));
       if (!p) return null;
-      return typeof p.name === 'string' && p.name ? p.name : 'that is not archived';
+      return typeof p.name === 'string' && p.name ? p.name : '(unnamed)';
     },
   };
 }
@@ -206,7 +206,7 @@ function makeTick(deps) {
         const last = log.retired.find((x) => x && x.name === v.name);
         const repeat = outcome !== 'removed' && last && last.outcome === outcome && last.because === entry.because;
         if (!repeat) log.retired.unshift(entry);
-        writeLog(log);
+        if (!writeLog(log) && deps.log) deps.log('idle-retire: ' + v.name + ' ' + outcome + ', but its record could not be written');
         if (deps.log) deps.log('idle-retire: ' + v.name + ' ' + outcome + ' - ' + entry.because);
       }
       return { act: 'ran', did };
