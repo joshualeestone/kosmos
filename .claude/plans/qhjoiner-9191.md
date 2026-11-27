@@ -19,7 +19,9 @@ whose arguments file is in its own $S.
   BASHPID; perl was used in round 6, swapped in round 8 so a missing perl cannot leave it empty and make the watchdog
   kill itself), so its last `kill -KILL` of the file still runs; the old `pkill -P` matched the watchdog itself where pkill
   does not leave out its caller's parent (procps, Linux). Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
-  whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters. Both are KILLed only when the command line has
+  whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters, KILLed only while it is still this shell's own
+  child (parent $$, the test ours() uses), so pid reuse cannot reach it whatever its command line. Both are KILLed only
+  when the command line has
   a waiter's shape (a bash running a script with --queued-args; for a listed pid also its forms before the re-exec,
   perl about to run this tree's wrapper, that wrapper with its first arguments, or the forked copy of this file before
   its exec, since it is listed only while its own arm runs and is this shell's own child; a separate "a script in $S" branch was dropped in round 7, as nothing real could reach it). The stale-TMPDIR arm (#5467) needs the second kind:
@@ -32,10 +34,11 @@ whose arguments file is in its own $S.
 - `joiner_under` takes an optional command prefix, so its regression arm can use a fake script path.
 - Three regression arms (EXPECTED 175 -> 178): kill_waiters ends a stand-in whose arguments file is in $S and a listed
   one in each form the real stale-TMPDIR waiter has (re-exec'd, before it with REAL_QH pointed at the fake path for
-  that one call, and perl), and leaves alone both a LISTED pid that is not a waiter of this run and an UNLISTED waiter
-  whose arguments file is outside $S (CONTROLS, measured: with the reused-pid guard removed, the REAL_QH branch
-  removed, the perl branch removed, or the first loop's $S anchor and shape check removed, the arm reads BAD). That
-  arm calls kill_waiters mid-run, so arms that start wrappers go before it (said at the arm); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
+  that one call, perl, and a fork of this file), and leaves alone a listed pid not shaped like a waiter, a listed pid
+  that is not this shell's child, and an unlisted waiter outside its dir (CONTROLS, measured: with the shape guard, the
+  REAL_QH branch, the perl branch, the test-file branch or the parentage check removed, or the first loop's anchor and
+  shape check both removed, the arm reads BAD). Since round 11 the arm runs kill_waiters against its own sub-root
+  ($S/k9191, as $S for that call), so the run's real waiters are out of its reach wherever the arm sits; joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
   with a CONTROL that `pgrep -o` picks the older; and a source check that the three #5923 arms call joiner_under and that
   no `pgrep -o -f "^/bin/bash $REAL_QH` pick is left (on origin/main's file the same greps read 0 and 3, so it would be
   BAD there). Since round 9 it checks each arm passes its OWN background pid (glw/GLR, ilw/ILR, wp/LIVE; CONTROL: a
@@ -72,8 +75,7 @@ whose arguments file is in its own $S.
   only the stand-ins. Two colleagues' runs were hit (a queued wait that had not started, and a mutation-check run);
   both were told at once and re-queued. Any later control on a kill path keeps the run's own path in its pattern.
 - Round 9's whole-file run read 177/1: `#9118: --withdraw refuses a foreground holder` went BAD (load average 12). It
-  runs before every #9191 change in the file, and the same arm passed in rounds 1 to 8; read as a timing flake under
-  load, to be confirmed by the next whole-file run.
+  passed in rounds 1 to 8 and again in round 10's whole-file run (178/178 at a445c944bc): a timing flake under load.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
   `.../queued-heavy.sh --queued-args` command line, so other agents' lib-move scans could see it and say "another
   queued-heavy.sh is live" (they then join on the old lib and run; nothing is held). The regression arm avoids that.
@@ -81,10 +83,7 @@ whose arguments file is in its own $S.
 ## Decisions
 - Find the joiner by parentage, not by a unique path (the card's other option): the arm already holds its background
   pid, and a per-run copy of queued-heavy.sh would change what the arms test.
-- Residual, kept: a listed pid is KILLed in the forms this tree's wrapper takes. While the stale-TMPDIR arm's pid is
-  listed, it is this shell's own child and the shell is blocked in `wait` on it, so it cannot be reused until that wait
-  reaps it; the next statement unlists it. The only gap is those few instructions, and a run of THIS worktree's
-  queued-heavy.sh would have to take that exact pid in them.
+- Pid reuse for a listed pid: closed in round 11 by the parentage check (a reused pid is not this shell's child).
 - Weakest premise: that the stale-TMPDIR arm is the only one whose arguments file leaves $S. Checked: of the three arms
   that set their own TMPDIR, the other two (the stdin and noexec arms) set it to an existing dir under $S. A later arm
   that points TMPDIR outside $S would need to record its pid the same way.
