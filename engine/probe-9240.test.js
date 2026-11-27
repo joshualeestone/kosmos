@@ -10,5 +10,7 @@ const messages = require('./messages');
 test('kosmos#9240: the guide says to check a direct message arrived with msg --status, not with another message', () => {
   const text = messages.blockBody();
   assert.match(text, /To check that a direct message you sent arrived,\s+do not send another one:/);
-  assert.match(text, /`msg --status <id>`, with the id your send printed,\s+says whether they read or answered it\./);
+  // With the machine's own command in front, as every command in this block is (bare kosmos is not on a stock PATH).
+  assert.match(text, /`\S+ msg --status <id>`, with the id your send printed, says whether they read or\s+answered it\./);
+  assert.ok(!/`msg --status/.test(text), 'the command is taught bare, without the machine\'s own kosmos in front');
 });
