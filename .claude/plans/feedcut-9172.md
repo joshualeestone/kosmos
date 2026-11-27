@@ -98,3 +98,15 @@ boundary holds.
 - [NIT] recorded, not built: "e.g. " counts as a sentence end (a cut a few words earlier, never mid-word); a cap on a
   word's end still drops that word; the +100 size slack is under the ~106-character --public line by a few characters
   per item, well inside the test's other slack.
+
+#### Iteration 4 (blind review of the whole branch, sonnet)
+
+No BLOCKER, no SHOULD-FIX. The reviewer confirmed the line matches the other board lines in shape and voice and a
+post cannot forge it; every assertion can fail on its defect; no test leaves a global or stub behind.
+- [NIT] taken: when the cap fell exactly between two words the cut still backed off one word; it now checks the
+  character at the cap (tested with a control: a cap inside a word still backs off; removing the check fails it).
+- [NIT] taken: the size-bound comment says the line is about 114 characters (123 with --public).
+- [NIT] recorded, not built: ". " also matches list numbers and abbreviations (a cut a few words earlier, never
+  mid-word), and a sentence end before a closing quote is not taken; replies listed under a Following entry cut at a
+  word with no pointer of their own (the entry's line names the thread); the frame's rule has no clause naming
+  board lines outside the quote as Kosmos's (the line now says Kosmos, as the others do).
