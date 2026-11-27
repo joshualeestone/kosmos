@@ -16,7 +16,7 @@ done
 W="$(mktemp -d "${TMPDIR:-/tmp}/tunnelgate-test.XXXXXX")"
 SRV=""
 # The server's stop is wrapped so bash's "Terminated" job report does not read as a failure.
-trap '{ [ -n "$SRV" ] && kill "$SRV" && wait "$SRV"; } 2>/dev/null; pkill -f "kosmos-gate-stub-$(basename "$W")" 2>/dev/null; rm -rf "$W"' EXIT
+trap '{ [ -n "$SRV" ] && kill "$SRV" && wait "$SRV"; } 2>/dev/null; LC_ALL=C pkill -f "kosmos-gate-stub-$(basename "$W")" 2>/dev/null; rm -rf "$W"' EXIT
 # kosmos#4352: the gate's address is UNIQUE PER RUN. The gate refuses (CANNOT TELL) while any
 # other connector with this address is running, which is right in production (it could take the
 # tunnel back). With one fixed address, two runs of this file at once (two agents' test suites on
@@ -261,6 +261,13 @@ PATH="$W/pgfail2:$PATH" run "a pgrep that fails on the second scan only -> CANNO
 mkdir -p "$W/pgbad"; printf '%s\n' '#!/bin/sh' 'echo "pgrep: invalid regex" >&2; exit 2' > "$W/pgbad/pgrep"; chmod +x "$W/pgbad/pgrep"
 PATH="$W/pgbad:$PATH" run "a pgrep that refuses the pattern (exit 2) -> CANNOT TELL, named as a gate defect" 2 "this is a gate defect" "up" "up"
 left=$(find "$GT" \( -name 'pgrep-err.*' -o -name 'tunnel-gate-pgrep.*' \) 2>/dev/null | grep -c .); [ "$left" = 0 ] && { pass=$((pass + 1)); echo "  ok    no pgrep temp file is left in the gate's temp root"; } || { fail=$((fail + 1)); echo "  FAIL  $left pgrep temp file(s) left in $GT"; }
+# kosmos#9149 (Mortals 11-26 20:28): ANY live process whose command line is not valid UTF-8 made pgrep exit 3 under a
+# UTF-8 locale ("illegal byte sequence"), so the gate could not tell. Played by a pgrep that fails that way unless it
+# runs under LC_ALL=C: a real such process on this shared Mac would red other agents' runs of older code (one did).
+mkdir -p "$W/pglocale"; printf '%s\n' '#!/bin/sh' '[ "${LC_ALL:-}" = C ] || { echo "pgrep: Regular expression evaluation error (illegal byte sequence)" >&2; exit 3; }' "exec '$REAL_PGREP' \"\$@\"" > "$W/pglocale/pgrep"; chmod +x "$W/pglocale/pgrep"
+standin "$W/state"
+PATH="$W/pglocale:$PATH" run "a pgrep that refuses a stray byte outside LC_ALL=C: the connector is still seen -> CANNOT TELL" 2 "gate's identity is still running" "up" "up"; unstand
+PATH="$W/pglocale:$PATH" run "a pgrep that refuses a stray byte outside LC_ALL=C, no connector -> PASS" 0 "tunnel-gate: PASS" "up" "up"
 # ...but a LIVE one whose command line cannot be read still counts (fail closed). Played by a ps
 # that prints nothing while the stand-in runs.
 mkdir -p "$W/psbin"; printf '%s\n' '#!/bin/sh' 'exit 1' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
@@ -332,10 +339,10 @@ else pass=$((pass + 1)); echo "  ok    no lock left behind after a takeover"; fi
 
 # No stub connector outlives its run (the gate's bounded stop). The stubs are named by this run's
 # tag, so this finds a leaked one (it went red with the gate's stop emptied).
-left=$(pgrep -f "kosmos-gate-stub-$TAG" | wc -l | tr -d ' ')
+left=$(LC_ALL=C pgrep -f "kosmos-gate-stub-$TAG" | wc -l | tr -d ' ')   # kosmos#9149: C, or a stray byte reads as 0
 if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left running"
-else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
+else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; LC_ALL=C pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 64 = every row above (57, plus seven kosmos#9149 rows); equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 64 ]
+# 66 = every row above (57, plus nine kosmos#9149 rows); equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 66 ]

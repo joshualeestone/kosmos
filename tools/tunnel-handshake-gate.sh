@@ -216,12 +216,16 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 # connector of its identity still running: the false PASS these scans exist to stop (3 of 22 Mortals runs, 11-25/26,
 # a different stand-in arm each time). A failure is retried twice, then the gate cannot tell. Its pids go in GATE_PIDS
 # (not printed), so cannot's exit ends the gate, not a $( ) subshell.
+# kosmos#9149 (Mortals 11-26 20:28, reproduced by Baron Draxum): under a UTF-8 locale pgrep exits 3, "Regular expression
+# evaluation error (illegal byte sequence)", whenever ANY process on the box has a command line that is not valid UTF-8,
+# whatever the pattern. So it runs under LC_ALL=C: bytes are matched as bytes (the patterns are ASCII), and a real
+# failure still fails closed below.
 _gate_pgrep() {
   local rc=0 i ef why
   # Review 2: inside WORK, which the EXIT trap removes, so a signal during a scan leaves nothing behind.
   ef="$(mktemp "$WORK/pgrep-err.XXXXXX" 2>/dev/null)" || ef=/dev/null
   for i in 1 2 3; do
-    GATE_PIDS="$(pgrep -f "$1" 2>"$ef")"; rc=$?
+    GATE_PIDS="$(LC_ALL=C pgrep -f "$1" 2>"$ef")"; rc=$?
     case "$rc" in 0|1) [ "$ef" = /dev/null ] || rm -f "$ef"; return 0 ;; esac
     # Review 1: say each failure (its code and pgrep's own words) on stderr, so a rescued one is in the log too and the
     # next Mortals red can tell "pgrep failed" from "pgrep found nothing".

@@ -683,3 +683,19 @@ test('#5446: in a repo with a worktree, the hint names the main checkout\'s queu
     assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'a marked copy in a checkout with no lib is not named');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
+
+test('#9149: live_snapshot reads the process table with awk under LC_ALL=C (source pin; and awk under C reads past a byte that is not UTF-8)', () => {
+  // In a UTF-8 locale macOS awk stopped at the first command line that is not valid UTF-8 ("towc: multibyte conversion
+  // failure"), so every process listed after it read as not running. Pinned in the source: a live arm would need a
+  // real process that looks like a release run, which every other agent's gate on this Mac would then read as busy.
+  const src = fs.readFileSync(TOOL, 'utf8');
+  const at = src.indexOf('live_snapshot() {');
+  assert.ok(at >= 0, 'live_snapshot is defined');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+  const awks = body.split('\n').filter((l) => /\|\s*(LC_ALL=C\s+)?awk\b/.test(l));
+  assert.equal(awks.length, 2, 'the two awks that read the listing');
+  for (const l of awks) assert.match(l, /\|\s*LC_ALL=C awk\b/, l);
+  const input = Buffer.concat([Buffer.from('1 init\n2 zz'), Buffer.from([0xff]), Buffer.from('probe\n3 bash tools/release.sh\n')]);
+  const c = spawnSync('awk', ['$2 ~ /bash/ { print $1 }'], { input, env: { ...process.env, LC_ALL: 'C' } });
+  assert.equal(c.stdout.toString().trim(), '3', 'under C awk reads the line after the byte');
+});

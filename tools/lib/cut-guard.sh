@@ -51,14 +51,16 @@ _KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[o
 # ancestors, and those include the caller and every `$( )` subshell around this call, which carry the caller's
 # command line; procps pgrep lists them. So on Linux the caller's ancestor chain is dropped here, and both
 # platforms answer the same (tools/test-running-anchor-5470.sh: "does not list its own ancestors").
+# kosmos#9149: under LC_ALL=C, because in a UTF-8 locale pgrep exits 3 ("illegal byte sequence") whenever ANY process
+# has a command line that is not valid UTF-8, and the guards read 2+ as "could not tell".
 _kosmos_pgrep_cmdlines() {   # <ERE>
-  case "${OSTYPE:-}" in darwin*) pgrep -fl "$1"; return ;; esac
-  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then pgrep -fl "$1"; return; fi
+  case "${OSTYPE:-}" in darwin*) LC_ALL=C pgrep -fl "$1"; return ;; esac
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then LC_ALL=C pgrep -fl "$1"; return; fi
   local raw rc anc=" " p hops=0 kept
   # One simple command in the $( ): bash runs pgrep in that child itself, so no extra shell carrying the caller's
   # command line sits between them (a pipe here would add one, outside the ancestor chain below). Pinned by
   # test-running-anchor-5470's "does not list its own ancestors" arm on Linux.
-  raw="$(pgrep -fa "$1")"; rc=$?
+  raw="$(LC_ALL=C pgrep -fa "$1")"; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
   # This shell's own pid, which inside a `$( )` is not $$. BASHPID is bash 4+; without it, `exec sh` makes sh a
   # direct child of this shell, so its PPID is this shell.
@@ -647,7 +649,7 @@ kosmos_refuse_if_suite_live() {
 # wrapper's copy did: that only errs toward busy.
 # Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
 # 0 shards live, 1 none, 2 or more pgrep failed (review 2: busy too; review 6: said as "could not tell").
-_kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; return "$rc"; }
+_kosmos_shell_shards_live() { local rc=0; LC_ALL=C pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; return "$rc"; }   # C: kosmos#9149
 kosmos_cut_quiet_box_busy() {
   local probe="${KOSMOS_SUITE_PROBE:-}" self="${KOSMOS_SUITE_SELF_PID:-$$}" out rc sc
   if kosmos_prepush_build_live; then echo "relay pre-push build"; return 0; fi
