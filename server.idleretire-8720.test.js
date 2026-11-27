@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, _clearSweepRosterForTest } = require('./server');
+const { start, server, _clearSweepRosterForTest, _idleRetireSweepDepsForTest, _idleRetireActiveForTest } = require('./server');
 const store = require('./engine/store');
 
 let port = 0;
@@ -115,5 +115,43 @@ test('#8720: the setup guide is kept on the live path (its row is marked from it
     assert.match(v(guide).why, /setup guide/);
   } finally {
     board.restore();
+  }
+});
+
+test('#9228: the operator brake stops the sweep; live execution off stops it; with both clear it acts (control)', () => {
+  assert.equal(_idleRetireActiveForTest(true, {}), true, 'CONTROL: live execution on and no brake did not act');
+  assert.equal(_idleRetireActiveForTest(true, { AGENT_WORKFORCE_IDLE_RETIRE_OFF: '1' }), false, 'the brake did not stop it');
+  assert.equal(_idleRetireActiveForTest(true, { AGENT_WORKFORCE_IDLE_RETIRE_OFF: '0' }), true, 'a brake set to 0 stopped it');
+  assert.equal(_idleRetireActiveForTest(false, {}), false, 'it acts with live execution off');
+  assert.equal(_idleRetireSweepDepsForTest().allowed(), false, 'the real wiring acts in a test process, where live execution is off');
+});
+
+test('#9228: the sweep start() runs is wired to the real roster and the real Remove (dry run, so it is refused, never retired)', () => {
+  const fleet = require('./test-support/fleet');
+  const liveness = require('./engine/liveness');
+  const ir = require('./engine/idleretire');
+  const board = fleet.install([fleet.agent('wired', { displayName: 'Wired One' })]);
+  let r;
+  const lines = [];
+  try {
+    const name = board.card('wired').sessionName;
+    liveness.seen(name, new Date(Date.now() - 40 * 86400000).toISOString());
+    const up = Array.from({ length: 41 }, (_, i) => ir.dayOf(Date.now() - (40 - i) * 86400000));
+    fs.writeFileSync(path.join(store.ROOT, 'idleretire-log.json'), JSON.stringify({ up }));
+    assert.equal(ir.writeSetting({ on: true, days: 30 }).ok, true);
+    const deps = _idleRetireSweepDepsForTest();
+    /* Everything but `allowed` is the real wiring; allowed is opened here because a test process never has live
+       execution, and the remove below runs under AGENT_WORKFORCE_DRY_RUN=1 (set at the top of this file). */
+    r = ir.makeTick({ ...deps, allowed: () => true, log: (l) => lines.push(l) })();
+    assert.equal(r.act, 'ran', JSON.stringify(r));
+    const did = r.did.find((d) => d.name === name);
+    assert.ok(did, 'the real roster did not reach the sweep: ' + JSON.stringify(r.did));
+    assert.equal(did.shownAs, 'Wired One', 'the real rows were not the ones judged');
+    assert.equal(did.outcome, 'refused', 'a dry-run removal was recorded as something other than refused');
+    assert.match(did.because, /Nothing actually happened/, 'the removal was not the real engine/remove.js: ' + did.because);
+    assert.ok(lines.some((l) => l.includes(name)), 'the sweep logged nothing about it');
+  } finally {
+    board.restore();
+    ir.writeSetting({ on: false });
   }
 });
