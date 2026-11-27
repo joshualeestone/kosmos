@@ -13,6 +13,7 @@ const path = require('node:path');
 /* The data root BEFORE any store-using require (repo convention 2). */
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'idleretire-8720-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');   // where test-support/fleet writes a display name
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -35,7 +36,14 @@ function readersOf(table) {
     activeProject: (n) => (table[n] && table[n].project) || null,
   };
 }
-const rows = (...names) => names.map((n) => ({ sessionName: n, name: n.toUpperCase(), state: 'idle', isNamedOurs: true }));
+const fleet = require('../test-support/fleet');
+/* Real board rows (fixture-discipline: never hand-built), each [name, fleet.agent options], shown as the name in capitals.
+   strict:false because the engine also reads isGuide, which no producer emits: server.js idleRetireRows adds it. */
+function realRows(specs) {
+  const board = fleet.install(specs.map(([n, o]) => fleet.agent(n, { displayName: n.toUpperCase(), ...(o || {}) })), { strict: false });
+  try { return board.agents.map((c) => ({ ...c })); } finally { board.restore(); }
+}
+const rows = (...names) => realRows(names.map((n) => [n]));
 /* Every day from `from` days ago to today, as the running days a board that never closed would have recorded. */
 const upFor = (from) => Array.from({ length: from + 1 }, (_, i) => ir.dayOf(NOW - (from - i) * DAY));
 const UP = upFor(100);
@@ -88,11 +96,11 @@ test('assess: each protection keeps an idle agent and says why; the same agent w
     ['guide-unreadable', { at: idle }, { isGuide: null }, /could not tell whether it is the setup guide/],
   ];
   for (const [name, rec, extra, why] of cases) {
-    const kept = verdictOf(ir.assess([{ sessionName: name, state: 'idle', isNamedOurs: true, ...extra }], readersOf({ [name]: rec }), { days: 30, now: NOW, upDays: UP }), name);
+    const kept = verdictOf(ir.assess([{ ...rows(name)[0], ...extra }], readersOf({ [name]: rec }), { days: 30, now: NOW, upDays: UP }), name);
     assert.equal(kept.verdict, 'keep', name);
     assert.match(kept.why, why, name);
     for (const state of ['idle', 'stopped']) {
-      const bare = verdictOf(ir.assess([{ sessionName: name, state, isNamedOurs: true }], readersOf({ [name]: { at: idle, state: 'idle' } }), { days: 30, now: NOW, upDays: UP }), name);
+      const bare = verdictOf(ir.assess(realRows([[name, { state }]]), readersOf({ [name]: { at: idle, state: 'idle' } }), { days: 30, now: NOW, upDays: UP }), name);
       assert.equal(bare.verdict, 'retire', name + ' control: without the protection it is retired, ' + state);
     }
   }
@@ -168,14 +176,15 @@ test('the log keeps the newest 50 retirements; each tick removes at most MAX_PER
   const names = Array.from({ length: 60 }, (_, i) => 'a' + i);
   const table = Object.fromEntries(names.map((n) => [n, { at: ago(40) }]));
   let left = names.slice();
+  const order = [];
   const tick = ir.makeTick({ allowed: () => true, roster: () => rows(...left), readers: readersOf(table), now: () => NOW,
-    remove: (n) => { left = left.filter((x) => x !== n); return { outcome: 'removed' }; } });
+    remove: (n) => { order.push(n); left = left.filter((x) => x !== n); return { outcome: 'removed' }; } });
   assert.equal(tick().did.length, ir.MAX_PER_TICK, 'one tick removed more than its cap');
   for (let i = 0; i < 30 && left.length; i += 1) tick();
   assert.equal(left.length, 0, 'the ticks did not get through every idle agent');
   const log = ir.readLog();
   assert.equal(log.retired.length, ir.KEEP_LOG);
-  assert.equal(log.retired[0].name, 'a59', 'not newest first');
+  assert.equal(log.retired[0].name, order[order.length - 1], 'not newest first');
   clean();
 });
 
