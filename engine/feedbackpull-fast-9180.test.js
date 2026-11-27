@@ -51,7 +51,9 @@ test('a second pull into the same folder fetches nothing again, and says the rep
   assert.equal(st.gets.length, 3, 'fixture: the first pull fetched each report once');
   const second = await fp.pull(dir, { token: TOKEN });
   assert.equal(second.ok, true);
-  assert.equal(st.gets.length, 3, 'the second pull fetched reports the folder already held');
+  // Review 1: one read back of a report already here (the token check when nothing is new), never a re-fetch of all.
+  assert.equal(st.gets.length, 4, 'the second pull fetched reports the folder already held: ' + st.gets.length);
+  assert.equal(st.gets[3], st.gets[0], 'the check read was not of a report already listed');
   assert.equal(second.written, 0); assert.equal(second.alreadyHere, 3);
   assert.match(fp.summaryLines(second)[0], /^pulled 0 report\(s\), 3 already here to /, fp.summaryLines(second)[0]);
   assert.ok(fs.existsSync(fp.indexPath(dir)), 'fixture: the folder has its index');
@@ -172,4 +174,52 @@ test('a listing that does not say when a report was uploaded is always fetched (
   assert.equal(st.gets.length, 1, 'a report with no upload time was skipped');
   assert.equal(r.written, 1);
   assert.match(fs.readFileSync(path.join(dir, '2026-11-25__a.md'), 'utf8'), /one, rewritten/);
+});
+
+test('review 1: two same-day objects of one install, the OLDER written last, then the older deleted: the next pull fixes the file', async () => {
+  const dir = path.join(SB, 'dupstale');
+  const st = makeStore([]);
+  // List order is by store path, not upload time: the newer report sorts first.
+  st.put('feedback/a-new.json', REC('dup', '2026-11-26', 'the newer report'), '2026-11-26T10:00:00.000Z');
+  st.put('feedback/b-old.json', REC('dup', '2026-11-26', 'the older report'), '2026-11-26T09:00:00.000Z');
+  fp.setTransport(st.transport);
+  await fp.pull(dir, { token: TOKEN });
+  assert.match(fs.readFileSync(path.join(dir, '2026-11-26__dup.md'), 'utf8'), /the older report/, 'fixture: list order left the older one in the file');
+  st.blobs = st.blobs.filter((b) => b.pathname !== 'feedback/b-old.json');   // the collect route deletes the older object
+  st.gets.length = 0;
+  const r = await fp.pull(dir, { token: TOKEN });
+  assert.equal(r.ok, true);
+  assert.deepEqual(st.gets.map((u) => u.replace(/^.*\//, '')), ['a-new.json'], 'the surviving report was skipped though the file held the other one');
+  assert.match(fs.readFileSync(path.join(dir, '2026-11-26__dup.md'), 'utf8'), /the newer report/, 'the file kept the deleted report');
+});
+
+test('review 1: a token that can no longer read fails the pull, even when every report is already here', async () => {
+  const dir = path.join(SB, 'noread');
+  const st = makeStore([REC('a', '2026-11-25', 'one'), REC('b', '2026-11-25', 'two')]);
+  fp.setTransport(st.transport);
+  assert.equal((await fp.pull(dir, { token: TOKEN })).ok, true);
+  const realGet = st.transport.get;
+  st.transport.get = async () => { throw new Error('blob get HTTP 403'); };
+  const r = await fp.pull(dir, { token: TOKEN });
+  assert.equal(r.ok, false, 'a pull that could read nothing passed as a success');
+  assert.match(r.because, /already in .*reading one back to check the token failed: blob get HTTP 403\. The token may no longer have read access/, r.because);
+  // Some new, every new one refused, others already here: still a failure.
+  st.transport.get = realGet;
+  st.put('feedback/x7.json', REC('c', '2026-11-26', 'three'), '2026-11-26T07:00:00.000Z');
+  st.transport.get = async () => { throw new Error('blob get HTTP 403'); };
+  const p = await fp.pull(dir, { token: TOKEN });
+  assert.equal(p.ok, false, 'reports already here hid a pull whose every read was refused');
+  assert.match(p.because, /none was pulled \(2 already here\)/, p.because);
+  // CONTROL: the same folder with a working read is fine, and a malformed new report beside held ones does not fail it.
+  st.transport.get = realGet;
+  st.byUrl[st.blobs.find((b) => b.pathname === 'feedback/x7.json').url] = 'not json';
+  const ok = await fp.pull(dir, { token: TOKEN });
+  assert.equal(ok.ok, true, 'a malformed report beside ones already here failed the pull: ' + ok.because);
+});
+
+test('review 1: the index is private to this user', async () => {
+  const dir = path.join(SB, 'private');
+  fp.setTransport(makeStore([REC('a', '2026-11-25', 'one')]).transport);
+  await fp.pull(dir, { token: TOKEN });
+  assert.equal(fs.statSync(fp.indexPath(dir)).mode & 0o077, 0, 'the index can be read by others: ' + (fs.statSync(fp.indexPath(dir)).mode & 0o777).toString(8));
 });

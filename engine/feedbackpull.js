@@ -378,6 +378,20 @@ async function pull(dir, opts) {
     if (had && isSavedName(had) && fs.existsSync(path.join(target, had))) { index[key] = had; alreadyHere += 1; continue; }
     toFetch.push(b);
   }
+  /* Review 1: with nothing to fetch, no read would happen at all, so a token that can no longer READ the store would
+     pass as a success. One report is read back as a check, and a refused read fails the pull as before. */
+  if (!toFetch.length && listed.length) {
+    const probe = listed.find((b) => b && typeof b.url === 'string');
+    if (probe) {
+      try { await tp.get(probe.url, tok); }
+      catch (e) {
+        const why = String((e && e.message) || e);
+        return { ok: false, written: 0, alreadyHere, skipped: 0, dir: target,
+          because: 'every listed report is already in ' + target + ', but reading one back to check the token failed: ' + why
+            + (REFUSED_STATUS.test(why) ? '. The token may no longer have read access to the store.' : '.') };
+      }
+    }
+  }
   /* A few at a time, each result kept in its list place, then written IN LIST ORDER below, so two same-day blobs of one
      install (the collect route's brief write-then-delete window) resolve exactly as the one-at-a-time loop did. */
   const progress = typeof o.onProgress === 'function' ? o.onProgress : null;
@@ -424,8 +438,13 @@ async function pull(dir, opts) {
          so only this report's own dead temps are reaped there; the mode is the umask default, as before. */
       require('./securewrite').writeSecret(dest, toMarkdown(rec), null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
       written += 1;
+      /* Review 1: the file now holds THIS report, so no other store object may stay indexed as saved in it. Two same-day
+         objects of one install write one file; without this the one written FIRST stayed indexed, and once the other was
+         deleted from the store it was skipped for ever with the wrong content in the file. */
+      const name = path.basename(dest);
+      for (const k of Object.keys(index)) if (index[k] === name) delete index[k];
       const key = indexKey(b);
-      if (key) index[key] = path.basename(dest);
+      if (key) index[key] = name;
     } catch (e) {
       // The code and the report's own name, not the raw message, which would name securewrite's long internal temp path.
       skipped += 1; unwritten += 1; lastWriteError = ((e && e.code) || 'error') + ' saving ' + path.basename(dest);
@@ -452,9 +471,11 @@ async function pull(dir, opts) {
   /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
      be read (#3878), were malformed, or failed to save here. Any of those is a failure
      with its reasons, never "pulled 0" as a success. */
-  if (written === 0 && alreadyHere === 0 && skipped > 0) {
+  /* Review 1: reports already here do not turn a pull whose every READ failed into a success; only malformed reports
+     beside ones already here do not fail it (those are the store's, not this pull's, fault). */
+  if (written === 0 && skipped > 0 && (alreadyHere === 0 || unreadable > 0 || unwritten > 0)) {
     return { ok: false, ...counts,
-      because: 'the store listed ' + reports(total) + ' and none was pulled: ' + reasonClauses(counts).join('; ')
+      because: 'the store listed ' + reports(total) + ' and none was pulled' + (alreadyHere ? ' (' + alreadyHere + ' already here)' : '') + ': ' + reasonClauses(counts).join('; ')
         + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.
@@ -483,8 +504,9 @@ function readIndex(dir) {
 }
 function writeIndex(dir, index) {
   try {
-    fs.mkdirSync(path.dirname(indexPath(dir)), { recursive: true });
-    require('./securewrite').writeSecret(indexPath(dir), JSON.stringify(index) + '\n', null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
+    // Review 1: private (0700 folder, owner-only file): it lists store paths and install ids.
+    fs.mkdirSync(path.dirname(indexPath(dir)), { recursive: true, mode: 0o700 });
+    require('./securewrite').writeSecret(indexPath(dir), JSON.stringify(index) + '\n', 0o600, { atomicOnly: true, ownTempsOnly: true });
   }
   catch { /* the reports are saved; without the index the next pull fetches them again */ }
 }
@@ -575,7 +597,7 @@ async function runCli(argv, opts) {
     const t = a.shift();
     if (t === '--all') { all = true; continue; }   // kosmos#9180
     if (t === '--help' || t === '-h') {
-      process.stdout.write('usage: node engine/feedbackpull.js [--dir <path>]\n'
+      process.stdout.write('usage: node engine/feedbackpull.js [--dir <path>] [--all]\n'
         + 'Pulls collected feedback reports into <path> (default: collected-feedback under the data root, which triage reads with no --dir) as triage-readable .md files.\n'
         + 'Reports already pulled into <path> are not fetched again; --all fetches every one.\n');
       return 0;

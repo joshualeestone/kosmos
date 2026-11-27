@@ -39,6 +39,9 @@ function storeServer(records) {
   const gets = [];
   const blobs = {};
   const srv = http.createServer((req, res) => {
+    // Review 1: only the seam's test token is served. A real token (the real secrets map answering, if the preload ever
+    // set the seam on another module instance) gets a 401, so the run fails instead of passing on a real credential.
+    if (req.headers.authorization !== 'Bearer vercel_blob_rw_cli9180') { srv.refused += 1; res.statusCode = 401; res.end('no'); return; }
     const u = new URL(req.url, 'http://127.0.0.1');
     if (u.pathname === '/' && u.searchParams.get('prefix') === 'feedback/') {
       const base = 'http://127.0.0.1:' + srv.address().port;
@@ -50,13 +53,14 @@ function storeServer(records) {
     if (Object.prototype.hasOwnProperty.call(blobs, p)) { gets.push(p); res.end(blobs[p]); return; }
     res.statusCode = 404; res.end('no');
   });
+  srv.refused = 0;
   records.forEach((r, i) => { blobs['feedback/r' + i + '.json'] = JSON.stringify(r); });
   return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({ srv, gets, api: 'http://127.0.0.1:' + srv.address().port })));
 }
 
 function run(args, { home, data, preload }, api) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, HOME: data, NODE_OPTIONS: '--require ' + preload,
+    const env = { ...process.env, NODE_PRESERVE_SYMLINKS: '', KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, HOME: data, NODE_OPTIONS: '--require ' + preload,
       AGENT_WORKFORCE_BLOB_API: api, KOSMOS_PORT: '9', KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
     const child = spawn('bash', [CLI, 'feedback', 'pull', ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = ''; let err = '';
@@ -81,14 +85,15 @@ test('Mac CLI: progress on stderr, a second pull fetches nothing, --all fetches 
   assert.match(first.out, /^pulled 2 report\(s\) to /m, first.out);
   const second = await run(['--dir', dir], box, st.api);
   assert.equal(second.code, 0, second.out + second.err);
-  assert.equal(st.gets.length, 2, 'the second pull fetched reports already in the folder');
+  assert.equal(st.gets.length, 3, 'the second pull fetched reports already in the folder (one check read is expected)');
   assert.match(second.out, /^pulled 0 report\(s\), 2 already here to /m, second.out);
   const all = await run(['--dir', dir, '--all'], box, st.api);
   assert.equal(all.code, 0, all.out + all.err);
-  assert.equal(st.gets.length, 4, '--all did not fetch every report again');
+  assert.equal(st.gets.length, 5, '--all did not fetch every report again');
   const bad = await run(['--every'], box, st.api);
   assert.equal(bad.code, 2, 'an unknown option was not refused: ' + bad.out + bad.err);
-  assert.equal(st.gets.length, 4, 'a refused option still pulled');
+  assert.equal(st.gets.length, 5, 'a refused option still pulled');
+  assert.equal(st.srv.refused, 0, 'a request reached the store without the test token');
 });
 
 test('Windows CLI: --all and a progress writer reach pull, progress goes to err, an unknown option is refused', async () => {

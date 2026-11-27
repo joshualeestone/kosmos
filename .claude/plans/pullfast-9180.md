@@ -32,3 +32,10 @@ module's own `runCli`.
   setSecretsRunner seam, via a NODE_OPTIONS preload, so the operator's real secrets map is never asked: a PATH stand-in
   was tried first and lost to a real one ahead of it), and the Windows CLI through its engine seam.
 - Each site perturbed alone turns its own test red (8 engine sites, 5 CLI sites, and the preload control).
+
+## Review round 1 (opus, blind)
+- [CRITICAL] two same-day objects of one install write one file; both stayed indexed, so when the OLDER was written last and then deleted from the store, the survivor was skipped for ever with the wrong content --> FIXED: a write to a file un-indexes every other object saved in it. Test (reproduces the reviewer's measured case); removing the line turns it red.
+- [WARNING] with everything already here no read happened, so a token that lost read access passed as success; and reports already here hid a pull whose every new read was refused --> FIXED: with nothing to fetch one report is read back as a check (a refused read fails the pull, naming it); and "none pulled" fails when any read or save failed, already-here or not (malformed-only beside held reports does not). Tests both arms plus a control.
+- [WARNING] the index was 0644 --> FIXED: 0600 file, 0700 folder (it lists store paths and install ids). My first try passed no mode, writeSecret threw, writeIndex swallowed it, and every skip test went red: the tests caught a silent no-index.
+- [WARNING] the CLI test could not prove the seam's token reached the store --> FIXED: the stand-in store answers 401 to any other token (control: a different seam token fails the test), and NODE_PRESERVE_SYMLINKS is cleared in the child.
+- [NIT] runCli usage line lacked [--all] --> FIXED. [NIT] a hand-edited report file is now kept --> ACCEPTED: --all is the documented way to fetch it again.
