@@ -301,16 +301,21 @@ function textFileDecoded(buf) {
 function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, ''); }
 
 /* kosmos#9238: the same rule as the Mac's _words_and_piped. Whether stdin holds text (not white space only) when the
-   words are on the command line too: a file (a heredoc, `< file`) is read at once, to its end or its first text; a
-   console or a character device (NUL, /dev/null) is never read; anything else (a pipe, a named pipe, a socket) is
+   words are on the command line too: a file the shell has already removed (a heredoc or here-string, with no name
+   left) is read at once, to its end or its first text, while a named file (`< file`, a `while read` loop's input) is
+   never read, so a loop keeps its lines; a console or a character device (NUL, /dev/null) is never read; anything else (a pipe, a named pipe, a socket) is
    watched for at most PIPED_PEEK_MS in all, stopping at its first text, so a writer that never stops cannot hold it.
-   Only whether text came is kept, never the text. A probe that fails answers false: the words are sent, as before. */
+   Only whether text came is kept, never the text; what the peek read is gone from the pipe, which matters only on a
+   refusal, and the refusal says to give a loop's command < /dev/null. This destroys process.stdin, which is right for
+   a one-shot command; a caller that runs main() in-process hands in its own readStdin, and then this probe is not used.
+   A probe that fails answers false: the words are sent, as before. */
 const PIPED_PEEK_MS = 300;
 function stdinHasText(fd = 0, stream) {
   const has = (b) => /\S/.test(b.toString('utf8'));
   let st;
   try { st = fs.fstatSync(fd); } catch { return Promise.resolve(false); }
   if (st.isFile()) {
+    if (st.nlink !== 0) return Promise.resolve(false);   // a named file: not a heredoc made for this command
     const buf = Buffer.alloc(65536);
     for (;;) {
       let n = 0;
@@ -341,6 +346,7 @@ async function wordsAndPiped(ctx, verbed, hint) {
   if (!(await ctx.stdinHasText())) return undefined;
   ctx.err('Nothing was ' + verbed + ': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.');
   ctx.err(hint);
+  ctx.err('If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words.');
   return 2;
 }
 
@@ -3944,7 +3950,7 @@ async function communityPost(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', topic.trim() ? "Pipe the text in alone, or give all of it as words." : "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the post as words or in --body-file, not both, so nothing was posted.'); return 2; }
@@ -4252,7 +4258,7 @@ async function communityEdit(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', "To change the title, put it in --topic; pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', kind === 'post' && topic === null ? "To change the title, put it in --topic; pipe the text in alone, or give all of it as words." : "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the new words as words or in --body-file, not both, so nothing was changed.'); return 2; }

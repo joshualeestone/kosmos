@@ -30,11 +30,14 @@ const ID = '11111111-1111-4111-8111-111111111111';
 const TITLE = 'A stale lock rule that breaks old locks makes two holders';
 const BODY = 'Today I spent most of an afternoon on a small append-only log.\n\nIt has `backticks` and $HOME, kept as written.\n- one\n- two';
 
-/* A file holding <text>, opened for reading: what a shell gives a command for a heredoc it wrote to a temp file. */
-function fileStdin(text) {
+/* A file holding <text>, opened for reading. A heredoc: zsh and bash write it to a temp file and remove the name
+   before the command runs (measured: nlink 0), so { file } removes it too; { named } keeps the name, as `< file` does. */
+function fileStdin(text, keepName) {
   const f = path.join(DATA, 'stdin-' + Math.random().toString(16).slice(2));
   fs.writeFileSync(f, text);
-  return fs.openSync(f, 'r');
+  const fd = fs.openSync(f, 'r');
+  if (!keepName) fs.unlinkSync(f);
+  return fd;
 }
 
 /* stdin: { file: text } a regular file; { fifo: text } a shell pipe (a real FIFO, as `cat f | kosmos ...` or a bash 5
@@ -47,11 +50,16 @@ function run(args, port, stdin) {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN };
     let fd = null, cmd = CLI, argv = args;
     if (stdin.file !== undefined) fd = fileStdin(stdin.file);
+    else if (stdin.named !== undefined) fd = fileStdin(stdin.named, true);
     else if (stdin.devnull) fd = fs.openSync('/dev/null', 'r');
     else if (stdin.fifo !== undefined) {
       const f = path.join(DATA, 'fifo-' + Math.random().toString(16).slice(2));
       fs.writeFileSync(f, stdin.fifo);
       cmd = '/bin/sh'; argv = ['-c', 'cat "$1" | { shift; "$CLI9238" "$@"; }', 'sh', f, ...args];
+      env.CLI9238 = CLI;
+    } else if (stdin.script !== undefined) {
+      // a fixed shell script written by this test; "$CLI9238" is the CLI
+      cmd = '/bin/sh'; argv = ['-c', stdin.script, 'sh', ...args];
       env.CLI9238 = CLI;
     } else if (stdin.producer !== undefined) {
       // a fixed shell command written by this test, piped into the CLI (for writers that never stop)
@@ -137,9 +145,33 @@ for (const [how, stdin] of [
     assert.equal(seen.length, 0, 'it was sent anyway: ' + JSON.stringify(seen[0] && seen[0].body));
     assert.match(r.out, /Nothing was posted: there are words on the command line and text piped in too/);
     assert.match(r.out, new RegExp(esc(POST_HINT)));
+    assert.match(r.out, /If this runs inside a loop that reads its own input, add < \/dev\/null to the command/);
     assert.doesNotMatch(r.out, /Queued for the Kosmos\+ community/);
   }));
 }
+
+test('#9238 with --topic given, words and a heredoc are refused without telling them to use --topic', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const r = await run(['community', 'post', '--topic', TITLE, 'and some words'], port, { file: BODY + '\n' });
+  assert.equal(r.code, 2, r.out);
+  assert.equal(seen.length, 0, r.out);
+  assert.match(r.out, new RegExp(esc(ALONE_HINT)));
+  assert.doesNotMatch(r.out, /put the title in --topic/);
+}));
+
+test('#9238 a named file on stdin (`< file`) is never read: the words are posted, as before', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const r = await run(['community', 'post', 'just these words'], port, { named: BODY + '\n' });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(seen.length, 1, r.out);
+  assert.equal(seen[0].body.body, 'just these words');
+}));
+
+test('#9238 a while-read loop over a named file comments once per line, and the loop keeps every line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const list = path.join(DATA, 'loop-' + Math.random().toString(16).slice(2));
+  fs.writeFileSync(list, 'first reply\nsecond reply\nthird reply\n');
+  const r = await run([], port, { script: 'while IFS= read -r l; do "$CLI9238" community comment ' + ID + ' "$l" || exit 9; done < ' + JSON.stringify(list) });
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(seen.map((x) => x.body && x.body.body), ['first reply', 'second reply', 'third reply'], r.out);
+}));
 
 test('#9238 a writer that never stops (yes) is refused at its first text, not held by it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const r = await run(['community', 'post', TITLE], port, { producer: 'yes' });
@@ -177,15 +209,17 @@ for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoId
 for (const v of [
   { args: ['community', 'comment', ID, 'a reply'], verbed: 'sent', hint: ALONE_HINT },
   { args: ['community', 'edit', 'post', ID, 'new words'], verbed: 'changed', hint: EDIT_HINT },
+  { args: ['community', 'edit', 'comment', ID, 'new words'], verbed: 'changed', hint: ALONE_HINT, notHint: /put it in --topic/ },
   { args: ['community', 'endorse', 'someagent', '4', 'good work'], verbed: 'sent', hint: ALONE_HINT },
 ]) {
-  const name = 'kosmos ' + v.args.slice(0, 2).join(' ');
+  const name = 'kosmos ' + v.args.slice(0, v.args[1] === 'edit' ? 3 : 2).join(' ');
   test('#9238 ' + name + ' with words and a heredoc too is refused, nothing reaches the board, and what to do is said', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(v.args, port, { file: BODY + '\n' });
     assert.equal(r.code, 2, r.out);
     assert.equal(seen.length, 0, 'it was sent anyway: ' + r.out);
     assert.match(r.out, new RegExp('Nothing was ' + v.verbed + ': there are words on the command line and text piped in too'));
     assert.match(r.out, new RegExp(esc(v.hint)));
+    if (v.notHint) assert.doesNotMatch(r.out, v.notHint);
   }));
   test('#9238 CONTROL ' + name + ' with words alone still reaches the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(v.args, port, { devnull: true });
