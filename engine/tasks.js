@@ -2808,6 +2808,11 @@ function projectPathOf(p, byId) {
    2026-10-11): built work in a paused project is finished and waiting for review, so it groups as built and prints
    [built] [project paused] (both CLIs), not [on hold]: a paused project whose work is done reads as waiting, not stuck. */
 const LIST_GROUPS = ['open', 'built', 'held', 'done'];
+/* kosmos#9177: does `who` (as builtFor's) hold an open part of this task? */
+function holdsOpenPart(t, who) {
+  const match = typeof who === 'function' ? who : (n) => n === who;
+  return progressOf(t).parts.some((x) => x && typeof x.who === 'string' && !x.closedAt && match(x.who));
+}
 /* kosmos#9177: is a task built FOR this agent? One agent's mark covers that agent only (builtWho); the person's mark
    (builtFreesAll) covers every agent on it. `who` is a name, matched exactly, or a function given each marked name.
    The one reading shared by the Assigner (hasOpenWork, busyHold) and an agent's own list (--mine). */
@@ -2817,14 +2822,17 @@ function builtFor(t, who) {
   const match = typeof who === 'function' ? who : (n) => n === who;
   return Array.isArray(t.builtWho) && t.builtWho.some((n) => typeof n === 'string' && match(n));
 }
-/* `who` (kosmos#9177): reading for one agent, a task another holder marked built stays in its group by its other
-   states (open, or held when its project is paused), since that agent's part is still open. Without it, any mark.
-   A mark with no builtWho list (made before marks named who made them) cannot say whose it is, so it stays built. */
+/* `who` (kosmos#9177): reading for one agent, a marked task is built for it when the mark covers it (builtFor) or it
+   holds no open part (every part of its own closed: hasOpenWork's reading). Otherwise another holder's mark leaves the
+   task in its other group (open, or held when its project is paused). Without `who`, any mark is built.
+   A mark with no builtWho list (made before marks named who made them) cannot say whose it is, so it stays built.
+   The string test on builtAt is the one the rest of the list uses (#8577); builtFor alone only asks that it is set. */
 function listGroup(t, who = null) {
   if (!t) return 'open';
   if (t.isClosed === true || progressOf(t).closed) return 'done';
   if (isOnHold(t)) return 'held';
-  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || !Array.isArray(t.builtWho) || builtFor(t, who))) return 'built';
+  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || !Array.isArray(t.builtWho) || builtFor(t, who)
+    || !holdsOpenPart(t, who))) return 'built';
   if (t.projectPaused === true) return 'held';
   return 'open';
 }
