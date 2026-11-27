@@ -121,7 +121,7 @@ test('Linux: mutool when pdftoppm is missing; with neither, one line naming the 
   const src = fakePdf(d);
   let seen = null;
   const mut = { platform: 'linux', env: { PATH: pathWith(['mutool']) }, tmpdir: d,
-    run: async (cmd, args) => { seen = { cmd, args }; fs.writeFileSync(args[args.indexOf('-o') + 1], realPng()); return { code: 0, stdout: '' }; } };
+    run: async (cmd, args) => { if (args[0] === 'info') return { code: 0, stdout: 'Pages: 5\n' }; seen = { cmd, args }; fs.writeFileSync(args[args.indexOf('-o') + 1], realPng()); return { code: 0, stdout: '' }; } };
   const r = await pdfpreview.main([src, '--page', '2'], mut);
   assert.equal(r.code, 0, r.err.join('\n'));
   assert.equal(path.basename(seen.cmd), 'mutool');
