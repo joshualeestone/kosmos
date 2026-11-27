@@ -2308,7 +2308,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #recovery-slot:empty, #rline-slot:empty, #reboot-slot:empty, #damaged-slot:empty, #runfolder-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #heavy-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #recovery-slot:empty, #rline-slot:empty, #reboot-slot:empty, #damaged-slot:empty, #runfolder-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -13376,6 +13376,9 @@ window.kosmosMeasureScrollbarWidth();
          post-update note and the offline note rather than overwriting either; a
          machine that cannot update is a state worth its own line. -->
     <div id="uabort-slot"></div>
+    <!-- kosmos#9217: a heavy job an agent said is running on this computer (kosmos heavy start), whose and since when.
+         Painted by paintHeavyJobs from data.heavyJobs; empty, and so hidden, when nothing is running. -->
+    <div id="heavy-slot"></div>
     <!-- #3532: login-expiry advisory. Warns, per account, before a Claude login
          expires so agents do not silently die. Its own slot so it co-occurs with
          the update/offline notices rather than overwriting them; role=status per
@@ -25376,6 +25379,33 @@ let ENGINE_STALE = null;
  * blocking board on a DIFFERENT macOS account, #2051). Wording stays Mona Lisa's
  * to refine; the structure and the honest action are what this pins.
  */
+/* kosmos#9217: one line naming each heavy job an agent said is running here (engine/heavyjobs.js clears a record whose
+ * process or agent is gone). Built from text nodes, so a label can never become markup; repainted only on a change. */
+function paintHeavyJobs(jobs) {
+  const slot = document.getElementById('heavy-slot');
+  if (!slot) return;
+  const list = Array.isArray(jobs) ? jobs.filter((j) => j && typeof j.label === 'string' && typeof j.agent === 'string' && Number.isFinite(j.since)) : [];
+  const key = JSON.stringify(list.map((j) => [j.agent, j.label, j.since]));
+  if (slot.dataset.k === key) return;
+  slot.dataset.k = key;
+  slot.textContent = '';
+  if (!list.length) return;
+  const two = (n) => String(n).padStart(2, '0');
+  const parts = list.map((j) => { const t = new Date(j.since); return j.label + ' (' + j.agent + ', since ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ')'; });
+  const box = document.createElement('div');
+  box.className = 'utoast';
+  box.setAttribute('role', 'status');
+  const dot = document.createElement('span');
+  dot.className = 'udot';
+  dot.setAttribute('aria-hidden', 'true');
+  const txt = document.createElement('div');
+  txt.className = 'utxt';
+  txt.textContent = (list.length === 1 ? 'A heavy job is running on this computer: ' : 'Heavy jobs are running on this computer: ') + parts.join('; ') + '.';
+  box.appendChild(dot);
+  box.appendChild(txt);
+  slot.appendChild(box);
+}
+
 function paintUpdateAbort(ab) {
   const slot = document.getElementById('uabort-slot');
   if (!slot) return;
@@ -28269,6 +28299,7 @@ async function tick() {
     renderUpdateToast(data.update, data.updateManual);   // kosmos#7938
     paintLoginAdvisories(data.loginAdvisories); // #3532: warn before a login expires
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
+    paintHeavyJobs(data.heavyJobs);     // kosmos#9217
     paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
