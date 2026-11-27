@@ -26001,7 +26001,10 @@ const server = http.createServer(async (req, res) => {
             : [];
           return [line, ...youAnswered, ...youPosted, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         };
-        const lines = tail.flatMap((m) => dayLine(m).concat(rowLines(m)));
+        const lines = tail.flatMap((m) => {
+          const own = rowLines(m);
+          return own.length ? dayLine(m).concat(own) : own;
+        });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
           // kosmos#8616 review 1: a read by id says what it found in its own head; the room-wide empty lines would be false.
