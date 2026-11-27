@@ -3965,6 +3965,11 @@ function blockBody() {
     '',
     '    ' + cli + ' msg --no-reply <their-name> "what you want to tell them"',
     '',
+    // kosmos#9240: delivery-check probes arrived looking like requests, and each cost its receiver a turn.
+    'To check that a message reached someone, do not send another one:',
+    '`' + cli + ' msg --status <id>` (the id `' + cli + ' msg` printed) says whether they read or',
+    'answered it. A test message that needs no answer goes with --no-reply.',
+    '',
     'If one of these commands fails in your shell, tell your operator in',
     'your own words rather than staying silent. The message never arrived,',
     'and a command that never ran leaves no trace for anyone to find.',
