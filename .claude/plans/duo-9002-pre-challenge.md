@@ -2,19 +2,19 @@
 pre_challenge: true
 method: challenge-loop
 branch: duo-9002
-diff_hash: b3c238b58f9b88962e4a636e337ecc861e02b1bf38c7e185ad95e0542e7f21fc
+diff_hash: 703830caf3c7b1a7e1e3dc54d8d0ebee98f6f3b3b1b5db8ec3d3d5647347438e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-26T18:46:23Z
-iterations: 22
+timestamp: 2026-11-27T00:56:54Z
+iterations: 26
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 22 (the loop converged at 13, 17 and 20 and was reopened each time by a measured test change, then converged at 22 on the rebased branch)
+**Iterations:** 26 (the loop converged at 13, 17, 20 and 22 and was reopened each time by a change, then converged at 26)
 **Converged:** Yes
-**Validation:** passed on Mortals at 6f46aeb28f, entry status clean, hash b3c238b58f9b (31,467 node tests, 0 failed; all four shell shards green). An 11:30 run on the same hash was red only on tools/test-tunnel-handshake-gate.sh, a known Mortals red (kosmos#9149); the rerun was clean.
+**Validation:** passed on Mortals at 5b9114c061, entry status clean, hash 703830caf3c7 (31,575 node tests, 0 failed; all four shell shards green). That head is the round-26 diff (917ae7dea3) rebased twice onto main with no content change: the diff without its hunk headers and index lines is byte-identical, only the line offsets in ios/tools/ui-sample.sh moved.
 **Reviewer models:** alternated each round, default (opus) on odd rounds, sonnet on even rounds.
 **Fixed:** about 30 | **Deferred:** about 25 (most were repeats of earlier rounds) | **Asked (awaiting user):** 0
 
@@ -60,6 +60,24 @@ converged: true
 #### Iteration 22
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs (all repeats of earlier rounds; the list-rebuild viewer concern verified by reading code: the show and hide hooks sit outside the rebuilt list in Agents and Projects)
+Converged here, then reopened: a rebase onto main (#9089's ChatView change auto-merged) changed the code under review.
+
+#### Iteration 23
+**Reviewer model:** default
+- [WARNING] never-shows checks in DuoFoldUITests could pass on an element that had not appeared yet --> FIXED (stays() helper, 88bf7c6578)
+- [WARNING] the two-pane landing was not stated as untested --> FIXED (listed in the plan)
+
+#### Iteration 24
+**Reviewer model:** sonnet
+- [WARNING] every full-screen iPad gets two panes --> DEFERRED: unreachable, the app is iPhone-only (TARGETED_DEVICE_FAMILY = 1), so an iPad runs it as an iPhone app; recorded in the plan
+
+#### Iteration 25
+**Reviewer model:** default
+- [CONVENTION] the plan's finished line did not name the deliberate phone change (a task inside a project keeps the tab bar hidden) --> FIXED (plan, 917ae7dea3)
+
+#### Iteration 26
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs (all repeats: redraw heights, first frame, list rebuild, CI coverage; NITs only)
 **Converged** - no new actionable findings.
 
 ### NITs (non-blocking)
