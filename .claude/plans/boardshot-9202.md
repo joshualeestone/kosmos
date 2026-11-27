@@ -31,3 +31,8 @@ for hand-run simulator shots (#9101, 11-27). This is the durable guard.
 - light: 2 tests, 0 failures; the board-page test PASSED (not skipped), read #faf9f7 at all 4 points, scale 3.0.
 - dark (simctl appearance dark first): 2 tests, 0 failures; read #0c0d0f at all 4 points. So the sample board follows the phone, and the weakest premise held: XCUIScreenshot returns the exact ground.
 - CONTROL: the app built with navy painted behind the Close bar (the bar background line only): the board-page test FAILED, "NAVY at (390.0, 84.0) ... read #17233d x4". ContentView.swift restored (checked by git diff).
+
+## Review round 2 (sonnet, blind, whole branch): no critical
+- [WARNING] the header overclaimed: the test cannot tell a missing bar background from a present one (the page behind is the same ground) --> reworded: it catches a WRONG colour on the bar or the page (measured with the navy control); a missing background is not the #9101 regression.
+- [NIT] "CI runs it in light" --> "a fresh simulator is light, so CI sees light".
+- Checked sound: the scale assertion, the skip accounting (ui-sample.sh sets TEST_RUNNER_KOSMOS_UI_PLUS), points derived from the device (CI's smaller iPhone included), the 0.75-width point clear of the label.

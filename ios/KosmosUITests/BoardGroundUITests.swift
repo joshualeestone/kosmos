@@ -6,9 +6,10 @@ import XCTest
 /// rested on a source read and a byte probe. This opens the page the way a person does (Agents' + on a sample board
 /// with no computer address asks first, then opens the board page: BoardHandoffUITests), screenshots it, and reads the
 /// pixels of the Close bar row's empty right side and of the strip just above it. Both are native (SwiftUI), so they
-/// are the same whatever the web view below has loaded. Of #9101's five places this renders the Close bar's row
-/// (ContentView.swift boardPage's bar background) and the safe-area strip above it; the outer backgrounds and the web
-/// host sit under the web view and are covered by ios.board-ground-9101.test.js's source read, not by this.
+/// are the same whatever the web view below has loaded. It catches a WRONG colour there, on the bar (measured: navy
+/// painted behind the bar fails it) or on the page behind it. It cannot tell a missing bar background from a present
+/// one, since the page behind the bar is the same ground; a missing background is not the #9101 regression. The web
+/// host and the web view sit under the page and are covered by ios.board-ground-9101.test.js's source read.
 ///
 /// Appearance: XCUIDevice.shared.appearance changes nothing on an iOS 27.0 simulator (TaskPageActionsUITests), and the
 /// app follows the board's own Light/Dark when the board sets one (#9101), so the test accepts EITHER exact ground,
