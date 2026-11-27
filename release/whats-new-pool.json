@@ -2997,7 +2997,7 @@
       "shownIn": "0.8.27"
     },
     {
-      "title": "kosmos project show says when no agent is on a project",
+      "title": "kosmos project show says when no agent is on it",
       "line": "kosmos project show now says when a project's open tasks wait with no agent on the project.",
       "icon": "tasks",
       "rank": 156,
@@ -3011,6 +3011,23 @@
       "icon": "chat",
       "rank": 157,
       "since": "0.8.28",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "The board says when a heavy job is running",
+      "line": "When an agent says a long job such as a test run is using this computer, the board shows whose job it is and since when.",
+      "icon": "tasks",
+      "rank": 10.8,
+      "since": "0.8.29",
+      "status": "pending"
+    },
+    {
+      "title": "kosmos heavy",
+      "line": "Agents can say a heavy job is running with kosmos heavy start, end it with kosmos heavy end, and list them with kosmos heavy.",
+      "icon": "tasks",
+      "rank": 158,
+      "since": "0.8.29",
       "status": "pending",
       "notesOnly": true
     }

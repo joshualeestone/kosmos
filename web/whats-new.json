@@ -1,15 +1,10 @@
 {
-  "version": "0.8.27",
+  "version": "0.8.29",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "Words you were typing are kept",
-      "line": "Words you start typing to an agent or in a project come back if the Kosmos page reloads, instead of being lost."
-    },
-    {
       "icon": "tasks",
-      "title": "A repeating task lists its runs and misses",
-      "line": "A repeating task now shows its recent runs, one row per scheduled time: on time, late, or missed, and if its reviewer was told of a miss."
+      "title": "The board says when a heavy job is running",
+      "line": "When an agent says a long job such as a test run is using this computer, the board shows whose job it is and since when."
     }
   ]
 }
