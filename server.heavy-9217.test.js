@@ -247,3 +247,21 @@ test('kosmos#9217: a read that is not complete but shows the agent running keeps
   assert.deepEqual(heavyJobsNow(without, t5 + 5 * 60 * 1000 + 1).map((j) => j.label), ['seen running'], 'the mark was cleared: missing again is a new grace');
   await asAgent(tok, { action: 'end' });
 });
+
+test('kosmos#9222: GET /api/heavy lists a job no read could check, marked; the board\'s status does not', async () => {
+  const { ada } = twoAgents();
+  const tok = sendertoken.mint(ada).token;
+  const rs = require('./engine/restoresink');
+  const hj = require('./engine/heavyjobs');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  rs.pidAlive = () => true;
+  rs.processStart = () => 'Fri Nov 27 01:00:00 2026';
+  try {
+    assert.equal(hj.start({ root: store.ROOT, agent: ada, label: 'overnight', pid: 424242, now: Date.now() - 13 * 60 * 60 * 1000 }).ok, true);
+    rs.processStart = () => undefined;   // ps cannot answer
+    assert.deepEqual(await jobsInStatus(), [], 'the board showed a job it could not check');
+    const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tok } })).json();
+    assert.deepEqual(got.jobs.map((j) => [j.label, j.pid, j.unchecked]), [['overnight', 424242, true]]);
+  } finally { Object.assign(rs, was); }
+  await asAgent(tok, { action: 'end', pid: 424242 });
+});

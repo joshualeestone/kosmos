@@ -140,3 +140,10 @@ test('an empty --pid is refused, not read as no pid', { skip: SKIP_POSIX_SHELL }
     }
     assert.deepEqual(hits.filter((h) => h.url === '/api/heavy'), []);
   }));
+
+test('kosmos#9222: a job Kosmos could not check is listed with how to end it', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => ({ ok: true, jobs: [{ agent: 'ada-discord', name: 'Ada', label: 'overnight', pid: 4242, since: Date.UTC(2026, 10, 27, 3, 5), unchecked: true }] }), async (port) => {
+    const r = await runCli(['heavy'], envFor(port));
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it has finished, kosmos heavy end --pid 4242$/m);
+  }));

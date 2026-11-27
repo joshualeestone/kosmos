@@ -3377,7 +3377,7 @@ function sweepRoster(now = Date.now()) {
    newly missing, and only a grace already run out on an earlier read clears. */
 const HEAVY_AGENT_GRACE_MS = 90 * 1000;
 const heavyMissingSince = new Map();
-function heavyJobsNow(roster, now = Date.now()) {
+function heavyJobsNow(roster, now = Date.now(), { hidden = false } = {}) {
   try {
     const running = (roster && Array.isArray(roster.running)) ? roster.running : [];
     const rows = running.concat((roster && Array.isArray(roster.offline)) ? roster.offline : []);   // names only
@@ -3393,7 +3393,7 @@ function heavyJobsNow(roster, now = Date.now()) {
       const since = heavyMissingSince.get(n);
       return since !== undefined && now - since >= HEAVY_AGENT_GRACE_MS ? false : null;
     };
-    const jobs = require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive });
+    const jobs = require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive, hidden });
     const holders = new Set(jobs.map((j) => j.agent));
     for (const n of [...heavyMissingSince.keys()]) if (!holders.has(n)) heavyMissingSince.delete(n);   // a mark lives only as long as a job
     return jobs.map((j) => ({ ...j, name: display.get(j.agent) || j.agent }));
@@ -28441,7 +28441,8 @@ const server = http.createServer(async (req, res) => {
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     // The roster only names the agents here (complete: false judges nobody missing; a status read does that).
     const roster = safeRoster();
-    sendJson(res, 200, { ok: true, jobs: heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null) });
+    // kosmos#9222: with the jobs no read could check, marked unchecked, so an agent can see (and end) what it holds.
+    sendJson(res, 200, { ok: true, jobs: heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null, Date.now(), { hidden: true }) });
     return;
   }
   if (pathname === '/api/heavy' && req.method === 'POST') {
