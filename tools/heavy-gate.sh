@@ -122,8 +122,10 @@ ANC_SEP=$'\036'   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
 live_snapshot() {
   local p q cwd cmd anc depth listing
   listing="$(ps -axo pid=,command= 2>/dev/null)" || return 3
-  printf '%s\n' "$listing" | awk '$1 == 1 { f = 1 } END { exit !f }' || return 3
-  printf '%s\n' "$listing" | awk -v quiet_box="$QUIET_BOX" '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks|test-install)\.sh$/ || (quiet_box == 1 && $i ~ /(^|\/)run-tests\.sh$/)) { print $1; next } }' |
+  # kosmos#9149: awk under C. In a UTF-8 locale macOS awk stops at the first command line that is not valid UTF-8
+  # ("towc: multibyte conversion failure"), so every process listed after it went unclassified and read as not running.
+  printf '%s\n' "$listing" | LC_ALL=C awk '$1 == 1 { f = 1 } END { exit !f }' || return 3
+  printf '%s\n' "$listing" | LC_ALL=C awk -v quiet_box="$QUIET_BOX" '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks|test-install)\.sh$/ || (quiet_box == 1 && $i ~ /(^|\/)run-tests\.sh$/)) { print $1; next } }' |
   while read -r p; do
     cmd="$(ps -o command= -p "$p" 2>/dev/null)"
     # Gone means ps no longer knows the pid; a live pid whose cwd lsof cannot read keeps an

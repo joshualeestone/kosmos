@@ -16,7 +16,7 @@ done
 W="$(mktemp -d "${TMPDIR:-/tmp}/tunnelgate-test.XXXXXX")"
 SRV=""
 # The server's stop is wrapped so bash's "Terminated" job report does not read as a failure.
-trap '{ [ -n "$SRV" ] && kill "$SRV" && wait "$SRV"; } 2>/dev/null; pkill -f "kosmos-gate-stub-$(basename "$W")" 2>/dev/null; rm -rf "$W"' EXIT
+trap '{ [ -n "$SRV" ] && kill "$SRV" && wait "$SRV"; } 2>/dev/null; LC_ALL=C pkill -f "kosmos-gate-stub-$(basename "$W")" 2>/dev/null; rm -rf "$W"' EXIT
 # kosmos#4352: the gate's address is UNIQUE PER RUN. The gate refuses (CANNOT TELL) while any
 # other connector with this address is running, which is right in production (it could take the
 # tunnel back). With one fixed address, two runs of this file at once (two agents' test suites on
