@@ -77,6 +77,11 @@ test('engine: one line per task (#, state, owner, title), the title whole on its
   assert.deepEqual(tasklist.compactLines({ listState: 'open', count: 0, tasks: [] }, 'open', 'p').lines, ['0 open tasks in p.']);
   // Owned through its tree (#5678), said as nobody first (kosmos#9237): nobody took it, and who to ask.
   assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 2, sentence: 's', ownerNames: ['mara'], ownerFrom: 1 }] }, 'open', 'p').lines[0], '#2  open  nobody (mara holds #1)  s');
+  // task show says it the same way (kosmos#9237): its Held by line is the same owner words.
+  const shown = tasklist.showLines({ tasks: [{ number: 2, sentence: 's', ownerNames: ['mara'], ownerFrom: 1 }] }, 2, 'p').lines.join('\n');
+  assert.match(shown, /Held by:\s+nobody \(mara holds #1\)/, 'task show names the tree holder as the owner: ' + shown);
+  // Several holders of the tree's task: joined with "and", and the verb agrees.
+  assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 2, sentence: 's', ownerNames: ['mara', 'otto', 'ada'], ownerFrom: 1 }] }, 'open', 'p').lines[0], '#2  open  nobody (mara, otto and ada hold #1)  s');
   // #4887, iteration 3: an agent who added it and is not its owner is named, as the long list names them.
   assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 7, sentence: 'mona: ship the build', addedVia: 'process', addedBy: 'otto', whoNames: [] }] }, 'open', 'p').lines[0], '#7  open  nobody  mona: ship the build [added by otto]');
   assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 8, sentence: 'mine', addedVia: 'process', addedBy: 'mara', whoNames: ['mara'] }] }, 'open', 'p').lines[0], '#8  open  mara  mine', 'CONTROL: its owner adding it is not marked');
