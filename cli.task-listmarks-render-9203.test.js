@@ -1,0 +1,226 @@
+'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+
+/**
+ * kosmos#9203 (follow-up to #9188): engine/markwords.js usesListMarkWord is a hand-built list of the task list's mark
+ * words, and #9188's review rounds 1 to 3 each found marks it missed. Nothing kept it complete: a mark added to a
+ * printer later would be forgeable by a task's own title until someone added its words by hand.
+ *
+ * This renders a row for every mark state through the REAL printers (engine/tasklist.js compactLines and acrossLines,
+ * the Windows CLI taskList with a stub context, and install/kosmos's long list, its own node program lifted out of the
+ * script and fed the same JSON the board sends). Each row's title is a sentinel; everything else on the row is split
+ * into its bracket and parenthesis groups, and every group, set in the MIDDLE of a title, must be caught by
+ * usesListMarkWord. Two groups are allowed through, on purpose: the row's own label "[N]", and the owner's bare names
+ * "(otto)" (a name has no fixed word; #9201 catches it where it could forge an owner, at the END of a title).
+ *
+ * The second test is what keeps the first honest: every field a printer reads (`x.<field>`, read out of each printer's
+ * source) must be set by some fixture here, so a printer that grows a new mark on a new field turns this red until the
+ * fixtures (and so the first test) cover it.
+ *
+ * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
+ *
+ *   node --test cli.task-listmarks-render-9203.test.js
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-listmarks-render-9203-'));
+const HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(HOME, { recursive: true });
+process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const tasklist = require('./engine/tasklist');
+const markwords = require('./engine/markwords');
+const cli = require('./tools/windows/kosmos-cli');
+
+test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+const T = 'ZQZTITLE';   // the sentinel title: no mark word, so every printer prints it as it is
+const BUILT = '2026-11-20T10:00:00.000Z';
+const FP = 'sha256:' + 'a'.repeat(64);
+/* One fixture per mark state. Every printer gets every fixture (the printers do not filter, they render what the
+   board sent), so a field set here reaches every printer that reads it. */
+const FIXTURES = [
+  {},                                                                   // open, nobody on it
+  { whoNames: ['otto'] },
+  { whoNames: ['otto', 'mara'], addedVia: 'process', addedBy: 'ruth' },
+  { addedVia: 'process', addedBy: 'mara' },
+  { ownerNames: ['mara'], ownerFrom: 3 },
+  { addedVia: 'webhook', addedBy: 'hook' },
+  { addedVia: 'webhook', addedBy: 'hook', whoNames: ['otto'] },
+  { isClosed: true, closedHow: 'change' },
+  { isClosed: true, replacedBy: 9 },
+  { isClosed: true, closedUnrun: true },
+  { onHold: true },
+  { onHold: true, onHoldUntil: { task: 4 } },
+  { onHold: true, onHoldUntil: { at: '2099-01-01 09:00' }, onHoldByPerson: true, onHoldForPerson: true, projectPaused: true, builtAt: BUILT },
+  { onHold: true, onHoldUntil: { at: '2000-01-01 09:00' }, holdUntilMet: true, onHoldByPerson: true, onHoldForPerson: true },
+  { builtAt: BUILT },
+  { builtAt: BUILT, builtWaitingOn: 'person', projectPaused: true, seenByPerson: '2026-11-21T10:00:00.000Z' },
+  { builtAt: BUILT, builtWaitingOn: 'review', seenByPerson: null },
+  { builtAt: BUILT, builtWaitingOn: 'release', builtByPerson: true, seenByPerson: null },
+  { builtAt: BUILT, builtForCaller: false, projectPaused: true },
+  { builtAt: BUILT, builtFingerprint: FP, builtFingerprintBy: 'otto', builtFiles: [{ fingerprint: FP }, { fingerprint: FP }], builtFilesAt: BUILT },
+  { projectPaused: true },
+  { parent: 2, subtasks: { done: 3, total: 5, built: 1, unrun: 1, held: 1 } },
+  { repeatWords: 'every Monday', repeatNextWords: 'Monday 30 November' },
+  { repeatNextWords: 'Monday 30 November' },
+  { wakeWords: 'waits for #3 to merge' },
+  { wakeMetWords: 'the branch moved' },
+  { wakeMetWords: 'the branch moved', wakeToldAt: BUILT },
+  { doneWhen: ['tests pass', 'the page loads'], doneWhenByPerson: true, doneWhenResults: [{ met: true, how: 'ran' }, { met: false, how: 'saw' }] },
+  { doneWhen: ['tests pass'], doneWhenBy: 'mara' },
+  { whoNames: ['otto', 'mara'], whoIsLeft: { left: ['otto'], finished: ['mara'] } },
+  { lastActivityAt: '2026-11-20T10:00:00.000Z', leftUnder: 5 },
+  { lastActivityAt: null },
+  // Every row has a last activity (unless it says otherwise), so the --all and --mine rows print what each waits on.
+].map((f, i) => ({ number: i + 1, sentence: T, projectId: 'p', lastActivityAt: '2026-11-26T10:00:00.000Z', ...f }));
+
+/* ---- the printers ---- */
+const NOW = Date.parse('2026-11-27T12:00:00.000Z');
+function compactRows(state) {
+  return tasklist.compactLines({ tasks: FIXTURES, count: FIXTURES.length, listState: tasklist.COMPACT[state] }, state, 'p').lines;
+}
+function acrossRows(flag, opts) {
+  const group = flag === 'stale' ? 'open' : tasklist.COMPACT[flag];
+  const body = { tasks: FIXTURES, listState: group, all: !opts.project, mine: opts.mine === true, quietDays: opts.days };
+  return tasklist.acrossLines(body, flag, { now: NOW, ...opts }).lines;
+}
+async function windowsRows() {
+  const out = [];
+  const ctx = {
+    call: async () => ({ reached: true, json: { tasks: FIXTURES, count: FIXTURES.length } }),
+    refusedBy: () => null, unreachable: () => 1, out: (s) => out.push(s), err: (s) => out.push(s),
+  };
+  assert.equal(await cli.taskList(ctx, ['p']), 0, out.join('\n'));
+  return out;
+}
+/* install/kosmos's long list is one inline node program (its only `KOSMOS_MARKWORDS=` line); it uses no single quote
+   (it writes \x27), so the shell's '...' around it holds it whole. */
+const KOSMOS_SRC = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
+function macProgram() {
+  const m = KOSMOS_SRC.match(/KOSMOS_MARKWORDS="\$\(kosmos_engine_module markwords\)\.js" "\$NODE" -e '([^']*)'/);
+  assert.ok(m, 'install/kosmos long task list program not found: the test can no longer reach that printer');
+  assert.match(m[1], /console\.log\("\["\+/, 'the program found is not the long task list');
+  return m[1];
+}
+function macRows() {
+  const out = execFileSync(process.execPath, ['-e', macProgram()], {
+    input: JSON.stringify({ tasks: FIXTURES }),
+    env: { ...process.env, KOSMOS_MARKWORDS: path.join(__dirname, 'engine', 'markwords.js') },
+    encoding: 'utf8',
+  });
+  return out.split('\n');
+}
+
+/* ---- the groups ---- */
+// The top-level bracket and parenthesis groups of a text, as written.
+function groupsOf(text) {
+  const groups = []; let depth = 0; let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '[' || c === '(') { if (depth === 0) start = i; depth++; }
+    else if ((c === ']' || c === ')') && depth > 0) { depth--; if (depth === 0) groups.push(text.slice(start, i + 1)); }
+  }
+  return groups;
+}
+// The groups a row prints around its title, with the two allowed through (the row label, the owner's bare names).
+function markGroups(row, x) {
+  const at = row.indexOf(T);
+  assert.ok(at >= 0, 'no title in row: ' + row);
+  const before = row.slice(0, at); const after = row.slice(at + T.length);
+  const owner = x.whoNames && x.whoNames.length ? '(' + x.whoNames.join(', ') + ')' : null;
+  return groupsOf(before).filter((g, i) => !(i === 0 && /^\[(\d+|\?)\]$/.test(g) && before.startsWith(g)))
+    .concat(groupsOf(after).filter((g) => g !== owner));
+}
+
+async function everyRow() {
+  const runs = [
+    ...['open', 'blocked', 'built'].map((s) => ['compact --' + s, compactRows(s)]),
+    ...['open', 'blocked', 'built'].map((s) => ['across --all --' + s, acrossRows(s, { project: '' })]),
+    ...['open', 'blocked', 'built'].map((s) => ['across --mine --' + s, acrossRows(s, { project: 'p', mine: true })]),
+    ['across --stale', acrossRows('stale', { project: '', days: 3 })],
+    ['Windows long list', await windowsRows()],
+    ['Mac long list', macRows()],
+  ];
+  const rows = [];
+  for (const [label, lines] of runs) {
+    const titled = lines.filter((l) => l.includes(T));
+    assert.equal(titled.length, FIXTURES.length, label + ': expected one titled row per fixture:\n' + lines.join('\n'));
+    titled.forEach((row, i) => rows.push({ label, row, x: FIXTURES[i] }));
+  }
+  return rows;
+}
+
+test('#9203 every mark the printers print, set in a title, is caught by usesListMarkWord', async () => {
+  const rows = await everyRow();
+  const missed = [];
+  let checked = 0;
+  for (const { label, row, x } of rows) {
+    for (const g of markGroups(row, x)) {
+      checked++;
+      if (!markwords.usesListMarkWord('fix ' + g + ' now')) missed.push(label + ': ' + g + '    (row: ' + row + ')');
+    }
+  }
+  assert.deepEqual(missed, [], 'marks a title could print unquoted:\n' + missed.join('\n'));
+  // The marks reached are real ones: these must all have been printed and checked somewhere.
+  const seen = rows.map((r) => r.row).join('\n');
+  for (const m of ['[done]', '[not run]', '[replaced by 9]', '[on hold]', '[project paused]', '[built, waiting on the person]',
+    '[added by mara]', 'subtasks done', '[repeats every Monday', '[woke: the branch moved]', '(under task 2)', '(owner: mara',
+    '(through #3)', 'outside text from webhook', 'still to finish', 'last activity', 'quiet ', 'left under closed task #5',
+    'seen by the person since built', 'marked built by the person', 'only the person can lift it']) {
+    assert.ok(seen.includes(m), 'no printer printed "' + m + '": a fixture stopped reaching its mark');
+  }
+  assert.ok(checked > 200, 'only ' + checked + ' groups checked');
+});
+
+test('#9203 the groups test can fail: an unknown mark, and the owner name outside its allowance, are reported', () => {
+  const x = { whoNames: ['otto'] };
+  assert.deepEqual(markGroups('[3] ' + T + ' (otto) [zebra crossing]', x), ['[zebra crossing]']);
+  assert.equal(markwords.usesListMarkWord('fix [zebra crossing] now'), false);
+  assert.deepEqual(markGroups('[3] ' + T + ' (mara)', x), ['(mara)'], 'a name that is not the owner is not allowed through');
+  assert.deepEqual(markGroups('[3] [4] ' + T, {}), ['[4]'], 'only the row\'s own first label is allowed through');
+});
+
+/* ---- the fields ---- */
+// x.<field> reads in a piece of source: not part of a longer name (so ctx.x.y or max.z do not count).
+function fieldsRead(src) {
+  return new Set([...src.matchAll(/(?<![\w$.])x\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));
+}
+function between(src, from, to) {
+  const a = src.indexOf(from); const b = src.indexOf(to, a + 1);
+  assert.ok(a >= 0 && b > a, 'source moved: ' + from + ' .. ' + to);
+  return src.slice(a, b);
+}
+test('#9203 the fixtures set every field the list printers read', () => {
+  const tl = fs.readFileSync(path.join(__dirname, 'engine', 'tasklist.js'), 'utf8');
+  const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  const sources = {
+    // compactLines and acrossLines and every helper they call sit before whenWords (task show's helpers follow it).
+    'engine/tasklist.js (compact and across)': between(tl, 'function whoLeftWords', 'function whenWords'),
+    'tools/windows/kosmos-cli.js taskList': between(win, 'async function taskList(', 'async function taskAdd(')
+      + between(win, 'function builtTag(', 'function holdUntilWords(') + between(win, 'function holdUntilWords(', '\n}\n'),
+    'install/kosmos long list': macProgram(),
+  };
+  const set = new Set(FIXTURES.flatMap((f) => Object.keys(f)));
+  const unset = [];
+  for (const [where, src] of Object.entries(sources)) {
+    const read = fieldsRead(src);
+    assert.ok(read.size > 15, where + ': only ' + read.size + ' fields found, so the source cut is wrong');
+    for (const f of read) if (!set.has(f)) unset.push(where + ': x.' + f);
+  }
+  assert.deepEqual(unset, [], 'a printer reads a field no fixture sets, so its mark is never rendered here:\n' + unset.join('\n'));
+});
