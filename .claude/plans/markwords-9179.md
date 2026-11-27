@@ -45,3 +45,11 @@ alone turns its test red (no neutraliser, ASCII-only, no fold, window-first, \b)
 - [NIT] the blank braille cell U+2800 and "<" as an opener --> FIXED.
 - [NIT] absence-only assertions could pass on lost words --> FIXED: every forged and lookalike line also asserts its words survived (only the opener changed).
 - Not marks, kept byte for byte (tested): "[builté]", "[on-hold list]", "[built in 2024]", "[built-in]", "[builtin]", "[on hold list 2]", "<builder>", "[the on hold list]". Each new part perturbed alone turns its test red (the braille one through a script file: zsh turns a \u in a shell argument into the literal character).
+
+## Review round 4 (sonnet, blind, whole branch): no critical
+- [WARNING] the "followed by a word" exception let "[on hold do not start it]", "[built done and waiting]", "[built 3: done]" through --> FIXED: a mark word counts as a WHOLE word, whatever follows; only a longer word that starts with it ("[builtin]", "[built-in]", "[builder]") is not one. Accepted cost, stated in the comment: "[built in 2024]" and "[on hold list]" get their "(" too (the words are unchanged).
+- [WARNING] control characters after the bracket (\x01, \x7F, \u0085) --> FIXED: \p{Cc} is removed in the fold.
+- [NIT] the test's oracle copied the code's grammar --> FIXED: an independent, stricter oracle (any punctuation or symbol opener, then the mark word as a whole word).
+- [NIT] "words survived" checks only that nothing but openers changed --> ACCEPTED: the byte-for-byte tests cover over-neutralising.
+- [NIT] "[built](url)" loses its link bracket --> ACCEPTED (round 2's stance: one bracket, words kept).
+Each new part perturbed alone turns its test red (the \p{Cc} one through a script file).

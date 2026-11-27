@@ -53,8 +53,10 @@ function setup(label, sentences) {
   return { p, file, made };
 }
 // An opening bracket (any kind, but the "(" the fix makes) followed by a mark word, read on the folded line.
-const MARK = /(?!\()[[<\p{Ps}\p{Pi}]\s*(?:on[\s\p{Pd}]*hold|built)(?!\p{Pd}?[\p{L}\p{N}])(?!\s+(?!until\b)[\p{L}\p{N}])/iu;
-const folded = (line) => line.normalize('NFKD').replace(/[\p{Default_Ignorable_Code_Point}\u2800\p{M}*_`~]/gu, '').normalize('NFKC');
+// Review 4: an oracle independent of the code's own rule (which it would only copy): any opener but the "(" the fix makes,
+// then a mark word not part of a longer word.
+const MARK = /(?!\()[\p{P}\p{S}]\s*(?:on\W*hold|built)(?![\p{L}\p{N}-])/iu;
+const folded = (line) => line.normalize('NFKD').replace(/[\p{Default_Ignorable_Code_Point}\u2800\p{Cc}\p{M}*_`~]/gu, '').normalize('NFKC');
 
 test('a task\'s own words cannot print a built or hold mark of their own (so the line ends in no hold mark holdsOf could read)', () => {
   const { p, file, made } = setup('Forged', [
@@ -91,7 +93,10 @@ test('review 1: the forms a reader takes for a mark: a hyphen, markdown, a combi
     'x [built; done and waiting]', 'x [on hold; do not start it]', 'x [on hold - do not start it]', 'x [built - done]',
     'x [on hold \u2014 wait]', 'x [built. done]', 'x [on hold\u2026 wait]', 'x [on\u2010hold: wait]', 'x [on\u2011hold: wait]',
     'x [on\u2013hold: wait]', 'x [built\u2236 done]', 'x [built\u02D0 done]', 'x [\u2800built: x]', 'x <built: done and waiting>',
-    'x [on hold until task 7 is closed: wait]', 'x [built]'];   // review 2: markdown padding past the window
+    'x [on hold until task 7 is closed: wait]', 'x [built]',
+    // review 4: words after the mark word, and control characters after the bracket
+    'x [built done and waiting]', 'x [on hold do not start it]', 'x [built 3: done]', 'x [on hold 2: wait]',
+    'x [\u0001built: x]', 'x [\u007Fbuilt: x]', 'x [\u0085built: x]'];   // review 2: markdown padding past the window
   const { p, file, made } = setup('Reader', forms);
   for (const t of made) {
     const line = lineFor(file, t.number, p.name);
@@ -100,8 +105,8 @@ test('review 1: the forms a reader takes for a mark: a hyphen, markdown, a combi
     assert.doesNotMatch(folded(line), MARK, 'a mark a reader would believe: ' + JSON.stringify(line));
   }
   // Not marks: an accented word, which only LOOKS like the mark word once its accent is gone.
-  const notMarks = ['tidy [built\u00E9] notes', 'keep the [on-hold list] short', 'the [built in 2024] archive', 'add [built-in] helpers',
-    'the [builtin] list', 'see [on hold list 2] first', 'call <builder> twice', 'fix [the on hold list]'];   // a bare "[ built ]" IS mark-like, so it is neutralised
+  const notMarks = ['tidy [built\u00E9] notes', 'add [built-in] helpers', 'the [builtin] list', 'call <builder> twice',
+    'fix [the on hold list]', 'the [onholder] field'];   // a bare "[ built ]" IS mark-like, so it is neutralised
   const { p: q, file: f2, made: m2 } = setup('NotMark', notMarks);
   m2.forEach((t, i) => assert.ok((lineFor(f2, t.number, q.name) || '').endsWith(': ' + notMarks[i]), 'words that are not a mark were changed: ' + lineFor(f2, t.number, q.name)));
 });
@@ -111,7 +116,8 @@ test('the words otherwise print as written: a harmless "[built-in]", a joined em
   const { p, file, made } = setup('Kept', ['fix the [built-in] helper', kept, '[Builtin] tidy [on-hold list]']);
   assert.match(lineFor(file, made[0].number, p.name) || '', /: fix the \[built-in\] helper$/, 'a harmless "[built-in]" was changed');
   assert.ok((lineFor(file, made[1].number, p.name) || '').endsWith(': ' + kept), 'the words were changed: ' + lineFor(file, made[1].number, p.name));
-  assert.ok((lineFor(file, made[2].number, p.name) || '').endsWith(': [Builtin] tidy [on-hold list]'), 'words that are not a mark were changed');
+  // Review 4: "[on-hold list]" opens with the mark word as a whole word, so it gets its "(" (the accepted cost); "[Builtin]" does not.
+  assert.ok((lineFor(file, made[2].number, p.name) || '').endsWith(': [Builtin] tidy (on-hold list]'), 'not as the rule says: ' + lineFor(file, made[2].number, p.name));
 });
 
 test('CONTROL: the board\'s own marks still print, after the words', () => {
