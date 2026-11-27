@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.25",
+  "lastProd": "0.8.26",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2966,7 +2966,8 @@
       ],
       "rank": 10,
       "since": "0.8.25",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.26"
     },
     {
       "title": "The agent list stops redrawing itself",
@@ -2974,7 +2975,8 @@
       "icon": "list",
       "rank": 10.5,
       "since": "0.8.25",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.26"
     },
     {
       "title": "Words you were typing are kept",
@@ -2983,7 +2985,15 @@
       "rank": 10.6,
       "since": "0.8.26",
       "status": "pending"
+    },
+    {
+      "title": "A repeating task lists its runs and misses",
+      "line": "A repeating task now shows its recent runs, one row per scheduled time: on time, late, or missed, and if its reviewer was told of a miss.",
+      "icon": "tasks",
+      "rank": 10.7,
+      "since": "0.8.26",
+      "status": "pending"
     }
   ],
-  "lastProdWin": "0.8.25"
+  "lastProdWin": "0.8.26"
 }

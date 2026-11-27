@@ -1,18 +1,15 @@
 {
-  "version": "0.8.26",
+  "version": "0.8.27",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "A refused download offers a restart",
-      "line": "When Kosmos was updated while its window stayed open and macOS refuses a download, Kosmos offers to restart onto the new version.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "chat",
+      "title": "Words you were typing are kept",
+      "line": "Words you start typing to an agent or in a project come back if the Kosmos page reloads, instead of being lost."
     },
     {
-      "icon": "list",
-      "title": "The agent list stops redrawing itself",
-      "line": "The agent list and grid now update only the rows that changed, instead of redrawing every row when one changes."
+      "icon": "tasks",
+      "title": "A repeating task lists its runs and misses",
+      "line": "A repeating task now shows its recent runs, one row per scheduled time: on time, late, or missed, and if its reviewer was told of a miss."
     }
   ]
 }
