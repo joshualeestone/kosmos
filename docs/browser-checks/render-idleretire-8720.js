@@ -29,7 +29,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const CHOICES = [14, 30, 60, 90];
 const ON = { setting: { on: true, days: 60, ok: true }, choices: CHOICES, recent: [
   { name: 's-old', shownAs: 'Olga', at: '2026-11-20T09:00:00.000Z', days: 75, outcome: 'removed', because: 'it has not run in 75 days' },
-  { name: 's-ref', shownAs: 'Ref', at: '2026-11-20T09:00:00.000Z', days: 80, outcome: 'refused', because: 'it is held' }],
+  { name: 's-ref', shownAs: 'Ref', at: '2026-11-20T09:00:00.000Z', days: 80, outcome: 'refused', because: 'it is held' },
+  { name: 's-par', shownAs: 'Pat', at: '2026-11-20T09:00:00.000Z', days: 80, outcome: 'partial', because: 'the session did not stop' }],
   verdicts: [
     { name: 's-a', shownAs: '<b>Ada</b>', verdict: 'retire', days: 70, why: 'it has not run in 70 days' },
     { name: 's-p', shownAs: 'Pia', verdict: 'keep', days: 65, why: 'it is on the project Atlas' },
@@ -127,7 +128,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(JSON.stringify(r.on.retire) === JSON.stringify(['<b>Ada</b>: it has not run in 70 days']) && !r.on.markup, tag + ' would-retire names the agent as shown, with why, markup as text', JSON.stringify(r.on.retire));
       say(JSON.stringify(r.on.keep) === JSON.stringify(['Pia: it is on the project Atlas']), tag + ' kept lists only the idle-and-protected agent (Rex, who ran 2 days ago, is not in it)', JSON.stringify(r.on.keep));
       say(JSON.stringify(r.on.unknown) === JSON.stringify(['Uma']), tag + ' cannot-tell lists the agent with no record', JSON.stringify(r.on.unknown));
-      say(r.on.recent.length === 2 && /^Olga, 2026-11-20: retired, /.test(r.on.recent[0]) && /^Ref, 2026-11-20: not retired, it is held$/.test(r.on.recent[1]), tag + ' recently retired says retired or not, with the day and why', JSON.stringify(r.on.recent));
+      say(r.on.recent.length === 3 && /^Olga, 2026-11-20: retired, /.test(r.on.recent[0]) && /^Ref, 2026-11-20: not retired, it is held$/.test(r.on.recent[1])
+        && /^Pat, 2026-11-20: partly removed, the session did not stop$/.test(r.on.recent[2]), tag + ' recently retired says retired or not, with the day and why', JSON.stringify(r.on.recent));
       say(JSON.stringify(r.afterClick.puts) === JSON.stringify([{ on: false }]) && r.afterClick.checked === 'false' && /if you turn this on/.test(r.afterClick.retireHead), tag + ' pressing the switch sends { on: false } once and draws off', JSON.stringify(r.afterClick.puts));
       say(r.savedNoList.checked === null && r.savedNoList.togHidden && /could not read/.test(r.savedNoList.msg), tag + ' a save with no agent list re-reads, and a failed read hides the switch and says so', JSON.stringify(r.savedNoList));
       say(JSON.stringify(r.afterDays.puts) === JSON.stringify([{ days: 90 }]) && r.afterDays.days === '90', tag + ' picking 90 days sends { days: 90 } once', JSON.stringify(r.afterDays.puts));

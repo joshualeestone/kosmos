@@ -40,3 +40,16 @@ Design decided on the card (comment 7225269552).
 - makeTick: off does nothing; on retires once a day (a second tick the same day does nothing); a REFUSED or PARTIAL
   remove is recorded as such, not as retired; inert when not allowed.
 - setting: off by default, corrupt file reads off, days outside the set refused.
+
+## Decided during review (2026-11-27)
+- **PUT /api/idle-retire keeps the advisory isViaScreen gate, accepted knowingly.** Two blind reviewers flagged that a
+  local process forging a browser header can arm it. Kept because: it is the gate on every Settings switch, and a
+  no-token caller with the same header can already DELETE /api/agent/<name> directly, so this opens no path that does
+  not exist; an agent's own token is refused; the switch is off by default and every retirement is reversible
+  (Restore). What would change it: a person-only proof landing for the Remove route itself, then use it here too.
+- **Idle counts running days**, not calendar days (review 1): the board writes liveness on a report, so a closed board
+  cannot beat. A board that has just upgraded has no running days yet, so nobody is retired for N days after the
+  upgrade. Accepted as the safe direction.
+- **The guide is marked with isSetupGuide** (review 2): safeRoster rows carry no isGuide; markGuide marks only
+  /api/status's copies. Covered by a route test through a real roster row, perturbed red.
+- **At most 3 removals per hourly tick**, each name tried once a day (review 1): remove() is synchronous.

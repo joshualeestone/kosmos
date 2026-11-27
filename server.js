@@ -5411,6 +5411,14 @@ function isSetupGuide(name) {
   } catch { return false; }
 }
 
+/* #8720: the agent rows the idle-retire sweep and its Settings view judge. safeRoster's rows do not carry `isGuide`
+   (markGuide marks only /api/status's copies), so the guide is marked here by the same test the secrets mask uses. */
+function idleRetireRows() {
+  const rows = safeRoster();
+  if (!Array.isArray(rows)) return null;
+  return rows.map((a) => (a && typeof a === 'object' ? { ...a, isGuide: isSetupGuide(a.sessionName) } : a));
+}
+
 /* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
    for the thread route (the board's buttons) and the phone's notification (its Allow and Deny), never two. `options` is
    chat.optionsIn(question.text); `view` the fresh capture the question was read from. */
@@ -14941,7 +14949,7 @@ const server = http.createServer(async (req, res) => {
      that reads as "nobody would be retired". PUT {on} or {days}, screen-only as the Recommender's. */
   if (pathname === '/api/idle-retire' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
-      const rows = safeRoster();
+      const rows = idleRetireRows();
       if (!Array.isArray(rows)) { sendJson(res, 500, { error: 'the agent list could not be read' }); return; }
       sendJson(res, 200, require('./engine/idleretire').view(rows));
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
@@ -14958,7 +14966,7 @@ const server = http.createServer(async (req, res) => {
         const idleretire = require('./engine/idleretire');
         const saved = idleretire.writeSetting({ on: body.on, days: body.days });
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        const rows = safeRoster();
+        const rows = idleRetireRows();
         // Saved either way; without the agent list the screen re-reads, and that read says what failed.
         sendJson(res, 200, Array.isArray(rows) ? idleretire.view(rows) : { setting: idleretire.readSetting(), choices: idleretire.DAY_CHOICES, verdicts: null, recent: null });
       })
@@ -31124,7 +31132,7 @@ function start(port = PORT) {
          AGENT_WORKFORCE_IDLE_RETIRE_OFF=1, own hourly timer, unref'd, best-effort. */
       const idleretireTick = require('./engine/idleretire').makeTick({
         allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1',
-        roster: () => safeRoster(),
+        roster: () => idleRetireRows(),
         remove: (name) => removal.remove(name),
         log: (line) => process.stdout.write(line + '\n'),
       });
