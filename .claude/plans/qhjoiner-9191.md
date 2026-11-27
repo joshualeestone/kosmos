@@ -15,8 +15,9 @@ whose arguments file is in its own $S.
 - `kill_waiters`: KILLs this run's waiters, called in the EXIT trap before $S is removed and in the watchdog's KILL
   stage, before the sleep sweep (so a waiter cannot start a sleep after it). The watchdog's KILL stage now kills, in
   order, the file's children (one by one, leaving itself out), this run's waiters, this run's sleeps (last, so nothing
-  still alive can start one after the sweep), then the file. It leaves itself out (its own pid from `perl -e 'print getppid'`, bash 3.2 having no
-  BASHPID), so its last `kill -KILL` of the file still runs; the old `pkill -P` matched the watchdog itself where pkill
+  still alive can start one after the sweep), then the file. It leaves itself out (its own pid from `exec sh -c 'echo $PPID'`, bash 3.2 having no
+  BASHPID; perl was used in round 6, swapped in round 8 so a missing perl cannot leave it empty and make the watchdog
+  kill itself), so its last `kill -KILL` of the file still runs; the old `pkill -P` matched the watchdog itself where pkill
   does not leave out its caller's parent (procps, Linux). Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
   whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters. Both are KILLed only when the command line has
   a waiter's shape (a bash running a script with --queued-args; for a listed pid also its forms before the re-exec,
@@ -60,7 +61,8 @@ whose arguments file is in its own $S.
   foreground sleep the TERM cannot interrupt, a waiter stand-in in $S): the stand-in is gone and the file ends. Round 6
   code: KILLed (137). Round 7 code (children first): the foreground sleep is one of those children, so the file's TERM
   trap then runs (124) before the KILL is needed. macOS only; the Linux pkill case is reasoned.
-- Whole file after round 6: 178/178.
+- Whole file after rounds 6 and 7: 178/178 each. Watchdog harness re-run on round 8's sh-based pid: stand-in gone,
+  file ended (124).
 - Whole file after round 1: 177/177.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
   `.../queued-heavy.sh --queued-args` command line, so other agents' lib-move scans could see it and say "another
@@ -69,6 +71,9 @@ whose arguments file is in its own $S.
 ## Decisions
 - Find the joiner by parentage, not by a unique path (the card's other option): the arm already holds its background
   pid, and a per-run copy of queued-heavy.sh would change what the arms test.
+- Residual, kept: a listed pid is KILLed in the forms this tree's wrapper takes. If, inside the stale-TMPDIR arm's 60 s,
+  that pid died and was reused by another real run of THIS worktree's queued-heavy.sh, it would be KILLed. That needs a
+  pid reuse within the window and the same tree's wrapper; any tighter shape would still match such a run.
 - Weakest premise: that the stale-TMPDIR arm is the only one whose arguments file leaves $S. Checked: of the three arms
   that set their own TMPDIR, the other two (the stdin and noexec arms) set it to an existing dir under $S. A later arm
   that points TMPDIR outside $S would need to record its pid the same way.
