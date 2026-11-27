@@ -36,7 +36,8 @@ whose arguments file is in its own $S.
   reused-pid guard removed, the REAL_QH branch removed, or the perl branch removed, the arm reads BAD); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
   with a CONTROL that `pgrep -o` picks the older; and a source check that the three #5923 arms call joiner_under and that
   no `pgrep -o -f "^/bin/bash $REAL_QH` pick is left (on origin/main's file the same greps read 0 and 3, so it would be
-  BAD there). It reads the file by an absolute path ($SELF): $0 is relative when the file is run the way package.json
+  BAD there). Since round 9 it checks each arm passes its OWN background pid (glw/GLR, ilw/ILR, wp/LIVE; CONTROL: a
+  copy with GLR swapped for ILR in the gitlive arm reads 2, not 3). It reads the file by an absolute path ($SELF): $0 is relative when the file is run the way package.json
   and CI run it, and the file cds away, so a "$0" version read nothing and was BAD in place (measured at round 4:
   177 OK, 1 BAD; round 5's reviewer found it). Stand-ins are named after a fake script, so no real queue scan on the Mac matches them.
 - `own_waiter` / `unown_waiter`: an arm lists its waiter only while it runs and takes off only its own line when its
@@ -61,7 +62,7 @@ whose arguments file is in its own $S.
   foreground sleep the TERM cannot interrupt, a waiter stand-in in $S): the stand-in is gone and the file ends. Round 6
   code: KILLed (137). Round 7 code (children first): the foreground sleep is one of those children, so the file's TERM
   trap then runs (124) before the KILL is needed. macOS only; the Linux pkill case is reasoned.
-- Whole file after rounds 6 and 7: 178/178 each. Watchdog harness re-run on round 8's sh-based pid: stand-in gone,
+- Whole file after rounds 6, 7 and 8: 178/178 each. Watchdog harness re-run on round 8's sh-based pid: stand-in gone,
   file ended (124).
 - Whole file after round 1: 177/177.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
@@ -71,9 +72,10 @@ whose arguments file is in its own $S.
 ## Decisions
 - Find the joiner by parentage, not by a unique path (the card's other option): the arm already holds its background
   pid, and a per-run copy of queued-heavy.sh would change what the arms test.
-- Residual, kept: a listed pid is KILLed in the forms this tree's wrapper takes. If, inside the stale-TMPDIR arm's 60 s,
-  that pid died and was reused by another real run of THIS worktree's queued-heavy.sh, it would be KILLed. That needs a
-  pid reuse within the window and the same tree's wrapper; any tighter shape would still match such a run.
+- Residual, kept: a listed pid is KILLed in the forms this tree's wrapper takes. While the stale-TMPDIR arm's pid is
+  listed, it is this shell's own child and the shell is blocked in `wait` on it, so it cannot be reused until that wait
+  reaps it; the next statement unlists it. The only gap is those few instructions, and a run of THIS worktree's
+  queued-heavy.sh would have to take that exact pid in them.
 - Weakest premise: that the stale-TMPDIR arm is the only one whose arguments file leaves $S. Checked: of the three arms
   that set their own TMPDIR, the other two (the stdin and noexec arms) set it to an existing dir under $S. A later arm
   that points TMPDIR outside $S would need to record its pid the same way.

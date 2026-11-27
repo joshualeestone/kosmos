@@ -34,8 +34,8 @@ ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
 # and one an arm lists in $S/own-waiters while it runs, because its arguments file is outside $S (the stale-TMPDIR arm,
 # whose wrapper falls back to /tmp). Each kind is KILLed only when its command line has a waiter's shape: a bash running
 # a script with --queued-args, or for a listed pid also the forms it has before its re-exec (perl about to run this
-# tree's wrapper, or that wrapper with its first arguments), since a pid is listed only while its own arm runs. The list is a file so the
-# watchdog, forked before any arm, reads it as it is now.
+# tree's wrapper, or that wrapper with its first arguments), since a pid is listed only while its own arm runs.
+# The list is a file so the watchdog, forked before any arm, reads it as it is now.
 kill_waiters() { local p
   for p in $(LC_ALL=C pgrep -f -- "--queued-args $S/" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash "*" --queued-args $S/"*) kill -KILL "$p" 2>/dev/null;; esac; done
   for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"perl -e alarm"*" /bin/bash $REAL_QH "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
@@ -61,7 +61,8 @@ trap 'exit 124' TERM
   kill -TERM "$me" 2>/dev/null; sleep 15; alive || exit 0
   # kosmos#9191: the file's children first, one by one, leaving out this watchdog (also its child), so the KILL of the
   # file below still runs (a `pkill -P` matches the watchdog itself where pkill does not leave out its caller's parent);
-  # then this run's waiters; then its sleeps, last, so nothing still alive can start one after the sweep.
+  # then this run's waiters; then its sleeps, last (the file itself is still alive then, but its children are gone, and
+  # the TERM sent above makes it exit as soon as its foreground command does), then the file.
   for p in $(pgrep -P "$me" 2>/dev/null); do [ "$p" = "$wd" ] || kill -KILL "$p" 2>/dev/null; done
   kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
   kill -KILL "$me" 2>/dev/null ) & WD=$!
@@ -596,7 +597,7 @@ ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "$
 # the $QH shim: the shim execs its own alarm($QH_DEADLINE), and an alarm set after exec REPLACES the pending one, so
 # through the shim the 60 s became 240 s (measured). A child the wrapper leaves behind after a trip is not reaped here,
 # and may still write to the file after it is read; the arm has already failed by then.
-mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir exec perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ) & ST5467=$!; own_waiter $ST5467; wait $ST5467; stale5467_rc=$?; unown_waiter $ST5467   # kosmos#9191: listed while it runs (its arguments file is in /tmp; the pid is the waiter's through both execs). As a background job its stdin is now /dev/null; its command is `true`, so nothing reads it. Its own marker dir: the fake holder above holds $S/m
+mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir exec perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ) & ST5467=$!; own_waiter $ST5467; wait $ST5467; stale5467_rc=$?; unown_waiter $ST5467   # kosmos#9191: listed while it runs (its arguments file is in /tmp; the pid is the waiter's through both execs). As a background job its stdin is now /dev/null and it starts with INT and QUIT ignored; its command is `true`, nothing reads stdin, the wrapper's own terminal check falls back to /dev/tty, and this arm sends no INT, so its outcome is unchanged. Its own marker dir: the fake holder above holds $S/m
 o=$(cat $S/stale5467.out); [ "$stale5467_rc" -eq 142 ] && o="$o
 TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"; [ "$stale5467_rc" -ne 0 ] && o="$o
 (the stale-TMPDIR run exited $stale5467_rc)"
@@ -894,7 +895,8 @@ kill -KILL $JD9191 $jw9191 2>/dev/null; wait $JD9191 $JP9191 2>/dev/null
 # kosmos#9191: the three #5923 lock-loop arms find their joiner with joiner_under, and no pick of "the oldest process
 # running this path" is left. A source check: running those arms with a stray beside them would need a real-path
 # stand-in, which other agents' queue scans on this Mac would see.
-cs9191=$(grep -cE '^until_true 30 .[a-z]+5923="[$][(]joiner_under [$][A-Z]+5923[)]"' "$SELF")
+cs9191=0; for pr in glw:GLR ilw:ILR wp:LIVE; do   # each arm passes its OWN background pid
+  grep -qE "^until_true 30 .${pr%%:*}5923=\"[\$][(]joiner_under [\$]${pr##*:}5923[)]\"" "$SELF" && cs9191=$((cs9191+1)); done
 po9191=$(grep -c 'pgrep -o -f "^/bin/bash [$]REAL_QH' "$SELF")
 ok "#9191: the three #5923 lock-loop arms call joiner_under, and none picks the oldest process of the path" '[ -r "$SELF" ] && [ "$cs9191" = 3 ] && [ "$po9191" = 0 ]'
 
