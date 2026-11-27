@@ -2816,7 +2816,7 @@ function holdsOpenPart(t, who) {
 /* kosmos#9177: is a task built FOR this agent? One agent's mark covers that agent only (builtWho); the person's mark
    (builtFreesAll) covers every agent on it. `who` is a name, matched exactly, or a function given each marked name.
    The Assigner (hasOpenWork, busyHold, agentnudge) reads exactly this. An agent's own list reads builtForReader below,
-   which adds two cases on top: no open part of its own, and an old mark with no builtWho list. */
+   which adds one case the Assigner also counts as not busy: no open part of its own. */
 function builtFor(t, who) {
   if (!t || !t.builtAt) return false;
   if (t.builtFreesAll === true) return true;
@@ -2824,12 +2824,11 @@ function builtFor(t, who) {
   return Array.isArray(t.builtWho) && t.builtWho.some((n) => typeof n === 'string' && match(n));
 }
 /* kosmos#9177: on one agent's own list, does a task's mark (it has one: a non-empty builtAt string, the test the rest of
-   the list uses, #8577) cover that agent? Yes when builtFor says so, when the agent holds no open part (every part of
-   its own closed: hasOpenWork's reading), or when the mark has no builtWho list (made before marks named who made them,
-   so it cannot say whose it is). false for a task with no mark. */
+   the list uses, #8577) cover that agent? Yes when builtFor says so, or when the agent holds no open part (every part
+   of its own closed: hasOpenWork's reading). false for a task with no mark. */
 function builtForReader(t, who) {
   if (!t || typeof t.builtAt !== 'string' || !t.builtAt) return false;
-  return !Array.isArray(t.builtWho) || builtFor(t, who) || !holdsOpenPart(t, who);
+  return builtFor(t, who) || !holdsOpenPart(t, who);
 }
 /* `who` (kosmos#9177): reading for one agent, a marked task is built only when builtForReader says so; otherwise
    another holder's mark leaves it in its other group (open, or held when its project is paused). Without `who`, any

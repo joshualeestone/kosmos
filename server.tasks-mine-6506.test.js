@@ -73,7 +73,7 @@ function withProjects(t) {
     { id: 'projA', name: 'projA', agents: ['reader-agent', 'other-agent'], tasks: [
       { number: 1, sentence: 'reader open A', who: 'reader-agent' },
       { number: 2, sentence: 'other open A', who: 'other-agent' },
-      { number: 3, sentence: 'reader built A', who: 'reader-agent', builtAt: '2026-10-18T00:00:00.000Z' },
+      { number: 3, sentence: 'reader built A', who: 'reader-agent', builtAt: '2026-10-18T00:00:00.000Z', builtWho: ['reader-agent'] },   // kosmos#9177: a mark names its marker
     ] },
     { id: 'projB', name: 'projB', agents: ['reader-agent'], tasks: [
       { number: 1, sentence: 'reader open B', who: 'reader-agent' },
