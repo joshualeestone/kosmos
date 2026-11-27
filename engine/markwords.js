@@ -61,7 +61,7 @@ const GAP = '[^\\p{L}\\p{N}]{0,6}';
    "(held by the person)", "(only the person can lift it)", "(its hold's condition is met)". ("(... since built)" and
    "(marked built ...)" are caught by "built".) Review 2 narrowed three to the printers' exact words ("subtasks done",
    "woke:", "left under closed"), so "fix subtasks rendering" or "woke up bug" stay plain. An owner's bare
-   name in parentheses, "(otto)", has no fixed word to test: kosmos#9201 tests the title's last character instead (below). */
+   name in parentheses, "(otto)", has no fixed word to test: kosmos#9201 tests the title's END instead (below). */
 const phrase = (...words) => words.join(GAP);
 const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('project', 'paused'), phrase('project', 'is', 'paused'),
   phrase('added', 'by'), phrase('subtasks', 'done'), 'repeats', 'waits', 'woke\\s*:', phrase('checks', 'reported'), phrase('outside', 'text'),
@@ -90,7 +90,10 @@ const FIRST_DONE = /^[^\p{L}\p{N}]*(?:[[(#]\s*\d+\s*[\])]?[^\p{L}\p{N}]*)?done(?
    U+FD3F reads as a right parenthesis and is Ps). And not only the last character (review 1): a private-use or other
    blank-looking character the fold keeps, or a "." after the name, would otherwise hide the bracket.
    The cost, stated: an ordinary title ending in brackets ("fix the build (again)", "call foo()") prints quoted, its
-   words unchanged. */
+   words unchanged, wherever usesListMarkWord is called: both long lists, and engine/tasklist.js titleOf (the compact
+   and across lists and task show, where the owner has its own column, so the quoting there protects nothing).
+   RESIDUAL, stated (review 2): a bracket-SHAPED character that is not a bracket (U+23A0, U+A4B1), or a modifier
+   LETTER after the bracket (U+02D1, U+0640, which leave a visible mark), prints unquoted. */
 const ENDS_IN_BRACKET = /[\p{Ps}\p{Pe}][^\p{L}\p{N}]*$/u;
 function usesListMarkWord(text) {
   const f = fold(text);

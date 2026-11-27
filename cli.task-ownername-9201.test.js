@@ -4,7 +4,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
 /**
  * kosmos#9201 (follow-up to #9188): the long `kosmos task list` prints a task's owner after its words as " (name)" and
  * an unowned task prints nothing there, so an unowned task titled "fix the login (otto)" printed exactly as one otto
- * holds. Now engine/markwords.js usesListMarkWord also counts a title whose last character is a closing bracket, so
+ * holds. Now engine/markwords.js usesListMarkWord also counts a title whose last bracket of any kind is followed only by
+ * characters that are not letters or digits, so
  * that title prints quoted, said to be the task's own words. Both CLIs are driven for real against a real board.
  *
  * Harness copied from cli.task-listmarks-9188.test.js:
@@ -100,7 +101,7 @@ const NOTE = " (the task's own words, not a mark)";
 const rowOf = (text, words) => text.split('\n').find((l) => l.includes(words));
 
 
-test('#9201 engine: a title ending in any closing bracket counts; one with a bracket elsewhere does not', () => {
+test('#9201 engine: a title ending in any bracket (then only non-letters) counts; one with a bracket elsewhere does not', () => {
   for (const t of ['fix the login (otto)', 'fix the login (otto) ', 'fix the login (a (otto))', 'fix the login [otto]',
     'fix the login \uFF08otto\uFF09', 'fix the login (otto)\u200B', 'fix the login (otto\u2769',
     // Review 1: a blank-looking character the fold keeps, a lookalike that is an OPENING bracket, a full stop.
