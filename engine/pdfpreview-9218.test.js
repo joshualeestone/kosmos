@@ -139,6 +139,18 @@ test('Linux: mutool when pdftoppm is missing; with neither, one line naming the 
   assert.match(range.err[0], /no page 9/);
   const broke = await pdfpreview.main([src], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => ({ code: 1, stdout: '', stderr: 'Syntax Error: Couldn\'t read xref table' }) });
   assert.equal(broke.code, 1, 'a damaged file was called a page range');
+  /* Review 1: mutool says nothing that separates a page past the end from a damaged file, so its own count decides. */
+  const mutOnly = { PATH: pathWith(['mutool']) };
+  const asked = [];
+  const mrun = (pages) => async (cmd, args) => { asked.push(args[0]); return args[0] === 'info' ? { code: pages === null ? 1 : 0, stdout: pages === null ? '' : 'PDF-1.4\nPages: ' + pages + '\n' } : { code: 1, stdout: '' }; };
+  const mpast = await pdfpreview.main([src, '--page', '9'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(3) });
+  assert.equal(mpast.code, 2, mpast.err.join('\n'));
+  assert.equal(mpast.err[0], 'That PDF has 3 pages, so there is no page 9 to draw.');
+  assert.deepEqual(asked, ['draw', 'info']);
+  const minside = await pdfpreview.main([src, '--page', '2'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(3) });
+  assert.equal(minside.code, 1, 'a page inside the count that failed to draw was called a page range');
+  const mnocount = await pdfpreview.main([src, '--page', '9'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(null) });
+  assert.equal(mnocount.code, 1, 'a file mutool cannot count was called a page range');
 });
 
 test('Windows: Windows PowerShell under SystemRoot, the script encoded whole, the paths and page as environment values', async () => {
@@ -179,6 +191,38 @@ test('Windows: ERR range names the page count (exit 2); an empty picture, a fail
   const slow = await pdfpreview.main([src], { ...base, run: async () => ({ code: 1, stdout: '', killed: true }) });
   assert.match(slow.err[0], /took over 30 seconds/);
   assert.deepEqual(fs.readdirSync(d).filter((x) => x.startsWith('kosmos-preview-')), [], 'a failed draw left its folders behind');
+});
+
+test('--out over an existing PNG replaces it whole; a failed draw leaves it as it was and nothing beside it', async () => {
+  const d = fresh();
+  const src = fakePdf(d);
+  const out = path.join(d, 'keep.png');
+  fs.writeFileSync(out, 'the old picture');
+  const failed = await pdfpreview.main([src, '--out', out], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => ({ code: 1, stdout: '' }) });
+  assert.equal(failed.code, 1);
+  assert.equal(fs.readFileSync(out, 'utf8'), 'the old picture');
+  const ok = await pdfpreview.main([src, '--out', out], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async (c, args) => { fs.writeFileSync(args[args.length - 1] + '.png', realPng(6, 7)); return { code: 0, stdout: '' }; } });
+  assert.equal(ok.code, 0, ok.err.join('\n'));
+  assert.ok(fs.readFileSync(out).equals(realPng(6, 7)));
+  assert.deepEqual(fs.readdirSync(d).filter((x) => x.startsWith('.kosmos-preview-') || x.endsWith('.part')), [], 'a staging file was left beside --out');
+  /* A link at --out is refused, and says it is a link. */
+  const link = path.join(d, 'link.png');
+  fs.symlinkSync(out, link);
+  const linked = await pdfpreview.main([src, '--out', link], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => assert.fail('ran') });
+  assert.equal(linked.code, 2);
+  assert.match(linked.err[0], /is a link/);
+});
+
+test('a renderer killed for printing too much is a failure, not a timeout', { skip: process.platform === 'win32' && 'uses /bin/sh' }, async () => {
+  const d = fresh();
+  const bin = fresh();
+  /* A real pdftoppm stand-in that floods stderr past the buffer and exits: runReal itself, not the seam. Review 1 reasoned
+     that Node marks this killed, which would read as a timeout; measured on Node 26, err.killed is unset for
+     ERR_CHILD_PROCESS_STDIO_MAXBUFFER, so no guard is needed and this pins the behaviour if a Node changes it. */
+  fs.writeFileSync(path.join(bin, 'pdftoppm'), ['#!/bin/sh', 'yes "Syntax Error: no xref table" | head -c 3000000 >&2', 'exit 1', ''].join('\n'), { mode: 0o755 });
+  const r = await pdfpreview.main([fakePdf(d)], { platform: 'linux', env: { PATH: bin + path.delimiter + '/usr/bin' + path.delimiter + '/bin' }, tmpdir: d });
+  assert.equal(r.code, 1);
+  assert.doesNotMatch(r.err[0], /took over/, 'an overflowing renderer was reported as a timeout');
 });
 
 test('a computer with no renderer for its kind says so and exits 1', async () => {

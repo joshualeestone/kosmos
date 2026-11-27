@@ -70,7 +70,7 @@ const WIN_SCRIPT = [
 /* The subprocess seam: run(cmd, args, { env, timeout }) -> Promise<{ code, stdout, killed }>. Tests replace it. */
 function runReal(cmd, args, opts) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: opts.timeout, env: opts.env, maxBuffer: 256 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    execFile(cmd, args, { timeout: opts.timeout, env: opts.env, maxBuffer: 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || ''), killed: !!(err && err.killed), missing: !!(err && err.code === 'ENOENT') });
     });
   });
@@ -183,9 +183,12 @@ async function drawLinux(copy, index, work, deps) {
     : await run(mutool, ['draw', '-q', '-o', png, '-h', String(LONG_SIDE), '-w', String(LONG_SIDE), '-F', 'png', copy, p], { timeout: TIMEOUT_MS, env });
   if (got.killed) return { ok: false, words: 'Drawing that page took over ' + (TIMEOUT_MS / 1000) + ' seconds, so it was stopped.' };
   if (got.code === 0 && fs.existsSync(png)) return { ok: true, png };
-  /* Both tools fail on a page past the end; poppler says "Wrong page range", mutool exits non-zero. A whole file that
-     neither can open fails the same way, so a range is only claimed when poppler says it. */
-  return { ok: false, range: /wrong page range/i.test(got.stdout + (got.stderr || '')) ? true : undefined };
+  /* Both tools fail on a page past the end, and on a whole file they cannot open. poppler says "Wrong page range";
+     mutool says nothing that tells the two apart, so (review 1) its own count is asked: `mutool info` prints Pages: N. */
+  if (pdftoppm) return { ok: false, range: /wrong page range/i.test(got.stdout + (got.stderr || '')) ? true : undefined };
+  const info = await run(mutool, ['info', copy], { timeout: TIMEOUT_MS, env });
+  const pages = info.code === 0 ? /^Pages:\s*(\d+)\s*$/m.exec(info.stdout) : null;
+  return { ok: false, range: pages && index >= Number(pages[1]) ? Number(pages[1]) : undefined };
 }
 
 async function drawWindows(copy, index, work, deps) {
@@ -204,10 +207,12 @@ async function drawWindows(copy, index, work, deps) {
 
 const DRAW = { darwin: drawMac, linux: drawLinux, win32: drawWindows };
 
-/* Puts the drawn page at `out` whole: a name beside `out`, then renamed over it, so a reader never sees half. */
+/* Puts the drawn page at `out` whole: copied into a new folder beside `out` (review 1: a fresh mkdtemp name, never a
+   guessable one another account could plant a link at), then renamed over it, so a reader never sees half. */
 function placeAt(from, out) {
-  const part = out + '.' + process.pid + '.part';
-  try { fs.copyFileSync(from, part); fs.renameSync(part, out); } catch (e) { try { fs.rmSync(part, { force: true }); } catch { /* gone */ } throw e; }
+  const stage = fs.mkdtempSync(path.join(path.dirname(out), '.kosmos-preview-'));
+  try { const part = path.join(stage, 'page.png'); fs.copyFileSync(from, part); fs.renameSync(part, out); }
+  finally { try { fs.rmSync(stage, { recursive: true, force: true }); } catch { /* best effort */ } }
 }
 
 /* Where the PNG goes: --out made absolute (its folder must exist; an existing file there must be a regular file, and
@@ -220,7 +225,7 @@ function outFor(given, file, page, deps) {
     if (!dir || !dir.isDirectory()) return { ok: false, words: 'The folder for --out (' + path.dirname(out) + ') does not exist, so nothing was drawn.' };
     let st = null;
     try { st = fs.lstatSync(out); } catch { st = null; }
-    if (st && !st.isFile()) return { ok: false, words: out + ' is there and is not a plain file, so nothing was drawn. Name another --out.' };
+    if (st && !st.isFile()) return { ok: false, words: out + ' is there and is ' + (st.isSymbolicLink() ? 'a link' : 'not a plain file') + ', so nothing was drawn. Name another --out.' };
     try { if (st && fs.realpathSync(out) === fs.realpathSync(file)) return { ok: false, words: '--out names the PDF itself, so nothing was drawn.' }; } catch { /* the PDF was readable a moment ago */ }
     return { ok: true, out };
   }

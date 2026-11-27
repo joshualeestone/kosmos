@@ -72,6 +72,7 @@ const BASELINE = {
   "engine/orgchartcodex.js": 3,
   "engine/orgenroll.js": 1,
   "engine/orgpolicy.js": 1,
+  "engine/pdfpreview.js": 1,
   "engine/personalbackup.js": 4,
   "engine/projects.js": 3,
   "engine/promptrequest.js": 1,
