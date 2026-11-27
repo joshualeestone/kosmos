@@ -4069,8 +4069,8 @@ function blockBody(projects, sessionName) {
     };
     /* kosmos#9176: a task marked built by the person (builtFreesAll) or by this agent (builtWho) is listed with a mark.
        Another holder's mark alone leaves it unmarked. A hold or a paused project is named first (held, as #5864). */
-    const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
-      && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
+    // kosmos#9177: the shared rule (tasks.builtFor), the one the Assigner reads.
+    const built = (t) => (typeof t.builtAt === 'string' && t.builtAt && require('./tasks').builtFor(t, sessionName)
       ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
     /* kosmos#9179: a task's own words cannot pass for a mark of the board's: a title that uses a mark word at all is
        printed quoted, said to be the task's own words, so its words never end the line in a forged mark (the rule, its
