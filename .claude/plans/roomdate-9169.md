@@ -15,12 +15,15 @@ A row whose time cannot be read adds none.
 - server.js: the text arm's per-row formatter is now `rowLines`; `lines` prepends a date line when the day changes.
 - tools/fed-own-e2e.js: `fedproofNextLine` skips a date line, since a post and its note are separate rows and local
   midnight can fall between them.
-- server.room-dayline-9169.test.js (4 tests): roomDay unit cases (zone decides the day and the year, UTC control,
+- server.room-dayline-9169.test.js (6 tests): roomDay unit cases (zone decides the day and the year, UTC control,
   September spelling, bad inputs, stale zone equals the machine zone); the route across two days in 2025 (one line per
-  day change, none within a day, row time unchanged); the route for a current-year row (no year); the empty room.
+  day change, none within a day, row time unchanged); the route for a current-year row (no year); the empty room; a
+  stored row with an unreadable time (the room's reader drops it before the text is built, so it never reaches the
+  formatter: roomDay's null is guarded by the unit test only); `--post`, `--since` and `--unanswered` (agent token),
+  each starting with the date of its first row.
 
 ## Verified
-- New test file: 4/4 pass. CONTROL: against origin/main server.js the route test fails.
+- New test file: 6/6 pass. CONTROL: against origin/main server.js all 4 route tests fail (the 2 unit tests pass).
 - The 27 test files that request the room's text view by `room?as=text` or use `roomClock` (a grep, so not every
   reader of the room): 547/547 pass on the first version. Every `lines[at + 1]` check among them pairs a row with an
   extra line of the same row (reactions, "has not answered", "you already answered", "you posted after"), which
