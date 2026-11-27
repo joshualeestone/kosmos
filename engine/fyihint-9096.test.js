@@ -19,7 +19,8 @@ const assert = require('node:assert/strict');
 const projects = require('../engine/projects');
 
 const P = [{ id: 'p1', name: 'Henderson lease', folder: '/tmp/henderson', agents: ['writer'] }];
-const RULE = 'When a post or message only closes a thread or tests delivery (thanks, nothing needed), put --no-reply first:';
+// kosmos#9240: "or tests delivery" is gone: a delivery check sends nothing, it reads msg --status (probe-9240.test.js).
+const RULE = 'When a post or message only closes a thread (thanks, nothing needed), put --no-reply first:';
 
 test('a member is taught --no-reply for closing notes, on both post and msg, as a leading flag', () => {
   const text = projects.blockBody(P, 'writer');
