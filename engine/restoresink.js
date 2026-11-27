@@ -683,4 +683,5 @@ module.exports = {
   TEMP_PREFIX,     // #5536 slice 4b: engine/restoreworld.js refuses to finish a root holding any of the sink's own entries
   setRecordMaxBytesForTests,
   isPrivateGroup,  // exported for its test only
+  processStart,    // kosmos#9217: engine/heavyjobs.js tells a live process from a reused number the same way
 };

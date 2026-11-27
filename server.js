@@ -3370,6 +3370,15 @@ function sweepRoster(now = Date.now()) {
   return roster;
 }
 
+/* kosmos#9217: the live heavy jobs (engine/heavyjobs.js), never throwing. agents: the status payload's roster, used to
+   clear a gone agent's record; null, or an empty list (a roster that failed to read reads empty), means "could not
+   tell", and nothing is cleared for it. */
+function heavyJobsNow(agents) {
+  try {
+    const names = Array.isArray(agents) && agents.length ? new Set(agents.map((a) => a && a.sessionName).filter(Boolean)) : null;
+    return require('./engine/heavyjobs').live({ root: store.ROOT, agentAlive: names ? (n) => names.has(n) : null });
+  } catch { return []; }
+}
 function safeRoster() {
   try {
     const board = snapshot();
@@ -7290,6 +7299,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/msg/status', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail', 'GET /api/project-file/who',
+  'POST /api/heavy', 'GET /api/heavy',   // kosmos#9217: an agent records its heavy job (the handler names the caller), and lists them
   'GET /api/connections/found', 'POST /api/connections/found']);   // kosmos#8519: the read is the disk only; the write names the caller (resolveAgentSender)   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#7989 slice 2: `kosmos project who <file>` (GET /api/project-file/who) joins, a READ, so a token-only agent can
    check a file before calling a change unexplained, as it can read `project show`. WHO GAINS: for a path inside a
@@ -9441,6 +9451,9 @@ const server = http.createServer(async (req, res) => {
            tell the user their machine has stopped receiving updates. Null when the
            machine is not stuck. */
         updateAbort: updates.updateAbort(),
+        /* kosmos#9217: the heavy jobs agents said are running on this computer (`kosmos heavy start`), for the top
+           note. engine/heavyjobs.js clears a record whose process or agent is gone, or past its age ceiling. */
+        heavyJobs: heavyJobsNow(agents),
         /* And the two facts the overlay needs even when the attempt record
            is gone with the old server: the diary's path (from the engine's
            root, never guessed by the page) and THIS server's boot identity,
@@ -28352,6 +28365,37 @@ const server = http.createServer(async (req, res) => {
      (empty, or "kosmos", clears it). With one declared, the first-reply nudge stays quiet for it
      (engine/replychannel.js says why). Only an agent sets it, and only its own: processCaller names the caller (a
      token exactly; a pane, from_pane, as given). A page request is refused outright, pane or not. */
+  /* kosmos#9217 slice 1: `kosmos heavy start "<label>" [--pid N]` / `kosmos heavy end [--pid N]` (POST, {action, label,
+     pid, from_pane}) and `kosmos heavy` (GET). Only an agent records a job, and only its own: processCaller names the
+     caller as for the reply channel above; a page request is refused. engine/heavyjobs.js says what clears a record. */
+  if (pathname === '/api/heavy' && req.method === 'GET') {
+    sendJson(res, 200, { ok: true, jobs: heavyJobsNow(null) });
+    return;
+  }
+  if (pathname === '/api/heavy' && req.method === 'POST') {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      if (isViaScreen(req, body)) { sendJson(res, 403, { error: 'only an agent records a heavy job, with kosmos heavy start' }); return; }
+      if (body.action !== 'start' && body.action !== 'end') { sendJson(res, 400, { error: 'say start or end' }); return; }
+      const roster = safeRoster();
+      const caller = processCaller(req, body, roster, false, 'the heavy job was not recorded');
+      if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
+      const name = (caller.card && caller.card.sessionName) || null;
+      if (!name && roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the heavy job was not recorded' }); return; }
+      if (!name) { sendJson(res, 403, { error: 'run this as an agent: Kosmos could not tell which agent you are' }); return; }
+      const hj = require('./engine/heavyjobs');
+      const out = body.action === 'start'
+        ? hj.start({ root: store.ROOT, agent: name, label: body.label, pid: body.pid })
+        : hj.end({ root: store.ROOT, agent: name, pid: body.pid });
+      if (!out.ok) { sendJson(res, out.refused ? 400 : 503, { error: out.because }); return; }
+      sendJson(res, 200, body.action === 'start' ? { ok: true, job: { label: out.job.label, pid: out.job.pid, since: out.job.since } } : { ok: true, ended: out.ended });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
   if (pathname === '/api/agent/reply-channel' && req.method === 'POST') {
     readBody(req).then((raw) => {
       let body = null;
