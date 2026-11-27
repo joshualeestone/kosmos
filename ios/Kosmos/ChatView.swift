@@ -83,6 +83,8 @@ struct ChatView: View {
     @State private var uikitNewest = 0
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
+    // kosmos#9212: the open asks for the id anchor on "end" once the end marker has appeared (why: ChatView.sampleAnchorAtOpen's note).
+    @State private var anchorOnEndAppear = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
     @State private var rowTops = RowTops()
     // kosmos#7609 review 2: the moves the chat makes on purpose (to the newest message: a send, New messages, an arrival),
@@ -549,7 +551,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false; trayOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuildHiding = false; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; anchorOnEndAppear = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuildHiding = false; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             fullRead = false; threadTag = nil   // kosmos#7810
@@ -836,6 +838,7 @@ struct ChatView: View {
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
+                                if anchorOnEndAppear { anchorOnEndAppear = false; if positionId == nil, !personScrolling { positionId = "end" } }   // kosmos#9212
                                 endVisible = true
                                 rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -966,7 +969,9 @@ struct ChatView: View {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
-                    goNewest(proxy)
+                    // kosmos#9212: to the end by a scroll, the anchor named only once the end has appeared (sampleAnchorAtOpen's note).
+                    if Self.idAnchor, !Self.sampleAnchorAtOpen { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); anchorOnEndAppear = true }
+                    else { goNewest(proxy) }
                     landOnNewest(proxy)   // kosmos#9089
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
@@ -1172,7 +1177,7 @@ struct ChatView: View {
                     if walking { personMoves &+= 1 }   // kosmos#9089
                     // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
                     // update (measured: from 5166 to 28435 on the poll); a finger's scroll moves the anchor, so let it go.
-                    if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true; rowTops.walkTaken = true }
+                    if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true; anchorOnEndAppear = false; rowTops.walkTaken = true }
                 }
                 #endif
             }
@@ -1283,10 +1288,25 @@ struct ChatView: View {
                       !onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
                 Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
                 appMoves &+= 1
-                proxy.scrollTo("end", anchor: .bottom); positionId = "end"
+                proxy.scrollTo("end", anchor: .bottom)
+                // kosmos#9212: the anchor is named when the end appears, never while its rows are estimates (sampleAnchorAtOpen's note).
+                if Self.sampleAnchorAtOpen { positionId = "end" } else if positionId != "end" { anchorOnEndAppear = true }
             }
         }
     }
+
+    // kosmos#9212 (measured 11-27, iOS 26.5 simulator): re-opening a chat of tall replies could freeze the app for good, about
+    // one run of 10 re-opens in two (build 73 too, so older than #9089). The anchor was named "end" in the update that first
+    // built the list, whose rows (all loaded on a re-open) still had estimated heights, and SwiftUI's lazy placement never
+    // finished (main thread busy in LazySubviewPlacements; no view body ran again). Naming it a main-loop turn later froze 3 of
+    // 3. So the open goes to the end by a one-off scroll, which places no anchor, and names the anchor when the end marker
+    // appears, its rows measured: 0 of 8 runs froze (80 re-opens). The open's looks (landOnNewest) ask the same way.
+    // KOSMOS_SAMPLE_ANCHORATOPEN=1 (Debug): as before, the control.
+    #if DEBUG
+    static let sampleAnchorAtOpen = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ANCHORATOPEN"] == "1"
+    #else
+    static let sampleAnchorAtOpen = false
+    #endif
 
     // Where the eager newest rows begin: none with the id anchor (iOS 17+), all with the debug EAGERALL switch.
     private func eagerStartIndex(_ items: [Board.ChatItem]) -> Int {

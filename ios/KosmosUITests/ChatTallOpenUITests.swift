@@ -55,6 +55,34 @@ final class ChatTallOpenUITests: XCTestCase {
     }
 
     func testAChatOfTallRepliesOpensOnItsNewest() throws { try run("tall20") }
+
+    // kosmos#9212: re-opening the chat of tall replies could freeze the app (the main thread never came back, about one run in
+    // two on the simulator, iOS 26.5) while the chat list's id anchor was set in the same update that first built the list. One
+    // re-open per launch, as above, saw it on CI only now and then, so this one re-opens the chat REOPENS times in one launch.
+    static let REOPENS = 8
+    func testAChatOfTallRepliesReopensWithoutFreezing() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "tall20"]
+        // TEST_RUNNER_KOSMOS_ANCHORATOPEN=1: the anchor named as the list is built, as before the fix: the control.
+        if ProcessInfo.processInfo.environment["KOSMOS_ANCHORATOPEN"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_ANCHORATOPEN"] = "1" }
+        UIKitListArm.set(app)
+        app.launch()
+        UIKitListArm.assertDrawn(app)
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "the chat did not open at launch")
+        let back = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch
+        let dana = app.collectionViews.matching(identifier: "agents-list").firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Dana")).firstMatch
+        for i in 1...Self.REOPENS {
+            Thread.sleep(forTimeInterval: 2.0)   // past the open's last look (1.6 s, ChatView.openLandLooks)
+            XCTAssertTrue(back.waitForExistence(timeout: 10), "re-open \(i): no Back button")
+            back.tap()
+            XCTAssertTrue(dana.waitForExistence(timeout: 10), "re-open \(i): Dana's row is not showing")
+            dana.tap()
+            // A frozen app never draws the chat: its composer never shows.
+            XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "re-open \(i) of \(Self.REOPENS): the chat did not open (the app froze)")
+            XCTAssertTrue(newest(app).waitForExistence(timeout: 5), "re-open \(i): the newest message was not drawn")
+        }
+    }
     // CONTROL: the same 20 messages, one line each.
     func testTheSameChatInOneLinersOpensOnItsNewest() throws { try run("short20") }
 }
