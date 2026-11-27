@@ -305,3 +305,19 @@ test('a start runs ps once, for its own record; the agent\'s other records are j
   assert.equal(seen.ps, 1, 'ps ran ' + seen.ps + ' times inside one start');
   assert.equal(hj.readAll(r).length, 4, 'control: the other records were kept, not dropped for want of a read');
 }));
+
+test('kosmos#9222: a job whose process is confirmed by its start time outlives the ceiling; one nothing can judge does not', () => {
+  const r = root();
+  const H = 60 * 60 * 1000;
+  hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 4242, now: T0, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') });
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') }).map((j) => j.label), ['overnight'],
+    'a running, confirmed process was dropped at the ceiling');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: () => undefined }), [], 'could not ask: the ceiling holds');
+  const w = root();   // a record with no start recorded (Windows: no ps)
+  hj.start({ root: w, agent: 'renet', label: 'unjudged', pid: 4243, now: T0, startOf: () => undefined });
+  assert.deepEqual(hj.live({ root: w, now: T0 + 13 * H, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') }), [],
+    'a start read later cannot confirm a record that recorded none');
+  const n = root();
+  hj.start({ root: n, agent: 'renet', label: 'no process', now: T0 });
+  assert.deepEqual(hj.live({ root: n, now: T0 + 13 * H }), [], 'control: a job with no process still meets the ceiling');
+});
