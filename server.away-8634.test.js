@@ -77,7 +77,7 @@ test('a wait buried under more than the short read of automatic reports still re
       assert.equal(hook.code, 200, hook.text);
       const ctx = JSON.parse(hook.text).hookSpecificOutput.additionalContext;
       assert.match(ctx, /last reported that it was waiting \(blocked, at /);
-      assert.match(ctx, /kosmos report blocked \.\.\./);
+      assert.match(ctx, /kosmos report blocked --again/);   // kosmos#9219
       assert.doesNotMatch(ctx, /SECRET-WORDS/);
     } finally { sendertoken.revoke('leo'); }
   });

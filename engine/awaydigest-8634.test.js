@@ -55,7 +55,7 @@ test('the reminder names the state, the time and the command, never the report\'
   const ctx = JSON.parse(json).hookSpecificOutput;
   assert.equal(ctx.hookEventName, 'SessionStart');
   assert.match(ctx.additionalContext, /last reported that it was waiting \(blocked, at 2026-11-16T19:00:00Z\)/);
-  assert.match(ctx.additionalContext, /kosmos report blocked \.\.\./);
+  assert.match(ctx.additionalContext, /kosmos report blocked --again/);   // kosmos#9219: one command, nothing retyped
   assert.doesNotMatch(ctx.additionalContext, /SECRET-WORDS/);
   // CONTROL: no wait and nothing missed is still nothing at all.
   assert.equal(away.hookJson(digest, null), '');
@@ -95,11 +95,11 @@ test('any report of its own that is not a wait ends the wait, whatever its state
 test('a held question comes back held, and the reminder says --held so asking again buzzes nobody', () => {
   const w = away.lastWait([row('needs_you', 'agent', 5, { held: true }), row('started', 'auto', 1)], { nowMs: NOW });
   assert.deepEqual(w, { state: 'needs_you', atMs: NOW - 5 * H, held: true });
-  assert.match(away.waitText(w), /kosmos report needs_you --held \.\.\., held as before, so nothing buzzes the person/);
+  assert.match(away.waitText(w), /kosmos report needs_you --again \(held as before, so nothing buzzes the person\)/);   // kosmos#9219: --again keeps it held
   // CONTROL: an ordinary question is not held and its command has no --held.
   const plain = away.lastWait([row('needs_you', 'agent', 5), row('started', 'auto', 1)], { nowMs: NOW });
   assert.equal(plain.held, undefined);
-  assert.doesNotMatch(away.waitText(plain), /--held/);
+  assert.doesNotMatch(away.waitText(plain), /held as before|--held/);
 });
 
 test('history() keeps a held question\'s flag, and only on a needs_you', () => {

@@ -20582,6 +20582,24 @@ const server = http.createServer(async (req, res) => {
           const bad = new Error('--held is for a question you hold yourself, so it takes no --auto');
           bad.status = 400; throw bad;
         }
+        /* kosmos#9219: `kosmos report <needs_you|blocked> --again` brings back the agent's OWN last wait from the board's
+           copy (after a restart retired it, #5943's "ask the new session to confirm it"), so it carries nothing that would
+           change that wait. Refused rather than ignored, as held is. */
+        if (body.again !== undefined && typeof body.again !== 'boolean') {
+          const bad = new Error('again must be true or false');
+          bad.status = 400; throw bad;
+        }
+        if (body.again === true) {
+          if (body.state !== 'needs_you' && body.state !== 'blocked') {
+            const bad = new Error('--again goes only with needs_you or blocked: it brings back a wait you reported before a restart');
+            bad.status = 400; throw bad;
+          }
+          const given = ['text', 'on', 'owner', 'until', 'project'].some((k) => typeof body[k] === 'string' && body[k].trim() !== '');
+          if (given || body.held === true || body.auto === true || body.clear === true) {
+            const bad = new Error('--again brings back your wait exactly as you reported it, so it takes no words or other options');
+            bad.status = 400; throw bad;
+          }
+        }
         const roster = safeRoster();
         if (roster === null) {
           noteTurnEndRefusal(body, 'we could not check which agents are running');
@@ -20606,6 +20624,34 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        /* kosmos#9219: the wait to bring back is found by the restart reminder's own rule (awaydigest.lastWaitRow, as
+           lastWait): the agent's own needs_you or blocked, newer than the reminder's window, with no report of its own
+           since. It does NOT also apply the reminder's session limit (sessionsSinceWait, kosmos#9058), so a wait the
+           reminder has stopped naming can still be brought back: the agent asks for it in so many words, and only its own
+           wait comes back, as it would by retyping it. Its stored words and fields are used as they were kept (already
+           masked when first recorded); nothing of them is said back, so no words reach a session that did not type them.
+           What follows (the buzz, the record) is the same path as the agent retyping the same report by hand. */
+        if (body.again === true) {
+          let row = null;
+          try {
+            const away = require('./engine/awaydigest');
+            row = away.lastWaitRow(selfreport.history(who, selfreport.HISTORY_MAX_BYTES, { fields: true }), { nowMs: Date.now() });
+          } catch { row = null; }
+          if (!row) {
+            sendJson(res, 200, { recorded: false, because: 'there is no wait of yours from before to bring back (none recent, or you have reported something else since), so report it with its words' });
+            return;
+          }
+          if (row.state !== body.state) {
+            sendJson(res, 200, { recorded: false, because: 'the wait you reported before was ' + row.state + ', not ' + body.state + ': run kosmos report ' + row.state + ' --again' });
+            return;
+          }
+          body.text = row.because || '';
+          body.on = row.on || '';
+          body.owner = row.owner || '';
+          body.until = row.until || '';
+          body.project = row.project || undefined;
+          body.held = row.held === true;
+        }
         /* kosmos#9001 (Josh, 11-24: "I keep getting these"): a hook's permission wait for Claude Code's own self-declining
            safety check (status.claudeSelfExpiringPrompt: it says it will block the request by itself in about two minutes)
            waits for nobody, and the decline is always right. Recorded as the plain line it is, working, so it never becomes

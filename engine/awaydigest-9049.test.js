@@ -24,10 +24,10 @@ test('the ended wording says only that the board set the wait aside; the default
   // Everything else in the sentence is the same for both: the state, the time, and how to report it again.
   for (const t of [ended, plain]) {
     assert.match(t, /\(needs_you, at 2026-11-25T09:00:00Z\)/);
-    assert.match(t, /kosmos report needs_you \.\.\./);
+    assert.match(t, /kosmos report needs_you --again/);   // kosmos#9219
   }
   const held = away.waitText({ ...W, held: true }, { ended: true });
-  assert.match(held, /kosmos report needs_you --held \.\.\., held as before, so nothing buzzes the person\); if not, report what it is doing/);
+  assert.match(held, /kosmos report needs_you --again \(held as before, so nothing buzzes the person\); if not, report what it is doing/);   // kosmos#9219
   assert.equal(away.hookJson(null, W, { ended: true }), JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ended } }));
   assert.equal(away.hookJson(null, null, { ended: true }), '', 'no wait, nothing to say');
 });
