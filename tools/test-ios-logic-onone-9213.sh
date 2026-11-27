@@ -18,9 +18,12 @@ check() { bash "$REPO/ios/tools/check-logic-onone.sh" "$T/r" > "$T/out" 2>&1; ec
 expect() { # <label> <want-rc> [<sed expression applied to run-updates.sh>]
   fresh
   if [ -n "${3:-}" ]; then
-    sed -i.bak "$3" "$T/r/ios/LogicTests/run-updates.sh"
-    if cmp -s "$T/r/ios/LogicTests/run-updates.sh" "$T/r/ios/LogicTests/run-updates.sh.bak"; then
-      fail "$1: the mutation changed nothing, so this arm tests nothing"; return
+    if ! sed -i.bak "$3" "$T/r/ios/LogicTests/run-updates.sh"; then
+      fail "$1: the sed expression did not run, so this arm tests nothing"; return
+    fi
+    cmp -s "$T/r/ios/LogicTests/run-updates.sh" "$T/r/ios/LogicTests/run-updates.sh.bak"; local same=$?
+    if [ "$same" -ne 1 ]; then
+      fail "$1: the mutation changed nothing (cmp rc $same), so this arm tests nothing"; return
     fi
     rm -f "${T:?}/r/ios/LogicTests/run-updates.sh.bak"
   fi
@@ -58,11 +61,17 @@ a\
 xcrun swiftc -O -o "$out/y" "$here/y.swift"
 }'
 expect "swiftc followed by a ) is still a compile"                      1 's|xcrun swiftc -Onone -o|"$(xcrun -f swiftc)" -O -o|'
+expect "a single-quoted '-O' beside -Onone"                             1 "s|swiftc -Onone -o|swiftc -Onone '-O' -o|"
+expect "a swiftc command whose file ends mid-command (last line ends in a backslash)" 1 '$a\
+xcrun swiftc -O -o "$out/z" \\
+'
 
 fresh; rm -rf "${T:?}/r/ios/tools"
 got="$(check)"; if [ "$got" = 2 ]; then pass "a missing folder is exit 2, not a pass"; else fail "a missing folder: exit $got, want 2"; fi
 fresh; find "$T/r/ios" -name '*.sh' -exec sed -i.bak 's/swiftc/swift-compiler/g' {} +
 got="$(check)"; if [ "$got" = 2 ]; then pass "no swiftc line at all is exit 2, not a pass"; else fail "no swiftc line: exit $got, want 2"; fi
+fresh; find "$T/r/ios" -name '*.sh' -exec mv {} {}.txt \;
+got="$(check)"; if [ "$got" = 2 ]; then pass "no *.sh file at all is exit 2, not a pass"; else fail "no *.sh file: exit $got, want 2"; fi
 
 # The count it reports is the real count (presence, not only absence).
 fresh; bash "$REPO/ios/tools/check-logic-onone.sh" "$T/r" > "$T/out" 2>&1

@@ -6,9 +6,10 @@
 # comments first (a comment never continues onto the next line, as in bash), then joins lines continued with a
 # trailing backslash, and for each command that names swiftc (by name or by path; a bare mention such as `command -v swiftc`
 # counts too, and fails here, which errs toward red) requires a literal -Onone and no other -O
-# flag (-O, -Osize, -Ounchecked, ..., bare, quoted, or after = or a comma). It reads text: a flag passed in a variable
-# is caught only when it stands in for -Onone, swiftc reached through a function or another script is not seen at
-# all, and a " #" inside a quoted string is taken for a comment, so anything after it on that command is not read.
+# flag (-O, -Osize, -Ounchecked, ..., bare, quoted, or after = or a comma). A command still open when its file ends
+# is checked too. It reads text: a flag in a variable or array is caught only when it stands in for -Onone, swiftc
+# reached through a function or another script is not seen at all, nor is the `swift` driver, and a " #" inside a
+# quoted string is taken for a comment, so anything after it on that command is not read.
 # Exit 0: every swiftc command is -Onone. Exit 1: one is not (each is printed as file:first-line: command).
 # Exit 2: nothing could be checked (a folder missing, or no swiftc command found at all).
 set -u
@@ -21,7 +22,13 @@ files=()
 while IFS= read -r f; do files+=("$f"); done < <(find "${dirs[@]}" -type f -name '*.sh' ! -path "$root/ios/tools/check-logic-onone.sh" | sort)
 [ "${#files[@]}" -gt 0 ] || { echo "check-logic-onone: no *.sh file found, so nothing was checked"; exit 2; }
 report="$(awk '
-  FNR == 1 { buf = ""; start = 0 }
+  function judge(cmd) {
+    if (cmd !~ /(^|[^[:alnum:]_.-])swiftc([^[:alnum:]_.-]|$)/) return
+    n++
+    if (cmd !~ /[[:space:]]-Onone([[:space:]]|$)/ || cmd ~ /[[:space:]"\047=,(]-O([^n]|$)/) print "BAD " file ":" start ": " cmd
+  }
+  # A command still open when its file ends (last line ends in a backslash) is judged, never dropped.
+  FNR == 1 { if (buf != "") judge(buf); buf = ""; file = FILENAME }
   {
     line = $0
     if (buf == "") {
@@ -31,13 +38,10 @@ report="$(awk '
     # A trailing comment ends the line before any backslash in it can continue it, as in bash.
     sub(/[[:space:]]#.*$/, "", line)
     if (line ~ /\\$/) { buf = buf substr(line, 1, length(line) - 1) " "; next }
-    buf = buf line
-    cmd = buf; buf = ""
-    if (cmd !~ /(^|[^[:alnum:]_.-])swiftc([^[:alnum:]_.-]|$)/) next
-    n++
-    if (cmd !~ /[[:space:]]-Onone([[:space:]]|$)/ || cmd ~ /[[:space:]"\047=,]-O([^n]|$)/) print "BAD " FILENAME ":" start ": " cmd
+    cmd = buf line; buf = ""
+    judge(cmd)
   }
-  END { print "COUNT " n + 0 }
+  END { if (buf != "") judge(buf); print "COUNT " n + 0 }
 ' "${files[@]}")"; rc=$?
 [ "$rc" -eq 0 ] || { echo "check-logic-onone: awk failed (rc $rc), so nothing can be trusted as checked"; exit 2; }
 count="$(printf '%s\n' "$report" | sed -n 's/^COUNT //p')"
