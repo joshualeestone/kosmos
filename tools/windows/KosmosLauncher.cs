@@ -82,6 +82,10 @@ class KosmosLauncher
     // What Settings > Apps > Installed apps > Uninstall runs (see Uninstall).
     const string UninstallFlag = "--uninstall";
 
+    // #9144: repair a runtime that crashes on every run, from a console (RepairRuntime; Main offers the same repair to
+    // a person at the desktop when its runtime check fails).
+    internal const string RepairRuntimeFlag = "--repair-runtime";
+
     // kosmos#1765: what the board asks (engine/win32runfolder.js) when it is serving from a folder outside the
     // profile. It answers whether this folder is one other people on this PC can change, as one JSON line on stdout,
     // and does nothing else: no box, no console, no errand. The board asks this program rather than keeping a second
@@ -176,6 +180,7 @@ class KosmosLauncher
         bool wantsConsole = Array.Exists(args, a => string.Equals(a, ConsoleFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsUninstall = Array.Exists(args, a => string.Equals(a, UninstallFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsWindow = Array.Exists(args, a => string.Equals(a, WindowFlag, StringComparison.OrdinalIgnoreCase));
+        bool wantsRepair = Array.Exists(args, a => string.Equals(a, RepairRuntimeFlag, StringComparison.OrdinalIgnoreCase));
         showMessageBoxes = !wantsConsole && Environment.UserInteractive;
         if (!showMessageBoxes) ConnectToAConsole();
 
@@ -214,6 +219,17 @@ class KosmosLauncher
         // process: the board and the agents run under their own tasks, as they do on the Mac. It
         // never starts the board, offers a move or touches the Start menu.
         if (wantsWindow) return RunBoardWindow(here, node, opener, app, port);
+
+        // #9144: 🛑 A RUNTIME THAT CRASHES ON EVERY RUN IS FOUND HERE, BEFORE ANYTHING ELSE RUNS IT (the installer duties
+        // below run it too). Measured on the Windows box 11-26: runtime\node.exe died on every run, even `node -e 1`, while
+        // a byte-identical COPY ran clean; the likely cause is a damaged page in Windows' cached image of that one file.
+        // "Try again" failed the same way, and the logon task's board died seconds after the hand-off where nobody saw it.
+        // So: one `node -e 0` of this folder's runtime and of the logon task's anchored copy, and an exit that is not 0
+        // offers Repair (RepairRuntime). A check that does not finish, a runtime Windows will not start, and a No all
+        // go on with the launch (fail open: this must never stop a working Kosmos).
+        if (wantsRepair) return RepairRuntimeFromConsole(here);
+        int? endedByRuntimeCheck = CheckRuntimesBeforeStarting(here, node);
+        if (endedByRuntimeCheck.HasValue) return endedByRuntimeCheck.Value;
 
         // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) running from
         // Downloads, the Desktop, OneDrive or a temporary folder hands off to the Kosmos already
@@ -332,6 +348,7 @@ class KosmosLauncher
         // slow-but-successful boot. With --console, or with nobody at the desktop,
         // the launcher just waits, as it always did.
         bool stoppedByPerson = false;
+        bool servedHere = false;   // #9144: a board that served here did not hand off, so there is no hand-off to look after
         if (showMessageBoxes)
         {
             int stillToWaitMs = CheckForServingAfterMs - (int)sinceServerStarted.ElapsedMilliseconds;
@@ -340,7 +357,7 @@ class KosmosLauncher
                 while (!p.WaitForExit(ServingPollMs))
                 {
                     bool provablyServingHere = ListenerStateOf(p.Id) == ListenerAnswer.Listening || ServeHereSignalPresent(serveHereSignal);
-                    if (provablyServingHere) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
+                    if (provablyServingHere) { servedHere = true; stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
                 }
             }
         }
@@ -367,6 +384,10 @@ class KosmosLauncher
                 Hold();
             }
         }
+        // #9144: a board that handed off to its logon task exits 0 and leaves this launcher nothing to watch, so a board
+        // that then dies seconds into each start under the task was never seen (measured on the Windows box 11-26: no
+        // window, nothing said). Only for a person at the desktop, and only for a hand-off (not a board that served here).
+        if (p.ExitCode == 0 && !servedHere && !stoppedByPerson && showMessageBoxes) LookAfterHandOff(here, node, port);
         return p.ExitCode;
     }
 
@@ -1957,6 +1978,375 @@ class KosmosLauncher
     internal static void EnableBoardTask(string taskName)
     {
         if (taskName != null) RunSchtasks("/Change /TN " + QuoteArgument(taskName) + " /ENABLE");
+    }
+
+    // ---- a runtime that crashes on every run (#9144) -------------------------------
+
+    // 🛑 TWO COPIES OF THE RUNTIME, AND THE ONE THAT CRASHED ON THE BOX WAS THE SECOND. runtime\node.exe in this folder
+    // is what this launcher and server.js run; engine/win32anchor.js keeps a copy in <LOCALAPPDATA>\Kosmos\runtime that
+    // the logon task's board, its watchdog and every agent run (anchorDir; it is re-copied only when its SIZE differs,
+    // so a damaged file of the same size is never replaced). Measured on the Windows box 11-26: that anchored file
+    // crashed on every run while a byte-identical copy ran clean. Both are checked; the anchored one is repaired from
+    // this folder's, once that one checks out.
+
+    // How long one `-e 0` may take. A first run after an install can be slowed by a scan of a 90 MB file, so this is
+    // generous; a check that does not finish says nothing, never "damaged".
+    internal const int RuntimeCheckTimeoutMs = 30000;
+    // The old runtime is kept beside the new one under this name and the time, one at a time, for diagnosis.
+    internal const string DamagedRuntimePrefix = "node.exe.damaged-";
+    // The fresh copy is made and run under this name plus this process's id: an .exe, so Windows runs it as a program,
+    // and per process, so two launches repairing at once never share a file.
+    internal const string RepairCopyPrefix = "node-repair-";
+    // manifest.json's record of runtime\node.exe's sha256, written by tools/build-kosmos-windows.sh. Builds made before
+    // #9144 have none, and the repair then checks only that the fresh copy runs.
+    internal const string RuntimeShaManifestKey = "runtime_node_sha256";
+    // How long after a hand-off the board may take to listen before the launcher checks the logon task's runtime.
+    // Only a FAILED check is ever said: a healthy runtime under a slow board says nothing, whatever the time.
+    internal const int AfterHandOffLookMs = 90000;
+    const int AfterHandOffPollMs = 1000;
+
+    // SetErrorMode: no "has stopped working" dialog for a runtime that crashes during the check (it would keep the
+    // check waiting until somebody closed it). A child process inherits the mode it is started with.
+    const uint SEM_FAILCRITICALERRORS = 0x0001;
+    const uint SEM_NOGPFAULTERRORBOX = 0x0002;
+    [DllImport("kernel32.dll")]
+    static extern uint SetErrorMode(uint mode);
+
+    const string RepairDoesWhat = "Repair replaces it with a fresh copy from this version's files.";
+    const string RestartAdvice = "Restart this computer, then open Kosmos again: a restart clears what Windows keeps in memory for a program. If it still does not start, download Kosmos again.";
+    const string DownloadAdvice = "Download Kosmos again and open the new copy.";
+
+    // One check of a runtime: did it start, did it finish, and its exit code (or why it would not start).
+    internal sealed class RuntimeCheck
+    {
+        public bool Started;
+        public bool Finished;
+        public int ExitCode;
+        public string StartError;
+        // Damaged: it ran, it finished, and it did not end with 0. One Windows would not start (security software, a
+        // policy, access) is NOT damaged and is never repaired, and one that did not finish says nothing.
+        public bool LooksDamaged { get { return Started && Finished && ExitCode != 0; } }
+        public string Words
+        {
+            get
+            {
+                if (!Started) return "Windows would not start it (" + StartError + ")";
+                if (!Finished) return "it did not finish";
+                string hex = ExitCode < 0 ? " (0x" + ((uint)ExitCode).ToString("X8") + ")" : "";
+                return "it stopped with exit code " + ExitCode + hex;
+            }
+        }
+    }
+
+    // Runs `<nodePath> -e 0` once, with no crash dialog. Never throws.
+    internal static RuntimeCheck CheckRuntime(string nodePath)
+    {
+        RuntimeCheck r = new RuntimeCheck();
+        uint before = 0;
+        bool modeSet = false;
+        try { before = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX); modeSet = true; } catch { /* the check runs without it */ }
+        try
+        {
+            ProcessStartInfo c = new ProcessStartInfo(nodePath, "-e 0");
+            c.UseShellExecute = false;
+            c.CreateNoWindow = true;
+            c.WorkingDirectory = Path.GetDirectoryName(nodePath);
+            Process q;
+            try { q = Process.Start(c); }
+            catch (Exception e) { r.StartError = e.Message; return r; }
+            if (q == null) { r.StartError = "no process"; return r; }
+            using (q)
+            {
+                r.Started = true;
+                if (!q.WaitForExit(RuntimeCheckTimeoutMs))
+                {
+                    try { q.Kill(); } catch { /* it ends with this launcher anyway */ }
+                    return r;
+                }
+                r.Finished = true;
+                r.ExitCode = q.ExitCode;
+                return r;
+            }
+        }
+        catch (Exception e) { r.StartError = e.Message; r.Started = false; return r; }
+        finally { if (modeSet) { try { SetErrorMode(before); } catch { /* best effort */ } } }
+    }
+
+    // engine/win32anchor.js anchorDir's node.exe, by its rule without a world override: AGENT_WORKFORCE_DATA\Kosmos,
+    // else (AGENT_WORKFORCE_HOME set) the profile's AppData\Local\Kosmos, else LOCALAPPDATA\Kosmos; then runtime\.
+    // Pinned to that rule by tools.win-launcher-runtime-9144.test.js.
+    internal static string AnchoredRuntimePath()
+    {
+        string data = Environment.GetEnvironmentVariable("AGENT_WORKFORCE_DATA");
+        string baseDir;
+        if (!string.IsNullOrEmpty(data)) baseDir = Path.Combine(data, InstallFolderName);
+        else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGENT_WORKFORCE_HOME")))
+            baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "Local", InstallFolderName);
+        else baseDir = Path.Combine(LocalAppDataFolder(), InstallFolderName);
+        return Path.Combine(baseDir, "runtime", "node.exe");
+    }
+
+    // 🛑 REVIEW 2: THE ANCHORED COPY IS REPAIRED ONLY FROM THE SAME VERSION. ensureAnchored refuses to let an older
+    // Kosmos.exe downgrade the fleet (#3016); a repair copying THIS folder's runtime over a newer anchored one would do
+    // exactly that. The fault on the box was the same bytes with a bad image, so the same SIZE is the gate (the
+    // anchor's own discriminator: a node version change moves the size). Different sizes, or either missing, or the
+    // same file: nothing is checked or offered for the anchored copy.
+    internal static bool SameRuntimeVersion(string node, string anchored)
+    {
+        try
+        {
+            if (!File.Exists(node) || !File.Exists(anchored)) return false;
+            if (string.Equals(Path.GetFullPath(anchored), Path.GetFullPath(node), StringComparison.OrdinalIgnoreCase)) return false;
+            return new FileInfo(node).Length == new FileInfo(anchored).Length;
+        }
+        catch { return false; }
+    }
+
+    internal static string DamagedRuntimeQuestion(string words)
+    {
+        return "Kosmos's runtime (node.exe) is damaged on this computer: " + words + ".\n\n" + RepairDoesWhat + " Repair it now?";
+    }
+
+    // Main's check (see the comment there): null to go on with the launch, or the exit code to end it with. Fail open:
+    // a check that cannot run, a runtime Windows will not start (the launch below says so, with Windows' reason), and
+    // a No all go on as before.
+    static int? CheckRuntimesBeforeStarting(string here, string node)
+    {
+        // Review 2: an update swaps runtime\ files itself; a repair renaming the same files could race it, so while one
+        // is under way here nothing is checked or offered (the update's own checks run instead).
+        if (UpdateUnderWayHere(here)) return null;
+        RuntimeCheck own = CheckRuntime(node);
+        if (own.LooksDamaged)
+        {
+            if (!showMessageBoxes)
+            {
+                // Fail open here too (review 2): with nobody to ask, say so and go on, so one odd exit never stops a run.
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Kosmos's runtime (" + node + ") looks damaged on this computer: " + own.Words + ".");
+                Console.Error.WriteLine("If Kosmos does not start, run: Kosmos.exe " + RepairRuntimeFlag);
+                return null;
+            }
+            if (!AskRepair(DamagedRuntimeQuestion(own.Words))) return null;
+            // Review 3: the question can stay open for minutes, and the board can start an update meanwhile.
+            if (UpdateUnderWayHere(here)) return null;
+            string problem = RepairRuntime(node, node, ExpectedRuntimeSha256(here));
+            // A failed repair is said, and the launch still goes on (review 3: nothing was swapped, so this is main's
+            // launch; a runtime that only dies at exit may still serve).
+            if (problem != null) { ShowMessageBox(RepairFailedMessage(problem), true); return null; }
+        }
+        else if (!own.Finished || !own.Started) return null;   // says nothing either way: the launch goes on as before
+        string anchored;
+        try { anchored = AnchoredRuntimePath(); }
+        catch { return null; }   // review 3: a malformed AGENT_WORKFORCE_DATA or LOCALAPPDATA must never end a launch
+        if (!SameRuntimeVersion(node, anchored)) return null;
+        RuntimeCheck task = CheckRuntime(anchored);
+        if (!task.LooksDamaged) return null;
+        if (!showMessageBoxes)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("The copy of Kosmos's runtime that starts it at sign-in (" + anchored + ") looks damaged: " + task.Words + ".");
+            Console.Error.WriteLine("If Kosmos does not start, run: Kosmos.exe " + RepairRuntimeFlag);
+            return null;
+        }
+        if (!AskRepair(DamagedRuntimeQuestion(task.Words))) return null;
+        if (UpdateUnderWayHere(here)) return null;
+        string taskProblem = RepairRuntime(node, anchored, ExpectedRuntimeSha256(here));
+        if (taskProblem != null) ShowMessageBox(RepairFailedMessage(taskProblem), true);
+        return null;
+    }
+
+    // `Kosmos.exe --repair-runtime`: both copies, each only when its check fails, said where the person asked.
+    static int RepairRuntimeFromConsole(string here)
+    {
+        string node = Path.Combine(here, "runtime\\node.exe");
+        string anchored = AnchoredRuntimePath();
+        string expected = ExpectedRuntimeSha256(here);
+        List<string> said = new List<string>();
+        bool failed = false;
+        foreach (string target in new string[] { node, anchored })
+        {
+            if (!File.Exists(target)) continue;
+            if (target == anchored && !SameRuntimeVersion(node, anchored)) { said.Add(target + ": another version than this folder's, left as it is."); continue; }
+            RuntimeCheck c = CheckRuntime(target);
+            if (!c.LooksDamaged) { said.Add(target + ": runs (" + (c.Finished ? "exit 0" : c.Words) + "), left as it is."); continue; }
+            string problem = RepairRuntime(node, target, expected);
+            if (problem == null) said.Add(target + ": repaired; the old one is kept beside it as " + DamagedRuntimePrefix + "<date and time>.");
+            else { said.Add(target + ": " + RepairFailedMessage(problem)); failed = true; }
+        }
+        string text = string.Join("\n", said.ToArray());
+        if (showMessageBoxes) { if (failed) ShowMessageBox(text, true); else ShowNotice(text); }
+        else if (failed) Console.Error.WriteLine(text);
+        else Console.WriteLine(text);
+        return failed ? 1 : 0;
+    }
+
+    // What a failed repair says. A file that does not match this version's sha256 is a damaged FILE, which a restart
+    // cannot fix, so that one points at a fresh download; everything else at a restart first.
+    internal static string RepairFailedMessage(string problem)
+    {
+        bool fileIsWrong = problem.IndexOf("does not match this version's", StringComparison.Ordinal) >= 0;
+        return "Kosmos could not repair its runtime: " + problem + ".\n\n" + (fileIsWrong ? DownloadAdvice : RestartAdvice);
+    }
+
+    // 🛑 THE REPAIR MAKES A NEW FILE, NEVER RE-WRITES THE OLD ONE, BECAUSE A NEW FILE IS WHAT FIXED IT. A copy is a new
+    // file, so Windows maps a new image of it; the old file's damaged cached image goes with the old file. `from` is
+    // this folder's runtime (for its own repair, the same file as `target`). In order: copy `from` beside `target` as
+    // node-repair-<pid>.exe; its sha256 must be the manifest's (when there is one); the copy must run `-e 0` to exit 0;
+    // an older kept copy is removed; `target` is renamed node.exe.damaged-<time> (a running program can be renamed, not
+    // deleted); the copy takes its name; the check runs once more. null when repaired, or what went wrong, in words,
+    // with the copy removed. Never throws.
+    internal static string RepairRuntime(string from, string target, string expectedSha256)
+    {
+        string dir = Path.GetDirectoryName(target);
+        string copy = Path.Combine(dir, RepairCopyPrefix + Process.GetCurrentProcess().Id + ".exe");
+        // Review 2: a launcher killed mid-repair leaves its copy; nothing else sweeps that name, so an old one goes here.
+        try
+        {
+            foreach (string stale in Directory.GetFiles(dir, RepairCopyPrefix + "*.exe"))
+                if (DateTime.UtcNow - File.GetLastWriteTimeUtc(stale) > TimeSpan.FromMinutes(10)) TryDeleteFile(stale);
+        }
+        catch { /* a leftover is named for what it is */ }
+        try
+        {
+            if (!File.Exists(from)) return "its file is missing (" + from + ")";
+            File.Copy(from, copy, true);
+            // Review 3: a copy keeps its source's last-write time, which would make it look days old to another launch's
+            // sweep below; stamped now, it is this repair's for the next ten minutes.
+            File.SetLastWriteTimeUtc(copy, DateTime.UtcNow);
+            if (expectedSha256 != null)
+            {
+                string got = FileSha256Hex(copy);
+                if (!string.Equals(got, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDeleteFile(copy);
+                    return "its file does not match this version's (sha256 " + got + ", expected " + expectedSha256 + ")";
+                }
+            }
+            RuntimeCheck fresh = CheckRuntime(copy);
+            if (!fresh.Finished || fresh.ExitCode != 0)
+            {
+                TryDeleteFile(copy);
+                return "a fresh copy of it does not run either (" + fresh.Words + ")";
+            }
+            foreach (string old in Directory.GetFiles(dir, DamagedRuntimePrefix + "*")) TryDeleteFile(old);
+            string damaged = Path.Combine(dir, DamagedRuntimePrefix + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+            bool hadTarget = File.Exists(target);
+            if (hadTarget)
+            {
+                string why = MoveWithRetry(target, damaged);
+                if (why != null) { TryDeleteFile(copy); return "the old runtime could not be moved aside (" + why + ")"; }
+            }
+            try { File.Move(copy, target); }
+            catch (Exception e)
+            {
+                bool restored = false;
+                if (hadTarget) { try { File.Move(damaged, target); restored = true; } catch { /* said below */ } }
+                TryDeleteFile(copy);
+                if (hadTarget && !restored) return "the fresh copy could not take its place (" + e.Message + "), and the runtime is now missing: " + target + " is kept as " + damaged;
+                return "the fresh copy could not take its place (" + e.Message + ")";
+            }
+            RuntimeCheck after = CheckRuntime(target);
+            if (!after.Finished || after.ExitCode != 0) return "the repaired runtime does not run (" + after.Words + ")";
+            return null;
+        }
+        catch (Exception e)
+        {
+            TryDeleteFile(copy);
+            return "the fresh copy could not be made (" + e.Message + ")";
+        }
+    }
+
+    // The manifest's sha256 for runtime\node.exe, lower-case hex, or null when there is none (an older build) or it is
+    // not 64 hex characters.
+    internal static string ExpectedRuntimeSha256(string here)
+    {
+        try
+        {
+            string manifest = Path.Combine(here, ManifestFileName);
+            if (!File.Exists(manifest)) return null;
+            string sha = TopLevelJsonString(File.ReadAllText(manifest, Encoding.UTF8), RuntimeShaManifestKey);
+            if (sha == null || sha.Length != 64) return null;
+            foreach (char c in sha) if (!Uri.IsHexDigit(c)) return null;
+            return sha.ToLowerInvariant();
+        }
+        catch { return null; }
+    }
+
+    internal static string FileSha256Hex(string path)
+    {
+        using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+        using (FileStream f = File.OpenRead(path))
+        {
+            byte[] hash = sha.ComputeHash(f);
+            StringBuilder hex = new StringBuilder(64);
+            foreach (byte b in hash) hex.Append(b.ToString("x2"));
+            return hex.ToString();
+        }
+    }
+
+    // A rename that a scanner or an indexer holding the file for a moment can refuse: tried for about a second, as
+    // engine/win32swap.js renameWithRetry does. null when moved, or the last reason.
+    static string MoveWithRetry(string from, string to)
+    {
+        string last = null;
+        for (int i = 0; i < 6; i++)
+        {
+            try { File.Move(from, to); return null; }
+            catch (Exception e) { last = e.Message; Thread.Sleep(200); }
+        }
+        return last;
+    }
+
+    static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* a leftover copy is named for what it is */ }
+    }
+
+    // After a hand-off (see Main): nothing listening on the board's port within AfterHandOffLookMs, AND the logon task's
+    // runtime failing its check, offers the same Repair. A board that is slow, stopped on purpose, or switched to
+    // Connect has a runtime that runs, so nothing is said. A table that cannot be read, or any failure here, says
+    // nothing. What this cannot see: a fault only a longer run reaches (the card's weakest premise).
+    static void LookAfterHandOff(string here, string node, int port)
+    {
+        try
+        {
+            Stopwatch waited = Stopwatch.StartNew();
+            while (waited.ElapsedMilliseconds < AfterHandOffLookMs)
+            {
+                List<int> listening = ListenersOnPort(port);
+                if (listening == null || listening.Count > 0) return;
+                Thread.Sleep(AfterHandOffPollMs);
+            }
+            string anchored = AnchoredRuntimePath();
+            if (!SameRuntimeVersion(node, anchored) || UpdateUnderWayHere(here)) return;
+            RuntimeCheck task = CheckRuntime(anchored);
+            if (!task.LooksDamaged) return;
+            if (!AskRepair(DamagedRuntimeQuestion(task.Words))) return;
+            if (UpdateUnderWayHere(here)) return;
+            string problem = RepairRuntime(node, anchored, ExpectedRuntimeSha256(here));
+            if (problem != null) ShowMessageBox(RepairFailedMessage(problem), true);
+            else ShowNotice("Kosmos's runtime is repaired. Open Kosmos again to start it; if it still does not open, restart this computer.");
+        }
+        catch { /* a look that fails says nothing */ }
+    }
+
+    // A Repair question, Yes by default: unlike AskYesNo's questions, which remove things, Repair only makes a fresh copy
+    // and keeps the old file.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static bool AskRepair(string question)
+    {
+        try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
+        try
+        {
+            System.Windows.Forms.Application.EnableVisualStyles();
+            return System.Windows.Forms.MessageBox.Show(question, WindowTitle,
+                System.Windows.Forms.MessageBoxButtons.YesNo, System.Windows.Forms.MessageBoxIcon.Warning,
+                System.Windows.Forms.MessageBoxDefaultButton.Button1) == System.Windows.Forms.DialogResult.Yes;
+        }
+        catch
+        {
+            return MessageBoxW(IntPtr.Zero, question, WindowTitle, MB_YESNO | MB_ICONWARNING) == IDYES;
+        }
     }
 
     // ---- presenting to a person ----------------------------------------------
