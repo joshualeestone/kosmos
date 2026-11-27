@@ -17,13 +17,17 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * brackets is caught too (review 1).
  *
  * The second test keeps the first honest: every field a printer reads must be set by some fixture, and every helper a
- * printer calls with the task must be inside the source read. A read is found as `x.<field>` or `x?.<field>`, as a
- * helper's own parameter wherever x is passed to it (in any position, destructured or not), as destructuring
- * (`const { f } = x`), and one level
- * down for an object field (`x.subtasks.<name>`, or through a name for it: `const u = x && x.onHoldUntil; u.task`).
+ * printer calls with the task must be inside the source read. A read is found as:
+ *   - `x.<field>` or `x?.<field>`, and a string-keyed `Object.hasOwn(x, 'f')` or `hasOwnProperty.call(x, 'f')`;
+ *   - a helper's own parameter wherever x is passed to it (any position, destructured or not), and destructuring
+ *     (`const { f } = x`);
+ *   - one level down for an object field (`x.subtasks.<name>`, or through a name for it: `const u = x &&
+ *     x.onHoldUntil; u.task`), and an array's element fields read in a callback on it (`x.builtFiles.filter((e) =>
+ *     e.fingerprint)`, with calls between too: `.slice(0, n).filter(...)`).
  * The row loops must call the task x (checked). A qualified call that passes the task (`mod.fn(x)`) is reported as a
- * helper outside the source read, so a module helper that reads the task goes red until its source is read here too. A read written any other way (a computed `x[k]`, a second alias of an
- * alias, a helper reached only through another helper's renamed parameter) is not seen.
+ * helper outside the source read, so a module helper that reads the task goes red until its source is read here too.
+ * A read written any other way (a computed `x[k]`, a second alias of an alias, a helper reached only through another
+ * helper's renamed parameter, an element read outside a callback such as `x.builtFiles[0].f`) is not seen.
  * NOT COVERED, stated (review 1): a new mark on a new VALUE of a field the fixtures already set (builtWaitingOn ===
  * 'deploy'). No field scan can see a value; only a fixture with that value can. Lines without the title (done when,
  * still to finish, the fingerprint) are not checked: a title is folded onto one line, so it can never start one.
@@ -308,6 +312,24 @@ function subFieldsRead(src) {
   }
   return out;
 }
+/* Review 5: a field of an ARRAY's elements, read in a callback on it ("x.builtFiles.filter((e) => e && e.fingerprint)",
+   and the same with calls between: "x.doneWhenResults.slice(0, n).filter(r => r.met)"). Returned as 'field[].name'; the
+   callback's parameter is followed inside the callback's own brackets only. */
+const ARRAY_CALLS = 'filter|some|map|find|findIndex|every|forEach|reduce|flatMap';
+function elementFieldsRead(src) {
+  const out = new Set();
+  for (const n of taskNames(src)) {
+    const re = new RegExp('(?<![\\w$.])' + esc(n) + GET + '(' + ID + ')((?:' + GET + ID + '\\([^()]*\\))*)' + GET + '(?:' + ARRAY_CALLS + ')\\(\\s*\\(?\\s*(' + ID + ')\\s*\\)?\\s*=>', 'g');
+    for (const m of src.matchAll(re)) {
+      // The callback body starts after its arrow, inside the array call's own bracket: read to where that bracket closes.
+      let d = 1; let i = m.index + m[0].length;
+      for (; i < src.length && d > 0; i++) { const c = src[i]; if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--; }
+      const body = src.slice(m.index + m[0].length, i);
+      for (const r of body.matchAll(new RegExp('(?<![\\w$.])' + esc(m[3]) + GET + '(' + ID + ')', 'g'))) out.add(m[1] + '[].' + r[1]);
+    }
+  }
+  return out;
+}
 // Review 1: a helper called with the task must be inside the source the field check reads, or its reads are unseen.
 function helpersOutside(src) {
   const defined = new Set([...src.matchAll(new RegExp('(?:function\\s+|(?:const|let)\\s+)(' + ID + ')\\s*(?:\\(|=)', 'g'))].map((m) => m[1]));
@@ -349,6 +371,11 @@ test('#9203 the fixtures set every field the list printers read', () => {
       const [a, b] = fb.split('.');
       const objs = FIXTURES.map((x) => x[a]).filter(isObj);
       if (objs.length && !objs.some((o) => Object.hasOwn(o, b))) unset.push(where + ': x.' + fb);
+    }
+    for (const fb of elementFieldsRead(src)) {
+      const [a, b] = fb.split('[].');
+      const elems = FIXTURES.flatMap((x) => (Array.isArray(x[a]) ? x[a] : [])).filter(isObj);
+      if (!elems.some((o) => Object.hasOwn(o, b))) unset.push(where + ': x.' + a + '[].' + b);
     }
     for (const h of helpersOutside(src)) unset.push(where + ': calls ' + h + '(..., x, ...) from outside the source read here');
   }
