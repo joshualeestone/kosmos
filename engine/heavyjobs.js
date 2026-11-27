@@ -106,12 +106,12 @@ function isLive(j, { now, startOf, agentAlive }) {
     // outlives its agent's call, and an agent restarting while its suite runs is when the line matters most.
     const s = startOf(j.pid);
     if (s === null) return false;                                  // no such process
-    if (typeof s === 'string' && j.pidStart && s !== j.pidStart) return false;   // the number was reused
-    // kosmos#9222: the same process, confirmed by its start time, is judged, so the ceiling (for what nothing can
-    // judge) does not apply: an overnight run stays on the board. Could not ask (undefined, or no recorded start):
-    // kept until the ceiling, the safe side for a passive notice.
-    if (typeof s === 'string' && j.pidStart && s === j.pidStart) return true;
-    return !aged;
+    // kosmos#9222: a record with its start recorded is judged by that start, with no ceiling, so an overnight run
+    // stays on the board: a different start is a reused number (gone); undefined means the process answers signal 0
+    // and its start was not read this time (ps budget spent, timed out, or a read without ps), which keeps it: one
+    // read that could not ask must not delete what the next read would confirm.
+    if (j.pidStart) return typeof s === 'string' ? s === j.pidStart : true;
+    return !aged;   // no start recorded (Windows: no ps): nothing can tell a reused number, so the ceiling holds
   }
   if (aged) return false;
   return !(agentAlive && agentAlive(j.agent) === false);

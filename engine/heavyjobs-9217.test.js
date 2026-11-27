@@ -312,7 +312,9 @@ test('kosmos#9222: a job whose process is confirmed by its start time outlives t
   hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 4242, now: T0, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') });
   assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') }).map((j) => j.label), ['overnight'],
     'a running, confirmed process was dropped at the ceiling');
-  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: () => undefined }), [], 'could not ask: the ceiling holds');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: () => undefined }).map((j) => j.label), ['overnight'],
+    'one read that could not read the start deleted a recorded, running job');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: alwaysStart('Sat Nov 28 01:00:00 2026') }), [], 'a different start: a reused number, gone');
   const w = root();   // a record with no start recorded (Windows: no ps)
   hj.start({ root: w, agent: 'renet', label: 'unjudged', pid: 4243, now: T0, startOf: () => undefined });
   assert.deepEqual(hj.live({ root: w, now: T0 + 13 * H, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') }), [],
@@ -321,3 +323,18 @@ test('kosmos#9222: a job whose process is confirmed by its start time outlives t
   hj.start({ root: n, agent: 'renet', label: 'no process', now: T0 });
   assert.deepEqual(hj.live({ root: n, now: T0 + 13 * H }), [], 'control: a job with no process still meets the ceiling');
 });
+
+test('kosmos#9222: with the real reader, a later start by the same agent and an over-budget read keep the overnight job', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 10 * H;   // past every cache entry an earlier test made
+  const r = root();
+  seen.start = 'A';
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 96001, now: base }).ok, true);
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'later', pid: 96002, now: base + 13 * H }).ok, true);
+  assert.deepEqual(hj.readAll(r).map((j) => j.label).sort(), ['later', 'overnight'], 'a second start dropped the overnight job');
+  // Nine other records, so one read spends its ps budget before reaching some of them.
+  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'a' + i, label: 'x' + i, pid: 96100 + i, now: base + 13 * H, startOf: () => 'A' });
+  const shown = hj.live({ root: r, now: base + 14 * H }).map((j) => j.label);
+  assert.ok(shown.includes('overnight'), 'a read whose ps budget ran out deleted the overnight job: ' + shown.join(','));
+  assert.deepEqual(hj.readAll(r).filter((j) => j.label === 'overnight').length, 1, 'and it is still in the file');
+}));
