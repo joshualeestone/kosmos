@@ -651,12 +651,12 @@ function tallyLine(t, shownNew, behind, cutShort, shownOther = 0) {
       + plural(otherPosts, 'other post', 'other posts') : '') + '.';
 }
 
-/** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 /* kosmos#9172 review 2: what a read of a followed post needs, home's own rule (' --public' on a computer whose company
    community is on), or '' when home cannot be loaded. */
 function readFlagOf() {
   try { const h = require('./communityhome'); return typeof h.publicFlag === 'function' ? h.publicFlag() : ''; } catch { return ''; }
 }
+/** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const began = Date.now();
   const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site

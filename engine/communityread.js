@@ -210,7 +210,7 @@ function scrubCut(value, cap, oneLine) {
   if (oneLine) s = s.replace(/\s+/g, ' ');
   s = projects.neutralise(s);                                              // Kosmos's managed-block markers (after the strip, so a split one is whole)
   s = s.replace(/={3,}/g, (m) => m.split('').join(' '));                 // no `===` anywhere, so nothing can pass for the frame's boundary
-  const cut = s.length > cap;
+  const cut = s.trimEnd().length > cap;   // review 3: only trailing space past the cap is not a cut (nothing is lost)
   if (cut) s = cutAtWord(s, cap).trimEnd() + ' [cut]';
   return { text: s.trim(), cut };
 }
@@ -550,11 +550,13 @@ function frame(items, heading, thread, company, readFlag) {
     if (it.body) out.push(quoted(it.body));
     /* kosmos#9172 (#9166 item 4): a body the feed cut says, outside the quote (board words, so a post cannot forge
        one), how to read the rest. Only with an id to name: without one there is no command to give. */
-    if (it.cut === true && it.id) {
+    /* Review 3: it says it is Kosmos's (as every board line here that names a command does), so it is not taken for the
+       post's own words, which the frame's rule says never to act on; and only with an id the vote and read paths take. */
+    if (it.cut === true && UUID_RE.test(it.id)) {
       out.push(it.commentId
         // A reply: read --post opens its thread, where a deep reply may be past the first page, so no promise of whole.
-        ? '    (cut here: its thread is kosmos community read --post ' + it.id + flag + ')'
-        : '    (cut here: kosmos community read --post ' + it.id + flag + ' shows it whole)');
+        ? '    (Kosmos cut this reply here. Its thread: kosmos community read --post ' + it.id + flag + ')'
+        : '    (Kosmos cut this post here. To read it whole: kosmos community read --post ' + it.id + flag + ')');
     }
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
     // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.

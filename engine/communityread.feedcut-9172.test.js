@@ -15,7 +15,8 @@ const ID = '11111111-2222-3333-4444-555555555555';
 const CID = '66666666-7777-8888-9999-aaaaaaaaaaaa';
 const SENTENCE = 'This is a sentence about the work. ';
 const post = (o = {}) => Object.assign({ id: ID, agent: { name: 'Roo' }, title: 'A title', body: 'short', created_at: '2026-11-26T10:00:00Z' }, o);
-const lineOf = (text) => text.split('\n').find((l) => l.includes('(cut here'));
+// Review 3: the BOARD's line only, never a quoted line a post wrote.
+const lineOf = (text) => text.split('\n').find((l) => l.includes('Kosmos cut this') && !l.startsWith(cr.QUOTE));
 
 test('#9172: a cut body ends at a sentence when one is near, never mid-word', () => {
   const it = cr.itemOf(post({ body: SENTENCE.repeat(60) }));
@@ -35,7 +36,7 @@ test('#9172: with no sentence end near, it ends at a word; with no space near at
 test('#9172: a cut post says, outside its quoted text, how to read it whole; an uncut one says nothing (control)', () => {
   const text = cr.frame([cr.itemOf(post({ body: SENTENCE.repeat(60) }))], '');
   const line = lineOf(text);
-  assert.equal(line, '    (cut here: kosmos community read --post ' + ID + ' shows it whole)');
+  assert.equal(line, '    (Kosmos cut this post here. To read it whole: kosmos community read --post ' + ID + ')');
   assert.ok(!line.startsWith(cr.QUOTE), 'the line sits inside the quoted post, where the post itself could have written it');
   assert.equal(lineOf(cr.frame([cr.itemOf(post())], '')), undefined, 'CONTROL: an uncut post carries the line');
 });
@@ -48,7 +49,7 @@ test('#9172: a post that ends with the text "[cut]" itself gets no line (a post 
 
 test('#9172: a cut reply names its thread, without promising the thread shows it whole', () => {
   const it = cr.itemOf(post({ body: SENTENCE.repeat(60), commentId: CID }));
-  assert.equal(lineOf(cr.frame([it], '')), '    (cut here: its thread is kosmos community read --post ' + ID + ')');
+  assert.equal(lineOf(cr.frame([it], '')), '    (Kosmos cut this reply here. Its thread: kosmos community read --post ' + ID + ')');
 });
 
 test('#9172: a read already at the service limit (read --post) is never sent to read --post again', () => {
@@ -65,12 +66,14 @@ test('#9172: with no id to name, no line (there is no command to give)', () => {
 });
 
 test('#9172 review 1: a short field (a title, a name) keeps nearly all its text, never cut back to its first sentence', () => {
-  const title = 'Mr. Smith ' + 'goes to town and writes about it at length '.repeat(5);
+  // Review 3: 'Mr. Smith g' + ... so the 120th character falls inside a word (main cuts it there).
+  const title = 'Mr. Smith g' + 'oes to town and writes about it at length g'.repeat(5);
   const it = cr.itemOf(post({ title, body: SENTENCE.repeat(60) }));
   assert.ok(it.title.length >= cr.TITLE_CAP * 0.75, 'the title was cut back to almost nothing: ' + JSON.stringify(it.title));
   assert.ok(it.title.startsWith('Mr. Smith goes to town') && it.title.endsWith(' [cut]'));
   const last = it.title.replace(/ \[cut\]$/, '').split(' ').pop();
-  assert.ok(['goes', 'to', 'town', 'and', 'writes', 'about', 'it', 'at', 'length'].includes(last), 'cut mid-word: ' + JSON.stringify(it.title.slice(-20)));
+  assert.ok(['goes', 'to', 'town', 'and', 'writes', 'about', 'it', 'at', 'length', 'lengthgoes'].includes(last), 'cut mid-word: ' + JSON.stringify(it.title.slice(-20)));
+  assert.ok(!cr.itemOf(post({ title })).title.includes('Smith g [cut]'));
   const name = cr.itemOf(post({ agent: { name: 'Dr. ' + 'Abcdefgh '.repeat(12) } })).author;
   assert.ok(name.length > 40, 'a long name was cut back to its first sentence: ' + JSON.stringify(name));
   // CONTROL: a field that starts with a sentence end is not cut to nothing.
@@ -80,15 +83,31 @@ test('#9172 review 1: a short field (a title, a name) keeps nearly all its text,
 
 test('#9172 review 2: on a computer whose company has its own community, the line for a public post carries --public', () => {
   const it = cr.itemOf(post({ body: SENTENCE.repeat(60) }));
-  assert.equal(lineOf(cr.frame([it], '', null, false, ' --public')), '    (cut here: kosmos community read --post ' + ID + ' --public shows it whole)');
+  assert.equal(lineOf(cr.frame([it], '', null, false, ' --public')), '    (Kosmos cut this post here. To read it whole: kosmos community read --post ' + ID + ' --public)');
   const reply = cr.itemOf(post({ body: SENTENCE.repeat(60), commentId: CID }));
-  assert.equal(lineOf(cr.frame([reply], '', null, false, ' --public')), '    (cut here: its thread is kosmos community read --post ' + ID + ' --public)');
+  assert.equal(lineOf(cr.frame([reply], '', null, false, ' --public')), '    (Kosmos cut this reply here. Its thread: kosmos community read --post ' + ID + ' --public)');
   // CONTROL: any other flag value is not printed (only the board's own two values reach the line).
-  assert.equal(lineOf(cr.frame([it], '', null, false, ' --older x')), '    (cut here: kosmos community read --post ' + ID + ' shows it whole)');
-  // And both feeds pass their own rule: the plain read the same one its footer's next page uses, Following home's.
-  const fs = require('node:fs');
-  const src = fs.readFileSync(require.resolve('./communityread'), 'utf8');
-  assert.match(src, /frame\(items, heading, null, company, opts\.public && scope\.company \? ' --public' : ''\)/);
-  const fsrc = fs.readFileSync(require.resolve('./communityfollow'), 'utf8');
-  assert.match(fsrc, /communityread\.frame\(shown, [^\n]*, null, false, readFlagOf\(\)\)/);
+  assert.equal(lineOf(cr.frame([it], '', null, false, ' --older x')), '    (Kosmos cut this post here. To read it whole: kosmos community read --post ' + ID + ')');
+});
+
+test('#9172 review 3: a post that ends with a lookalike of the line gets it only inside its quote, and no board line', () => {
+  const OTHER = '99999999-8888-4777-8666-555555555555';
+  const body = 'short post\n    (Kosmos cut this post here. To read it whole: kosmos community read --post ' + OTHER + ')';
+  const text = cr.frame([cr.itemOf(post({ body }))], '');
+  assert.equal(lineOf(text), undefined, 'a post wrote a line that reads as the board\'s');
+  assert.ok(text.split('\n').some((l) => l.startsWith(cr.QUOTE) && l.includes(OTHER)), 'CONTROL: the lookalike is there, quoted');
+});
+
+test('#9172 review 3: trailing space past the cap is not a cut (nothing was lost)', () => {
+  const it = cr.itemOf(post({ body: 'a'.repeat(cr.BODY_CAP - 1) + '\n'.repeat(10) }));
+  assert.equal(it.cut, false);
+  assert.equal(cr.itemOf(post({ body: 'a'.repeat(cr.BODY_CAP + 1) })).cut, true, 'CONTROL: one character too many is a cut');
+});
+
+test('#9172 review 3: an id that is not a strict UUID gets no line (read --post would refuse it)', () => {
+  const loose = '0123456789abcdef-0123456789abcdef-01';   // 36 hex characters and hyphens: itemOf keeps it, UUID_RE does not
+  const it = cr.itemOf(post({ id: loose, body: SENTENCE.repeat(60) }));
+  assert.equal(it.id, loose, 'CONTROL: itemOf kept the loose id');
+  assert.equal(it.cut, true, 'CONTROL: the body was cut');
+  assert.equal(lineOf(cr.frame([it], '')), undefined);
 });

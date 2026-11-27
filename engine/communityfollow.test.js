@@ -633,7 +633,21 @@ test('#5372 review 1: a long post does not cut the replies quoted after it; each
     assert.ok(r.text.includes('    ' + cr.QUOTE + 'REPLY-TWO-END'), r.text.slice(-400));
     assert.ok(r.text.includes('x [cut]'), 'control: the long post itself was cut');
     // kosmos#9172: the Following feed says, under the cut entry, which read shows the rest (no --public: no company here).
-    assert.ok(/\n {4}\(cut here: (its thread is )?kosmos community read --post dc99a420-1774-46fc-89d5-28c4b2915f0b( shows it whole)?\)\n/.test(r.text), 'no cut line under the cut entry: ' + r.text.slice(-600));
+    const cutLine = (text) => text.split('\n').find((l) => l.includes('Kosmos cut this') && !l.startsWith(cr.QUOTE)) || '';
+    assert.ok(cutLine(r.text).endsWith('kosmos community read --post dc99a420-1774-46fc-89d5-28c4b2915f0b)'), 'no cut line under the cut entry: ' + r.text.slice(-600));
+    // Review 3, behaviour: on a company computer (home's publicFlag) the line carries --public.
+    const home = require('./communityhome');
+    const flag = home.publicFlag;
+    try {
+      home.publicFlag = () => ' --public';
+      fresh(); await cf.follow('mara', 'quill');
+      const c = await cf.readFollowing('mara');
+      assert.ok(cutLine(c.text).endsWith('--post dc99a420-1774-46fc-89d5-28c4b2915f0b --public)'), 'a company computer was not told --public: ' + cutLine(c.text));
+      home.publicFlag = () => { throw new Error('home broke'); };
+      fresh(); await cf.follow('mara', 'quill');
+      const broke = await cf.readFollowing('mara');
+      assert.equal(broke.ok, true, 'CONTROL: a broken publicFlag still reads');
+    } finally { home.publicFlag = flag; }
   } finally { await b.close(); }
 });
 
