@@ -25,7 +25,8 @@
  * unquoted. The cost, accepted: an ordinary title that uses the word ("the site was built on Friday", "a built-in
  * helper") is printed quoted too; its words are unchanged.
  * Pure: no state, no I/O. #9188: the task list CLIs and engine/tasklist.js call quoteOwnWords and usesListMarkWord
- * (below), the list's wider test; cli.task-listmarks-render-9203.test.js keeps that test complete against the printers.
+ * (below), the list's wider test; cli.task-listmarks-render-9203.test.js checks it against every mark the printers
+ * print today and against every field they read (a new mark on a new VALUE of a known field it cannot see).
  */
 
 const cp = (...codes) => codes.map((c) => String.fromCodePoint(c)).join('');

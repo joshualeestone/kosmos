@@ -13,9 +13,18 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * usesListMarkWord. Two groups are allowed through, on purpose: the row's own label "[N]", and the owner's bare names
  * "(otto)" (a name has no fixed word; #9201 catches it where it could forge an owner, at the END of a title).
  *
- * The second test is what keeps the first honest: every field a printer reads (`x.<field>`, read out of each printer's
- * source) must be set by some fixture here, so a printer that grows a new mark on a new field turns this red until the
- * fixtures (and so the first test) cover it.
+ * What is left of a row once its groups are out must be the printer's fixed columns, so a mark printed without
+ * brackets is caught too (review 1).
+ *
+ * The second test keeps the first honest: every field a printer reads (`x.<field>`, and a sub-field of an object field,
+ * `x.subtasks.<name>` or through a name for it, read out of each printer's source) must be set by some fixture, and
+ * every helper a printer calls with the task must be inside the source read. So a printer that grows a mark on a NEW
+ * field turns this red until the fixtures (and so the first test) cover it.
+ * NOT COVERED, stated (review 1): a new mark on a new VALUE of a field the fixtures already set (builtWaitingOn ===
+ * 'deploy'). No field scan can see a value; only a fixture with that value can. Lines without the title (done when,
+ * still to finish, the fingerprint) are not checked: a title is folded onto one line, so it can never start one.
+ * Rows are matched to fixtures by order (every printer keeps the board's order); a printer that sorted would give a
+ * false red here, never a false pass.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
  *
@@ -147,6 +156,21 @@ function markGroups(row, x) {
     .concat(groupsOf(after).filter((g) => g !== owner));
 }
 
+/* Review 1: a mark printed WITHOUT brackets would be invisible to the groups. So what is left of a row once its groups
+   are taken out must be exactly the printer's fixed words: before the title, the compact and across lists' columns
+   (project, #N, the state, the owner's names or "nobody") or nothing on a long list; after it, nothing but a webhook
+   title's closing quote. */
+function leftover(text) { let out = text; for (const g of groupsOf(text)) out = out.replace(g, ''); return out; }
+const COLUMNS = /^(?:p {2})?#\d+ {2}(?:open|blocked|built) {2}(?:nobody|[a-z]+(?:, [a-z]+)*) ?(?: {2})"?$/;
+function unbracketed(label, row) {
+  const at = row.indexOf(T);
+  const before = leftover(row.slice(0, at)); const after = leftover(row.slice(at + T.length));
+  const long = /long list/.test(label);
+  const okBefore = long ? /^ ?"?$/.test(before.replace(/^\s+/, '')) : COLUMNS.test(before);
+  const okAfter = /^"?\s*$/.test(after);
+  return okBefore && okAfter ? null : label + ': words outside any bracket: before ' + JSON.stringify(before) + ', after ' + JSON.stringify(after) + '    (row: ' + row + ')';
+}
+
 async function everyRow() {
   const runs = [
     ...['open', 'blocked', 'built'].map((s) => ['compact --' + s, compactRows(s)]),
@@ -174,6 +198,8 @@ test('#9203 every mark the printers print, set in a title, is caught by usesList
       checked++;
       if (!markwords.usesListMarkWord('fix ' + g + ' now')) missed.push(label + ': ' + g + '    (row: ' + row + ')');
     }
+    const loose = unbracketed(label, row);
+    if (loose) missed.push(loose);
   }
   assert.deepEqual(missed, [], 'marks a title could print unquoted:\n' + missed.join('\n'));
   // The marks reached are real ones: these must all have been printed and checked somewhere.
@@ -200,6 +226,23 @@ test('#9203 the groups test can fail: an unknown mark, and the owner name outsid
 function fieldsRead(src) {
   return new Set([...src.matchAll(/(?<![\w$.])x\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));
 }
+/* Review 1: a mark can also hang off a SUB-field of a field the fixtures already set ("x.subtasks.zebra"), read either
+   directly or through a name for the field ("const u = x.onHoldUntil; u.task"). Each such read of an OBJECT field (an
+   array's or a string's methods are not fields) must be set by some fixture too. */
+function subFieldsRead(src) {
+  const out = new Set();
+  for (const m of src.matchAll(/(?<![\w$.])x\.([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)/g)) out.add(m[1] + '.' + m[2]);
+  for (const a of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*x\.([A-Za-z_$][\w$]*)\s*[;,]/g)) {
+    for (const m of src.matchAll(new RegExp('(?<![\\w$.])' + a[1].replace(/\$/g, '\\$') + '\\.([A-Za-z_$][\\w$]*)', 'g'))) out.add(a[2] + '.' + m[1]);
+  }
+  return out;
+}
+// Review 1: a helper called with the task must be inside the source the field check reads, or its reads are unseen.
+function helpersOutside(src) {
+  const defined = new Set([...src.matchAll(/(?:function\s+|(?:const|let)\s+)([A-Za-z_$][\w$]*)\s*(?:\(|=)/g)].map((m) => m[1]));
+  return [...new Set([...src.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)\(\s*x\s*[,)]/g)].map((m) => m[1]))]
+    .filter((n) => !defined.has(n) && !['String', 'Number', 'Boolean', 'Array', 'Object'].includes(n));
+}
 function between(src, from, to) {
   const a = src.indexOf(from); const b = src.indexOf(to, a + 1);
   assert.ok(a >= 0 && b > a, 'source moved: ' + from + ' .. ' + to);
@@ -216,11 +259,18 @@ test('#9203 the fixtures set every field the list printers read', () => {
     'install/kosmos long list': macProgram(),
   };
   const set = new Set(FIXTURES.flatMap((f) => Object.keys(f)));
+  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
   const unset = [];
   for (const [where, src] of Object.entries(sources)) {
     const read = fieldsRead(src);
     assert.ok(read.size > 15, where + ': only ' + read.size + ' fields found, so the source cut is wrong');
     for (const f of read) if (!set.has(f)) unset.push(where + ': x.' + f);
+    for (const fb of subFieldsRead(src)) {
+      const [a, b] = fb.split('.');
+      const objs = FIXTURES.map((x) => x[a]).filter(isObj);
+      if (objs.length && !objs.some((o) => Object.hasOwn(o, b))) unset.push(where + ': x.' + fb);
+    }
+    for (const h of helpersOutside(src)) unset.push(where + ': calls ' + h + '(x, ...) from outside the source read here');
   }
   assert.deepEqual(unset, [], 'a printer reads a field no fixture sets, so its mark is never rendered here:\n' + unset.join('\n'));
 });
