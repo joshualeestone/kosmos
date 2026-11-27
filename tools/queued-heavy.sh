@@ -616,9 +616,9 @@ fi
 # queue; the claim came after it. In between, the next waiter saw nobody ahead and no claim, and passed too: two
 # light runs got one turn at 16:31:53 and refused each other. Now the last check and the claim happen together under
 # a mkdir lock, and a run that finds the box taken goes back to waiting.
-_qh_take() {
-  local lock ; lock="$(_kosmos_marker_dir)/queued-heavy-take.lock"
-  local i=0 op
+# The take lock (also held to break a dead beside slot, kosmos#9139 review 6). Returns once this script holds it.
+_qh_take_lock() {   # <lock dir>
+  local lock="$1" i=0 op
   mkdir -p "$(_kosmos_marker_dir)" 2>/dev/null
   until mkdir "$lock" 2>/dev/null; do
     op="$(cat "$lock/pid" 2>/dev/null)"
@@ -630,6 +630,10 @@ _qh_take() {
     sleep 0.5
   done
   echo "$$" > "$lock/pid"
+}
+_qh_take() {
+  local lock ; lock="$(_kosmos_marker_dir)/queued-heavy-take.lock"
+  _qh_take_lock "$lock"
   local rc=1
   if [ "${KOSMOS_WAIT_LANE:-main}" = side ]; then
     # Asked again under the lock (the wait asked outside it, and a main-lane light take holds this lock too), then
@@ -674,6 +678,7 @@ _qh_take() {
 # take a new one, whichever the wait that ends it gives; neither moves it ahead of a waiter that joined earlier.
 QH_CAP_S="${QUEUED_HEAVY_CAP_S:-}"
 case "$QH_CAP_S" in ''|*[!0-9]*) QH_CAP_S="" ;; esac
+while [ "${#QH_CAP_S}" -gt 1 ] && [ "${QH_CAP_S#0}" != "$QH_CAP_S" ]; do QH_CAP_S="${QH_CAP_S#0}"; done   # review 6: 000900 is 900, not a day
 case "$QH_CAP_S" in ??????*) QH_CAP_S=86400 ;; esac   # review 4: six digits or more is a day (no 64-bit overflow)
 [ -n "$QH_CAP_S" ] && QH_CAP_S=$((10#$QH_CAP_S))
 [ "${KOSMOS_QUEUE_CLASS:-heavy}" = light ] && QH_CAP_S=""
@@ -714,17 +719,26 @@ QH_BESIDE=""; QH_BESIDE_ID=""; QH_SLOT=""; QH_HOLD_PASSES=0
 # names that holder (a dead holder cannot release); one with no pid only past 300 s, judged again after that read.
 _qh_slot_dir() { printf '%s/queued-heavy-beside.slot' "$(_qh_marker_dir_raw)"; }
 _qh_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
+# Review 6: the slot file is "<wrapper pid> [<command's process group>]": the group is added once the command starts,
+# so a SIGKILLed wrapper's slot stays held while its command still runs (until the watcher has stopped it). Not covered,
+# stated: a beside run started from a terminal (QH_FG) runs its command in the foreground and records no group.
+_qh_slot_live() {   # <slot dir>: 0 while its holder (or its command's group) lives, or it is under 300 s old with no pid
+  local h g
+  read -r h g < "$1/pid" 2>/dev/null || h=""
+  case "$h" in ''|*[!0-9]*) [ $(( $(date +%s) - $(_qh_mtime "$1") )) -le 300 ]; return ;; esac
+  kill -0 "$h" 2>/dev/null && return 0
+  case "$g" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 -- "-$g" 2>/dev/null
+}
 _qh_slot_held() {   # 0 when a live run holds the beside slot; a dead holder's slot is broken here
-  local d h; d="$(_qh_slot_dir)"; [ -d "$d" ] || return 1
-  h="$(cat "$d/pid" 2>/dev/null)"
-  case "$h" in
-    ''|*[!0-9]*) [ $(( $(date +%s) - $(_qh_mtime "$d") )) -gt 300 ] || return 0 ;;
-    *) kill -0 "$h" 2>/dev/null && return 0 ;;
-  esac
-  if [ "$(cat "$d/pid" 2>/dev/null)" = "$h" ] && { [ -n "$h" ] || [ $(( $(date +%s) - $(_qh_mtime "$d") )) -gt 300 ]; }; then
-    rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true
-  fi
-  [ -d "$d" ]   # broken (or released meanwhile): free; made again by another run meanwhile: held
+  local d l; d="$(_qh_slot_dir)"; [ -d "$d" ] || return 1
+  _qh_slot_live "$d" && return 0
+  # Review 6: broken only UNDER THE TAKE LOCK, judged again there. Two waiters that both judged it dead used to race: one
+  # broke it and took a new slot, then the other's rm removed that live one and it took the slot too (reproduced).
+  l="$(_kosmos_marker_dir)/queued-heavy-take.lock"; _qh_take_lock "$l"
+  if [ -d "$d" ] && ! _qh_slot_live "$d"; then rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true; fi
+  rm -rf "$l"
+  [ -d "$d" ]   # broken (or released meanwhile): free; taken again by another run meanwhile: held
 }
 _qh_slot_take() {
   local d; d="$(_qh_slot_dir)"
@@ -733,7 +747,8 @@ _qh_slot_take() {
   QH_SLOT="$d"; return 0
 }
 _qh_slot_release() {   # only a slot that still names this script ($$ is this script's pid in the watcher too)
-  if [ -n "${QH_SLOT:-}" ] && [ "$(cat "$QH_SLOT/pid" 2>/dev/null)" = "$$" ]; then
+  local h=""; [ -n "${QH_SLOT:-}" ] && { read -r h _ < "$QH_SLOT/pid"; } 2>/dev/null
+  if [ -n "${QH_SLOT:-}" ] && [ "$h" = "$$" ]; then
     rm -f "$QH_SLOT/pid" 2>/dev/null; rmdir "$QH_SLOT" 2>/dev/null || true
   fi
   return 0
@@ -780,7 +795,10 @@ _qh_cut_or_beside() {
   # Review 1: the cut may have ended between the last check and the loop's test. Review 2: only after a cut was waited
   # out; a free box with no cut here is the one this run just lost a take on, and taking it again would only lose again.
   [ "$waited" = 1 ] && _qh_free_now && return 0
-  _qh_go_beside
+  _qh_go_beside && return 0
+  # Review 6: a slot that cannot be made (an unwritable marker dir, a full disk) and is not held sends this back with
+  # no sleep anywhere in the cycle; one poll here, as a lost slot race costs the same.
+  sleep "$every"; return 1
 }
 QH_JOINED="$(date +%s)"
 export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait (a side wait returns first; the renewer never waits).
@@ -1084,6 +1102,7 @@ else
   set -m; "$@" & CMD=$!
   trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; trap - ALRM USR1 USR2
   [ -n "$QH_PEND" ] && { set +m; exit "$QH_PEND"; }
+  [ -n "${QH_SLOT:-}" ] && { printf '%s %s\n' "$$" "$CMD" > "$QH_SLOT/pid"; } 2>/dev/null   # review 6: and its group
   # The watcher, in its own process group too (so a KILL to this script's group does not reach it), stopped by
   # _qh_stop_capper like a side turn's capper. Every 5 s: once the command's GROUP has gone it exits; once THIS script
   # is gone (SIGKILLed, so no trap ran) it stops the command's group as _qh_end would, and exits. $$ is this script's
