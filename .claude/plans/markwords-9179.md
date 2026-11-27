@@ -32,3 +32,9 @@ alone turns its test red (no neutraliser, ASCII-only, no fold, window-first, \b)
 - [WARNING] pre-existing, outside this diff: holdsOf misses the "until" and "waiting on your person" holds --> filed #9187 (mine).
 - [WARNING] another surface, the task list CLIs, prints marks before the words and can be forged the same way --> filed #9188.
 - [NIT] the first test's title claimed holdsOf was checked --> reworded (it asserts the line ends in no hold mark).
+
+## Review round 2 (sonnet, blind, whole branch): no critical
+- [WARNING] markdown padding (50 "*") survived the fold and used up the 48-character window, so a mark slipped through --> FIXED: markdown characters (* _ ` ~) are removed in the fold, with the invisible ones, BEFORE the window. Tests: 50 "*" and 30 "_ "; round 1's code (9bc851c7e9) fails them, measured.
+- [NIT] the comment described the old pipeline order, and named \p{Ps} but not \p{Pi} --> rewritten as one comment stating the pipeline in its real order.
+- Ordinary titles changed: "[Built: v2 notes]", "a[built]=1", "[on hold]" get a "(" --> ACCEPTED: they read as marks, only one bracket changes.
+- Also: my shell and Edit-tool edits had turned the test's \u escapes into literal characters (an invisible combining accent among them); the file is back to ASCII with escapes.

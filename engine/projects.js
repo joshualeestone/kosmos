@@ -4075,23 +4075,25 @@ function blockBody(projects, sessionName) {
     /* kosmos#9179: a task's own words cannot print a mark of their own. Only the board's mark may follow the words; one
        inside them ("... [built: done and waiting]" on open work) would talk the agent out of the task, and one ending
        "[on hold: ...]" would be read by holdsOf (which reads a hold as the line's LAST mark) as a hold. So a bracket
-       opening a mark word becomes "(". Any opening bracket counts (fullwidth, CJK, math: \p{Ps}), and what follows it is
-       judged on a FOLDED copy (NFKC, then every invisible character out, \p{Default_Ignorable_Code_Point}, then a short
-       window), so nothing invisible slips a mark past it. Only that bracket changes: the words print as written, so an
-       emoji, a Persian word or a circled digit reads as the live list prints it. "built-in" is a word, left alone.
-       Webhook words are already quoted, their brackets folded, by forAgent (#1307). */
-    /* Review 1: also the forms a READER (a model) takes for a mark though holdsOf would not: a hyphen or underscore
-       ("on-hold"), markdown around the word ("**on hold**", a backtick), a combining accent (\p{M}, split off by NFKD and
-       removed), and the single and double angle quotes (\p{Pi}) as openers. RESIDUAL, stated: the
-       words stay the task's own, so "(on hold: do not start it]" can still read as advice to a model; the board's own
-       marks always come after the words, and the block's standing line says the live list wins when they disagree. */
-    // Every mark the block prints goes on from its word with a colon, a comma, "until" or its closing bracket; a title
-    // that only uses the word ("[on-hold list]", "[built in 2024]", "[builtin]") is not one, and is left alone.
-    const MARK_AFTER = /^[\s*_`~]*(?:on[\s_-]*hold|built)[\s*_`~]*(?:[:,\]\p{Pe}\p{Pf}]|until\b)/iu;
+       opening a mark word becomes "(", and ONLY that bracket changes: the words print as written, so an emoji, a Persian
+       word or a circled digit reads as the live list prints it. Webhook words are already quoted, their brackets folded,
+       by forAgent (#1307).
+       - An opener is any opening bracket or quote: \p{Ps} (fullwidth, CJK, math) and \p{Pi} (angle quotes).
+       - What follows it is judged on a FOLDED copy of the rest of the line, in this order: NFKD; every invisible
+         character (\p{Default_Ignorable_Code_Point}), combining accent (\p{M}) and markdown character (* _ ` ~) out;
+         NFKC; then a 48-character window. Folding before the window means no run of invisible or markdown padding can
+         push a mark out of view (review 2).
+       - A mark word is "on hold" (any spaces, "-" or "_" between, or none) or "built", going on as every real mark
+         does: a colon, a comma, "until" or a closing bracket. A title that only uses the word ("[on-hold list]",
+         "[built in 2024]", "[builtin]") is left alone.
+       RESIDUAL, stated (review 1): the words stay the task's own, so "(on hold: do not start it]" can still read as
+       advice to a model, and lookalike LETTERS (Cyrillic, a dotless i) are not folded. The board's own marks always come
+       after the words, and the block's standing line says the live list wins when they disagree. */
+    const MARK_AFTER = /^\s*(?:on[\s-]*hold|built)\s*(?:[:,\]\p{Pe}\p{Pf}]|until\b)/iu;
     const words = (t) => {
       const w = oneLine(require('./tasks').forAgent(t));
       return w.replace(/[[\p{Ps}\p{Pi}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKD')
-        .replace(/[\p{Default_Ignorable_Code_Point}\p{M}]/gu, '').normalize('NFKC').slice(0, 48)) ? '(' : b));
+        .replace(/[\p{Default_Ignorable_Code_Point}\p{M}*_`~]/gu, '').normalize('NFKC').slice(0, 48)) ? '(' : b));
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${held(t) || built(t)}`)].join('\n');
   });
