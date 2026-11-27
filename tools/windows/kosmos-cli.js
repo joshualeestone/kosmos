@@ -321,6 +321,32 @@ const STDIN_QUIET_LIMIT_MS = 3000;
  *   writes to can never hang the command.
  * `stream` and `quietMs` are also the seams a test drives.
  */
+/* kosmos#9238: as the Mac's _words_and_piped. Whether stdin holds text (not white space only) when the words are on the
+   command line too: a file (a heredoc, `< file`) is read at once; a pipe gets PIPED_PEEK_MS; a console or anything
+   else is never read, so words alone cost nothing. A probe that fails answers false: the words are sent, as before. */
+const PIPED_PEEK_MS = 300;
+function stdinHasText(fd = 0) {
+  const has = (b) => /\S/.test(b.toString('utf8'));
+  let st;
+  try { st = fs.fstatSync(fd); } catch { return Promise.resolve(false); }
+  if (st.isFile()) {
+    if (st.size === 0) return Promise.resolve(false);
+    const buf = Buffer.alloc(Math.min(st.size, 65536));
+    let n = 0;
+    try { n = fs.readSync(fd, buf, 0, buf.length, null); } catch { return Promise.resolve(false); }
+    return Promise.resolve(has(buf.subarray(0, n)));
+  }
+  if (!st.isFIFO() || process.stdin.isTTY) return Promise.resolve(false);
+  return readStandardInput(process.stdin, PIPED_PEEK_MS).then((r) => has(Buffer.from(String(r.text || ''))), () => false);
+}
+async function wordsAndPiped(ctx, verbed, hint) {
+  if (ctx.psPipeline) return undefined;   // PowerShell never hands its pipeline to node (see psPipelineRefused)
+  if (!(await ctx.stdinHasText())) return undefined;
+  ctx.err('Nothing was ' + verbed + ': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.');
+  if (hint) ctx.err(hint);
+  return 2;
+}
+
 function readStandardInput(stream, quietMs, maxBytes) {
   const input = stream || process.stdin;
   if (input.isTTY) return Promise.resolve({ text: '', ended: false });
@@ -3900,6 +3926,7 @@ async function communityPost(ctx, args) {
     if (!t) return 2;
     args = t;
   }
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>'"); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the post as words or in --body-file, not both, so nothing was posted.'); return 2; }
@@ -3979,6 +4006,7 @@ async function communityComment(ctx, args) {
     if (!t) return 2;
     args = t;
   }
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent'); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the comment as words or in --body-file, not both, so nothing was sent.'); return 2; }
@@ -4206,6 +4234,7 @@ async function communityEdit(ctx, args) {
     if (!t) return 2;
     args = t;
   }
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', 'To change the title, put it in --topic.'); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the new words as words or in --body-file, not both, so nothing was changed.'); return 2; }
@@ -4272,6 +4301,7 @@ async function communityEndorse(ctx, args) {
   if (args.length < 2 || !args[0]) { ctx.err(ENDORSE_USAGE); return 2; }
   const [name, stars, ...rest] = args;
   if (!/^[1-5]$/.test(stars)) { ctx.err('Give 1 to 5 stars. ' + ENDORSE_USAGE); return 2; }
+  if (rest.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent'); if (c !== undefined) return c; }   // kosmos#9238
   let text = rest.join(' ');
   if (bf.file !== null) {
     if (rest.length) { ctx.err('Give the review as words or in --body-file, not both, so nothing was sent.'); return 2; }
@@ -4991,6 +5021,8 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
+    // kosmos#9238: a caller that hands in its own stdin owns it, so the probe answers nothing waiting unless given too.
+    stdinHasText: o.stdinHasText || (o.readStdin ? (async () => false) : (() => stdinHasText())),
     /* kosmos#7362: a yes-or-no from a person at a terminal (agent remove). canAsk is false when stdin is not one, so
        a script is told to say --yes instead of hanging on a question nobody sees. Both are test seams. */
     canAsk: o.canAsk || (() => Boolean(process.stdin.isTTY)),
@@ -5130,7 +5162,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, versionLine, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, versionLine, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, stdinHasText, PIPED_PEEK_MS, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 
