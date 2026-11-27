@@ -51,3 +51,11 @@ second message there would be a duplicate, not a lost one.
   (UNCONFIRMED is counted as went, the side that avoids a duplicate); an adder that cannot be named is owed a re-read of
   its own change (errs toward telling, as owesNotice does).
 - Measured: server test 8/8, engine test 5/5.
+
+## Review round 3 (21:16): CONVERGED, no blocker, no should-fix
+- Measured: the other five tellEveryoneOn callers pass no `except` and behave as before; no test lists engine/tasks.js
+  exports (engine.reachable passes: server.js uses the new one); comment-deferral, fixture-discipline, one-derivation,
+  engine.reachable and both new tests 48/48; no em dash in the diff.
+- NITs accepted: an adder that cannot be named is owed a re-read of its own change (one redundant notice, never a missed
+  one, as the close/reopen route); `except` matches names exactly while owesNotice matches by key, safe while
+  addPart/assignPart store `who` trimmed and exact.
