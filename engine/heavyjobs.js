@@ -189,11 +189,11 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     }
     // A hidden record counts too: it is still in the file, and the cap is what bounds how many an agent leaves there.
     if (list.filter((j) => j.agent === agent && judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop').length >= MAX_PER_AGENT) {
-      out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
+      out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; kosmos heavy lists them, and kosmos heavy end --pid N ends one (a bare end, the one with no process)', refused: true };
       return;
     }
     const was = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
-    if (was && isLive(was, { now, startOf: othersOf, agentAlive: null })) job.since = was.since;   // announced again: since stays
+    if (was && judge(was, { now, startOf: othersOf, agentAlive: null }) !== 'drop') job.since = was.since;   // shown or hidden: still it   // announced again: since stays
     list.push(job);
     if (!writeAll(root, list.filter((j) => j.agent !== agent || judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop'))) out = { ok: false, because: NOT_SAVED };
   });
@@ -218,8 +218,8 @@ function end({ root, agent, pid }) {
   return saved ? { ok: true, ended, others } : { ok: false, because: NOT_SAVED };
 }
 
-/* The live records, oldest first, each as { agent, label, pid, since } (and unchecked: true on a hidden one, with
-   hidden: true). Stale ones are removed from the file when its
+/* The live records, oldest first, each as { agent, label, pid, since }. With the option hidden: true, the hidden ones
+   too, each marked unchecked: true. Stale ones are removed from the file when its
    lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
    could not be saved changes nothing the reader is told. */
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null, hidden = false }) {
@@ -230,7 +230,7 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
     const until = Date.now() + PS_MS_PER_READ;
     const rs = require('./restoresink');
     startOf = (pid) => {
-      if (!rs.pidAlive(pid)) return defaultStartOf(pid, now, 'alive');   // gone: signal 0 says so, and no ps is spent
+      if (!rs.pidAlive(pid)) { startCache.delete(pid); return null; }   // gone: signal 0 says so, and no ps is spent
       const hit = startCache.get(pid);
       if (hit && now - hit.at < START_CACHE_MS) return defaultStartOf(pid, now, 'cached');
       if (budget > 0 && Date.now() < until) { budget -= 1; return defaultStartOf(pid, now, 'cached'); }

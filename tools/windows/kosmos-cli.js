@@ -2817,7 +2817,7 @@ async function verbHeavy(ctx, args) {
     if (!r.json.jobs.length) { ctx.out('No heavy job is running on this computer.'); return 0; }
     for (const x of r.json.jobs) {
       ctx.out(x.label + ' (' + (x.name || x.agent) + ', since ' + heavyWhen(x.since) + (x.pid ? ', process ' + x.pid : '') + ')'
-        + (x.unchecked ? ': Kosmos could not check it, so the board does not show it; if it has finished, kosmos heavy end --pid ' + x.pid : ''));
+        + (x.unchecked ? ': Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid ' + x.pid : ''));
     }
     return 0;
   }

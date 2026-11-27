@@ -111,5 +111,5 @@ test('an empty --pid is refused, not read as no pid', async () => {
 test('kosmos#9222: a job Kosmos could not check is listed with how to end it', async () => {
   const r = await run(['heavy'], () => [200, { ok: true, jobs: [{ agent: 'ada-discord', name: 'Ada', label: 'overnight', pid: 4242, since: Date.UTC(2026, 10, 27, 3, 5), unchecked: true }] }]);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it has finished, kosmos heavy end --pid 4242$/m);
+  assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid 4242$/m);
 });

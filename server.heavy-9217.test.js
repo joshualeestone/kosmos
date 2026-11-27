@@ -268,3 +268,18 @@ test('kosmos#9222: GET /api/heavy lists a job no read could check, marked, to th
     assert.deepEqual(nobody.jobs, [], 'a caller with no agent named was shown a hidden job');
   } finally { Object.assign(rs, was); await asAgent(tok, { action: 'end', pid: 424242 }); }
 });
+
+test('kosmos#9222: an agent named by its pane alone (no token) is listed its own hidden job', async () => {
+  const { ada, adaCard } = twoAgents();
+  const rs = require('./engine/restoresink');
+  const hj = require('./engine/heavyjobs');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  rs.pidAlive = () => true;
+  rs.processStart = () => 'Fri Nov 27 01:00:00 2026';
+  try {
+    assert.equal(hj.start({ root: store.ROOT, agent: ada, label: 'by pane', pid: 434343, now: Date.now() - 13 * 60 * 60 * 1000 }).ok, true);
+    rs.processStart = () => undefined;
+    const got = await (await fetch(`${base}/api/heavy?from_pane=${encodeURIComponent(adaCard.target)}`)).json();
+    assert.deepEqual(got.jobs.map((j) => [j.label, j.unchecked]), [['by pane', true]], 'its pane did not name it');
+  } finally { Object.assign(rs, was); hj.end({ root: store.ROOT, agent: ada, pid: 434343 }); }
+});
