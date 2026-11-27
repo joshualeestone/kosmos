@@ -2975,6 +2975,14 @@
       "rank": 10.5,
       "since": "0.8.25",
       "status": "pending"
+    },
+    {
+      "title": "Half-typed messages survive a reload",
+      "line": "Words you start typing to an agent or in a project room come back after a reload, and Kosmos can still update itself while they wait.",
+      "icon": "chat",
+      "rank": 10.6,
+      "since": "0.8.26",
+      "status": "pending"
     }
   ],
   "lastProdWin": "0.8.25"
