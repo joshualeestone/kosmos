@@ -1823,9 +1823,10 @@ _kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(sta
 # moment ago, or by an older lib) keeps the 10 s age rule. An older lib breaking a lock of this one leaves its
 # .stale.* dir behind (its plain rmdir cannot remove the pid file); nothing reads those names.
 # Review: with a pid, also an age CEILING of 300 s (a real hold lasts milliseconds), so a pid that was reused by an
-# unrelated process, or a stopped holder, cannot hold the lock for ever; a pid of 0 or 1 is never a holder. Residual,
-# stated: the pid is written just after mkdir, so for those milliseconds the lock has no pid; only a clock step past
-# 10 s could make a breaker call it stale then.
+# unrelated process, or a stopped holder, cannot hold the lock for ever; a pid of 0 or 1 is never a holder. Review 7: a
+# lock with NO pid has the same 300 s ceiling (it was 10 s, and a holder slowed past 10 s between its mkdir and its pid
+# write, a fork on a loaded runner, was broken while alive). A writer killed in that gap holds up folding for 300 s and
+# loses no line: the others write pending files, which the reader reads.
 _kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be broken
   _kosmos_beside_stale_h "$1" "$(cat "$1/pid" 2>/dev/null)"
 }
@@ -1833,7 +1834,7 @@ _kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be b
 _kosmos_beside_stale_h() {   # _kosmos_beside_stale_h <lock dir> <pid as read>
   local h="$2" age; age=$(( $(date +%s) - $(_kosmos_beside_mtime "$1") ))
   case "$h" in
-    ''|*[!0-9]*) [ "$age" -gt 10 ] ;;
+    ''|*[!0-9]*) [ "$age" -gt 300 ] ;;   # review 7: no pid is the same 300 s ceiling (was 10 s; see above)
     0|1) return 0 ;;
     *) [ "$age" -gt 300 ] || ! kill -0 "$h" 2>/dev/null ;;
   esac
@@ -1844,27 +1845,38 @@ _kosmos_beside_stale_h() {   # _kosmos_beside_stale_h <lock dir> <pid as read>
 # 60 s. The pid written here is kept in _KOSMOS_BESIDE_OWN for the release's own check.
 # Review 6 (two holders again): the pid is read ONCE under the break lock, that value is judged, and the lock is broken
 # only if a second read still gives it. An EMPTY value names no lock (every lock just made has none yet): it is broken
-# only if the dir is still over 10 s old when judged again AFTER the second read. Before, an empty first read, a lock
+# only if the dir is still over 300 s old when judged again AFTER the second read. Before, an empty first read, a lock
 # that changed hands twice, and an empty second read broke a live holder's lock (reviewer's interleaving, reproduced).
 # A dead holder cannot release, so after the second read only another breaker could change the lock, and breakers are
 # serialized. The break lock is taken over only past 60 s; a breaker stopped longer than that is the stated limit.
+# Review 7: the break lock holds a file named by its taker's TOKEN. A waiter that takes over an old break lock first
+# notes the name in it, then judges the age, and removes only that name, then rmdir: a fresh break lock taken meanwhile
+# holds another name, so its rmdir fails. A taker whose token write fails (its fresh dir was removed in the moment
+# before) does not break anything.
 _kosmos_beside_lock() {
-  local d="$1" i=0 h1
+  local d="$1" i=0 h1 tk t1
   [ -w "${d%/*}" ] || return 1
   until mkdir "$d" 2>/dev/null; do
     i=$((i + 1)); [ "$i" -ge "${KOSMOS_BESIDE_LOCK_TRIES:-100}" ] && return 1   # a count, not a time: under load it is reached
     if _kosmos_beside_stale "$d"; then
       if mkdir "$d.break" 2>/dev/null; then
-        h1="$(cat "$d/pid" 2>/dev/null)"
-        if _kosmos_beside_stale_h "$d" "$h1" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ] \
-          && { [ -n "$h1" ] || _kosmos_beside_stale_h "$d" ""; }; then
-          rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true
-          rmdir "$d.break" 2>/dev/null || true
-          continue
+        tk="$$.$RANDOM$RANDOM"
+        if { : > "$d.break/$tk"; } 2>/dev/null; then
+          h1="$(cat "$d/pid" 2>/dev/null)"
+          if _kosmos_beside_stale_h "$d" "$h1" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ] \
+            && { [ -n "$h1" ] || _kosmos_beside_stale_h "$d" ""; }; then
+            rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true
+            rm -f "$d.break/$tk" 2>/dev/null; rmdir "$d.break" 2>/dev/null || true
+            continue
+          fi
+          rm -f "$d.break/$tk" 2>/dev/null; rmdir "$d.break" 2>/dev/null || true   # declined: on to the sleep
         fi
-        rmdir "$d.break" 2>/dev/null || true   # declined: fall through to the sleep, so a try still costs 0.1 s
       else
-        [ $(( $(date +%s) - $(_kosmos_beside_mtime "$d.break") )) -gt 60 ] && { rmdir "$d.break" 2>/dev/null || true; }
+        t1=""; for t1 in "$d.break"/*; do break; done   # the name seen BEFORE the age is judged
+        if [ $(( $(date +%s) - $(_kosmos_beside_mtime "$d.break") )) -gt 60 ]; then
+          [ -n "$t1" ] && [ -e "$t1" ] && { rm -f "$t1" 2>/dev/null || true; }
+          rmdir "$d.break" 2>/dev/null || true
+        fi
       fi
     fi
     sleep 0.1
