@@ -2,7 +2,8 @@
 # #4977: tools/queued-heavy.sh, the queue wrapper every heavy one-off on a fleet Mac runs through, pinned by a test that
 # CI runs (it used to live only in ~/.cache, covered by a dry harness run by hand). Seeded from PigeonPete's #4911 dry
 # harness (74 arms). Every run of the wrapper goes through a shim that REFUSES unless KOSMOS_RUN_MARKER_DIR is inside
-# this test's own temp dir: a reviewer's sandbox once lost that variable and three copies waited in the real queue.
+# this test's own temp dir, or is unset with HOME this test's own $S/home (kosmos#9217: the guards then fall back to a
+# private $HOME/.cache): a reviewer's sandbox once lost that variable and three copies waited in the real queue.
 # (The six #5446 arms run a copy in a throwaway git repo or outside any repo instead, with the same two protections set
 # by hand, an in-test KOSMOS_RUN_MARKER_DIR and the perl deadline, plus the probe stubs and fake PATH exported above.)
 # Processes this test starts are stopped by exact match on a sleep length unique to this run (never a broad pattern).
@@ -85,7 +86,7 @@ ours=""
 if [ -n "\${KOSMOS_RUN_MARKER_DIR:-}" ]; then case "\$KOSMOS_RUN_MARKER_DIR" in "$S"/*) ours=1 ;; esac
 else case "\${HOME:-}" in "$S"/home) ours=1 ;; esac; fi
 [ -n "\$ours" ] && exec perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "\$@"
-echo "TEST-REFUSED: KOSMOS_RUN_MARKER_DIR (\${KOSMOS_RUN_MARKER_DIR:-unset}) is not this test's private dir" >&2; exit 99
+echo "TEST-REFUSED: KOSMOS_RUN_MARKER_DIR (\${KOSMOS_RUN_MARKER_DIR:-unset}) is not this test's private dir, and HOME (\${HOME:-unset}) is not $S/home" >&2; exit 99
 SHIM
 chmod +x $S/qh
 QH=$S/qh
@@ -96,7 +97,7 @@ export PATH="$S/bin:$PATH"
 # kosmos#9217: no case here may announce to a real board; the arms that test the announcement turn it on, with a
 # stand-in `kosmos` in $S/bin that records its arguments (and, when $S/kosmos-noisy exists, prints and fails).
 export QUEUED_HEAVY_ANNOUNCE=0
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/kosmos-calls"\n[ -e "%s/kosmos-noisy" ] && { echo KOSMOS-STUB-OUT; echo KOSMOS-STUB-ERR >&2; exit 1; }\n[ -e "%s/kosmos-slow" ] && exec perl -e "select(undef,undef,undef,30)"\nexit 0\n' "$S" "$S" "$S" > $S/bin/kosmos; chmod +x $S/bin/kosmos
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/kosmos-calls"\n[ -e "%s/kosmos-noisy" ] && { echo KOSMOS-STUB-OUT; echo KOSMOS-STUB-ERR >&2; exit 1; }\ni=0; while [ -e "%s/kosmos-slow" ] && [ $i -lt 150 ]; do perl -e "select(undef,undef,undef,0.2)"; i=$((i+1)); done\nexit 0\n' "$S" "$S" "$S" > $S/bin/kosmos; chmod +x $S/bin/kosmos
 # The cases also spell real scripts by relative path (`bash tools/test-install.sh`): run from an empty dir, where no such
 # path exists, so a refusal that ever lapsed could not start the real install harness.
 mkdir -p $S/cwd && cd $S/cwd || { echo "FAIL  tools/test-queued-heavy-4977.sh: cannot enter $S/cwd"; exit 1; }
@@ -487,6 +488,9 @@ ok "#5923 CONTROL: with the real ps, another live process of that name blocks th
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
+# kosmos#9217: and the case the header's incident was, markers lost under a HOME that is not this test's.
+o=$(unset KOSMOS_RUN_MARKER_DIR; HOME=$S/elsewhere /bin/bash $QH "escape2" true 2>&1); rc=$?
+ok "CONTROL: the shim refuses unset markers when HOME is not this test's own" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* && "$o" == *HOME* ]]'
 # #5064: a MAIN-lane waiter that loses its take keeps its place. A joins first and is made to lose its first take
 # (QH_TEST_LOSE_TAKES=1); B joins after it; the box then clears. A must run first. Each scenario has its own marker dir
 # under this test's dir, held by the test's fake holder H until it is released.
@@ -1083,7 +1087,7 @@ hp=$(printf '%s\n' "$o" | sed -n 's/^HOLDER \([0-9]*\)$/\1/p')
 ok "#9217: a main turn asks the board, with the wrapper's own pid, says so, and the run still goes" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board to show this run"* ]] && [ -n "$hp" ] && grep -qxF "heavy start ann job --pid $hp" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann0 /bin/bash $QH "quiet job" true 2>&1); sleep 3
-ok "#9217: with QUEUED_HEAVY_ANNOUNCE=0 nothing is asked and nothing is said" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
+ok "#9217: under private markers with QUEUED_HEAVY_ANNOUNCE=0, nothing is asked and nothing is said" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/manndef QUEUED_HEAVY_ANNOUNCE= /bin/bash $QH "default job" true 2>&1); sleep 3
 ok "#9217: left unset, a run whose markers are a private folder (a test's) asks nothing" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
@@ -1103,7 +1107,7 @@ ok "#9217: a kosmos that fails and prints changes nothing: the run keeps its own
 rm -f $S/kosmos-calls; : > $S/kosmos-slow
 t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannslow QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "slow board" true 2>&1); t1=$(date +%s); calls
 rm -f $S/kosmos-slow
-ok "#9217: the call is detached: a board that takes 30 s does not hold the run (it took $((t1-t0)) s)" '[[ "$o" == *"END rc=0"* ]] && [ $((t1-t0)) -lt 20 ] && [ -s $S/kosmos-calls ]'
+ok "#9217: the call is detached: a board that waits until this arm is done (30 s at most) does not hold the run (it took $((t1-t0)) s)" '[[ "$o" == *"END rc=0"* ]] && [ $((t1-t0)) -lt 20 ] && [ -s $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannpath QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "cut 0.9 tools/release.sh after run-tests" true 2>&1); calls
 ok "#9217: no word of the label can read as a script in argv (#5467): /, .sh and run-tests are broken up" 'grep -qxE "heavy start cut 0.9 tools release sh after run tests --pid [0-9]+" $S/kosmos-calls'
@@ -1123,7 +1127,7 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_H
 ok "#9217: a beside run (past the cap) announces too" '[[ "$o" == *"RUNNING BESIDE"* ]] && grep -qE "^heavy start beside job --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 
-EXPECTED=216   # fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=217   # one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

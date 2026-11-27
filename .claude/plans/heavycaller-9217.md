@@ -10,7 +10,9 @@ Slice 1 (#9225, merged) added `kosmos heavy start "<label>" [--pid N]`. Splinter
   call is added to `_qh_end`, the script's most delicate code.
 - A `--light` run is not announced, whichever lane it gets, unless it was made an ordinary turn because it runs a suite,
   a page layer, an install harness or a cut (`QH_RUNS_BC`).
-- Best-effort: no `kosmos` command, `QUEUED_HEAVY_ANNOUNCE=0`, or any refusal means nothing is said and the run goes on.
+- Best-effort: with no `kosmos` command, with nothing to name the agent, or with a name that leaves no label, one line
+  says the board was not told; with `QUEUED_HEAVY_ANNOUNCE=0` nothing is said; a refusal by the board is not seen (the
+  line says "asked"). In every case the run goes on.
   The label is cut to the 80 characters a label may have.
 - Unset, announcing is on only when the run markers are the real ones (`KOSMOS_RUN_MARKER_DIR` unset): every test
   points them at a private folder, so a test's queued-heavy never writes to a real board, whether tools/run-tests.sh runs
