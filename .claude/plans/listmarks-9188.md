@@ -109,3 +109,19 @@ fallback; empty and "(no description)" titles as before; the five renamed fixtur
   warning); titleOf also reaches `task show`'s header, its "Under:" field and the built-files list (untested here);
   no test of the Windows missing-module path, the across list or a closed row.
 cli.task-listmarks-9188 4 of 4 and the neighbouring set (533: 512 pass, 0 fail).
+
+#### Iteration 4 (blind review of the whole branch, sonnet): converged
+
+No BLOCKER, no SHOULD-FIX. The reviewer RENDERED 38 row fixtures setting every field the printers read through the
+real compactLines, acrossLines and the extracted install/kosmos long-list program, and put each mark group through
+usesListMarkWord in a title: every bracket and parenthesis mark printed today is caught, except the owner's bare
+name (#9201). About 130 adversarial variants caught except imitations no printer emits; 2M-character titles in 5 to
+13 ms. All 41 phrases take effect; no `//` shares a line with code; the three printers are wired alike.
+- Split to a follow-up card, not built here: a RENDER test (every mark state through the printers, each mark caught,
+  with a check that the fixtures set every field a printer reads) as the standing guard for my weakest premise, in place
+  of a hand list that three rounds found incomplete. The reviewer sized it at about 100 lines.
+- [NIT] recorded: the phrase gap allows zero characters ("addedBy", "nextRun" quote needlessly); "woke:" and "owner:"
+  need a space after the colon to match (no printer omits it); markwords.js's header still says "the same two
+  functions"; no test of the Windows missing-module path, acrossLines, showLines or a closed row.
+Rebased onto main after #9179 (PR #9198, fef6c7cd8c) merged: only this branch's 9 commits replayed (rebase --onto),
+clean; the neighbouring set passes again on the new base (533: 512 pass, 0 fail).
