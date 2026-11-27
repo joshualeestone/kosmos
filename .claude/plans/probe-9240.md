@@ -19,7 +19,8 @@ instructions), beside the --no-reply rule that #9096 put there:
 - "or tests delivery" comes off the --no-reply line, which taught sending a probe (marked, but still typed into the
   receiver's pane);
 - a line after it: to check that a direct message you sent arrived, send nothing: `<cli> msg --status <id>`, with the
-  id your send printed, says whether it was delivered, and whether they read or answered it.
+  id your send printed, says whether it was typed to them, and whether they read or answered it (the tool's own
+  words: msgstatus.js says "has not been typed to" for an undelivered message, never "delivered").
 So one block gives one answer. engine/probe-9240.test.js pins both (each reds under its own mutation), and
 fyihint-9096's pinned rule is updated to the new wording.
 

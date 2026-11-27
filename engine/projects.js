@@ -4158,7 +4158,7 @@ function blockRules(sessionName, cliShown) {
       /* kosmos#9240: delivery-check probes, even marked, still landed in the receiver's pane and cost it a turn. The
          receipt already exists (msg --status, #8961), so the check sends nothing. */
       `To check that a direct message you sent arrived, send nothing: \`${cliShown} msg --status <id>\`, with the id`,
-      'your send printed, says whether it was delivered, and whether they read or answered it.',
+      'your send printed, says whether it was typed to them, and whether they read or answered it.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
