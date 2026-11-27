@@ -1027,19 +1027,22 @@ else
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') TURN: running $WHAT (machine claimed, renewed every ${RENEW_SEC}s while it runs)"
 fi
 # kosmos#9217: say on the board that a heavy job runs on this computer (`kosmos heavy start`), tied to this script's own
-# process, so the board's line clears itself when this script exits, however it exits (no end call in _qh_end). A
-# heavy run only: a --light run is not announced, whichever lane it gets, unless it was made an ordinary turn because it
-# runs a suite, a page layer, an install harness or a cut (QH_RUNS_BC). Best-effort and detached: the run starts at once
-# and never waits on the board (a busy one is given 2 s, KOSMOS_BUSY_WAIT); the call's own output and exit status are
-# discarded, and a call that lands after this script exited is refused by the board (no such process), which is right.
-# One line says whether the board was asked, so a run whose PATH has no kosmos (a tmux run-shell or launchd job) shows
-# it; it cannot tell a refusal from success (nor a kosmos too old to have the verb), since nothing waits to hear.
-# The line clears itself when this script's process is gone: a zombie wrapper counts as alive until reaped, and a call
-# that lands after the script exited is refused unless the number was already reused (then the 12 h ceiling bounds it). QUEUED_HEAVY_ANNOUNCE=0 asks nothing and says nothing (tools/run-tests.sh sets it, so a test's queued-heavy never
-# writes to a real board). The label is the run's own name, cut to 80 characters (bash's count: a name with non-ASCII
-# letters can be cut mid-letter under a C locale, or refused when it holds an emoji; the run is unaffected).
+# process, so the board's line clears itself when this script's process is gone (no end call in _qh_end): a zombie
+# wrapper counts as alive until reaped, and a call that lands after the script exited is refused unless the number was
+# already reused (then the 12 h ceiling bounds it). A heavy run only: a --light run is not announced, whichever lane it
+# gets, unless it was made an ordinary turn because it runs a suite, a page layer, an install harness or a cut
+# (QH_RUNS_BC). Best-effort and detached: the run starts at once and never waits on the board (a busy one is given 2 s,
+# KOSMOS_BUSY_WAIT), and the call's own output and exit status are discarded. One line says whether the board was asked,
+# so a run whose PATH has no kosmos (a tmux run-shell or launchd job) shows it; it cannot tell a refusal from success
+# (nor a kosmos too old to have the verb), since nothing waits to hear.
+# On or off: QUEUED_HEAVY_ANNOUNCE=1 or 0 decides. Unset (or empty), it is on only when the run markers are the real ones
+# (KOSMOS_RUN_MARKER_DIR unset): every test points them at a private folder, so a test's queued-heavy never writes to a
+# real board, run by tools/run-tests.sh or on its own. The label is the run's own name, cut to 80 characters (bash's
+# count: a name with non-ASCII letters can be cut mid-letter under a C locale, or refused when it holds an emoji).
+qh_announce="${QUEUED_HEAVY_ANNOUNCE:-}"
+[ -n "$qh_announce" ] || { [ -z "${KOSMOS_RUN_MARKER_DIR:-}" ] && qh_announce=1 || qh_announce=0; }
 if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$QH_RUNS_BC" = 1 ]; } \
-  && [ "${QUEUED_HEAVY_ANNOUNCE:-1}" != 0 ]; then
+  && [ "$qh_announce" != 0 ]; then
   # The label goes into the argv of the detached call (and its node child), where #5467 took the run's name OUT of argv:
   # a check that matches a script path in argv (heavy-gate.sh's script_of, a cut wrapper's pgrep) must never read a
   # name like "cut tools/release.sh" as a live run. So no word of it can be a script path: / and .sh are broken up.

@@ -1082,6 +1082,9 @@ rm -f $S/kosmos-calls
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann0 /bin/bash $QH "quiet job" true 2>&1); sleep 3
 ok "#9217: with QUEUED_HEAVY_ANNOUNCE=0 nothing is asked and nothing is said" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/manndef QUEUED_HEAVY_ANNOUNCE= /bin/bash $QH "default job" true 2>&1); sleep 3
+ok "#9217: left unset, a run whose markers are a private folder (a test's) asks nothing" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
+rm -f $S/kosmos-calls
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannside QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light job" true 2>&1); sleep 3
 ok "#9217: a --light run, given an ordinary turn on a free machine, announces nothing" '[[ "$o" == *"TURN: running light job"* && "$o" == *"END rc=0"* ]] && [ ! -e $S/kosmos-calls ]'
 o=$(cd $S/cwd && KOSMOS_RUN_MARKER_DIR=$S/mannbc QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light suite" bash tools/run-tests.sh 2>&1); calls
@@ -1107,7 +1110,7 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_H
 ok "#9217: a beside run (past the cap) announces too" '[[ "$o" == *"RUNNING BESIDE"* ]] && grep -qE "^heavy start beside job --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 
-EXPECTED=211   # nine #9217 announce arms (a main turn and its pid, off, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=212   # ten #9217 announce arms (a main turn and its pid, off, unset under private markers, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
