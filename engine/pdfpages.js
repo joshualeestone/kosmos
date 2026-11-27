@@ -34,6 +34,9 @@ const SCRIPT = [
   'function run(argv) {',
   '  const doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(argv[0]));',
   "  if (!doc || doc.isNil()) return 'ERR open';",
+  // kosmos#9218 review 2: a PDF locked with a password opens, counts its pages and draws every one blank white; it is
+  // refused here, so neither the board's preview nor kosmos preview shows an empty page as the design.
+  "  if (doc.isLocked) return 'ERR locked';",
   '  const n = doc.pageCount;',
   "  if (argv.length < 3) return 'pages ' + n;",
   '  const i = parseInt(argv[1], 10);',

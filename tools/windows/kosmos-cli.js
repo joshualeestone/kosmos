@@ -99,6 +99,7 @@ const USAGE = {
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear [why]    (take your needs_you or blocked off the board: the same as reporting working; over a question, your why stays in your chat with the person)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.\n  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next message you directly.\n  --again (needs_you or blocked only): after a restart, bring back the wait you reported before it, exactly as you said it (held as before), without retyping it.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
+  preview: 'Usage: kosmos preview <file.pdf> [--page N] [--out <file.png>]   (draws one page of a PDF as a PNG on this computer and prints the PNG\'s path; page 1 unless --page says another; without --out the PNG goes in a new folder of the system\'s temporary folder, never next to the PDF; nothing is sent anywhere)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   away: 'Usage: kosmos away [--hook [--wait-only [--after-clear]]]   (what reached you while you were not running: room posts to you, messages from other agents and from the person, as counts and post ids, for the window your newest startup had; nothing is cleared. --hook: the startup window, as the Mac hook asks it; Kosmos\'s Windows hook asks the board itself, after started; --wait-only with it: the reminder of your own wait alone, as at a /clear or a resume, with --after-clear at a /clear)',
   'file-notices': 'Usage: kosmos file-notices [--hook [--ack-file <path>]]   (take the notices Kosmos kept for you when another agent was about to change a project file you were the first seen changing; run by hand, this clears them; Kosmos\'s hook looks at most once every five minutes, so a prompt soon after its last look may not carry a new notice. --hook: what Kosmos\'s own hook runs; --ack-file: where it keeps the ids it was handed)',
@@ -4372,6 +4373,17 @@ async function verbFingerprint(ctx, args) {
   return 0;
 }
 
+/* kosmos#9218, as install/kosmos cmd_preview: one page of a PDF drawn as a PNG on this computer (engine/pdfpreview.js,
+   Windows.Data.Pdf through Windows PowerShell here). The options, words and refusals are the module's own. */
+async function verbPreview(ctx, args) {
+  let pdfpreview;
+  try { pdfpreview = ctx.engine('pdfpreview'); } catch { ctx.err('Kosmos could not find its own PDF previewer; this install looks incomplete.'); return 1; }
+  const r = await pdfpreview.main(args);
+  for (const l of r.out) ctx.out(l);
+  for (const l of r.err) ctx.err(l);
+  return r.code;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -4622,6 +4634,7 @@ const VERB_HANDLERS = {
   whoami: verbWhoami,
   handoff: verbHandoff,
   fingerprint: verbFingerprint,
+  preview: verbPreview,
   inbox: verbInbox,
   'file-notices': verbFileNotices,
   away: verbAway,
@@ -4686,6 +4699,7 @@ const DESCRIBE = {
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
   fingerprint: 'print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)',
+  preview: 'draw one page of a PDF as a PNG on this computer and print its path, to look at a design yourself',
   room: 'read a project room',
   notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built (--how: one situation each)",
