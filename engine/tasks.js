@@ -592,6 +592,10 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
 const DROPPED_FOR_WORK = new WeakSet();
 const HELD_DROPPED = new WeakSet();
 const REPEAT_DROPPED = new WeakSet();
+/* kosmos#9178: whether this write dropped the task's built mark because of new work (a part added, given open, or put
+   back), so a route can owe the task's holders a re-read: their instruction block said built (#9176) and no longer
+   does. The same mark the history line is recorded from, carried on the returned task, never module state. */
+function droppedBuiltForWork(task) { return !!task && DROPPED_FOR_WORK.has(task); }
 function recordDroppedForWork(projectId, n, task) {
   if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
   if (task && HELD_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'hold-cleared', via: 'close' });
@@ -3458,7 +3462,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { WAITING_ON /* kosmos#8934 */, WAITING_NONE, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { droppedBuiltForWork /* kosmos#9178 */, WAITING_ON /* kosmos#8934 */, WAITING_NONE, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
