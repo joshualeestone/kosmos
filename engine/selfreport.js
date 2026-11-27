@@ -700,7 +700,10 @@ const TURN_END_TEXT = 'finished responding';
    Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
    so "never reported" is never mistaken for "reported idle". `truncated` on the array is true when older rows exist
    beyond the tail. */
-function history(sessionName, tailBytes) {
+/* kosmos#9219: opts.fields keeps a row's own words and fields (because, on, owner, until, project), so `kosmos report
+   <state> --again` can bring back an agent's own wait exactly as it said it. Off by default: every other reader is unchanged. */
+function history(sessionName, tailBytes, opts) {
+  const withFields = !!(opts && opts.fields === true);
   let text;
   let cut = false;
   const tail = Number.isInteger(tailBytes) && tailBytes > TAIL_BYTES ? Math.min(tailBytes, HISTORY_MAX_BYTES) : TAIL_BYTES;
@@ -732,7 +735,9 @@ function history(sessionName, tailBytes) {
        starts a turn, its idle ends one), so engine/msgstatus.js can tell a turn's start and end from other reports. */
     const turn = by !== 'auto' ? null : (row.state === 'working' && row.because === TURN_START_TEXT ? 'start'
       : row.state === 'idle' && row.because === TURN_END_TEXT ? 'end' : null);
-    if (Number.isFinite(at)) out.push({ state: row.state, at, ...(by ? { by } : {}), ...(held ? { held: true } : {}), ...(turn ? { turn } : {}) });
+    const fields = !withFields ? {} : Object.fromEntries(['because', 'on', 'owner', 'until', 'project']
+      .filter((k) => typeof row[k] === 'string' && row[k] !== '').map((k) => [k, row[k]]));
+    if (Number.isFinite(at)) out.push({ state: row.state, at, ...(by ? { by } : {}), ...(held ? { held: true } : {}), ...(turn ? { turn } : {}), ...fields });
   }
   out.truncated = cut;   // the record is longer than the tail: rows older than out[0] exist and are not here
   return out;

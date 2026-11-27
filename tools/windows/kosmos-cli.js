@@ -96,7 +96,7 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   claim: 'Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3]); kosmos claim --how: what to do in the cases that come up now and then',
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>". A name can be up to 200 characters, a status 80, a source 500 and a label 40.',
-  report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear [why]    (take your needs_you or blocked off the board: the same as reporting working; over a question, your why stays in your chat with the person)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.\n  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next message you directly.',
+  report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear [why]    (take your needs_you or blocked off the board: the same as reporting working; over a question, your why stays in your chat with the person)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.\n  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next message you directly.\n  --again (needs_you or blocked only): after a restart, bring back the wait you reported before it, exactly as you said it (held as before), without retyping it.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
@@ -1065,11 +1065,12 @@ async function reportShow(ctx) {
 
 async function verbReport(ctx, args, opts) {
   const state = args.shift();
-  const f = { on: '', owner: '', until: '', project: '', auto: false, held: false };
+  const f = { on: '', owner: '', until: '', project: '', auto: false, held: false, again: false };
   while (args.length) {
     const a = args[0];
     if (a === '--auto') { f.auto = true; args.shift(); continue; }
     if (a === '--held') { f.held = true; args.shift(); continue; }   // #7915, as install/kosmos
+    if (a === '--again') { f.again = true; args.shift(); continue; }   // kosmos#9219, as install/kosmos
     const m = /^--(on|owner|until|project)$/.exec(a);
     if (!m) break;
     args.shift();
@@ -1090,13 +1091,17 @@ async function verbReport(ctx, args, opts) {
   /* #7915, as install/kosmos: --held means something only on a needs_you. */
   if (f.held && state !== 'needs_you') { ctx.err('--held goes only with needs_you: kosmos report needs_you --held \'<your question>\' holds a question until the person is back.'); return 2; }
   if (f.held && f.auto) { ctx.err('--held is for a question you hold yourself, so it takes no --auto.'); return 2; }
+  /* kosmos#9219, as install/kosmos: --again brings back the agent's own last wait from the board's copy, so it takes
+     nothing that would change that wait. */
+  if (f.again && state !== 'needs_you' && state !== 'blocked') { ctx.err('--again goes only with needs_you or blocked: it brings back a wait you reported before a restart.'); return 2; }
+  if (f.again && ((f.on + f.owner + f.until + f.project + text) !== '' || f.held || f.auto)) { ctx.err('--again brings back your wait exactly as you reported it, so it takes no words or other options. To say something new, report it without --again.'); return 2; }
   /* #2001, as install/kosmos: the two states that summon a person need something
      a person can act on. */
-  if ((state === 'blocked' || state === 'needs_you') && !(f.on + f.owner + text).trim()) {
+  if (!f.again && (state === 'blocked' || state === 'needs_you') && !(f.on + f.owner + text).trim()) {
     ctx.err('A \'' + state + '\' report needs at least one of --on <what>, --owner <who>, or a note: that state summons a person, and an empty one names nothing to act on.');
     return 2;
   }
-  const r = await ctx.call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, held: f.held, from_pane: '', ...(opts && opts.clear ? { clear: true } : {}) });
+  const r = await ctx.call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, held: f.held, ...(f.again ? { again: true } : {}), from_pane: '', ...(opts && opts.clear ? { clear: true } : {}) });
   if (!r.reached) return ctx.unreachable('record that');
   /* Dropped, not kept: a state this agent was in while its Kosmos was closed is
      stale by the time it opens. Exit 0, because nothing went wrong. */

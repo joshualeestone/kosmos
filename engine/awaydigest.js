@@ -77,16 +77,23 @@ function windowFrom(history, { startup, nowMs }) {
    kept). A held question (#7915) comes back as { held: true }, so the reminder says --held. A /clear or a resume after
    a quit follows a SessionEnd's `stopped`, which also sets the wait aside: that case is sessionAfter's (#9049). */
 const WAIT_STATES = new Set(['needs_you', 'blocked']);
-function lastWait(history, { nowMs }) {
+/* kosmos#9219: the history ROW of that wait, by exactly lastWait's rule, so `kosmos report <state> --again` brings back
+   the very wait the reminder named (with selfreport.history's fields option, its words too). null when lastWait is. */
+function lastWaitRow(history, { nowMs }) {
   const rows = Array.isArray(history) ? history : [];
   for (let i = rows.length - 1; i >= 0; i -= 1) {
     const r = rows[i];
     if (!r || !Number.isFinite(r.at) || r.by === 'auto') continue;
     if (r.by !== 'agent' || !WAIT_STATES.has(r.state)) return null;
     if (!(nowMs - r.at <= MAX_WINDOW_MS) || r.at > nowMs) return null;
-    return r.held === true ? { state: r.state, atMs: r.at, held: true } : { state: r.state, atMs: r.at };
+    return r;
   }
   return null;
+}
+function lastWait(history, { nowMs }) {
+  const r = lastWaitRow(history, { nowMs });
+  if (!r) return null;
+  return r.held === true ? { state: r.state, atMs: r.at, held: true } : { state: r.state, atMs: r.at };
 }
 
 /* kosmos#9049: the newest session event after the wait at atMs: 'stopped' (a SessionEnd set the wait aside),
@@ -254,9 +261,9 @@ function waitText(wait, opts) {
     : '; if not, there is nothing to do.';
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
     + isoSecond(wait.atMs) + '), and it has made no report of its own since. ' + why
-    + 'so the board no longer shows it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
-    + (wait.held === true ? ' --held' : '') + ' ...'
-    + (wait.held === true ? ', held as before, so nothing buzzes the person' : '') + ')' + otherwise;
+    + 'so the board no longer shows it. If it is still waiting once it has caught up, bring it back as it was, without '
+    + 'retyping it: kosmos report ' + wait.state + ' --again'
+    + (wait.held === true ? ' (held as before, so nothing buzzes the person)' : '') + otherwise;
 }
 
 function contextText(digest, wait, opts) {
@@ -277,4 +284,4 @@ function hookJson(digest, wait, opts) {
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } });
 }
 
-module.exports = { build, windowFrom, lastWait, sessionAfter, sessionsSinceWait, REMIND_SESSIONS, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
+module.exports = { build, windowFrom, lastWait, lastWaitRow, sessionAfter, sessionsSinceWait, REMIND_SESSIONS, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
