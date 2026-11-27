@@ -18,9 +18,11 @@ In the project block (engine/projects.js, the member rules every project member 
 instructions), beside the --no-reply rule that #9096 put there:
 - "or tests delivery" comes off the --no-reply line, which taught sending a probe (marked, but still typed into the
   receiver's pane);
-- a line after it: to check that a direct message you sent arrived, send nothing: `<cli> msg --status <id>`, with the
-  id your send printed, says whether it was typed to them, and whether they read or answered it (the tool's own
-  words: msgstatus.js says "has not been typed to" for an undelivered message, never "delivered").
+- a line after it: do not send a test message to see if your messages reach someone: send the real one, then run
+  `<cli> msg --status <id>` with the id your send printed; it says whether it has been typed to them and, when Kosmos
+  can tell, whether they read or answered it (msgstatus.js's own words; for a recipient with no turn reports it says
+  it cannot tell). Review round 5: naming only "a direct message you sent" left the card's own case, a probe before
+  any real message, with no guidance at all once "tests delivery" came off the --no-reply rule.
 So one block gives one answer. engine/probe-9240.test.js pins both (each reds under its own mutation), and
 fyihint-9096's pinned rule is updated to the new wording.
 

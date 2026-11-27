@@ -2,8 +2,9 @@
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273)
 
 /**
- * kosmos#9096 item 3: a project member is taught --no-reply for a post or message that only closes a thread or tests
- * delivery, so it arrives marked no reply requested instead of with the answer command.
+ * kosmos#9096 item 3: a project member is taught --no-reply for a post or message that only closes a thread, so it
+ * arrives marked no reply requested instead of with the answer command. (A delivery test is no longer one of them: it
+ * sends nothing, kosmos#9240, probe-9240.test.js.)
  *
  *   node --test engine/fyihint-9096.test.js
  */
