@@ -778,7 +778,7 @@ function unstaffedSentence(a, id) {
      agent command is offered. Review 3: each sentence stands alone, since the line before it does not always name a pause. */
   if (a.expected === 'paused') return 'No agent is on this paused project, so when your person resumes it, its ' + tasksWord
     + (count === 1 ? ' still needs' : ' still need') + ' someone added.';
-  return 'No agent is on this project, so nothing will move its ' + tasksWord + '. Tell your person: they add an agent with'
+  return 'No agent is on this project to pick up its ' + tasksWord + '. Tell your person: they add an agent with'
     + ' the + beside Members on the project\'s page.';
 }
 function activityCoreLine(a, id) {

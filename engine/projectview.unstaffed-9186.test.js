@@ -47,7 +47,7 @@ test('#9186 CONTROL: the same tasks with an agent on the project count 0, and a 
 test('#9186: the line says nobody will move them, and that the person adds an agent (the + beside Members)', () => {
   const line = v.activityLine(act({ id: 'empty', createdAt: made, agents: [], tasks: [{ number: 1, sentence: 'open' }, { number: 2, sentence: 'two' }] }), 'empty');
   assert.match(line, /^Last activity: /, line);
-  assert.match(line, / No agent is on this project, so nothing will move its 2 open or on-hold tasks\. Tell your person: they add an agent with the \+ beside Members on the project's page\.$/, line);
+  assert.match(line, / No agent is on this project to pick up its 2 open or on-hold tasks\. Tell your person: they add an agent with the \+ beside Members on the project's page\.$/, line);
   // review 3: no agent command is offered; a reader is not on the project, and the assign route refuses non-members.
   assert.doesNotMatch(line, /task assign/, line);
   const one = v.activityLine(act({ id: 'empty', createdAt: made, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'empty');
@@ -70,7 +70,7 @@ test('#9186: project show prints it on the activity line, and overviewOf carries
   assert.equal(o.activity.unstaffed, 1);
   const lines = v.renderShow({ project: { id: 'empty', name: 'Empty', folder: '/tmp/e', briefFound: false, tasks: { total: 1 }, members: [], activity: o.activity } });
   const line = lines.find((l) => l.startsWith('Last activity: ')) || '';
-  assert.match(line, /No agent is on this project, so nothing will move its 1 open or on-hold task\./, lines.join('\n'));
+  assert.match(line, /No agent is on this project to pick up its 1 open or on-hold task\./, lines.join('\n'));
 });
 
 test('#9186 review 1: on the real path (a project described by projects.describe, then overviewOf) a member counts', () => {
@@ -99,4 +99,9 @@ test('#9186 review 3: the paused sentence names the pause itself, even when the 
   assert.match(line, /^Last activity: none Kosmos can date\. /, 'fixture: the core line with no date: ' + line);
   assert.match(line, /No agent is on this paused project/, line);
   assert.doesNotMatch(line, /either/, line);
+});
+
+test('#9186 review 5: two tasks in a paused project with no agent read "still need" (plural)', () => {
+  const line = v.activityLine(act({ id: 'pz2', createdAt: made, paused: true, agents: [], tasks: [{ number: 1, sentence: 'a' }, { number: 2, sentence: 'b' }] }), 'pz2');
+  assert.match(line, /its 2 open or on-hold tasks still need someone added\.$/, line);
 });

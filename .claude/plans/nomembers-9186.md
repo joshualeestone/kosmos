@@ -9,7 +9,7 @@ agent members, so nothing could move them, and a newly added coordinator could n
   given a described project, whose members are objects; review 1). Built tasks wait on a release, not on an agent, and closed ones on nothing: left out.
   0 when it has a member.
 - activityLine: the #8996 line plus one sentence (unstaffedSentence) when unstaffed > 0:
-  - "No agent is on this project, so nothing will move its N open or on-hold tasks. Tell your person: they add an agent
+  - "No agent is on this project to pick up its N open or on-hold tasks. Tell your person: they add an agent
     with the + beside Members on the project's page." (review 3: no agent command is offered: the reader is by
     definition not on the project, and the assign route refuses a non-member's writes on most projects; the words are
     the board's own NOT_ON_PROJECT_FIX);
@@ -72,3 +72,11 @@ screen, and the line says "tell your person" first.
   `sessionName:` key, the round-1 fix's own fixtures. Fixed: members come from projects.describe (the real producer);
   the blank-object case is dropped (empty string and null still cover "nobody"). The two files plus the lint: 49/49.
   Rebased onto origin/main (brings #9184's pgrep fix). Back into the loop.
+- Round 5 (opus): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 5 NIT.
+  - WARNING (SELF, prose): "nothing will move its N tasks" claimed more than the code knows (a person can still give a
+    task to an agent from the screen; the count reads only membership). Fixed: "No agent is on this project to pick up
+    its N open or on-hold tasks", which states exactly what is checked.
+  - NIT taken: the plural paused wording is now printed by a test. NITs not taken: a parked + unstaffed pair (reads
+    true); an unused `id` parameter; the unreachable starter guard; a member no longer on the computer counts as
+    staffed (the card's "members" definition, already the Weakest premise).
+  - After: the two files plus fixture-discipline 50/50.
