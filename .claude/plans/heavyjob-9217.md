@@ -14,11 +14,12 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
   A record names an agent, a label, a time, and optionally one exact process (pid plus its start time, read by the
   server through restoresink's `processStart`, so a reused pid is not mistaken for the job).
   Every read drops a record whose process is gone or reused, one with no process whose agent is gone, or one older
-  than 12 hours (a ceiling against a stuck record). A record tied to a live process stays while its agent restarts. A process is first asked by signal 0 (no process spawned, works on Windows); only a
+  than 12 hours since it was last announced (a ceiling against a stuck record; announcing again renews it and keeps
+  the "since" shown). A record tied to a live process stays while its agent restarts. A process is first asked by signal 0 (no process spawned, works on Windows); only a
   live one has its start time read, and that read is kept 10 s. One agent holds at most 4 live records (a start drops its dead ones). A write that fails
   is said in Kosmos words, never thrown. A label is stored with brackets as parentheses (another agent reads it in
   `kosmos heavy`, and every Kosmos marker starts with `[`) and refused with direction marks. One read runs ps for at
-  most 8 records; the rest are judged by signal 0 and the cache, so a reused number there goes unseen until a later
+  most 8 records, each given 750 ms (a slow one is "could not ask", kept); the rest are judged by signal 0 and the cache, so a reused number there goes unseen until a later
   read. A new record's start is read fresh, never from the cache.
 - `server.js`: `POST /api/heavy {action: start|end, label, pid}` and `GET /api/heavy`, agent-token routes. The caller
   is named the way `/api/agent/reply-channel` names it (processCaller: a token exactly, else a pane given in the body,

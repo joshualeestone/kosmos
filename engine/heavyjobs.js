@@ -33,6 +33,7 @@ const MAX_PER_AGENT = 4;   // and on what one agent's records can cost every sta
 const START_CACHE_MS = 10 * 1000;
 const PS_PER_READ = 8;   // at most this many ps runs in one live(), and none once PS_MS_PER_READ is spent;
 const PS_MS_PER_READ = 500;   // the rest are judged by signal 0 and the cache
+const PS_TIMEOUT_MS = 750;   // one ps, on the status route's event loop, never waits longer than this
 
 function fileOf(root) { return path.join(root, FILE); }
 
@@ -70,6 +71,7 @@ function readAll(root) {
     && typeof j.agent === 'string' && j.agent
     && typeof j.label === 'string' && j.label
     && Number.isFinite(j.since)
+    && (j.at === undefined || Number.isFinite(j.at))
     && (j.pid === null || Number.isSafeInteger(j.pid))
     && (j.pidStart === null || typeof j.pidStart === 'string'));
 }
@@ -101,7 +103,7 @@ function locked(root, fn) {
 /* Whether record j is still live. startOf(pid) gives the process's start identity (a string), null when there is no
    such process, or undefined when it cannot be asked; agentAlive(name) gives true, false, or null for "could not tell". */
 function isLive(j, { now, startOf, agentAlive }) {
-  if (now - j.since > MAX_AGE_MS) return false;
+  if (now - (Number.isFinite(j.at) ? j.at : j.since) > MAX_AGE_MS) return false;   // from the last announcement
   if (j.pid !== null) {
     // A job tied to a process lives as long as that process, whatever the roster says: --pid is for a wrapper that
     // outlives its agent's call, and an agent restarting while its suite runs is when the line matters most.
@@ -126,7 +128,7 @@ function defaultStartOf(pid, now = Date.now(), how = 'cached') {
   const hit = startCache.get(pid);
   if (how !== 'fresh' && hit && now - hit.at < START_CACHE_MS) return hit.v;
   if (how === 'alive') return undefined;
-  const v = rs.processStart(pid);
+  const v = rs.processStart(pid, { timeoutMs: PS_TIMEOUT_MS });   // a slow ps is "could not ask": kept
   if (v === null) { startCache.delete(pid); return null; }
   if (startCache.size > MAX_JOBS * 2) startCache.clear();
   startCache.set(pid, { v, at: now });
@@ -146,7 +148,7 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
   }
-  const job = { agent, label: lab, pid: p, pidStart, since: now };
+  const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };   // since: shown; at: the ceiling counts from it
   let out = { ok: true, job };
   const r = locked(root, () => {
     const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
