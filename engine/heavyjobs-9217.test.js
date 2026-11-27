@@ -364,7 +364,6 @@ test('kosmos#9222: when other aged jobs spend the budget, the overnight job is h
   assert.equal(hj.readAll(r).length, 10, 'a record judged without a read was deleted');
 }));
 
-
 test('kosmos#9222: a fresh cache hit costs no ps read, so it does not starve the aged job behind it', () => withProcesses((seen) => {
   const H = 60 * 60 * 1000;
   const base = Date.now() + 70 * H;
@@ -387,4 +386,39 @@ test('kosmos#9222: a later start by the same agent while ps cannot answer keeps 
   seen.start = undefined;   // ps cannot answer now (timed out, or failing)
   assert.equal(hj.start({ root: r, agent: 'renet', label: 'later', now: base + 13 * H }).ok, true);
   assert.deepEqual(hj.readAll(r).map((j) => j.label).sort(), ['later', 'overnight'], 'a start that could not read ps deleted the overnight job');
+}));
+
+test('kosmos#9222: a hidden record still counts toward the per-agent cap', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 110 * H;
+  const r = root();
+  for (let i = 0; i < hj.MAX_PER_AGENT; i++) assert.equal(hj.start({ root: r, agent: 'renet', label: 'h' + i, pid: 99600 + i, now: base }).ok, true);
+  seen.start = undefined;   // ps cannot answer: past the ceiling all four are hidden, none dropped
+  const s = hj.start({ root: r, agent: 'renet', label: 'one more', pid: 99699, now: base + 13 * H });
+  assert.deepEqual([s.ok, s.refused], [false, true], 'four hidden records did not count: ' + JSON.stringify(s));
+  assert.equal(hj.readAll(r).length, hj.MAX_PER_AGENT, 'control: all four are still in the file');
+}));
+
+test('kosmos#9222: one start asks each of the agent\'s pids once, however many times it judges them', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 130 * H;
+  const r = root();
+  for (let i = 0; i < 3; i++) assert.equal(hj.start({ root: r, agent: 'renet', label: 'o' + i, pid: 99700 + i, now: base }).ok, true);
+  seen.ps = 0;
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'new', pid: 99709, now: base + 13 * H }).ok, true);
+  assert.equal(seen.ps, 4, 'ps ran ' + seen.ps + ' times: once for each aged record and once for the new one');
+}));
+
+test('kosmos#9222: a gone process spends none of a read\'s ps budget', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 150 * H;
+  const r = root();
+  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'd' + i, label: 'd' + i, pid: 99800 + i, now: base, startOf: () => 'A' });
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99899, now: base }).ok, true);
+  const rs = require('./restoresink');
+  rs.pidAlive = (pid) => pid === 99899;   // the nine before it have exited
+  seen.ps = 0;
+  const shown = hj.live({ root: r, now: base + 14 * H }).map((j) => j.label);
+  assert.deepEqual(shown, ['overnight'], 'nine gone processes spent the budget, and the live one was not read');
+  assert.equal(seen.ps, 1);
 }));

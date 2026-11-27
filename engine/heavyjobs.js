@@ -16,7 +16,8 @@
  *   - it was last announced more than MAX_AGE_MS ago and names no process, or a process with no recorded start (a
  *     ceiling, so it cannot stay for ever). A process with a recorded start is judged by it instead (kosmos#9222):
  *     confirmed, it stays while it runs (a hung one is ended with `kosmos heavy end --pid N`); unread on a read past
- *     the ceiling, it is hidden for that read but kept for the next one to judge.
+ *     the ceiling, it is hidden for that read but kept for the next one to judge. A hidden record still counts toward
+ *     the agent's MAX_PER_AGENT, which is what bounds how many of them an agent leaves in the file.
  * Without --pid a record is tied to its agent only: it ends with `kosmos heavy end`, with the agent, or at the ceiling.
  * Where a start time cannot be read (Windows has no ps), a --pid record still clears when its process is gone (signal 0),
  * but a reused number is not told apart from the job.
@@ -166,13 +167,20 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
   let out = { ok: true, job };
   const r = locked(root, () => {
     const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
-    // The agent's other records (at most MAX_PER_AGENT) are judged by signal 0 and the cache, since this runs under the
-    // lock, on the route; an aged one gets a real read, because without one it could only be hidden (kosmos#9222).
+    // The agent's other records are judged by signal 0 and the cache, since this runs under the lock, on the route; up
+    // to MAX_PER_AGENT aged ones get a real read, because without one they could only be hidden (kosmos#9222). Each pid
+    // is asked once per start, however many times it is judged below.
     if (startOf === defaultStartOf) {
       const aged = new Set(list.filter((j) => j.agent === agent && j.pid !== null && agedOf(j, now)).map((j) => j.pid));
-      othersOf = (q) => defaultStartOf(q, now, aged.has(q) ? 'cached' : 'alive');
+      const asked = new Map();
+      let reads = MAX_PER_AGENT;
+      othersOf = (q) => {
+        if (!asked.has(q)) asked.set(q, defaultStartOf(q, now, aged.has(q) && reads-- > 0 ? 'cached' : 'alive'));
+        return asked.get(q);
+      };
     }
-    if (list.filter((j) => j.agent === agent && isLive(j, { now, startOf: othersOf, agentAlive: null })).length >= MAX_PER_AGENT) {
+    // A hidden record counts too: it is still in the file, and the cap is what bounds how many an agent leaves there.
+    if (list.filter((j) => j.agent === agent && judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop').length >= MAX_PER_AGENT) {
       out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
       return;
     }
@@ -211,7 +219,9 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
     // that need a read to be shown get it (kosmos#9222).
     let budget = PS_PER_READ;
     const until = Date.now() + PS_MS_PER_READ;
+    const rs = require('./restoresink');
     startOf = (pid) => {
+      if (!rs.pidAlive(pid)) return defaultStartOf(pid, now, 'alive');   // gone: signal 0 says so, and no ps is spent
       const hit = startCache.get(pid);
       if (hit && now - hit.at < START_CACHE_MS) return defaultStartOf(pid, now, 'cached');
       if (budget > 0 && Date.now() < until) { budget -= 1; return defaultStartOf(pid, now, 'cached'); }
@@ -223,8 +233,12 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
   const verdict = [];
   for (const i of order) verdict[i] = judge(all[i], { now, startOf, agentAlive });
   if (verdict.includes('drop')) {
+    // Exactly the records this read dropped go (re-read under the lock, so a start made meanwhile stays); nothing is
+    // judged again, so a second pass with the budget spent cannot change what this read decided.
+    const key = (j) => j.agent + '\u0000' + j.pid + '\u0000' + j.since;
+    const gone = new Set(all.filter((_, i) => verdict[i] === 'drop').map(key));
     require('./filelock').withFileLock(fileOf(root), () => {
-      writeAll(root, readAll(root).filter((j) => judge(j, { now, startOf, agentAlive }) !== 'drop'));
+      writeAll(root, readAll(root).filter((j) => !gone.has(key(j))));
     }, { waitMs: 0 });   // its { ok:false } (busy) and writeAll's false both leave the file for the next read
   }
   return all.filter((_, i) => verdict[i] === 'show').map((j) => ({ agent: j.agent, label: j.label, pid: j.pid, since: j.since }));

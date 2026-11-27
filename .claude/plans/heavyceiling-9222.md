@@ -18,7 +18,9 @@ the per-agent cap, but left in the file), or drop it.
   not asked): shown inside the ceiling; past it, HIDDEN but kept, so a read that could not ask neither deletes what the
   next one confirms nor shows what it cannot vouch for.
 - So that aged records get their reads: a read judges aged records first, and only a ps run spends its budget (a
-  fresh cache hit costs none). In `start()`, the agent's aged records get a real read (at most four).
+  fresh cache hit, or a process signal 0 says is gone, costs none). In `start()`, up to four of the agent's aged
+  records get a real read, each pid asked once however many times it is judged.
+- A hidden record still counts toward the agent's four, so an agent cannot fill the file with them.
 - The ceiling still drops a record with no process, and one that recorded no start (Windows, no ps).
 - A hung wrapper that never exits is kept on purpose: it is still running, and still holding what it holds. It is
   ended with `kosmos heavy end --pid N`.
@@ -34,7 +36,8 @@ the per-agent cap, but left in the file), or drop it.
 
 That a matching start time is proof of the same process. A reused number given the same start second is the only way
 it lies, which ps's lstart (to the second) makes very unlikely. And: a record that ps can never read again stays in
-the file, hidden, until signal 0 says its process is gone; it is invisible and bounded by the file's 50 records.
+the file, hidden, until signal 0 says its process is gone; it is invisible, and it holds one of its agent's four
+places (so `kosmos heavy start` refuses a fifth until one is ended with `kosmos heavy end --pid N`).
 
 ## Tests
 
