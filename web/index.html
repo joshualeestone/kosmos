@@ -20299,6 +20299,31 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+    <!-- #8720: retire agents that have not run in N days. OFF by default. Retiring is the board's own Remove
+         (engine/remove.js), so nothing is deleted and every one can be put back from Removed agents. Same status-control
+         contract as the Recommender: the switch and the days stay hidden until the read lands, a failed read hides them
+         and says so, never a false Off. The lists are the engine's own verdicts (engine/idleretire.js), painted with
+         textContent only. -->
+    <section class="dbox">
+      <h3 class="dlab">Idle agents</h3>
+      <div class="setrow" id="idr-row" style="margin-top:14px;">
+        <div><b>Retire agents that have not run in a while</b>
+          <p class="dhint" style="margin:2px 0 0;">Once a day, Kosmos removes each agent that has not run in the number of days you pick. Nothing is deleted: a retired agent is under Removed agents on the Agents page, and Restore puts it back. Kosmos never retires the setup guide, an agent waiting on you, an agent named on an open task, or an agent on a project that is not archived.</p>
+          <p class="dhint" style="margin:8px 0 0;">Off by default.</p></div>
+        <button class="toggle" id="idr-toggle" role="switch" aria-label="Retire agents that have not run in a while" hidden><i></i></button>
+      </div>
+      <div class="setrow" id="idr-days-row" style="margin-top:14px;" hidden>
+        <div><label for="idr-days"><b>After this many days without running</b></label></div>
+        <select id="idr-days"></select>
+      </div>
+      <div id="idr-lists" hidden style="margin-top:10px;">
+        <p class="dhint" id="idr-retire-h" style="margin:8px 0 0;"></p><ul class="dhint" id="idr-retire" style="margin:2px 0 0;"></ul>
+        <p class="dhint" id="idr-keep-h" style="margin:8px 0 0;"></p><ul class="dhint" id="idr-keep" style="margin:2px 0 0;"></ul>
+        <p class="dhint" id="idr-unknown-h" style="margin:8px 0 0;"></p><ul class="dhint" id="idr-unknown" style="margin:2px 0 0;"></ul>
+        <p class="dhint" id="idr-recent-h" style="margin:8px 0 0;"></p><ul class="dhint" id="idr-recent" style="margin:2px 0 0;"></ul>
+      </div>
+      <p class="dhint" id="idr-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
        already existed and is merged (#854); nothing in the product consumed it,
@@ -30259,6 +30284,103 @@ function asgFailoverClick() {
 }
 document.getElementById('asg-fo-toggle') && document.getElementById('asg-fo-toggle').addEventListener('click', asgFailoverClick);
 
+/* #8720: retiring idle agents. The Recommender's status contract: hidden until the read lands, a failed read hides the
+   controls and says so (never a false Off), one change per PUT, a failed save repaints from the store. "Kept" lists
+   only the agents idle long enough to be retired and protected from it; an agent that ran recently needs no reason. */
+let IDR_EPOCH = 0;
+let IDR_SAVING = false;
+function idrList(id, headId, head, items) {
+  const ul = document.getElementById(id);
+  const h = document.getElementById(headId);
+  if (!ul || !h) return;
+  ul.replaceChildren();
+  h.hidden = ul.hidden = items.length === 0;
+  h.textContent = head;
+  for (const line of items) { const li = document.createElement('li'); li.textContent = line; ul.appendChild(li); }
+}
+function paintIdleRetireFrom(r) {
+  const s = (r && r.setting) || {};
+  const on = s.on === true;
+  paintSwitch('idr-toggle', on);
+  const sel = document.getElementById('idr-days');
+  if (sel) {
+    const choices = Array.isArray(r.choices) ? r.choices : [];
+    if (sel.options.length !== choices.length) {
+      sel.replaceChildren();
+      for (const d of choices) { const o = document.createElement('option'); o.value = String(d); o.textContent = d + ' days'; sel.appendChild(o); }
+    }
+    if (document.activeElement !== sel) sel.value = String(s.days);
+  }
+  const daysRow = document.getElementById('idr-days-row');
+  const lists = document.getElementById('idr-lists');
+  if (daysRow) daysRow.hidden = !on;
+  if (lists) lists.hidden = !on;
+  const v = Array.isArray(r.verdicts) ? r.verdicts : [];
+  const limit = Number(s.days) || 30;
+  idrList('idr-retire', 'idr-retire-h', 'Would be retired at the next daily check:',
+    v.filter((x) => x.verdict === 'retire').map((x) => x.shownAs + ': ' + x.why));
+  idrList('idr-keep', 'idr-keep-h', 'Idle that long, but kept:',
+    v.filter((x) => x.verdict === 'keep' && typeof x.days === 'number' && x.days >= limit).map((x) => x.shownAs + ': ' + x.why));
+  idrList('idr-unknown', 'idr-unknown-h', 'Kosmos cannot tell yet, so it leaves these alone:',
+    v.filter((x) => x.verdict === 'unknown').map((x) => x.shownAs));
+  const recent = Array.isArray(r.recent) ? r.recent : [];
+  idrList('idr-recent', 'idr-recent-h', 'Recently retired (Restore is under Removed agents on the Agents page):',
+    recent.slice(0, 10).map((x) => x.shownAs + ', ' + String(x.at || '').slice(0, 10) + ': ' + (x.outcome === 'removed' ? 'retired, ' + x.because : 'not retired, ' + x.because)));
+}
+async function paintIdleRetire(keepMsg) {
+  const mine = ++IDR_EPOCH;
+  const msg = document.getElementById('idr-msg');
+  if (!document.getElementById('idr-toggle')) return;
+  try {
+    const res = await fetch('/api/idle-retire', { cache: 'no-store' });
+    if (mine !== IDR_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== IDR_EPOCH) return;
+    paintIdleRetireFrom(r);
+    if (msg && !keepMsg) msg.textContent = '';
+  } catch {
+    if (mine !== IDR_EPOCH) return;
+    paintSwitch('idr-toggle', null);
+    for (const id of ['idr-days-row', 'idr-lists']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function saveIdleRetire(change) {
+  const msg = document.getElementById('idr-msg');
+  if (IDR_SAVING) { if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.'; paintIdleRetire(true); return; }
+  IDR_SAVING = true;
+  const mine = ++IDR_EPOCH;
+  let failed = false;
+  try {
+    const res = await fetch('/api/idle-retire', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(change) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) failed = true;
+    if (mine !== IDR_EPOCH) return;
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    paintIdleRetireFrom(out);
+    if (msg) msg.textContent = '';
+  } catch {
+    failed = true;
+    if (mine === IDR_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    IDR_SAVING = false;
+    if (failed) paintIdleRetire(true);
+  }
+}
+function idrToggleClick() {
+  const tog = document.getElementById('idr-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintIdleRetire(); return; } // not loaded: never write over a stored value
+  saveIdleRetire({ on: tog.getAttribute('aria-checked') !== 'true' });
+}
+function idrDaysChange(e) {
+  const tog = document.getElementById('idr-toggle');
+  if (!tog || !tog.hasAttribute('aria-checked')) { paintIdleRetire(); return; }
+  saveIdleRetire({ days: Number(e.target.value) });
+}
+document.getElementById('idr-toggle') && document.getElementById('idr-toggle').addEventListener('click', idrToggleClick);
+document.getElementById('idr-days') && document.getElementById('idr-days').addEventListener('change', idrDaysChange);
+
 async function paintSettings() {
   acctSettingsOpenAt = Date.now();   // #6176: a Settings open is under way: its own paintAccounts below reads the list
   paintYouName();
@@ -30269,6 +30391,7 @@ async function paintSettings() {
   paintWorkcap(); // kosmos#7406
   paintRecommender(); // #3595: live.
   paintAssigner(); // #3595 phase 2: live.
+  paintIdleRetire(); // #8720
   paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
