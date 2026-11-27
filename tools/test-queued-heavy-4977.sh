@@ -35,11 +35,13 @@ ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
 # whose wrapper falls back to /tmp). Each kind is KILLed only when its command line has a waiter's shape: a bash running
 # a script with --queued-args, or for a listed pid also the forms it has before its re-exec (perl about to run this
 # tree's wrapper, or that wrapper with its first arguments, or the forked copy of this file before its exec), since a
-# pid is listed only while its own arm runs, and is this shell's own child.
+# pid is listed only while its own arm runs, and is KILLed only while it is still this shell's own child (its parent
+# is $$, as ours() checks), so a pid reused by anything else is never reached, whatever its command line.
 # The list is a file so the watchdog, forked before any arm, reads it as it is now.
 kill_waiters() { local p
   for p in $(LC_ALL=C pgrep -f -- "--queued-args $S/" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash "*" --queued-args $S/"*) kill -KILL "$p" 2>/dev/null;; esac; done
-  for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"perl -e alarm"*" /bin/bash $REAL_QH "*|*test-queued-heavy-4977.sh*) kill -KILL "$p" 2>/dev/null;; esac; done; }
+  for p in $(cat "$S/own-waiters" 2>/dev/null); do [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" = "$$" ] || continue
+    case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"perl -e alarm"*" /bin/bash $REAL_QH "*|*test-queued-heavy-4977.sh*) kill -KILL "$p" 2>/dev/null;; esac; done; }
 # own_waiter <pid> lists a pid for kill_waiters, unown_waiter <pid> takes it off again: an arm lists its waiter only
 # while that arm runs (kill_waiters also accepts its pre-exec forms, which is safe only for a pid still its own), so
 # every arm that lists one must unlist it when its wait returns. Only that pid's line goes; others stay. unown_waiter
@@ -862,26 +864,31 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mtwin /bin/bash $QH --withdraw "nothing-
 ok "#9118: a dead run's leftover label .tmp file is removed" '[ "$rw" = 1 ] && [ ! -e $S/mtwin/qh-label.$DT.tmp ]'
 
 # kosmos#9191: kill_waiters ends this run's waiters (an arguments file in $S, or a pid listed in $S/own-waiters) and leaves
-# another --queued-args process alone. Stand-ins named after a fake path, so no real queue scan matches them.
-bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args $1/tmp/queued-heavy-args.in9191" sleep 60' _ "$S" & KA9191=$!
-bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.own9191-$2" sleep 60' _ "$S" "$$" & KB9191=$!
-bash -c 'exec -a "/bin/bash /nowhere/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.other9191-$1" sleep 60' _ "$$" & KC9191=$!
-bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.unlisted9191-$2" sleep 60' _ "$S" "$$" & KF9191=$!   # not listed, arguments outside $S: must survive
-# The listed-pid forms the real stale-TMPDIR waiter has: the wrapper before its re-exec (REAL_QH pointed at the fake path
-# for this one call) and perl before it execs the wrapper.
-bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$S" & KD9191=$!
-bash -c 'exec -a "perl -e alarm(shift); exec @ARGV or die 60 /bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$S" & KE9191=$!
-# Ready once each has exec'd: before that its bash -c line already holds the words --queued-args, unexpanded.
-until_true 10 'ps -ww -o command= -p $KA9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KB9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && ps -ww -o command= -p $KD9191 | grep -q "^/bin/bash $S/fakeqh9191.sh stale" && ps -ww -o command= -p $KE9191 | grep -q "^perl -e alarm" && ps -ww -o command= -p $KF9191 | grep -q "^/bin/bash $S/fakeqh9191.sh --queued-args /tmp/"'; k9191_up=$?
-# KC is listed too: a listed pid whose command is not a waiter of this run (a reused pid) must be left alone.
-# Called mid-run: any other waiter of this run still alive here is ended too, so arms that start wrappers go BEFORE
-# this one. The temporary REAL_QH= on the call is restored after it (bash, not posix mode).
-own_waiter $KB9191; own_waiter $KC9191; own_waiter $KD9191; own_waiter $KE9191; REAL_QH="$S/fakeqh9191.sh" kill_waiters
-for p in $KB9191 $KC9191 $KD9191 $KE9191; do unown_waiter $p; done
+# anything else alone. The arm runs it against its own sub-root ($K, as $S for the call), so the run's real waiters are
+# out of its reach wherever this arm sits. Stand-ins are named after a fake path, so no real queue scan matches them.
+K=$S/k9191; mkdir -p $K/tmp
+bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args $1/tmp/queued-heavy-args.in9191" sleep 60' _ "$K" & KA9191=$!
+bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.own9191-$2" sleep 60' _ "$K" "$$" & KB9191=$!
+bash -c 'exec -a "/bin/bash /nowhere/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.other9191-$1" sleep 60' _ "$$" & KC9191=$!   # listed, not a waiter's shape: must survive
+bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.unlisted9191-$2" sleep 60' _ "$K" "$$" & KF9191=$!   # not listed, arguments outside $K: must survive
+# The listed-pid forms the real stale-TMPDIR waiter has: the wrapper before its re-exec, perl before it execs the
+# wrapper, and the forked copy of this file before its own exec (KG). KH has KG's command line but is not this
+# shell's child (its parent exits at once): listed, it must survive.
+bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$K" & KD9191=$!
+bash -c 'exec -a "perl -e alarm(shift); exec @ARGV or die 60 /bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$K" & KE9191=$!
+bash -c 'exec -a "bash tools/test-queued-heavy-4977.sh kg9191" sleep 60' & KG9191=$!
+( bash -c 'exec -a "bash tools/test-queued-heavy-4977.sh kh9191" sleep 60' & echo $! > $K/kh.pid ); KH9191=$(cat $K/kh.pid)
+# Ready once each has exec'd: before that its bash -c line already holds the words it will take, unexpanded.
+cmd9191() { ps -ww -o command= -p "$1" 2>/dev/null; }
+until_true 10 'cmd9191 $KA9191 | grep -q "^/bin/bash $K/fakeqh9191.sh" && cmd9191 $KB9191 | grep -q "^/bin/bash $K/fakeqh9191.sh" && cmd9191 $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && cmd9191 $KF9191 | grep -q "^/bin/bash $K/fakeqh9191.sh --queued-args /tmp/" && cmd9191 $KD9191 | grep -q "^/bin/bash $K/fakeqh9191.sh stale" && cmd9191 $KE9191 | grep -q "^perl -e alarm" && cmd9191 $KG9191 | grep -q "^bash tools/test-queued-heavy-4977.sh kg9191" && cmd9191 $KH9191 | grep -q "^bash tools/test-queued-heavy-4977.sh kh9191" && [ "$(ps -o ppid= -p $KH9191 | tr -d " ")" != "$$" ]'; k9191_up=$?
+for p in $KB9191 $KC9191 $KD9191 $KE9191 $KG9191 $KH9191; do S="$K" own_waiter $p; done
+S="$K" REAL_QH="$K/fakeqh9191.sh" kill_waiters   # temporary assignments on a function call, restored after it (bash, not posix mode)
 dead9191() { local st; st="$(ps -o stat= -p "$1" 2>/dev/null)"; st="${st// /}"; [ -z "$st" ] || [ "${st#Z}" != "$st" ]; }   # gone, or a zombie not yet reaped (kill -0 succeeds on those)
-until_true 10 'dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191'
-ok "#9191: kill_waiters ends a waiter whose arguments file is in this run's dir and the listed ones in each form (re-exec'd, before it, perl), and leaves a listed pid that is not its waiter, and an unlisted waiter outside this run's dir, alone" '[ "$k9191_up" = 0 ] && dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191 && ! dead9191 $KC9191 && ! dead9191 $KF9191'
-kill -KILL $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 $KF9191 2>/dev/null; wait $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 $KF9191 2>/dev/null
+until_true 10 'dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191 && dead9191 $KG9191'
+ok "#9191: kill_waiters ends a waiter whose arguments file is in its dir and the listed ones in each form (re-exec'd, before it, perl, a fork of this file), and leaves alone a listed pid not shaped like a waiter, a listed pid that is not its child, and an unlisted waiter outside its dir" '[ "$k9191_up" = 0 ] && dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191 && dead9191 $KG9191 && ! dead9191 $KC9191 && ! dead9191 $KF9191 && ! dead9191 $KH9191'
+kill -KILL $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 $KF9191 $KG9191 2>/dev/null
+case "$(cmd9191 $KH9191)" in *kh9191*) kill -KILL $KH9191 2>/dev/null;; esac   # not this shell's child, so only while it is still KH
+wait $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 $KF9191 $KG9191 2>/dev/null
 # kosmos#9191: joiner_under finds the waiter under the pid it is given, not an OLDER process with the same command line
 # (the stray a killed earlier run left behind, which `pgrep -o` picked). This guards the helper; the three #5923 arms
 # that call it are not run here with a stray beside them (that needs a real-path stand-in, which other agents' queue
@@ -893,7 +900,7 @@ until_true 10 'ps -ww -o command= -p $JD9191 | grep -q "^$JW9191"'; sleep 1.2   
 until_true 10 'jw9191="$(joiner_under $JP9191 "$JW9191")"'; j9191=$?
 jo9191="$(LC_ALL=C pgrep -o -f -- "^$JW9191")"   # the old pick, as a CONTROL: it must name the stray
 ok "#9191: joiner_under finds the arm's own waiter, not an older one with the same command line (pgrep -o picks the older)" '[ "$j9191" = 0 ] && [ -n "$jw9191" ] && [ "$jw9191" != "$JD9191" ] && [[ "$(ps -ww -o command= -p $jw9191)" == *mine9191* ]] && [ "$jo9191" = "$JD9191" ] && ! joiner_under $$ "/bin/bash /nowhere9191 --queued-args " >/dev/null'
-kill -KILL $JD9191 $jw9191 2>/dev/null; wait $JD9191 $JP9191 2>/dev/null
+kill -KILL $JD9191 $jw9191 2>/dev/null; pkill -KILL -P $JP9191 2>/dev/null; wait $JD9191 $JP9191 2>/dev/null
 
 # kosmos#9191: the three #5923 lock-loop arms find their joiner with joiner_under, and no pick of "the oldest process
 # running this path" is left. A source check: running those arms with a stray beside them would need a real-path
