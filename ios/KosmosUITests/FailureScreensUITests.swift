@@ -10,9 +10,13 @@ import XCTest
 ///
 /// Appearance: each half launches with the board's own theme set (`-kosmos.boardTheme light|dark`, the UserDefaults
 /// key Shell.boardThemeKey that BoardThemeProxy applies to every window at start), so the app draws that appearance
-/// whatever the simulator's: XCUIDevice.shared.appearance changed nothing on iOS 26.5 or 27.0, and on 26.5 even
-/// `simctl ui appearance dark` left these screens light (measured 11-27). So both halves run in CI, and each must draw its
-/// own exact ground: the other ground, navy or blue FAILS.
+/// whatever the simulator's: XCUIDevice.shared.appearance changed nothing on iOS 26.5 or 27.0, and in one measured run on
+/// 26.5 (11-27) these screens stayed light after `simctl ui appearance dark` too (not chased further). So both halves run
+/// in CI, and each must draw its own exact ground: the other ground, navy or blue FAILS. This proves the board-theme
+/// path, not a phone in dark mode with the board on "system"; Palette.ground and the gold resolve from the same trait
+/// either way. Review 1: the web view keeps loading under the held screen, and a page that posts its theme ("system")
+/// would hand the windows back to the simulator's appearance; so each screen's ground is read again 2 s later and must
+/// still be the one asked for, which turns that race into a failure rather than a pass on the first frame.
 /// Opt-in with TEST_RUNNER_KOSMOS_UI_PLUS=1, as the other sample-board UI tests are (ios/tools/ui-sample.sh runs it).
 final class FailureScreensUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
@@ -114,6 +118,9 @@ final class FailureScreensUITests: XCTestCase {
             XCTAssertNil(banned, "\(screen.sample): \(banned ?? "")")
             XCTAssertTrue(fill.map { Self.near($0, Self.gold, within: 6) } ?? false, "\(screen.sample): Try again is not gold: \(fill.map(Self.hex) ?? "none")")
             XCTAssertEqual(seen, expect, "\(screen.sample): asked for \(expect), drawn on: \(seen)")
+            Thread.sleep(forTimeInterval: 2.0)
+            let later = Self.ground(app.screenshot().image, edges, scale: scale)
+            XCTAssertEqual(later, expect, "\(screen.sample): asked for \(expect), and 2 s later drawn on: \(later) (did the page under it post a theme?)")
             app.terminate()
         }
     }
