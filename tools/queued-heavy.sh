@@ -1029,12 +1029,21 @@ fi
 # kosmos#9217: say on the board that a heavy job runs on this computer (`kosmos heavy start`), tied to this script's own
 # process, so the board's line clears itself when this script exits, however it exits (no end call in _qh_end). A
 # heavy run only: a --light run is not announced, whichever lane it gets, unless it was made an ordinary turn because it
-# runs a suite, a page layer, an install harness or a cut (QH_RUNS_BC). Best-effort: with no kosmos command, with QUEUED_HEAVY_ANNOUNCE=0
-# (tools/run-tests.sh sets it, so a test's queued-heavy never writes to a real board), or on any refusal, nothing is
-# said and the run goes on. The label is the run's own name, cut to the 80 characters a label may have.
+# runs a suite, a page layer, an install harness or a cut (QH_RUNS_BC). Best-effort and detached: the run starts at once
+# and never waits on the board (a busy one is given 2 s, KOSMOS_BUSY_WAIT); the call's own output and exit status are
+# discarded, and a call that lands after this script exited is refused by the board (no such process), which is right.
+# One line says whether the board was asked, so a run whose PATH has no kosmos (a tmux run-shell or launchd job) shows
+# it. QUEUED_HEAVY_ANNOUNCE=0 asks nothing and says nothing (tools/run-tests.sh sets it, so a test's queued-heavy never
+# writes to a real board). The label is the run's own name, cut to 80 characters (bash's count: a name with non-ASCII
+# letters, under a C locale, can be cut mid-letter or refused; the run is unaffected).
 if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$QH_RUNS_BC" = 1 ]; } \
-  && [ "${QUEUED_HEAVY_ANNOUNCE:-1}" != 0 ] && command -v kosmos >/dev/null 2>&1; then
-  kosmos heavy start "${WHAT:0:80}" --pid "$$" </dev/null >/dev/null 2>&1 || true
+  && [ "${QUEUED_HEAVY_ANNOUNCE:-1}" != 0 ]; then
+  if command -v kosmos >/dev/null 2>&1; then
+    ( KOSMOS_BUSY_WAIT=2 kosmos heavy start "${WHAT:0:80}" --pid "$$" </dev/null >/dev/null 2>&1 & )
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') asked the board to show this run as a heavy job (kosmos heavy start, kosmos#9217)"
+  else
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: no kosmos command on this PATH"
+  fi
 fi
 if [ "$LANE" != side ] && [ -z "$QH_BESIDE" ]; then
 (
