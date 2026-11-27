@@ -36,3 +36,6 @@ for hand-run simulator shots (#9101, 11-27). This is the durable guard.
 - [WARNING] the header overclaimed: the test cannot tell a missing bar background from a present one (the page behind is the same ground) --> reworded: it catches a WRONG colour on the bar or the page (measured with the navy control); a missing background is not the #9101 regression.
 - [NIT] "CI runs it in light" --> "a fresh simulator is light, so CI sees light".
 - Checked sound: the scale assertion, the skip accounting (ui-sample.sh sets TEST_RUNNER_KOSMOS_UI_PLUS), points derived from the device (CI's smaller iPhone included), the 0.75-width point clear of the label.
+
+## Review round 3 (opus, blind, whole branch): NO NEW FINDINGS (converged)
+Noted, not a finding: CI's sample-board job may run another iOS version than the measured iOS 27 simulator; the bar's colour does not depend on it, and the CI job itself is the run on that version.
