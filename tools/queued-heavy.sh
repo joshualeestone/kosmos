@@ -672,6 +672,10 @@ _qh_take() {
 # kosmos_note_beside_run, so the holder's red run-tests.sh summary names it (a red in that window reads as contention,
 # not as the change: PigeonPete). Unset, empty or not a number: no cap, the queue as before. A --light run ignores
 # it, even one sent to an ordinary turn, and so does KOSMOS_NO_WAIT=1 (it still refuses at once, review 2).
+# LIMIT, stated (review 7): "never beside a release cut" is checked when a run goes beside, not while it runs. A beside
+# run holds no claim and no marker any gate reads (only the holder's run-tests.sh summary reads its note), so once the
+# ordinary holder ends, a cut, or the next main turn, can start while the beside run is still going. No worse than
+# before this cap (relay CI ran outside the queue entirely); making a live slot read busy is a change of its own.
 # Review 2: the cap is a DEADLINE from when the run joined, not a fresh wait each time: each wait gets what is left,
 # and past it one lost take (an earlier waiter took the free turn) sends the run beside. The cut wait has NO bound of
 # its own: the caller's own timeout ends it (relay CI's job limit). Across a cut the run may keep its join time or
@@ -722,13 +726,23 @@ _qh_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1
 # Review 6: the slot file is "<wrapper pid> [<command's process group>]": the group is added once the command starts,
 # so a SIGKILLed wrapper's slot stays held while its command still runs (until the watcher has stopped it). Not covered,
 # stated: a beside run started from a terminal (QH_FG) runs its command in the foreground and records no group.
+# Review 7: each number is checked with its START TIME too (pstart, gstart, written before the number they describe), so a
+# slot left by a run killed with its watcher (a CI cancel, a reboot) cannot be held for ever by an unrelated process that
+# was later given the same pid or group number (reproduced: every capped run waited past its cap). A start that cannot be
+# read (no file yet, or ps fails) keeps the number counted, the safe side; a group leader that is gone while its group
+# still runs is still that group (a new group with that number needs a leader with that pid).
 _qh_slot_live() {   # <slot dir>: 0 while its holder (or its command's group) lives, or it is under 300 s old with no pid
-  local h g
+  local h g st now
   read -r h g < "$1/pid" 2>/dev/null || h=""
   case "$h" in ''|*[!0-9]*) [ $(( $(date +%s) - $(_qh_mtime "$1") )) -le 300 ]; return ;; esac
-  kill -0 "$h" 2>/dev/null && return 0
+  if kill -0 "$h" 2>/dev/null; then
+    st="$(cat "$1/pstart" 2>/dev/null)"; now="$(_qh_pid_start "$h")"
+    { [ -z "$st" ] || [ -z "$now" ] || [ "$now" = "$st" ]; } && return 0
+  fi
   case "$g" in ''|*[!0-9]*) return 1 ;; esac
-  kill -0 -- "-$g" 2>/dev/null
+  kill -0 -- "-$g" 2>/dev/null || return 1
+  st="$(cat "$1/gstart" 2>/dev/null)"; now="$(_qh_pid_start "$g")"
+  [ -z "$st" ] || [ -z "$now" ] || [ "$now" = "$st" ]
 }
 _qh_slot_held() {   # 0 when a live run holds the beside slot; a dead holder's slot is broken here
   local d l; d="$(_qh_slot_dir)"; [ -d "$d" ] || return 1
@@ -736,20 +750,23 @@ _qh_slot_held() {   # 0 when a live run holds the beside slot; a dead holder's s
   # Review 6: broken only UNDER THE TAKE LOCK, judged again there. Two waiters that both judged it dead used to race: one
   # broke it and took a new slot, then the other's rm removed that live one and it took the slot too (reproduced).
   l="$(_kosmos_marker_dir)/queued-heavy-take.lock"; _qh_take_lock "$l"
-  if [ -d "$d" ] && ! _qh_slot_live "$d"; then rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true; fi
+  if [ -d "$d" ] && ! _qh_slot_live "$d"; then rm -f "$d/pid" "$d/pstart" "$d/gstart" 2>/dev/null; rmdir "$d" 2>/dev/null || true; fi
   rm -rf "$l"
   [ -d "$d" ]   # broken (or released meanwhile): free; taken again by another run meanwhile: held
 }
 _qh_slot_take() {
   local d; d="$(_qh_slot_dir)"
   mkdir "$d" 2>/dev/null || return 1
-  { echo "$$" > "$d/pid"; } 2>/dev/null || return 1   # the dir was broken in the moment after mkdir: not ours
+  { _qh_pid_start "$$" > "$d/pstart"; } 2>/dev/null || true   # review 7: before the pid it describes
+  # A write that fails leaves a dir with no pid, which reads live for 300 s and then is broken (it holds beside runs
+  # back for that long, the safe side); this run does not go beside on it.
+  { echo "$$" > "$d/pid"; } 2>/dev/null || return 1
   QH_SLOT="$d"; return 0
 }
 _qh_slot_release() {   # only a slot that still names this script ($$ is this script's pid in the watcher too)
   local h=""; [ -n "${QH_SLOT:-}" ] && { read -r h _ < "$QH_SLOT/pid"; } 2>/dev/null
   if [ -n "${QH_SLOT:-}" ] && [ "$h" = "$$" ]; then
-    rm -f "$QH_SLOT/pid" 2>/dev/null; rmdir "$QH_SLOT" 2>/dev/null || true
+    rm -f "$QH_SLOT/pid" "$QH_SLOT/pstart" "$QH_SLOT/gstart" 2>/dev/null; rmdir "$QH_SLOT" 2>/dev/null || true
   fi
   return 0
 }
@@ -765,8 +782,14 @@ _qh_beside_blocker() {
 # at once (a cap of 0, or KOSMOS_NO_WAIT=1) cannot spin beside a cut for its two hours.
 _qh_after_bound() {
   if [ -z "$QH_CAP_S" ]; then echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; fi
-  # A wait that gave up early (KOSMOS_WAIT_MAX_S below the cap): wait out what is left of the deadline.
-  [ $(( QH_CAP_END - $(date +%s) )) -gt 0 ] && return 1
+  # A wait that gave up early (KOSMOS_WAIT_MAX_S below the cap): wait out what is left of the deadline. Review 7: one poll
+  # first, since a wait of KOSMOS_WAIT_MAX_S=0 gives up before it sleeps (reproduced: 113 rounds in 10 s).
+  if [ $(( QH_CAP_END - $(date +%s) )) -gt 0 ]; then
+    _qh_ev="${KOSMOS_WAIT_EVERY_S:-30}"; case "$_qh_ev" in ''|*[!0-9]*|0) _qh_ev=30 ;; esac
+    [ "$_qh_ev" -gt $(( QH_CAP_END - $(date +%s) )) ] && _qh_ev=$(( QH_CAP_END - $(date +%s) ))
+    [ "$_qh_ev" -gt 0 ] && sleep "$_qh_ev"
+    return 1
+  fi
   export KOSMOS_WAIT_QUEUE_CEIL_S=0
   # Past the deadline: one free turn is taken in order; a lost take after that goes beside (review 2: it used to start
   # a fresh cap each time, so "at most Ns" did not hold behind a waiter that never took).
@@ -1102,7 +1125,7 @@ else
   set -m; "$@" & CMD=$!
   trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP; trap - ALRM USR1 USR2
   [ -n "$QH_PEND" ] && { set +m; exit "$QH_PEND"; }
-  [ -n "${QH_SLOT:-}" ] && { printf '%s %s\n' "$$" "$CMD" > "$QH_SLOT/pid"; } 2>/dev/null   # review 6: and its group
+  [ -n "${QH_SLOT:-}" ] && { _qh_pid_start "$CMD" > "$QH_SLOT/gstart"; printf '%s %s\n' "$$" "$CMD" > "$QH_SLOT/pid"; } 2>/dev/null   # review 6: and its group (review 7: with its start, first)
   # The watcher, in its own process group too (so a KILL to this script's group does not reach it), stopped by
   # _qh_stop_capper like a side turn's capper. Every 5 s: once the command's GROUP has gone it exits; once THIS script
   # is gone (SIGKILLed, so no trap ran) it stops the command's group as _qh_end would, and exits. $$ is this script's

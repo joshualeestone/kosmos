@@ -1019,6 +1019,23 @@ sleep 0 & DEAD17=$!; wait "$DEAD17"   # review 6: a pid known to be gone (a lite
 cap_hold $S/mcap17 "queued run (not a cut): fake heavy"; mkdir -p $S/mcap17/queued-heavy-beside.slot; echo "$DEAD17" > $S/mcap17/queued-heavy-beside.slot/pid
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap17 QUEUED_HEAVY_CAP_S=1 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-deadslot" sh -c 'echo DS-RAN' 2>&1)
 ok "#9139: a beside slot whose run is gone is broken, and the run's own slot is released at its end" '[[ "$o" == *"RUNNING BESIDE"* && "$o" == *DS-RAN* ]] && [ ! -e $S/mcap17/queued-heavy-beside.slot ]'
+# Review 7: KOSMOS_WAIT_MAX_S=0 with a cap gives up before it sleeps; each early give-up now waits one poll (it spun:
+# 113 rounds in 10 s before the deadline).
+cap_hold $S/mcap18 "queued run (not a cut): fake heavy"
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap18 QUEUED_HEAVY_CAP_S=6 KOSMOS_WAIT_MAX_S=0 KOSMOS_WAIT_EVERY_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-max0" sh -c 'echo M0-RAN' 2>&1)
+n18=$(printf '%s\n' "$o" | grep -c "did not get the turn")
+ok "#9139: a cap with KOSMOS_WAIT_MAX_S=0 waits a poll between give-ups ($n18 rounds in 6 s), then runs beside" '[ "$n18" -le 5 ] && [[ "$o" == *"RUNNING BESIDE"* && "$o" == *M0-RAN* ]]'
+# Review 7: a slot whose pid now belongs to an UNRELATED live process (its start differs from the one recorded) is a
+# left-behind slot: broken, and the run goes beside (it waited past its cap for ever).
+cap_hold $S/mcap19 "queued run (not a cut): fake heavy"
+perl -e 'select(undef, undef, undef, 60)' < /dev/null > /dev/null 2>&1 & LIVE19=$!
+mkdir -p $S/mcap19/queued-heavy-beside.slot; echo "Mon Jan  1 00:00:00 2001" > $S/mcap19/queued-heavy-beside.slot/pstart; echo "$LIVE19" > $S/mcap19/queued-heavy-beside.slot/pid
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 400 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 400 ))" +%Y%m%d%H%M.%S)" $S/mcap19/queued-heavy-beside.slot
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap19 QUEUED_HEAVY_CAP_S=1 perl -e 'alarm(shift); exec @ARGV or die' 40 /bin/bash $QH "cap-reused" sh -c 'echo RU-RAN' 2>&1)
+kill "$LIVE19" 2>/dev/null; wait "$LIVE19" 2>/dev/null
+# It must go beside AT ONCE: never wait on that slot. (A run that waited for the stand-in to exit also went beside in the
+# end, which is how this arm first passed with the start check removed.)
+ok "#9139: a slot whose pid was reused by an unrelated live process is broken at once, and the run goes beside" '[[ "$o" == *"RUNNING BESIDE"* && "$o" == *RU-RAN* && "$o" != *"another run is already beside"* ]] && [ ! -e $S/mcap19/queued-heavy-beside.slot ]'
 cap_hold $S/mcap3 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap3 KOSMOS_WAIT_QUEUE_CEIL_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "nocap" touch $S/nocap-ran 2>&1); r=$?
 ok "#9139 CONTROL: with no cap, a run that cannot get a turn is still refused (exit 4) and runs nothing" '[ "$r" = 4 ] && [[ "$o" == *REFUSED* ]] && [ ! -e $S/nocap-ran ] && [ ! -e $S/mcap3/beside-runs.log ]'
@@ -1026,7 +1043,7 @@ cap_hold $S/mcap4 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap4 QUEUED_HEAVY_CAP_S=15m KOSMOS_WAIT_QUEUE_CEIL_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "badcap" touch $S/badcap-ran 2>&1); r=$?
 ok "#9139: a cap that is not a number is no cap (refused, nothing run beside)" '[ "$r" = 4 ] && [ ! -e $S/badcap-ran ] && [[ "$o" != *"waits at most"* ]]'
 
-EXPECTED=198   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=200   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
