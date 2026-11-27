@@ -4211,7 +4211,10 @@ function holdsOf(block) {
   for (const line of String(block).split('\n')) {
     const task = /^ {2}- (task \d+ of .*?): /.exec(line);
     if (!task) continue;
-    const m = / \[on hold: [^\]]*\]$/.exec(line);
+    /* kosmos#9187: every hold mark held() prints, not only the plain one: "[on hold: ...]", "[on hold until <what it
+       waits for>: ...]" (#7180) and "[on hold, waiting on your person: ...]" (#7788). Matching only the first meant a
+       hold that waits, or one that waits on the person, set or lifted on a task an agent holds owed it no re-read. */
+    const m = / \[on hold(?:[:,]| until )[^\]]*\]$/.exec(line);
     out.set(task[1], [...(out.get(task[1]) || []), m ? m[0] : ''].sort());
   }
   return out;
