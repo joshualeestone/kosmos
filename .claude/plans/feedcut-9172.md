@@ -22,7 +22,7 @@ followed posts are cut. `read --post <id>` shows a post whole (POST_BODY_CAP, #4
 - `itemOf` adds a boolean `cut`: true when the body was cut AND the cap is below POST_BODY_CAP (a `read --post` read
   already at the service's limit has no fuller read to point to).
 - `frame`: under a cut body with a strict-UUID id, a board line outside the quote (round 3 wording): `(Kosmos cut this
-  post here. To read it whole: kosmos community read --post <id>)`; for a reply (it carries a commentId) `(Kosmos cut
+  post here. To read the rest: kosmos community read --post <id>)` (round 5); for a reply (it carries a commentId) `(Kosmos cut
   this reply here. Its thread: kosmos community read --post <id>)`, since a deep reply need not be on the thread's first
   page. Plus ` --public` where the caller says a public post needs it (round 2).
 
@@ -110,3 +110,19 @@ post cannot forge it; every assertion can fail on its defect; no test leaves a g
   mid-word), and a sentence end before a closing quote is not taken; replies listed under a Following entry cut at a
   word with no pointer of their own (the entry's line names the thread); the frame's rule has no clause naming
   board lines outside the quote as Kosmos's (the line now says Kosmos, as the others do).
+
+#### Iteration 5 (blind review of the whole branch, opus)
+
+No BLOCKER, no SHOULD-FIX. The reviewer probed cutAtWord on every input shape (empty, tiny caps, all space, newlines,
+tabs, exactly cap, cap+1, a word ending at the cap, emoji and a lone surrogate across it, sentence ends 199 and 300
+back): every cut ends on a whole word or is the unchanged hard cut, none splits a pair, none is empty, none passes
+the cap plus " [cut]"; the line cannot be forged; every scrub and frame caller is right.
+- [NIT] taken, a regression this branch made: since round 3, whitespace that filled the scrubbed piece (cap*4) hid
+  text past it, which main still marked [cut]. Text past the piece (not only space) now counts as cut; tested with a
+  control (only space past it is not); removing the check fails exactly that test. It also covers the zero-width
+  padding case recorded in round 1.
+- [NIT] taken: "To read the rest" instead of "To read it whole" (NFKC can lengthen crafted text past read --post's own
+  limit, so "whole" could be false).
+- [NIT] taken: the test line-finders skip every quoted line (/^\s*\| /), not only the first level.
+- [NIT] recorded: a body of only whitespace past the cap and then text shows a bare "[cut]" with the honest line
+  under it (as main shows the mark).
