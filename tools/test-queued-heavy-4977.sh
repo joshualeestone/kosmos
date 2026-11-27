@@ -79,10 +79,13 @@ QH_DEADLINE="${QH_DEADLINE:-240}"   # review 1: no wrapper run in this test outl
 # The shim: the only way this test runs the wrapper.
 cat > $S/qh <<SHIM
 #!/bin/bash
-case "\${KOSMOS_RUN_MARKER_DIR:-}" in
-  "$S"/*) exec perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "\$@" ;;
-  *) echo "TEST-REFUSED: KOSMOS_RUN_MARKER_DIR (\${KOSMOS_RUN_MARKER_DIR:-unset}) is not this test's private dir" >&2; exit 99 ;;
-esac
+# kosmos#9217: unset markers too, but only with this test's HOME: the guards then fall back to \$HOME/.cache, private
+# here, so the default that unset markers choose can be tested.
+ours=""
+if [ -n "\${KOSMOS_RUN_MARKER_DIR:-}" ]; then case "\$KOSMOS_RUN_MARKER_DIR" in "$S"/*) ours=1 ;; esac
+else case "\${HOME:-}" in "$S"/home) ours=1 ;; esac; fi
+[ -n "\$ours" ] && exec perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "\$@"
+echo "TEST-REFUSED: KOSMOS_RUN_MARKER_DIR (\${KOSMOS_RUN_MARKER_DIR:-unset}) is not this test's private dir" >&2; exit 99
 SHIM
 chmod +x $S/qh
 QH=$S/qh
@@ -1075,7 +1078,7 @@ ok "#9139: a cap that is not a number is no cap (refused, nothing run beside)" '
 # failing, noisy kosmos changes nothing about the run. $S/bin/kosmos is the stand-in.
 calls() { until_true 10 '[ -s $S/kosmos-calls ]'; }
 rm -f $S/kosmos-calls
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "ann job" sh -c 'echo "HOLDER $(cut -d- -f1 $KOSMOS_RUN_MARKER_DIR/machine-claim)"' 2>&1); calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "ann job" sh -c 'echo "HOLDER $(cut -d- -f1 $KOSMOS_RUN_MARKER_DIR/machine-claim)"' 2>&1); calls
 hp=$(printf '%s\n' "$o" | sed -n 's/^HOLDER \([0-9]*\)$/\1/p')
 ok "#9217: a main turn asks the board, with the wrapper's own pid, says so, and the run still goes" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board to show this run"* ]] && [ -n "$hp" ] && grep -qxF "heavy start ann job --pid $hp" $S/kosmos-calls'
 rm -f $S/kosmos-calls
@@ -1085,32 +1088,42 @@ rm -f $S/kosmos-calls
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/manndef QUEUED_HEAVY_ANNOUNCE= /bin/bash $QH "default job" true 2>&1); sleep 3
 ok "#9217: left unset, a run whose markers are a private folder (a test's) asks nothing" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannside QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light job" true 2>&1); sleep 3
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannside QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH --light "light job" true 2>&1); sleep 3
 ok "#9217: a --light run, given an ordinary turn on a free machine, announces nothing" '[[ "$o" == *"TURN: running light job"* && "$o" == *"END rc=0"* ]] && [ ! -e $S/kosmos-calls ]'
-o=$(cd $S/cwd && KOSMOS_RUN_MARKER_DIR=$S/mannbc QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light suite" bash tools/run-tests.sh 2>&1); calls
+o=$(cd $S/cwd && KOSMOS_RUN_MARKER_DIR=$S/mannbc QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH --light "light suite" bash tools/run-tests.sh 2>&1); calls
 ok "#9217: a --light run that runs a suite takes an ordinary turn, and announces" 'grep -qE "^heavy start light suite --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 long=$(printf 'L%.0s' $(seq 1 100))
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannlong QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "$long" true 2>&1); calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannlong QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "$long" true 2>&1); calls
 ok "#9217: a long run name is announced cut to 80 characters" '[ "$(sed -n "s/^heavy start \(L*\) --pid [0-9]*$/\1/p" $S/kosmos-calls | tr -d "\n" | wc -c | tr -d " ")" = 80 ]'
 rm -f $S/kosmos-calls; : > $S/kosmos-noisy
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannnoisy QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "noisy" sh -c 'exit 3' 2>&1); r=$?; calls; sleep 1
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannnoisy QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "noisy" sh -c 'exit 3' 2>&1); r=$?; calls; sleep 1
 rm -f $S/kosmos-noisy
 ok "#9217: a kosmos that fails and prints changes nothing: the run keeps its own exit code, and none of its words show" '[ "$r" = 3 ] && [[ "$o" == *"END rc=3"* && "$o" != *KOSMOS-STUB* ]] && [ -s $S/kosmos-calls ]'
 rm -f $S/kosmos-calls; : > $S/kosmos-slow
-t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannslow QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "slow board" true 2>&1); t1=$(date +%s); calls
+t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannslow QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "slow board" true 2>&1); t1=$(date +%s); calls
 rm -f $S/kosmos-slow
 ok "#9217: the call is detached: a board that takes 30 s does not hold the run (it took $((t1-t0)) s)" '[[ "$o" == *"END rc=0"* ]] && [ $((t1-t0)) -lt 20 ] && [ -s $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannpath QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "cut 0.9 tools/release.sh" true 2>&1); calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannpath QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "cut 0.9 tools/release.sh" true 2>&1); calls
 ok "#9217: no word of the label can read as a script path in argv (#5467): / and .sh are broken up" 'grep -qxE "heavy start cut 0.9 tools release sh --pid [0-9]+" $S/kosmos-calls'
+rm -f $S/kosmos-calls; mkdir -p $S/home
+o=$(cd /tmp && unset KOSMOS_RUN_MARKER_DIR QUEUED_HEAVY_ANNOUNCE; HOME=$S/home TMUX_PANE=%42 /bin/bash $QH "real markers" true 2>&1); calls
+ok "#9217: with the real markers (unset) and nothing else said, a run announces: the fleet's default" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board"* ]] && grep -qE "^heavy start real markers --pid [0-9]+$" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && unset KOSMOS_RUN_MARKER_DIR; HOME=$S/home TMUX_PANE=%42 QUEUED_HEAVY_ANNOUNCE=0 /bin/bash $QH "opted out" true 2>&1); sleep 3
+ok "#9217: with the real markers, QUEUED_HEAVY_ANNOUNCE=0 still asks nothing" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannnobody QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE= KOSMOS_AGENT_TOKEN= /bin/bash $QH "nobody" true 2>&1); sleep 3
+ok "#9217: with no agent token and no pane, nothing is asked, and the line says why" '[[ "$o" == *"nothing here names the agent"* && "$o" == *"END rc=0"* ]] && [ ! -e $S/kosmos-calls ]'
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/manndash QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH " -x" true 2>&1); sleep 3
+ok "#9217: a name that starts with - (after its spaces) is not sent, and the line says why" '[[ "$o" == *"a name starting with - cannot be a label"* ]] && [ ! -e $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
 cap_hold $S/mannbeside "queued run (not a cut): fake heavy"
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_HEAVY_ANNOUNCE=1 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "beside job" true 2>&1); calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "beside job" true 2>&1); calls
 ok "#9217: a beside run (past the cap) announces too" '[[ "$o" == *"RUNNING BESIDE"* ]] && grep -qE "^heavy start beside job --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 
-EXPECTED=212   # ten #9217 announce arms (a main turn and its pid, off, unset under private markers, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=216   # fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
