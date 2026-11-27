@@ -51,7 +51,9 @@ const SENDER = 'writer';
 let roster = { name: null, visibleAt: Infinity };
 function rosterSource() {
   const lines = [fleet.line({ session: SENDER, claim: SENDER })];
-  if (roster.name && Date.now() >= roster.visibleAt) lines.push(fleet.line({ session: roster.name, claim: roster.name }));
+  // kosmos#9231: visibleAt 'step' lists the row from the start wait's first counted step on (load cannot move it).
+  const shown = roster.visibleAt === 'step' ? waitSteps >= 1 : Date.now() >= roster.visibleAt;
+  if (roster.name && shown) lines.push(fleet.line({ session: roster.name, claim: roster.name }));
   return lines.join('\n') + '\n';
 }
 
@@ -86,10 +88,17 @@ test.before(async () => {
   });
   chat.setDryRun(false);
 });
+/* kosmos#9231: whether a message PAID the start wait is counted, not timed. The wait's own step hook (refresh, called
+   once per 100 ms step while server.js waitForRosterRow is waiting) counts the steps, so a path that must not wait is
+   checked by 0 steps: no load on the box can make that red, and a path that wrongly waits makes about 19 (the CONTROL in
+   the "never appears" test proves the count moves). Time limits that remain are scaled (test-support/eventually.js). */
+let waitSteps = 0;
+const { scaleBudget } = require('./test-support/eventually');
 test.beforeEach(() => {
   roster = { name: null, visibleAt: Infinity };
+  waitSteps = 0;
   app._setStartWaitForTest(null);
-  app._setStartWaitForTest({ maxMs: 2000, stepMs: 100, refresh: null });
+  app._setStartWaitForTest({ maxMs: 2000, stepMs: 100, refresh: () => { waitSteps += 1; } });
   fs.rmSync(RECORD, { force: true });
   fs.rmSync(STATE_DIR, { recursive: true, force: true });
   messagesEngine.resetForTests();
@@ -126,9 +135,19 @@ test('#8658 a message to an agent whose row appears a moment later is waited for
 test('#8658 CONTROL: with the wait off, the same message is not delivered (the race this file must see)', async () => {
   app._setStartWaitForTest({ maxMs: 0 });
   worker('fresh2'); recordRow('fresh2', 1000);
-  roster.name = 'fresh2'; roster.visibleAt = Date.now() + 300;
+  /* kosmos#9231: the row is listed from the wait's first step (it was "300 ms later", which a loaded box passes before
+     the board looks, delivering the message and voiding the control). With the wait off no step runs, so the row is not
+     there when the board checks: the race itself. The same row with the wait on is placed (the pairing, below). */
+  roster.name = 'fresh2'; roster.visibleAt = 'step';
   const r = await msg('fresh2', 'welcome aboard');
   assert.equal(r.delivery.state, 'could_not', 'with no wait the message reached the agent, so this file cannot show the bug: ' + JSON.stringify(r.json));
+  // The pairing: the same arrangement with the wait on is waited for and placed, so the refusal above is the wait's absence.
+  app._setStartWaitForTest({ maxMs: 2000, stepMs: 100, refresh: () => { waitSteps += 1; } });
+  waitSteps = 0;
+  worker('fresh2b'); recordRow('fresh2b', 1000);
+  roster.name = 'fresh2b'; roster.visibleAt = 'step';
+  const on = await msg('fresh2b', 'welcome aboard');
+  assert.equal(on.delivery.state, 'placed', 'with the wait on the same arrangement was not placed: ' + JSON.stringify(on.json));
 });
 
 test('#8658 a starting agent that never appears: not delivered, and said to be starting, within the wait', async () => {
@@ -136,21 +155,22 @@ test('#8658 a starting agent that never appears: not delivered, and said to be s
   const r = await msg('slow', 'welcome aboard');
   assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.match(r.delivery.because, /slow is still starting, so nothing was sent/);
-  assert.ok(r.ms >= 1900 && r.ms < 5000, 'the wait was not bounded as set: ' + r.ms + ' ms');
+  assert.ok(r.ms >= 1900 && r.ms < scaleBudget(5000), 'the wait was not bounded as set: ' + r.ms + ' ms');
+  assert.ok(waitSteps >= 5, 'CONTROL (kosmos#9231): the wait ran ' + waitSteps + ' counted steps, so a 0 below would prove nothing');
 });
 
 test('#8658 a name that is really missing answers as before, at once', async () => {
   const r = await msg('nobodyhere', 'hello');
   assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.doesNotMatch(String(r.delivery.because), /still starting/);
-  assert.ok(r.ms < 1500, 'a missing name paid the wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'a missing name paid the wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 test('#8658 a message to a running agent is unchanged: placed at once', async () => {
   worker('steady'); roster.name = 'steady'; roster.visibleAt = 0;
   const r = await msg('steady', 'hello');
   assert.equal(r.delivery.state, 'placed', JSON.stringify(r.json));
-  assert.ok(r.ms < 1500, 'a running agent paid the wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'a running agent paid the wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 /* A supervisor state file whose run began `startedAgoMs` ago and was last written `writtenAgoMs` ago. */
@@ -173,21 +193,21 @@ test('#8658 CONTROL for the relaunch: an old row and an old state file is not st
   const r = await msg('stopped', 'hello');
   assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.doesNotMatch(String(r.delivery.because), /still starting/);
-  assert.ok(r.ms < 1500, 'a stopped agent made the message wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'a stopped agent made the message wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 test('#8658 a long-running agent that just wrote its state file is not starting (the write is not the start)', async () => {
   worker('busy'); recordRow('busy', 10 * 60 * 1000); stateFile('busy', 10 * 60 * 1000, 200);
   const r = await msg('busy', 'hello');
   assert.doesNotMatch(String(r.delivery.because), /still starting/, JSON.stringify(r.json));
-  assert.ok(r.ms < 1500, 'a recent write by a long-running agent made the message wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'a recent write by a long-running agent made the message wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 test('#8658 a fresh state file with no ownership row at all is not ours, and does not wait', async () => {
   worker('unowned'); stateFile('unowned', 500);
   const r = await msg('unowned', 'hello');
   assert.doesNotMatch(String(r.delivery.because), /still starting/, JSON.stringify(r.json));
-  assert.ok(r.ms < 1500, 'an agent with no ownership row made the message wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'an agent with no ownership row made the message wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 test('#8658 a sender with no token is never made to wait, and is not told the agent is starting', async () => {
@@ -199,14 +219,14 @@ test('#8658 a sender with no token is never made to wait, and is not told the ag
   const json = await res.json().catch(() => null);
   const ms = Date.now() - t0;
   assert.doesNotMatch(JSON.stringify(json), /still starting/, 'an unidentified caller learned the agent is starting');
-  assert.ok(ms < 1500, 'an unidentified caller was held for the wait: ' + ms + ' ms');
+  assert.equal(waitSteps, 0, 'an unidentified caller was held for the wait: it entered the start wait (' + waitSteps + ' steps, ' + ms + ' ms)');
 });
 
 test('#8658 words the send would refuse keep their own refusal and do not wait', async () => {
   worker('fresh4'); recordRow('fresh4', 1000);
   const r = await msg('fresh4', '');
   assert.doesNotMatch(String(r.delivery.because || (r.json && r.json.error)), /still starting/, JSON.stringify(r.json));
-  assert.ok(r.ms < 1500, 'an empty message waited: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'an empty message waited: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 test('#8658 the still-starting refusal is kept as a refused send, like every other attributed refusal', async () => {
@@ -241,7 +261,7 @@ test('#8658 DM route CONTROL: a stopped agent (old row, old run) is 404 at once,
   worker('dmstopped'); recordRow('dmstopped', 10 * 60 * 1000); stateFile('dmstopped', 10 * 60 * 1000);
   const r = await dm('dmstopped', 'hello');
   assert.equal(r.status, 404, JSON.stringify(r.json));
-  assert.ok(r.ms < 1500, 'a stopped agent made the DM wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'a stopped agent made the DM wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
 test('#8658 a state file from an older supervisor (no startedAt) is not a relaunch, and does not wait', async () => {
@@ -251,5 +271,5 @@ test('#8658 a state file from an older supervisor (no startedAt) is not a relaun
     JSON.stringify({ v: 1, state: 'idle', sessionId: 'x', pid: 1, at: new Date().toISOString() }));
   const r = await msg('oldsup', 'hello');
   assert.doesNotMatch(String(r.delivery.because), /still starting/, JSON.stringify(r.json));
-  assert.ok(r.ms < 1500, 'an older supervisor\'s file made the message wait: ' + r.ms + ' ms');
+  assert.equal(waitSteps, 0, 'an older supervisor\'s file made the message wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
