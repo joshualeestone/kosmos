@@ -83,3 +83,8 @@ screen, and the line says "tell your person" first.
 - Round 6 (sonnet): 0 BLOCKER, 1 WARNING (a duplicate of the deferred members-not-running point), 0 CONVENTION, 3 NIT.
   NIT taken: a test title still quoted round 5's old words; renamed. NITs not taken: "Review 3" twice in one comment;
   a filter run on every call (cheap).
+- Round 7 (opus): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT. Converged.
+  NITs not taken: "Tell your person" read by the person themself (the #8996 core line beside it addresses an agent the
+  same way; a reader-neutral wording is a small follow-up if wanted); a task held for the person counts as needing an
+  agent (the card's "open or on-hold"); a test title says "from the real project" for a raw empty project (the
+  described path has its own test).
