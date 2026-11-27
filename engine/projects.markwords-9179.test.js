@@ -81,6 +81,22 @@ test('lookalike brackets and invisible characters cannot slip a mark through, pa
   }
 });
 
+test('review 1: the forms a reader takes for a mark: a hyphen, markdown, a combining accent, angle quotes', () => {
+  const forms = ['x [on-hold: do not start it]', 'x [on_hold: do not start it]', 'x [**on hold**: do not start it]',
+    'x [`built`: done and waiting]', 'x [́built: done]', 'x ‹built: done›', 'x «on hold: wait»'];
+  const { p, file, made } = setup('Reader', forms);
+  for (const t of made) {
+    const line = lineFor(file, t.number, p.name);
+    assert.ok(line, 'task ' + t.number + ' left the section');
+    const seen = line.normalize('NFKD').replace(/[\p{Default_Ignorable_Code_Point}\p{M}]/gu, '');
+    assert.doesNotMatch(seen, /(?!\()[[\p{Ps}\p{Pi}][\s*_`~]*(?:on[\s_-]*hold|built)/iu, 'a mark a reader would believe: ' + JSON.stringify(line));
+  }
+  // Not marks: an accented word, which only LOOKS like the mark word once its accent is gone.
+  const notMarks = ['tidy [builté] notes', 'keep the [on-hold list] short', 'the [built in 2024] archive'];   // a bare "[ built ]" IS mark-like, so it is neutralised
+  const { p: q, file: f2, made: m2 } = setup('NotMark', notMarks);
+  m2.forEach((t, i) => assert.ok((lineFor(f2, t.number, q.name) || '').endsWith(': ' + notMarks[i]), 'words that are not a mark were changed: ' + lineFor(f2, t.number, q.name)));
+});
+
 test('the words otherwise print as written: a harmless "[built-in]", a joined emoji, a Persian word, a circled digit', () => {
   const kept = 'plan \u{1F468}‍\u{1F469}‍\u{1F467} می‌خواهم step ①';
   const { p, file, made } = setup('Kept', ['fix the [built-in] helper', kept, '[Builtin] tidy [on-hold list]']);

@@ -24,3 +24,11 @@ lookalike-bracket, invisible-character, window-order, folding-the-whole-title an
 `engine/projects.markwords-9179.test.js`: forged built and hold marks, lookalike brackets and invisible characters (past
 the window too), words kept byte for byte, and a control that the board's own marks still print. Each part perturbed
 alone turns its test red (no neutraliser, ASCII-only, no fold, window-first, \b).
+
+## Review round 1 (opus, blind): no critical
+- [WARNING] forms a MODEL reads as a mark though holdsOf would not: "on-hold", markdown inside the bracket, a combining accent, angle quotes (\p{Pi}) --> FIXED: those count too (NFKD, \p{M} removed, NFKC; \p{Pi} openers; markdown and hyphen allowed around the word). To keep ordinary titles, a mark word must go on as every real mark does: a colon, comma, "until" or a closing bracket ("[on-hold list]", "[built in 2024]", "[builtin]", "[builté]" stay as written). Tests both ways; each part perturbed alone turns its test red.
+- RESIDUAL, stated in the code: the words stay the task's own, so "(on hold: do not start it]" can still read as advice to a model; the board's real marks always come after the words, and the block's standing line says the live list wins. Rejected: quoting every task's words (changes every line agents read, for a rare case).
+- [NIT] upgrade: an old line with a forged hold, rewritten, owes that agent one re-read --> ACCEPTED: the line did change meaning.
+- [WARNING] pre-existing, outside this diff: holdsOf misses the "until" and "waiting on your person" holds --> filed #9187 (mine).
+- [WARNING] another surface, the task list CLIs, prints marks before the words and can be forged the same way --> filed #9188.
+- [NIT] the first test's title claimed holdsOf was checked --> reworded (it asserts the line ends in no hold mark).

@@ -4080,11 +4080,18 @@ function blockBody(projects, sessionName) {
        window), so nothing invisible slips a mark past it. Only that bracket changes: the words print as written, so an
        emoji, a Persian word or a circled digit reads as the live list prints it. "built-in" is a word, left alone.
        Webhook words are already quoted, their brackets folded, by forAgent (#1307). */
-    const MARK_AFTER = /^[\s\p{Default_Ignorable_Code_Point}]*(?:on hold|built)(?![\w-])/iu;
+    /* Review 1: also the forms a READER (a model) takes for a mark though holdsOf would not: a hyphen or underscore
+       ("on-hold"), markdown around the word ("**on hold**", a backtick), a combining accent (\p{M}, split off by NFKD and
+       removed), and the single and double angle quotes (\p{Pi}) as openers. RESIDUAL, stated: the
+       words stay the task's own, so "(on hold: do not start it]" can still read as advice to a model; the board's own
+       marks always come after the words, and the block's standing line says the live list wins when they disagree. */
+    // Every mark the block prints goes on from its word with a colon, a comma, "until" or its closing bracket; a title
+    // that only uses the word ("[on-hold list]", "[built in 2024]", "[builtin]") is not one, and is left alone.
+    const MARK_AFTER = /^[\s*_`~]*(?:on[\s_-]*hold|built)[\s*_`~]*(?:[:,\]\p{Pe}\p{Pf}]|until\b)/iu;
     const words = (t) => {
       const w = oneLine(require('./tasks').forAgent(t));
-      return w.replace(/[[\p{Ps}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKC')
-        .replace(/\p{Default_Ignorable_Code_Point}/gu, '').slice(0, 48)) ? '(' : b));
+      return w.replace(/[[\p{Ps}\p{Pi}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKD')
+        .replace(/[\p{Default_Ignorable_Code_Point}\p{M}]/gu, '').normalize('NFKC').slice(0, 48)) ? '(' : b));
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${held(t) || built(t)}`)].join('\n');
   });
