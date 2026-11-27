@@ -87,6 +87,9 @@ test('builtFor: one agent\'s mark covers that agent only; the person\'s covers e
   assert.equal(tasks.listGroup(other), 'built');
   assert.equal(tasks.listGroup(other, 'reader-agent'), 'open');
   assert.equal(tasks.listGroup({ ...other, projectPaused: true }, 'reader-agent'), 'held');
+  // A mark with no builtWho list (older than per-agent marks) cannot say whose it is, so it reads built for everyone.
+  assert.equal(tasks.listGroup({ builtAt: AT }, 'reader-agent'), 'built');
+  assert.equal(tasks.listGroup({ builtAt: AT, builtWho: [] }, 'reader-agent'), 'open', 'an unnamed caller\'s mark frees nobody');
 });
 
 test('#9177: --mine open keeps a shared task another holder marked built; --mine built keeps only the asker\'s', async (t) => {

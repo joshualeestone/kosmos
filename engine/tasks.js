@@ -2816,12 +2816,13 @@ function builtFor(t, who) {
   return Array.isArray(t.builtWho) && t.builtWho.some((n) => typeof n === 'string' && match(n));
 }
 /* `who` (kosmos#9177): reading for one agent, a task another holder marked built stays in its group by its other
-   states (open, or held when its project is paused), since that agent's part is still open. Without it, any mark. */
+   states (open, or held when its project is paused), since that agent's part is still open. Without it, any mark.
+   A mark with no builtWho list (made before marks named who made them) cannot say whose it is, so it stays built. */
 function listGroup(t, who = null) {
   if (!t) return 'open';
   if (t.isClosed === true || progressOf(t).closed) return 'done';
   if (isOnHold(t)) return 'held';
-  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || builtFor(t, who))) return 'built';
+  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || !Array.isArray(t.builtWho) || builtFor(t, who))) return 'built';
   if (t.projectPaused === true) return 'held';
   return 'open';
 }
