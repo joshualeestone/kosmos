@@ -2846,7 +2846,7 @@ function heavySend(sub) {
         : ctx.unreachable('record that');
     }
     const j = r.json;
-    if (r.status === 200 && j && j.ok === true && j.job) { ctx.out('Recorded: ' + j.job.label + '. It shows on the board as running' + (j.job.pid ? ' while process ' + j.job.pid + ' runs' : '') + '. kosmos heavy end when it is done.'); return 0; }
+    if (r.status === 200 && j && j.ok === true && j.job) { ctx.out('Recorded: ' + j.job.label + '. It shows on the board as running' + (j.job.pid ? ' while process ' + j.job.pid + ' runs' : '') + '. kosmos heavy end' + (j.job.pid ? ' --pid ' + j.job.pid : '') + ' when it is done.'); return 0; }
     if (r.status === 200 && j && j.ok === true && typeof j.ended === 'number') {
       const left = typeof j.others === 'number' ? j.others : 0;
       if (j.ended) ctx.out('Ended: it no longer shows on the board.' + (left ? ' You still have ' + left + ' running; kosmos heavy lists them.' : ''));

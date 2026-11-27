@@ -60,7 +60,7 @@ test('kosmos heavy start sends the action, label, pid and pane with the agent to
   withBoard(answerOk, async (port, hits) => {
     const r = await runCli(['heavy', 'start', 'full test run', '--pid', '4242'], envFor(port));
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /Recorded: full test run\. It shows on the board as running while process 4242 runs/);
+    assert.match(r.out, /Recorded: full test run\. It shows on the board as running while process 4242 runs\. kosmos heavy end --pid 4242 when it is done\./);
     const sent = hits.filter((h) => h.method === 'POST' && h.url === '/api/heavy');
     assert.equal(sent.length, 1);
     assert.deepEqual(JSON.parse(sent[0].body), { action: 'start', label: 'full test run', pid: 4242, from_pane: '%42' });

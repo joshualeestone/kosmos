@@ -234,3 +234,16 @@ test('kosmos#9217: GET /api/heavy names each job by the name the board shows', a
   assert.deepEqual(got.jobs.map((j) => [j.label, j.name]), [['named', row.name]]);
   await asAgent(tok, { action: 'end' });
 });
+
+test('kosmos#9217: a read that is not complete but shows the agent running keeps its job, and clears the mark', async () => {
+  const { ada, bo } = twoAgents();
+  const tok = sendertoken.mint(ada).token;
+  assert.equal((await asAgent(tok, { action: 'start', label: 'seen running' })).status, 200);
+  const t5 = Date.now() + 6 * 60 * 60 * 1000;
+  const without = { running: [{ sessionName: bo, name: 'Bo' }], offline: [], complete: true };
+  const withAda = { running: [{ sessionName: ada, name: 'Ada' }, { sessionName: bo, name: 'Bo' }], offline: [], complete: false };
+  assert.deepEqual(heavyJobsNow(without, t5).map((j) => j.label), ['seen running'], 'a complete read caught it mid-restart: the mark starts');
+  assert.deepEqual(heavyJobsNow(withAda, t5 + 5 * 60 * 1000).map((j) => j.label), ['seen running'], 'running in the rows this read holds, yet judged gone by an old mark');
+  assert.deepEqual(heavyJobsNow(without, t5 + 5 * 60 * 1000 + 1).map((j) => j.label), ['seen running'], 'the mark was cleared: missing again is a new grace');
+  await asAgent(tok, { action: 'end' });
+});
