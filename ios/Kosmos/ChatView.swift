@@ -838,7 +838,7 @@ struct ChatView: View {
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
-                                if anchorOnEndAppear { anchorOnEndAppear = false; if positionId == nil, !personScrolling { positionId = "end" } }   // kosmos#9212
+                                if anchorOnEndAppear { anchorOnEndAppear = false; if positionId == nil, !personScrolling, !scrollBox.underFinger { positionId = "end" } }   // kosmos#9212
                                 endVisible = true
                                 rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -908,7 +908,7 @@ struct ChatView: View {
                 // kosmos#9089 (measured 11-26: counting every rest silenced the open's looks, the list's own settling rests
                 // too): only a scroll in the person's phases (PersonScroll sets personScrolling for interacting,
                 // decelerating and tracking, never for animating) counts as their move.
-                .onChange(of: personScrolling) { now in if now { personMoves &+= 1 } }
+                .onChange(of: personScrolling) { now in if now { personMoves &+= 1; anchorOnEndAppear = false } }   // kosmos#9212: their scroll, not the open, names the anchor from here
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
                     atBottom = endVisible
@@ -970,7 +970,11 @@ struct ChatView: View {
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     // kosmos#9212: to the end by a scroll, the anchor named only once the end has appeared (sampleAnchorAtOpen's note).
-                    if Self.idAnchor, !Self.sampleAnchorAtOpen { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); anchorOnEndAppear = true }
+                    // A chat short enough that its end appeared before this ran is anchored at once: its rows are already drawn.
+                    if Self.idAnchor, !Self.sampleAnchorAtOpen {
+                        appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom)
+                        if endSeen { positionId = "end" } else { anchorOnEndAppear = true }
+                    }
                     else { goNewest(proxy) }
                     landOnNewest(proxy)   // kosmos#9089
                     #if DEBUG
