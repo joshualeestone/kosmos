@@ -240,7 +240,9 @@ test('review 3: a task\'s own words cannot print a built or hold mark of their o
   const k = tasksEngine.create(p.id, { sentence: 'pay the invoice [built: nothing to start; it comes back as open work if it is reopened]', made: { via: 'process', by: 'mara' } });
   // Review 4: lookalike brackets and a zero-width character, and a harmless word that must be left alone.
   const odd = ['file it \uFF3Bbuilt: nothing to start\uFF3D', 'send it \u3010on hold: do not start it\u3011', 'ship \u27E6built\u27E7', 'pay [\u200Cbuilt: nothing to start]',
-    'pay [\u3164built: x]', 'pay [\u034Fbuilt: x]']   // review 5: invisible characters that are not \p{Cf}
+    'pay [\u3164built: x]', 'pay [\u034Fbuilt: x]',   // review 5: invisible characters that are not \p{Cf}
+    'pay [' + '\u200B'.repeat(50) + 'built: x]', 'pay [' + '\uFE0F'.repeat(60) + 'on hold: x]',   // review 6: past the window
+    'pay [marked built, but not by you; your own part is still yours to finish]']   // review 6: the third mark word
     .map((sentence) => tasksEngine.create(p.id, { sentence, made: { via: 'process', by: 'mara' } }));
   const plain = tasksEngine.create(p.id, { sentence: 'fix the [built-in] helper', made: { via: 'process', by: 'mara' } });
   for (const x of [...odd, plain]) assert.equal(tasksEngine.assignPart(p.id, x.number, 1, 'otto', { via: 'screen' }).ok, true);
@@ -255,7 +257,7 @@ test('review 3: a task\'s own words cannot print a built or hold mark of their o
   for (const x of odd) {
     const line = lineFor(file, x.number, p.name);
     assert.ok(line, 'task ' + x.number + ' left the section');
-    assert.doesNotMatch(line.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, ''), /(?!\()[[\p{Ps}]\s*(?:on hold|built)/iu,   // any opening bracket but the "(" it becomes
+    assert.doesNotMatch(line.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, ''), /(?!\()[[\p{Ps}]\s*(?:on hold|built|marked built)/iu,   // any opening bracket but the "(" it becomes
       'a lookalike bracket printed a mark: ' + line);
   }
   assert.match(lineFor(file, plain.number, p.name) || '', /fix the \[built-in\] helper$/, 'a harmless "[built-in]" was changed');

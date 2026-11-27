@@ -61,3 +61,8 @@ Neighbours re-run on this commit: engine/projects.test.js, the pause and re-read
 - [WARNING] \p{Cf} missed invisible characters that are not format characters (Hangul filler, combining grapheme joiner) --> FIXED: \p{Default_Ignorable_Code_Point}, as feedpublish.js does. Tests for both (Cf-only turns them red).
 - [NIT] "[Built 3 of 5]" becomes "(Built 3 of 5]", unbalanced --> ACCEPTED: cosmetic, and the agent still reads the words.
 - Nothing matches an agent's reply against the block's words (reviewer searched): agents name tasks by number.
+
+## Review round 6 (opus, blind, whole branch)
+- [WARNING] the 48-character window was cut BEFORE invisible characters were removed, so ~40 of them pushed a mark out of view --> FIXED: the rest of the line is folded (NFKC, then ignorables out) and only then cut. Tests: 50 zero-width spaces, 60 variation selectors (window-first turns them red, measured with all 10 tests running; my first perturbation broke the file's syntax and ran 0 tests, so I redid it with a --check).
+- [NIT] the "marked built" alternative was untested --> FIXED: a title carrying that mark, and the test's own check now names that word too (it could not see it before; dropping the alternative now turns it red).
+- [NIT] lookalike LETTERS (Cyrillic, a combining accent) are not folded by NFKC --> ACCEPTED: no list covers every lookalike; the neutraliser is for brackets, and the board's real mark always comes from blockBody.

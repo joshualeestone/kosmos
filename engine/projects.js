@@ -4088,8 +4088,10 @@ function blockBody(projects, sessionName) {
     const MARK_AFTER = /^[\s\p{Default_Ignorable_Code_Point}]*(?:on hold|built|marked built)(?![\w-])/iu;
     const words = (t) => {
       const w = oneLine(require('./tasks').forAgent(t));
-      return w.replace(/[[\p{Ps}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length, i + b.length + 48).normalize('NFKC')
-        .replace(/\p{Default_Ignorable_Code_Point}/gu, '')) ? '(' : b));
+      // Review 6: the rest of the line is folded BEFORE the window is cut, so no run of invisible characters pushes a mark
+      // out of it; NFKC first, since NFKC can make an ignorable character. A title is at most SENTENCE_MAX, so this is cheap.
+      return w.replace(/[[\p{Ps}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKC')
+        .replace(/\p{Default_Ignorable_Code_Point}/gu, '').slice(0, 48)) ? '(' : b));
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${built(t)}${held(t)}`)].join('\n');
   });
