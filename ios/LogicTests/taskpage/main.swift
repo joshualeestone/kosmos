@@ -284,8 +284,8 @@ final class FakeMac {
         return answer(actAnswers.isEmpty ? (200, Data("{}".utf8)) : actAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) })
     }
 }
-// Ends the run as a FAIL with its verdict line. A precondition would not do: in this suite's -O build it traps with no
-// message, which reads in the log as the bare crash kosmos#7751 was.
+// Ends the run as a FAIL with its verdict line. A precondition would not do: it traps before any VERDICT line is
+// printed, which reads in the log as the bare crash kosmos#7751 was.
 func endRun(_ why: String, line: Int = #line) -> Never {
     check(false, why, line: line)
     print("")
