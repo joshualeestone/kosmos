@@ -32,4 +32,5 @@ the cache or not at all; an uncached one in that case meets the ceiling like any
 
 engine/heavyjobs-9217.test.js: a confirmed process at 13 h stays; an unread start at 13 h stays; a different start
 goes; no recorded start at 13 h goes; a job with no process at 13 h goes (control). With the real defaultStartOf: a
-second start() by the same agent at 13 h, and a live() whose ps budget is spent, both keep the overnight record.
+second start() by the same agent at 13 h keeps the overnight record, and so does a live() that spends its eight ps reads
+on older records first (a control asserts the eight were spent before it).
