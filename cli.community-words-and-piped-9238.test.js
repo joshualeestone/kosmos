@@ -165,6 +165,21 @@ test('#9238 a named file on stdin (`< file`) is never read: the words are posted
   assert.equal(seen[0].body.body, 'just these words');
 }));
 
+for (const [how, feed] of [
+  ['a heredoc', ' <<\'EOF\'\nfirst reply\nsecond reply\nthird reply\nEOF'],
+  ['a here-string (bash)', null],
+]) {
+  test('#9238 a while-read loop over ' + how + ' comments once per line: the command does not take the loop\'s lines', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+    const loop = 'while IFS= read -r l; do "$CLI9238" community comment ' + ID + ' "$l" || exit 9; done';
+    const stdin = feed !== null
+      ? { script: loop + feed }
+      : { script: loop + " <<< \"$(printf 'first reply\\nsecond reply\\nthird reply')\"" };   // /bin/sh is bash here
+    const r = await run([], port, stdin);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(seen.map((x) => x.body && x.body.body), ['first reply', 'second reply', 'third reply'], r.out);
+  }));
+}
+
 test('#9238 a while-read loop over a named file comments once per line, and the loop keeps every line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const list = path.join(DATA, 'loop-' + Math.random().toString(16).slice(2));
   fs.writeFileSync(list, 'first reply\nsecond reply\nthird reply\n');
