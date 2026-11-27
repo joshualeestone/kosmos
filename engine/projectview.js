@@ -574,7 +574,20 @@ function activityOf(p, o) {
     parked = left.length > 0 && left.every(waits);
   } catch { parked = false; }
   const expected = set || (parked ? 'parked' : null);
-  const base = { quietDays: QUIET_DAYS, expected };
+  /* kosmos#9186: how many open or on-hold tasks wait on a project with NO agent member: nothing can move them, and a newly
+     added coordinator could not tell staffing from a pause. Built tasks wait on a release, not on an agent, and are left
+     out. 0 when it has a member or no such task. listGroup reads the stored task without projectPaused, so in a paused
+     project an open task counts as open (the paused sentence covers it). */
+  let unstaffed = 0;
+  try {
+    const { listGroup } = require('./tasks');
+    /* review 1: on the real path (overviewOf of a described project) each member is an object with a sessionName; a stored
+       project holds names. Either counts; an empty entry does not. */
+    const named = (a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : ''));
+    const members = Array.isArray(p.agents) ? p.agents.filter((a) => named(a)) : [];
+    if (!members.length) unstaffed = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && (listGroup(t) === 'open' || listGroup(t) === 'held')).length;
+  } catch { unstaffed = 0; }
+  const base = { quietDays: QUIET_DAYS, expected, unstaffed };
   if (room === undefined) return { at: null, kind: null, ageDays: null, quiet: false, unknown: true, ...base };
   if (!seen.length) return { at: null, kind: null, ageDays: null, quiet: false, unknown: false, ...base };
   // The newest wins; on a tie, a post or a task says more than the making.
@@ -746,8 +759,29 @@ const SUMMARY_WORDS = {
   unreadable: () => 'we could not look',
 };
 
-/* kosmos#8996: the one line `project show` prints for a project's activity. Numbers and fixed words only. */
+/* kosmos#8996: the one line `project show` prints for a project's activity. Numbers and fixed words only. kosmos#9186
+   adds one sentence when tasks wait on a project with no agent on it (unstaffedSentence). */
 function activityLine(a, id) {
+  const core = activityCoreLine(a, id);
+  const extra = unstaffedSentence(a, id);
+  return core && extra ? core + ' ' + extra : core;
+}
+/* kosmos#9186: the sentence for tasks with nobody to move them. A paused project says its tasks wait on purpose, so a
+   coordinator can tell a pause from missing staff; an archived or test project says nothing more. */
+function unstaffedSentence(a, id) {
+  if (!a || typeof a !== 'object') return null;
+  const count = Math.max(0, Math.floor(Number(a.unstaffed) || 0));
+  if (!count || a.expected === 'archived' || a.expected === 'test' || a.expected === 'starter') return null;
+  const tasksWord = count === 1 ? '1 open or on-hold task' : count + ' open or on-hold tasks';
+  /* review 3: the person adds a member (the + beside Members, the words of messages.NOT_ON_PROJECT_FIX). An agent reading
+     this is by definition not on the project, and the assign route refuses a non-member's writes on most projects, so no
+     agent command is offered. Review 3: each sentence stands alone, since the line before it does not always name a pause. */
+  if (a.expected === 'paused') return 'No agent is on this paused project, so when your person resumes it, its ' + tasksWord
+    + (count === 1 ? ' still needs' : ' still need') + ' someone added.';
+  return 'No agent is on this project to pick up its ' + tasksWord + '. Tell your person: they add an agent with'
+    + ' the + beside Members on the project\'s page.';
+}
+function activityCoreLine(a, id) {
   if (!a || typeof a !== 'object') return null;
   const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
   const days = (d) => (d === 1 ? '1 day' : d + ' days');
