@@ -27,7 +27,11 @@ BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 3: by PARENTAGE (a reused pid cannot be this shell's child unless this shell made it) and by THIS tree's path.
 ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
   case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*"$REAL_QH"*) return 0;; *) return 1;; esac; }
-trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
+# kosmos#9191: a waiter whose arguments file is in THIS run's $S (every wrapper here writes into $S/tmp or another dir
+# under $S) is this run's, wherever it was reparented: a wrapper killed mid-arm leaves its re-exec'd --queued-args
+# waiter alive with ppid 1, where BG and ours() cannot see it. Byte-wise (LC_ALL=C), as the queue's own scans.
+kill_waiters() { local p; for p in $(LC_ALL=C pgrep -f -- "--queued-args $S/" 2>/dev/null); do kill -KILL $p 2>/dev/null; done; }
+trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; kill_waiters; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
 # #5331: a whole-file deadline that outlives anything this file runs: past it the file stops itself and FAILS, so a hang
 # in here can never hold the canary, a full validation or CI that runs it (one held Agent1s 1 h 43 min on 10-05).
 QH_FILE_DEADLINE="${QH_FILE_DEADLINE:-900}"
@@ -41,7 +45,7 @@ trap 'exit 124' TERM
   while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
   echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
   kill -TERM "$me" 2>/dev/null; sleep 15; alive || exit 0
-  pkill -KILL -P "$me" 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
+  pkill -KILL -P "$me" 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; kill_waiters
   kill -KILL "$me" 2>/dev/null ) & WD=$!
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
@@ -79,6 +83,10 @@ ok() { if eval "$2"; then echo "OK   $1"; oks=$((oks+1)); else echo "BAD  $1"; b
 # until_true <seconds> <condition>: poll instead of a fixed sleep (review 1); returns 1 at the deadline.
 until_true() { local end=$(( $(date +%s) + $1 )); while ! eval "$2"; do [ "$(date +%s)" -ge "$end" ] && return 1; sleep 0.3; done; return 0; }
 gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
+# kosmos#9191: the --queued-args waiter descended from <pid> (an arm's own background job), or nothing. Picking "the
+# oldest process running this path" (pgrep -o) took a waiter an earlier, killed run had left behind, and the arm then
+# watched the wrong process. Walks at most 8 levels of children.
+joiner_under() { local lv p kids="$1" next; for lv in 1 2 3 4 5 6 7 8; do next=""; for p in $kids; do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH --queued-args "*) echo "$p"; return 0;; esac; next="$next $(pgrep -P "$p" 2>/dev/null | tr '\n' ' ')"; done; kids="$next"; [ -n "${kids// /}" ] || return 1; done; return 1; }
 # #5331: wait for a wrapper this file stopped, but never without a bound: 0 when it exited within $2 quarter-seconds,
 # 1 (and KILLed, so nothing is left holding a claim) when it did not.
 # kosmos#6048: REAP_HOW says which way it decided (notours: ps did not name this shell as the parent, which an empty ps
@@ -327,8 +335,7 @@ GL_OLD5923=$(lh5923 gitlive)
 GLR5923=$!
 # Checked once the joiner is IN its lock loop (as the live arm does), never on a timer a slow box could beat: past
 # perl and the re-exec, then sleeping between lock reads, which it only does while it has NOT taken the lock.
-until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
-glw5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
+until_true 30 'glw5923="$(joiner_under $GLR5923)"'   # kosmos#9191: this arm's own joiner, not the oldest of the path
 until_true 30 '[ -n "$glw5923" ] && pgrep -P "$glw5923" -x sleep >/dev/null'; gl_inloop5923=$?
 if [ "$gl_inloop5923" = 0 ] && [ "$(cat $S/ml5923-gitlive/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADG5923" ] && [ "$(lh5923 gitlive)" = "$GL_OLD5923" ]; then gl_held5923=held; else gl_held5923=taken; fi
 kill $GIT5923 2>/dev/null; wait $GIT5923 2>/dev/null; wait $GLR5923
@@ -341,8 +348,7 @@ IDX5923="$($GE git -C $S/l5923-idxlock/work/kosmos-bc-main-4610 rev-parse --abso
 IL_OLD5923=$(lh5923 idxlock)
 ( run5923 idxlock; printf '%s\n' "$o" > $S/idxlock5923.out; echo "$rc" > $S/idxlock5923.rc ) &
 ILR5923=$!
-until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
-ilw5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
+until_true 30 'ilw5923="$(joiner_under $ILR5923)"'   # kosmos#9191: this arm's own joiner
 until_true 30 '[ -n "$ilw5923" ] && pgrep -P "$ilw5923" -x sleep >/dev/null'; il_inloop5923=$?
 if [ "$il_inloop5923" = 0 ] && [ "$(cat $S/ml5923-idxlock/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADI5923" ] && [ "$(lh5923 idxlock)" = "$IL_OLD5923" ]; then il_held5923=held; else il_held5923=taken; fi
 rm -f "$IDX5923"; wait $ILR5923
@@ -400,9 +406,8 @@ mkdir -p $S/ml5923-live/queued-heavy-lib.lock && ps -ww -o command= -p $H > $S/m
 ( run5923 live; printf '%s\n' "$o" > $S/live5923.out; echo "$rc" > $S/live5923.rc ) &
 LIVE5923=$!
 # Wait until the wrapper itself is running (re-exec'd, so past perl and its start-up), then give it time to reach the lock.
-until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+until_true 30 'wp5923="$(joiner_under $LIVE5923)"'   # kosmos#9191: this arm's own joiner
 # Then until it is IN the lock loop: its first sleep (0.5 s between lock reads) is the only one before the lib loads.
-wp5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
 until_true 30 '[ -n "$wp5923" ] && pgrep -P "$wp5923" -x sleep >/dev/null'
 live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/null && live_waiting5923=1   # still waiting, not finished
 rm -rf $S/ml5923-live/queued-heavy-lib.lock
