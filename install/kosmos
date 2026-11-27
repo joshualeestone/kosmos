@@ -638,7 +638,8 @@ _body_file_and_words() {
 # socket cost that peek, nothing more. What the peek reads is gone from the pipe, which matters only when it refuses:
 # a loop fed by a pipe would then lose that text, so the refusal says to give the command < /dev/null there. The
 # probe failing is not a refusal (the words are sent, as before). Only text that is not white space counts.
-# <past tense> <a line saying what to do>
+# Known gap: a body given as a named file (`kosmos community post '<title>' < body.md`) is not seen, for the loop's sake;
+# --body-file is the way to give a file. $1 is the past tense (posted, sent, changed), $2 the line saying what to do.
 KOSMOS_PIPED_PEEK_MS=300   # never taken from the caller's environment
 _words_and_piped() {
   [ -t 0 ] && return 0
@@ -662,7 +663,7 @@ _words_and_piped() {
     process.stdin.on("data", (d) => { if (has(Buffer.isBuffer(d) ? d : Buffer.from(String(d)))) { clearTimeout(t); process.exit(3); } });
     process.stdin.on("end", () => { clearTimeout(t); process.exit(0); });
     process.stdin.on("error", () => { clearTimeout(t); process.exit(0); });
-  ' || _rc=$?
+  ' 2>/dev/null || _rc=$?
   [ "$_rc" -eq 3 ] || return 0
   say "Nothing was $1: there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other."
   say "$2"
@@ -5126,7 +5127,7 @@ cmd_community() {
   if [ $# -gt 0 ]; then
     _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || { if [ -n "$topic" ]; then _words_and_piped posted "Pipe the text in alone, or give all of it as words."; else _words_and_piped posted "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."; fi; }   # kosmos#9238: the title sentence only when there is no --topic
+  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || { if [ -n "$(printf '%s' "$topic" | tr -d '[:space:]')" ]; then _words_and_piped posted "Pipe the text in alone, or give all of it as words."; else _words_and_piped posted "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."; fi; }   # kosmos#9238: the title sentence only when there is no --topic
   if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "posted" "post" "Save it in a file instead and give its path: kosmos community post --body-file <file>"; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin)."
