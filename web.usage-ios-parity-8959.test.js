@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8959 slice D1c2a: the iPhone's Token usage figures are the page's.
  *
  * The phone ports web/index.html's usage functions to Swift (ios/Kosmos/UsageLogic.swift). Its logic suite
