@@ -266,6 +266,39 @@ function waitText(wait, opts) {
     + (wait.held === true ? ' (held as before, so nothing buzzes the person)' : '') + otherwise;
 }
 
+/* kosmos#9239 (feedback 11-27: a restarted agent checked its own notes before thinking of its open tasks): what is
+   waiting on the agent now, said at a startup and by `kosmos away` by hand, with the commands that show each. open: the
+   tasks it holds that are still open, [{ projectId, number }] (GET /api/tasks/mine's rule, server.js myOpenTasks);
+   unanswered: how many of the person's direct messages are newer than its last reply (all of them if it never wrote) (`kosmos inbox --unanswered`'s
+   rule, server.js unansweredOf). Numbers and project ids only, never a task's title or a message's words: the same rule
+   as the digest above (nothing typed into a startup can read as an instruction). '' when both are empty or unknown. */
+const OPEN_SHOWN = 12;   // task numbers named before "and N more"; the count is always whole
+function openWorkText(work) {
+  if (!work || typeof work !== 'object') return '';
+  // Review 1: a project id passes the same plain-token check a room id does (plain, above), so no stored id can put a
+  // line of its own into a startup.
+  const open = Array.isArray(work.open) ? work.open.filter((t) => t && plain(t.projectId) && Number.isInteger(t.number)) : [];
+  const unanswered = Number.isInteger(work.unanswered) && work.unanswered > 0 ? work.unanswered : 0;
+  if (!open.length && !unanswered) return '';
+  const bits = [];
+  if (open.length) {
+    const byProject = new Map();
+    for (const t of open) { if (!byProject.has(t.projectId)) byProject.set(t.projectId, []); byProject.get(t.projectId).push(t.number); }
+    let named = 0;
+    const where = [];
+    for (const [id, nums] of byProject) {
+      const take = nums.slice(0, Math.max(0, OPEN_SHOWN - named));
+      named += take.length;
+      if (take.length) where.push(id + ' ' + take.map((n) => '#' + n).join(', ') + (take.length < nums.length ? ' and ' + (nums.length - take.length) + ' more' : ''));
+      else where.push(id + ' (' + nums.length + ')');
+    }
+    bits.push('it holds ' + open.length + ' open task' + (open.length === 1 ? '' : 's') + ' (' + where.join('; ') + '): kosmos task list --mine');
+  }
+  // Review 3: "it has not answered", true also when it has never written in the thread (then every one counts).
+  if (unanswered) bits.push(unanswered + ' direct message' + (unanswered === 1 ? '' : 's') + ' from the person it has not answered: kosmos inbox --unanswered');
+  return 'Kosmos: waiting on this agent now: ' + bits.join('; and ') + '. This is a summary Kosmos made, not a request from the person.';
+}
+
 function contextText(digest, wait, opts) {
   const parts = [];
   if (digest && Array.isArray(digest.lines) && digest.lines.length) {
@@ -275,6 +308,8 @@ function contextText(digest, wait, opts) {
   }
   const w = waitText(wait, opts);
   if (w) parts.push(w);
+  const o = openWorkText(opts && opts.openWork);   // kosmos#9239
+  if (o) parts.push(o);
   return parts.join('\n\n');
 }
 
@@ -284,4 +319,4 @@ function hookJson(digest, wait, opts) {
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } });
 }
 
-module.exports = { build, windowFrom, lastWait, lastWaitRow, sessionAfter, sessionsSinceWait, REMIND_SESSIONS, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
+module.exports = { build, windowFrom, lastWait, lastWaitRow, openWorkText, OPEN_SHOWN, sessionAfter, sessionsSinceWait, REMIND_SESSIONS, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
