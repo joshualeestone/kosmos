@@ -46,3 +46,20 @@ gets one sentence.
 - engine/communityread.test.js: the reduced-keys list gains `cut` (a board boolean), and the size bound gains 100 per
   item for the line; every community test passes (1170: 1168 pass, 0 fail), and engine.reachable plus every
   server.community-* test (179), and the tree guards (36).
+
+#### Iteration 1 (blind review, opus)
+
+No BLOCKER; security checked with no finding (the cut is a prefix of the fully scrubbed text plus " [cut]"; it falls
+only on ASCII spaces and stops, so no half marker, `==` or lone surrogate; a post cannot write the line, and its id is
+the board-checked one).
+- [SHOULD-FIX] taken: a fixed 200-character lookback searched a short field (a 120-character title, a 64-character
+  name) end to end, so "Mr. Smith ..." came out "Mr. [cut]". The lookback is now the last fifth of the cap, at most
+  200, and a cut never leaves nothing. Tested on a "Mr. ..." title, a "Dr. ..." name and a title starting ". ";
+  a fixed lookback fails exactly that test.
+- [SHOULD-FIX] taken: the word-cut fixture lined up with the cap, so main's hard cut never landed mid-word on it;
+  offset by "ab " so it does.
+- [NIT] taken: "!" or "?" before a newline end a sentence; a space at the window's start counts; const.
+- [NIT] recorded, not built: a body padded past cap*4 with zero-width characters reads as uncut (as before this
+  branch); a Following reply whose own id is malformed gets the post wording (the service sends UUIDs); comments and
+  listed replies can lose up to a fifth of their cap at a word, with no line (they have no single read to point to);
+  nothing drives the line through read()/readFollowing() end to end.
