@@ -41,7 +41,8 @@ kill_waiters() { local p
   for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"perl -e alarm"*" /bin/bash $REAL_QH "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
 # own_waiter <pid> lists a pid for kill_waiters, unown_waiter <pid> takes it off again: an arm lists its waiter only
 # while that arm runs (kill_waiters also accepts its pre-exec forms, which is safe only for a pid still its own), so
-# every arm that lists one must unlist it when its wait returns. Only that pid's line goes; others stay.
+# every arm that lists one must unlist it when its wait returns. Only that pid's line goes; others stay. unown_waiter
+# rewrites the file, which is safe because arms run one at a time and the watchdog only reads it.
 own_waiter() { echo "$1" >> "$S/own-waiters"; }
 unown_waiter() { { grep -vx -- "$1" "$S/own-waiters" 2>/dev/null || true; } > "$S/own-waiters.n" && mv "$S/own-waiters.n" "$S/own-waiters"; }
 trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
@@ -53,7 +54,7 @@ trap 'exit 124' TERM
 # signals a pid reused after the file was killed from outside. A TERM reaches the file only between foreground commands;
 # when one is hung, the KILL 15 s later stops the file's children, this run's waiters (kill_waiters) and sleeps, and then
 # the file (its EXIT trap does not run then, so $S can be left behind: the limit).
-( trap - EXIT TERM; me=$$; t0=$(date +%s); wd=$(exec perl -e 'print getppid')   # kosmos#9191: this watchdog's own pid ($$ is the file's here, and bash 3.2 has no BASHPID)
+( trap - EXIT TERM; me=$$; t0=$(date +%s); wd=$(exec sh -c 'echo $PPID')   # kosmos#9191: this watchdog's own pid ($$ is the file's here, and bash 3.2 has no BASHPID)
   alive() { case "$(ps -o command= -p "$me" 2>/dev/null)" in *test-queued-heavy-4977*) return 0;; *) return 1;; esac; }
   while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
   echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
