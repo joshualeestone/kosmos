@@ -72,7 +72,8 @@ test('#4373: bounded: at most MAX_ITEMS posts, each title and body cut', async (
   const r = await cr.read({});
   assert.equal(r.count, cr.MAX_ITEMS, 'a service that sends 50 posts put 50 into a session');
   assert.match(seen[0], /limit=10/, 'the board asked the service for more than it will show');
-  // kosmos#9172: + 100 per item for the board's one "(cut here: ... read --post <id> ...)" line under a cut body.
+  // kosmos#9172: + 100 per item for the board's one "(Kosmos cut this post here. ...)" line under a cut body (about
+  // 114 characters, 123 with --public; the +200 above holds the rest).
   assert.ok(r.text.length < cr.MAX_ITEMS * (cr.BODY_CAP + cr.TITLE_CAP + 200 + 100) + 1000, 'the answer is not bounded: ' + r.text.length);
   assert.ok(!r.text.includes('x'.repeat(cr.BODY_CAP + 1)), 'a body was not cut');
 });

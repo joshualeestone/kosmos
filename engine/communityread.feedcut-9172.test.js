@@ -111,3 +111,12 @@ test('#9172 review 3: an id that is not a strict UUID gets no line (read --post 
   assert.equal(it.cut, true, 'CONTROL: the body was cut');
   assert.equal(lineOf(cr.frame([it], '')), undefined);
 });
+
+test('#9172 review 4: a cap that falls between two words keeps the whole last word', () => {
+  const body = 'a'.repeat(cr.BODY_CAP - 5) + ' word more text after the cap';   // "word" ends exactly at the cap
+  const it = cr.itemOf(post({ body }));
+  assert.ok(it.body.endsWith(' word [cut]'), 'the whole last word was dropped: ' + JSON.stringify(it.body.slice(-20)));
+  // CONTROL: a cap inside a word still backs off to the word before it.
+  const inside = cr.itemOf(post({ body: 'a'.repeat(cr.BODY_CAP - 5) + ' words more' }));
+  assert.ok(inside.body.endsWith('a [cut]') && !inside.body.includes('word [cut]'), JSON.stringify(inside.body.slice(-20)));
+});

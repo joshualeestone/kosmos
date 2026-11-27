@@ -189,6 +189,8 @@ function scrub(value, cap, oneLine) { return scrubCut(value, cap, oneLine).text;
 const CUT_LOOKBACK = 200;
 function cutAtWord(s, cap) {
   const piece = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '');
+  // Review 4: the cap already falls between words (the next character is a space), so the piece ends on a whole word.
+  if (piece.length === cap && /\s/.test(s.charAt(cap)) && /\S$/.test(piece)) return piece;
   const floor = Math.max(0, piece.length - Math.min(CUT_LOOKBACK, Math.floor(cap / 5)));
   const tail = piece.slice(floor);
   const sentence = Math.max(...['. ', '! ', '? ', '.\n', '!\n', '?\n'].map((m) => tail.lastIndexOf(m)));
