@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /* kosmos#8959 slice D1d3b: the iPhone's community post and comment words are the page's.
  *
  * The phone ports web/index.html's communityMineWord, communityMineCommentWord and communityMineLabel to Swift
