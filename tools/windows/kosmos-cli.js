@@ -1545,8 +1545,8 @@ async function taskList(ctx, args) {
   const ownWords = (w) => (markwords && typeof markwords.usesListMarkWord === 'function' && markwords.usesListMarkWord(w) ? markwords.quoteOwnWords(w) : w);
   for (const x of tasks) {
     const who = (x.whoNames && x.whoNames.length) ? ' (' + x.whoNames.join(', ') + ')'
-      /* #5678, as install/kosmos: nobody on it directly, but an open task in its tree is somebody's. kosmos#9237: said as
-         nobody first, then who to ask, so it never reads like an owner. */
+      /* #5678: nobody on it directly, but an open task in its tree is somebody's. kosmos#9237: said as nobody first,
+         then who to ask, so it never reads like an owner; install/kosmos prints the same words. */
       : (Array.isArray(x.ownerNames) && x.ownerNames.length ? ((n) => ' (nobody has taken it; ask ' + (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0]) + (n.length > 1 ? ', who hold task ' : ', who holds task ') + x.ownerFrom + ' in its tree)')(x.ownerNames.map((n) => String(n).replace(/\s+/g, ' ').trim())) : '');
     const up = x.parent ? ' (under task ' + x.parent + ')' : '';
     const kids = (x.subtasks && x.subtasks.total) ? ' [' + (x.subtasks.done - (Number(x.subtasks.unrun) || 0)) + '/' + x.subtasks.total + ' subtasks done' + (Number(x.subtasks.built) > 0 ? ', ' + Number(x.subtasks.built) + ' built' : '') + (Number(x.subtasks.unrun) > 0 ? ', ' + Number(x.subtasks.unrun) + ' dropped' : '') + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : '') + ']' : '';   // kosmos#8140

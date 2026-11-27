@@ -254,3 +254,27 @@ test('#5678 `task list` names the owner of a subtask nobody is on directly, on M
   assert.match(m.out, /Owned parent \(mara\)/);
   assert.doesNotMatch(m.out, /Owned parent \(owner:/);
 });
+
+/* kosmos#9237: several holders of the tree's task are joined with "and", and the verb agrees, the same on both CLIs. */
+test('#9237 `task list` says nobody has taken a subtask whose tree task two agents hold, on Mac and Windows', async () => {
+  const r0 = await mac(['task', 'add', projectId, 'Shared parent', '--who', 'mara']);
+  assert.equal(r0.code, 0, r0.out);
+  const top = (await bySentence('Shared parent')).number;
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${top}/parts`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence: 'the other half', who: 'otto' }),
+  });
+  assert.equal(res.status, 200, (await res.text()).slice(0, 160));
+  assert.deepEqual((await bySentence('Shared parent')).whoNames.slice().sort(), ['mara', 'otto'], 'fixture: two agents hold the parent');
+  const r1 = await mac(['task', 'add', projectId, 'Shared child', '--parent', String(top)]);
+  assert.equal(r1.code, 0, r1.out);
+  const row = await bySentence('Shared child');
+  assert.equal(row.ownerNames.length, 2, 'fixture: the child inherits both');
+  const [a1, a2] = row.ownerNames;
+  const want = new RegExp('Shared child \\(nobody has taken it; ask ' + a1 + ' and ' + a2 + ', who hold task ' + top + ' in its tree\\)');
+  const m = await mac(['task', 'list', projectId]);
+  assert.equal(m.code, 0, m.out);
+  assert.match(m.out, want, 'the Mac list does not say it for two holders');
+  const w = await win(['task', 'list', projectId]);
+  assert.equal(w.code, 0, w.err);
+  assert.match(w.out, want, 'the Windows list does not say it for two holders');
+});
