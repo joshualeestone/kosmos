@@ -29,3 +29,10 @@ script reading ownerNames as "owned" is unaffected by this change; the field nam
 Pinned wordings updated (cli.task-list-compact-6761, cli.task-who-4887, cli.task-listmarks-render-9203); the mark
 words have both arms (cli.task-listmarks-9188: the new marks are caught, ordinary titles with the same words stay
 plain), red with the new phrases removed.
+
+## Decided during review
+- Several holders: joined with "and", the verb agrees, the same on both CLIs (round 1; tested end to end, round 2).
+- Long lists do NOT print "(nobody)" for a task nobody holds at all (round 3, deferred): there an empty owner spot is
+  the existing convention for "nobody", and printing it would change every unowned row and the tests that pin them,
+  for a scan the compact list already serves (its owner column always prints, "nobody" included). The comment says so.
+  What would change it: a real scan of the long list for unowned work.

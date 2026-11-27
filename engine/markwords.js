@@ -80,7 +80,8 @@ const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('pr
   phrase('waiting', 'on', '(?:a|the)', '(?:review|person|release)'), phrase('seen', 'by', 'the', 'person'),
   phrase('until', 'task') + '\\s*#?\\s*\\d+',
   // kosmos#9237: a task owned only through its tree, as both long lists ("(nobody has taken it; ask X, who holds task N
-  // in its tree)") and the compact list ("nobody (X holds #N)") print it.
+  // in its tree)") and the compact list ("nobody (X holds #N)") print it. The cost, as the others': a title such as
+  // "Hold task 4 until Friday" or "nobody has taken out the bins" prints quoted, its words unchanged.
   phrase('nobody', 'has', 'taken'), 'holds?' + GAP + '(?:task\\s*#?|#)\\s*\\d+'];
 // Review 3: "done" in brackets or parentheses ANYWHERE ("release notes [done]", "fix login (done)"), as the list prints it;
 // a bare "done" still counts only as the first word.
