@@ -28,7 +28,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * The row loops must call the task x (checked). A qualified call that passes the task (`mod.fn(x)`) is reported as a
  * helper outside the source read, so a module helper that reads the task goes red until its source is read here too.
  * A read written any other way (a computed `x[k]`, a second alias of an alias, a helper reached only through another
- * helper's renamed parameter, an element read outside a callback such as `x.builtFiles[0].f`) is not seen.
+ * helper's renamed parameter, an element read outside a callback such as `x.builtFiles[0].f`, an array one level below
+ * an object field such as `w.left.some(...)` for `w = x.whoIsLeft`) is not seen.
  * NOT COVERED, stated (review 1): a new mark on a new VALUE of a field the fixtures already set (builtWaitingOn ===
  * 'deploy'). No field scan can see a value; only a fixture with that value can. Lines without the title (done when,
  * still to finish, the fingerprint) are not checked: a title is folded onto one line, so it can never start one.
@@ -331,13 +332,14 @@ function elementFieldsRead(src) {
     }
   }
   for (const [base, field] of bases) {
-    const re = new RegExp((field ? '' : '(?<![\\w$.])') + base + '((?:' + GET + ID + '\\([^()]*\\))*)' + GET + '(?:' + ARRAY_CALLS + ')\\(\\s*\\(?\\s*(' + ID + ')\\s*\\)?\\s*=>', 'g');
+    const re = new RegExp((field ? '' : '(?<![\\w$.])') + base + '((?:' + GET + ID + '\\([^()]*\\))*)' + GET + '(?:' + ARRAY_CALLS + ')\\(\\s*(?:\\(\\s*(' + ID + ')\\s*(?:,[^()]*)?\\)|(' + ID + '))\\s*=>', 'g');   // review 7: (r, i) => too
     for (const m of src.matchAll(re)) {
+      const param = m[3] || m[4];
       // The callback body starts after its arrow, inside the array call's own bracket: read to where that bracket closes.
       let d = 1; let i = m.index + m[0].length;
       for (; i < src.length && d > 0; i++) { const c = src[i]; if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--; }
       const body = src.slice(m.index + m[0].length, i);
-      for (const r of body.matchAll(new RegExp('(?<![\\w$.])' + esc(m[3]) + GET + '(' + ID + ')', 'g'))) out.add((field || m[1]) + '[].' + r[1]);
+      for (const r of body.matchAll(new RegExp('(?<![\\w$.])' + esc(param) + GET + '(' + ID + ')', 'g'))) out.add((field || m[1]) + '[].' + r[1]);
     }
   }
   return out;
@@ -384,6 +386,8 @@ test('#9203 the fixtures set every field the list printers read', () => {
       const objs = FIXTURES.map((x) => x[a]).filter(isObj);
       if (objs.length && !objs.some((o) => Object.hasOwn(o, b))) unset.push(where + ': x.' + fb);
     }
+    // The element scan must still find the reads the long lists make today, or it has gone blind.
+    if (!/tasklist/.test(where)) assert.ok(elementFieldsRead(src).has('builtFiles[].fingerprint'), where + ': the element scan no longer finds x.builtFiles[].fingerprint');
     for (const fb of elementFieldsRead(src)) {
       const [a, b] = fb.split('[].');
       const elems = FIXTURES.flatMap((x) => (Array.isArray(x[a]) ? x[a] : [])).filter(isObj);
