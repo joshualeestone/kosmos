@@ -966,7 +966,7 @@ cap_hold $S/mcap12 "queued run (not a cut): fake heavy"
 until_true 40 'grep -q "RUNNING BESIDE" $S/mcap12.out'; t0=$(date +%s)
 ow=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap12 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH --withdraw "cap-withdraw" 2>&1); rw=$?
 wait "$WDP"; r=$?; el=$(( $(date +%s) - t0 )); o=$(cat $S/mcap12.out)
-ok "#9139: --withdraw stops a beside run in ${el}s (its command is stopped, the end is noted)" '[ "$rw" = 0 ] && [ "$el" -le 25 ] && [[ "$o" != *WD-FINISHED* ]] && grep -qE "^E queued-heavy-" $S/mcap12/beside-runs.log'
+ok "#9139: --withdraw stops a beside run in ${el}s (its command is stopped, the end is noted, the slot is freed)" '[ "$rw" = 0 ] && [ "$el" -le 25 ] && [[ "$o" != *WD-FINISHED* ]] && grep -qE "^E queued-heavy-" $S/mcap12/beside-runs.log && [ ! -e $S/mcap12/queued-heavy-beside.slot ]'
 # Review 4: a capped run keeps its place through a cut wait: one that joins DURING the cut does not take the turn ahead
 # of it when the cut ends (before, the capped run's place was dropped every pass and it went beside the later one).
 cap_hold $S/mcap13 "release 0.9.99"
@@ -984,8 +984,14 @@ ok "#9139: a capped run keeps its place through a cut wait; a run that joined du
 cap_hold $S/mcap14 "queued run (not a cut): fake heavy"
 ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap14 QUEUED_HEAVY_CAP_S=1 QUEUED_HEAVY_STOP_GRACE_S=2 exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die' /bin/bash $QH "cap-killed" sh -c 'sleep 40' ) </dev/null > $S/mcap14.out 2>&1 & PK=$!
 until_true 40 'grep -q "RUNNING BESIDE" $S/mcap14.out'; kill -KILL "$PK" 2>/dev/null; wait "$PK" 2>/dev/null
+# Review 6: the slot names the command's group too, so a second capped run waits while the killed wrapper's command
+# still runs, and goes beside only once the watcher has stopped it.
+( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap14 QUEUED_HEAVY_CAP_S=1 KOSMOS_WAIT_EVERY_S=1 exec perl -e 'alarm(shift); exec @ARGV or die' 90 /bin/bash $QH "cap-after-kill" sh -c 'echo AK-RAN' ) > $S/mcap14b.out 2>&1 & PK2=$!
 until_true 30 'grep -qE "^E queued-heavy-" $S/mcap14/beside-runs.log'; e14=$?
+wait "$PK2"; rk2=$?
 ok "#9139: a SIGKILLed beside wrapper's watcher writes the end note (the holder's summary does not read it as still going)" '[ "$e14" = 0 ]'
+ea14=$(sed -n 's/^E queued-heavy-[0-9]*-[0-9]* \([0-9]*\)$/\1/p' $S/mcap14/beside-runs.log | head -1); sb14=$(sed -n 's/^S queued-heavy-[0-9]*-[0-9]* \([0-9]*\) cap-after-kill$/\1/p' $S/mcap14/beside-runs.log | tail -1)
+ok "#9139: after a SIGKILLed wrapper, the next capped run waits for its command to stop (end ${ea14:-?}, next start ${sb14:-?}) and the slot is freed" '[ "$rk2" = 0 ] && [ -n "$ea14" ] && [ -n "$sb14" ] && [ "$sb14" -ge "$ea14" ] && grep -q "another run is already beside the holder" $S/mcap14b.out && grep -q AK-RAN $S/mcap14b.out && [ ! -e $S/mcap14/queued-heavy-beside.slot ]'
 # Review 5: ONE beside run at a time. A second capped run waits while the first is beside the holder and goes beside
 # only after the first ends (both used to go at once: three heavy runs on the box).
 cap_hold $S/mcap15 "queued run (not a cut): fake heavy"
@@ -1009,7 +1015,8 @@ kill "$EWP16" 2>/dev/null; wait "$EWP16" 2>/dev/null; rm -f $S/mcap16/cut-on; wa
 p16=$(grep -c "waiting past the cap (pass 1," $S/mcap16.out)
 ok "#9139: a take lost beside a claimless cut sleeps before the next ($n16 lost takes in 12 s, pass 1 said $p16 times, rc $r16)" '[ "$n16" -ge 1 ] && [ "$n16" -le 5 ] && [ "$p16" -le 1 ] && [ "$r16" = 0 ]'
 # Review 5: a beside slot left by a run that is gone is broken, the run goes beside, and its own slot goes at its end.
-cap_hold $S/mcap17 "queued run (not a cut): fake heavy"; mkdir -p $S/mcap17/queued-heavy-beside.slot; echo 99998 > $S/mcap17/queued-heavy-beside.slot/pid
+sleep 0 & DEAD17=$!; wait "$DEAD17"   # review 6: a pid known to be gone (a literal one can be live on macOS)
+cap_hold $S/mcap17 "queued run (not a cut): fake heavy"; mkdir -p $S/mcap17/queued-heavy-beside.slot; echo "$DEAD17" > $S/mcap17/queued-heavy-beside.slot/pid
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap17 QUEUED_HEAVY_CAP_S=1 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "cap-deadslot" sh -c 'echo DS-RAN' 2>&1)
 ok "#9139: a beside slot whose run is gone is broken, and the run's own slot is released at its end" '[[ "$o" == *"RUNNING BESIDE"* && "$o" == *DS-RAN* ]] && [ ! -e $S/mcap17/queued-heavy-beside.slot ]'
 cap_hold $S/mcap3 "queued run (not a cut): fake heavy"
@@ -1019,7 +1026,7 @@ cap_hold $S/mcap4 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap4 QUEUED_HEAVY_CAP_S=15m KOSMOS_WAIT_QUEUE_CEIL_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "badcap" touch $S/badcap-ran 2>&1); r=$?
 ok "#9139: a cap that is not a number is no cap (refused, nothing run beside)" '[ "$r" = 4 ] && [ ! -e $S/badcap-ran ] && [[ "$o" != *"waits at most"* ]]'
 
-EXPECTED=197   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=198   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
