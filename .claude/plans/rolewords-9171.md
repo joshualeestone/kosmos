@@ -32,3 +32,11 @@ for others; #7429 left that as is).
 - Every test file naming either CLI (200 files): 2536 tests, 0 fail.
 
 ## Reviews
+- Round 1 (opus): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT (would have converged). Two NITs taken anyway:
+  - A role that rules review OUT ("not a reviewer", "never reviews, only builds") names review, so it is flagged, and
+    the line told it to make the whole role "review only", which is wrong advice for a builder. The line is now
+    conditional: "can still hand you ... If you only review here, make the whole role ...". A test row pins that such
+    a role IS flagged (accepted), so nobody "fixes" it the other way.
+  - "still hands you" said without conditions (a paused project hands out nothing): now "can still hand you".
+  - NIT not taken: "QAs", "Q.A.", "code_review" are missed (a miss keeps today's silence).
+  - After: the five files (with the CLI verbs parity test) 31/31; both CLIs print the same sentence (compared as printed).

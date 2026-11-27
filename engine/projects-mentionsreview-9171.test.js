@@ -13,6 +13,10 @@ test('#9171: roles that name review or QA but are not review only', () => {
     assert.ok(mentionsReview(role) && !only(role), role);
 });
 
+test('#9171: a role that rules review OUT is still flagged (accepted: the line it gets is conditional advice)', () => {
+  for (const role of ['not a reviewer', 'never reviews, only builds']) assert.ok(mentionsReview(role) && !only(role), role);
+});
+
 test('#9171: the review-only forms name review too (the route sends only reviewOnly for them)', () => {
   for (const role of ['QA only', 'Review only', 'reviewer', 'code reviewer', 'only reviews']) assert.ok(mentionsReview(role) && only(role), role);
 });

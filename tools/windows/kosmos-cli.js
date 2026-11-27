@@ -2812,7 +2812,7 @@ async function projectRole(ctx, args) {
     // #7429, as install/kosmos: the role reads as review only, so the Assigner hands this agent none of its tasks.
     if (r.json.reviewOnly === true) ctx.out('It says you only review, so the automatic Assigner hands you none of this project\'s tasks (your person still can).');
     // #9171, as install/kosmos: the role names review or QA but is not read as review only.
-    if (r.json.stillAssigned === true) ctx.out('It names review or QA, but not as your whole role, so the automatic Assigner still hands you this project\'s tasks. To stop that, make the whole role "review only" or "QA only".');
+    if (r.json.stillAssigned === true) ctx.out('It names review or QA, but not as your whole role, so the automatic Assigner can still hand you this project\'s tasks. If you only review here, make the whole role "review only" or "QA only".');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set that role: ' + ctx.refusedBy(r) + '.'); return 1; }
