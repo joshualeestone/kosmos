@@ -61,7 +61,7 @@ const GAP = '[^\\p{L}\\p{N}]{0,6}';
    "(held by the person)", "(only the person can lift it)", "(its hold's condition is met)". ("(... since built)" and
    "(marked built ...)" are caught by "built".) Review 2 narrowed three to the printers' exact words ("subtasks done",
    "woke:", "left under closed"), so "fix subtasks rendering" or "woke up bug" stay plain. An owner's bare
-   name in parentheses, "(otto)", has no fixed word to test: kosmos#9188 review 1 left it to a card of its own. */
+   name in parentheses, "(otto)", has no fixed word to test: kosmos#9201 tests the title's last character instead (below). */
 const phrase = (...words) => words.join(GAP);
 const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('project', 'paused'), phrase('project', 'is', 'paused'),
   phrase('added', 'by'), phrase('subtasks', 'done'), 'repeats', 'waits', 'woke\\s*:', phrase('checks', 'reported'), phrase('outside', 'text'),
@@ -82,9 +82,16 @@ const LIST_WORD = new RegExp('(?<![\\p{L}\\p{N}])(?:' + LIST_PHRASES.join('|') +
 // Review 1: also after a number written as a row's own label, "[7] [done] x" or "#3 [done] x" (a bracket or # before the
 // digits, so "3 done items" stays plain).
 const FIRST_DONE = /^[^\p{L}\p{N}]*(?:[[(#]\s*\d+\s*[\])]?[^\p{L}\p{N}]*)?done(?![\p{L}\p{N}])/iu;
+/* kosmos#9201: both long lists print a task's owner right after its words as " (name)", and an unowned task prints
+   nothing there, so an unowned task titled "fix the login (otto)" printed exactly as one otto holds. A bare name has no
+   fixed word to test, so the test is the title's END: a title whose last character (on the folded copy, so a trailing
+   invisible character or a fullwidth bracket counts) is any closing bracket is printed quoted. Any bracket and not only
+   ")": "(otto]" or a nested "(a (otto))" would read the same, and a test on the last character needs no list of shapes.
+   The cost, stated: an ordinary title ending in brackets ("fix the build (again)") prints quoted, its words unchanged. */
+const ENDS_IN_BRACKET = /\p{Pe}$/u;
 function usesListMarkWord(text) {
   const f = fold(text);
-  return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f) || BRACKET_DONE.test(f);
+  return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f) || BRACKET_DONE.test(f) || ENDS_IN_BRACKET.test(f.trim());
 }
 
 module.exports = { usesMarkWord, quoteOwnWords, usesListMarkWord };
