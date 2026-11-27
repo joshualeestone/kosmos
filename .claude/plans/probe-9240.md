@@ -14,10 +14,21 @@ after review round 1). What is taught nowhere is that a delivery check needs no 
 receipt. That is also the part that saves the receiver's turn: a --no-reply probe is still typed into its pane.
 
 ## Change
-One sentence in the colleague-message section of the guide every agent is given (engine/messages.js blockBody): to
-check that a direct message you sent arrived, do not send another one; `msg --status <id>`, with the id your send
-printed, says whether they read or answered it. engine/probe-9240.test.js pins it (removing it reds the test). The
---no-reply teaching stays in one place, the project block, rather than a second copy here.
+In the project block (engine/projects.js, the member rules every project member gets, whoever wrote its
+instructions), beside the --no-reply rule that #9096 put there:
+- "or tests delivery" comes off the --no-reply line, which taught sending a probe (marked, but still typed into the
+  receiver's pane);
+- a line after it: to check that a direct message you sent arrived, send nothing: `<cli> msg --status <id>`, with the
+  id your send printed, says whether it was delivered, and whether they read or answered it.
+So one block gives one answer. engine/probe-9240.test.js pins both (each reds under its own mutation), and
+fyihint-9096's pinned rule is updated to the new wording.
+
+## Where it reaches, and why not further
+Review round 3 found the first version (the colleagues block in engine/messages.js) reaches role-template agents
+only, and that the project block still taught the probe. The project block reaches every project member. An agent on
+no project, made from its person's own words, is not reached; the text that reaches every agent is the doctrine
+block (engine/defaults.js), whose change bumps DOCTRINE_VERSION and shows the whole fleet a changed-instructions
+notice, too heavy for one sentence while the project block covers where agents message colleagues.
 
 ## Rejected
 - Inferring "FYI" from a bare code: the mark is "set only by the caller, never inferred from the words", and a short
