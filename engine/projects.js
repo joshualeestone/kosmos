@@ -4061,7 +4061,12 @@ function blockBody(projects, sessionName) {
       if (T.isOnHold(t) && t.onHoldForPerson === true) return ' [on hold' + waits + ', waiting on your person: do not start it until they answer and it is taken off hold. When you ask them, name task ' + Number(t.number) + ', so Kosmos shows them you asked]';
       return ' [on hold' + waits + ': do not start it until it is taken off hold]';
     };
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
+    /* kosmos#9176: a built task (done, waiting on a release or a check) stays on the list, marked, as `kosmos task list
+       --mine` groups it (tasks.listGroup), so the agent does not take it for work to do. A hold or a paused project is
+       named first (held), as #5864 keeps it. */
+    const built = (t) => (require('./tasks').listGroup(t) === 'built'
+      ? ' [built: waiting on a release or a check; nothing to do on it unless it is reopened]' : '');
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t) || built(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [
