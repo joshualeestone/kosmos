@@ -520,7 +520,11 @@ function doneNote(it) {
 
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
 const LABEL_RE = /^r[1-9][0-9]{0,2}$/;   // #5636 F7c: a board-set item label (the Following feed's replies)
-function frame(items, heading, thread, company) {
+/* kosmos#9172 review 2: `readFlag` is what a read of one of these posts needs ('' or ' --public'): on a computer whose
+   company has its own community, read --post reads the company space, so a public post needs --public (as feedFooter's
+   next page and the Following feed's other lines carry it). */
+function frame(items, heading, thread, company, readFlag) {
+  const flag = readFlag === ' --public' ? ' --public' : '';
   const out = [FRAME_OPEN, company ? COMPANY_RULE : FRAME_RULE, ''];
   if (company) out.push(COMPANY_HEADING, '');
   if (heading) out.push(heading, '');
@@ -549,8 +553,8 @@ function frame(items, heading, thread, company) {
     if (it.cut === true && it.id) {
       out.push(it.commentId
         // A reply: read --post opens its thread, where a deep reply may be past the first page, so no promise of whole.
-        ? '    (cut here: its thread is kosmos community read --post ' + it.id + ')'
-        : '    (cut here: kosmos community read --post ' + it.id + ' shows it whole)');
+        ? '    (cut here: its thread is kosmos community read --post ' + it.id + flag + ')'
+        : '    (cut here: kosmos community read --post ' + it.id + flag + ' shows it whole)');
     }
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
     // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.
@@ -698,7 +702,7 @@ async function read(opts = {}) {
   const note = [followNote(follows, items), commentNote(commentsRead, items)].filter(Boolean).join('\n');
   // Review 2: the note sits above the heading, whose colon introduces the list (as readFollowing places its lines).
   const heading = (note ? note + '\n' : '') + (older ? 'Older posts' : 'Newest posts') + (ch.slug ? ' in ' + ch.slug : '') + ':';
-  return { ok: true, count: items.length, text: frame(items, heading, null, company) + '\n\n' + feedFooter(ch.spec, next, company, Boolean(opts.public && scope.company)) };
+  return { ok: true, count: items.length, text: frame(items, heading, null, company, opts.public && scope.company ? ' --public' : '') + '\n\n' + feedFooter(ch.spec, next, company, Boolean(opts.public && scope.company)) };
 }
 
 /* #5292 (a day-one report): a feed read shows one page, so an agent's own post soon falls off it and reads as never

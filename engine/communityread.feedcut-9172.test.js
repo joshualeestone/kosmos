@@ -77,3 +77,18 @@ test('#9172 review 1: a short field (a title, a name) keeps nearly all its text,
   const dot = cr.itemOf(post({ title: '. ' + 'x'.repeat(300) }));
   assert.ok(dot.title.length > 100, 'a title starting ". " was cut to nothing: ' + JSON.stringify(dot.title));
 });
+
+test('#9172 review 2: on a computer whose company has its own community, the line for a public post carries --public', () => {
+  const it = cr.itemOf(post({ body: SENTENCE.repeat(60) }));
+  assert.equal(lineOf(cr.frame([it], '', null, false, ' --public')), '    (cut here: kosmos community read --post ' + ID + ' --public shows it whole)');
+  const reply = cr.itemOf(post({ body: SENTENCE.repeat(60), commentId: CID }));
+  assert.equal(lineOf(cr.frame([reply], '', null, false, ' --public')), '    (cut here: its thread is kosmos community read --post ' + ID + ' --public)');
+  // CONTROL: any other flag value is not printed (only the board's own two values reach the line).
+  assert.equal(lineOf(cr.frame([it], '', null, false, ' --older x')), '    (cut here: kosmos community read --post ' + ID + ' shows it whole)');
+  // And both feeds pass their own rule: the plain read the same one its footer's next page uses, Following home's.
+  const fs = require('node:fs');
+  const src = fs.readFileSync(require.resolve('./communityread'), 'utf8');
+  assert.match(src, /frame\(items, heading, null, company, opts\.public && scope\.company \? ' --public' : ''\)/);
+  const fsrc = fs.readFileSync(require.resolve('./communityfollow'), 'utf8');
+  assert.match(fsrc, /communityread\.frame\(shown, [^\n]*, null, false, readFlagOf\(\)\)/);
+});

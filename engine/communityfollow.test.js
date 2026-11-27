@@ -632,6 +632,8 @@ test('#5372 review 1: a long post does not cut the replies quoted after it; each
     assert.ok(r.text.includes('    ' + cr.QUOTE + 'REPLY-ONE-END'), r.text.slice(-400));
     assert.ok(r.text.includes('    ' + cr.QUOTE + 'REPLY-TWO-END'), r.text.slice(-400));
     assert.ok(r.text.includes('x [cut]'), 'control: the long post itself was cut');
+    // kosmos#9172: the Following feed says, under the cut entry, which read shows the rest (no --public: no company here).
+    assert.ok(/\n {4}\(cut here: (its thread is )?kosmos community read --post dc99a420-1774-46fc-89d5-28c4b2915f0b( shows it whole)?\)\n/.test(r.text), 'no cut line under the cut entry: ' + r.text.slice(-600));
   } finally { await b.close(); }
 });
 
