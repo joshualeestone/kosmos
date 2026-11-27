@@ -31138,6 +31138,9 @@ function start(port = PORT) {
       });
       const idleretireSweep = setInterval(idleretireTick, Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (idleretireSweep && typeof idleretireSweep.unref === 'function') idleretireSweep.unref();
+      // A first tick a minute after start, so a board restarted more often than hourly still records its running day.
+      const idleretireFirst = setTimeout(idleretireTick, 60 * 1000);
+      if (idleretireFirst && typeof idleretireFirst.unref === 'function') idleretireFirst.unref();
       /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's freshness and
          rhythm; the work is the module's own workedSinceMs) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake

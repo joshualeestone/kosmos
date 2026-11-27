@@ -73,23 +73,38 @@ function writeSetting(change) {
 
 const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 
-/* { up: [running days, oldest first], tried: { day, names }, retired: [newest first] }. Unreadable reads empty, which
-   counts no running days, so it can only retire fewer. A file that is there but damaged is set aside (renamed, never
-   deleted) before the next write starts a fresh one, so its history is not overwritten. */
+const EMPTY_LOG = () => ({ up: [], tried: { day: null, names: [] }, retired: [] });
+
+/* { up: [running days, oldest first], tried: { day, names }, retired: [newest first], unreadable }. Missing reads empty.
+   A file that cannot be READ (permissions, a lock) reads empty with unreadable: true, and the tick then writes nothing
+   over it. A file that reads but does not parse is renamed aside, never deleted, and reads empty, so the next write
+   starts fresh without losing it. Empty counts no running days, so it can only retire fewer. */
 function readLog() {
-  try {
-    let v;
-    try { v = JSON.parse(fs.readFileSync(logFile(), 'utf8')); } catch (e) {
-      if (!(e && e.code === 'ENOENT')) { try { fs.renameSync(logFile(), logFile() + '.damaged-' + Date.now()); } catch { /* then it reads empty */ } }
-      throw e;
-    }
-    const t = v && v.tried && typeof v.tried === 'object' ? v.tried : {};
-    return {
-      up: Array.isArray(v.up) ? v.up.filter(isDay).slice(-KEEP_UP_DAYS) : [],
-      tried: { day: isDay(t.day) ? t.day : null, names: Array.isArray(t.names) ? t.names.filter((n) => typeof n === 'string') : [] },
-      retired: Array.isArray(v.retired) ? v.retired.slice(0, KEEP_LOG) : [],
-    };
-  } catch { return { up: [], tried: { day: null, names: [] }, retired: [] }; }
+  let raw;
+  try { raw = fs.readFileSync(logFile(), 'utf8'); } catch (e) {
+    return e && e.code === 'ENOENT' ? EMPTY_LOG() : { ...EMPTY_LOG(), unreadable: true };
+  }
+  let v;
+  try { v = JSON.parse(raw); } catch {
+    try { fs.renameSync(logFile(), logFile() + '.damaged-' + Date.now()); } catch { return { ...EMPTY_LOG(), unreadable: true }; }
+    return EMPTY_LOG();
+  }
+  if (!v || typeof v !== 'object') return EMPTY_LOG();
+  const t = v.tried && typeof v.tried === 'object' ? v.tried : {};
+  return {
+    up: Array.isArray(v.up) ? v.up.filter(isDay).slice(-KEEP_UP_DAYS) : [],
+    tried: { day: isDay(t.day) ? t.day : null, names: Array.isArray(t.names) ? t.names.filter((n) => typeof n === 'string') : [] },
+    retired: Array.isArray(v.retired) ? v.retired.filter((x) => x && typeof x === 'object' && typeof x.name === 'string').slice(0, KEEP_LOG) : [],
+  };
+}
+
+/* A name the tick will not try now: tried today, or its last attempt was refused or partial under a week ago. Returns
+   the local day it is tried again, or null. */
+function heldUntil(log, name, t) {
+  if (log.tried.day === dayOf(t) && log.tried.names.includes(name)) return dayOf(t + DAY_MS);
+  const last = log.retired.find((x) => x.name === name);
+  const at = last && last.outcome !== 'removed' ? Date.parse(last.tried || last.at) : NaN;
+  return Number.isFinite(at) && t - at < RETRY_AFTER_MS ? dayOf(at + RETRY_AFTER_MS) : null;
 }
 function writeLog(log) {
   try {
@@ -180,9 +195,9 @@ function realReaders() {
 /**
  * The hourly sweep. deps: allowed() (live execution), roster() -> rows, remove(name) -> { outcome, because, dryRun },
  * readers (default realReaders()), now(), log(line). Each tick records today as a running day; when the setting is on,
- * it sends up to MAX_PER_TICK 'retire' verdicts through remove(), never forced, each name at most once a day (the
- * attempt is written down before it is made), and a name whose last attempt was refused or partial only after a week. A dry-run REMOVED did nothing (engine/remove.js markDryRun), so it is
- * recorded as refused. A refusal repeating the newest entry for that agent is not logged again.
+ * it sends up to MAX_PER_TICK 'retire' verdicts through remove(), never forced, skipping a name heldUntil() holds (the
+ * attempt is written down before it is made). Under dry-run nothing happened (engine/remove.js markDryRun), so any
+ * outcome but refused is recorded as refused. A refusal repeating the newest entry for that agent is not logged again.
  */
 function makeTick(deps) {
   const now = deps.now || Date.now;
@@ -192,19 +207,15 @@ function makeTick(deps) {
       const t = now();
       const today = dayOf(t);
       const log = readLog();
+      if (log.unreadable) return { act: 'skip', because: 'its record could not be read, so it did nothing' };
       if (!log.up.includes(today)) { log.up.push(today); log.up.sort(); if (!writeLog(log)) return { act: 'skip', because: 'its record could not be written, so it did nothing' }; }
       const setting = readSetting();
       if (!setting.on) return { act: 'skip', because: 'off' };
       const rows = deps.roster();
       if (!Array.isArray(rows)) return { act: 'skip', because: 'the agent list could not be read' };
       if (log.tried.day !== today) log.tried = { day: today, names: [] };
-      const backingOff = (name) => {
-        const last = log.retired.find((x) => x && x.name === name);
-        const at = last && last.outcome !== 'removed' ? Date.parse(last.tried || last.at) : NaN;
-        return Number.isFinite(at) && t - at < RETRY_AFTER_MS;
-      };
       const due = assess(rows, deps.readers || realReaders(), { days: setting.days, now: t, upDays: log.up })
-        .filter((v) => v.verdict === 'retire' && !log.tried.names.includes(v.name) && !backingOff(v.name)).slice(0, MAX_PER_TICK);
+        .filter((v) => v.verdict === 'retire' && !heldUntil(log, v.name, t)).slice(0, MAX_PER_TICK);
       const did = [];
       for (const v of due) {
         log.tried.names.push(v.name);
@@ -213,10 +224,10 @@ function makeTick(deps) {
         // A throw from remove() can come after a step was taken (server.js's DELETE route says the same), so it is partial.
         try { r = deps.remove(v.name); } catch (e) { r = { outcome: 'partial', because: 'the removal failed partway and may have stopped part of it (' + (e && e.message ? e.message : 'error') + ')' }; }
         let outcome = r && typeof r.outcome === 'string' ? r.outcome : 'refused';
-        if (outcome === 'removed' && r.dryRun) outcome = 'refused';
+        if (r && r.dryRun && outcome !== 'refused') outcome = 'refused';
         const entry = { name: v.name, shownAs: v.shownAs, at: new Date(t).toISOString(), days: v.days, outcome, because: outcome === 'removed' ? v.why : String((r && r.because) || 'not removed') };
         did.push(entry);
-        const last = log.retired.find((x) => x && x.name === v.name);
+        const last = log.retired.find((x) => x.name === v.name);
         const repeat = outcome !== 'removed' && last && last.outcome === outcome && last.because === entry.because;
         if (repeat) last.tried = entry.at; else log.retired.unshift(entry);
         if (!writeLog(log) && deps.log) deps.log('idle-retire: ' + v.name + ' ' + outcome + ', but its record could not be written');
@@ -229,12 +240,17 @@ function makeTick(deps) {
   };
 }
 
-/** What Settings shows: the setting, every verdict (shown while off too, as a preview), and the recent retirements. */
+/** What Settings shows: the setting, every verdict (shown while off too, as a preview), and the recent retirements.
+ * A retire verdict the tick would hold (heldUntil) is shown as kept, with the day it is tried again. */
 function view(rows, readers, now = Date.now()) {
   const setting = readSetting();
   const log = readLog();
   const up = log.up.includes(dayOf(now)) ? log.up : log.up.concat([dayOf(now)]);   // the next tick counts today before it judges
-  return { setting, choices: DAY_CHOICES, verdicts: assess(rows, readers || realReaders(), { days: setting.days, now, upDays: up }), recent: log.retired };
+  const verdicts = assess(rows, readers || realReaders(), { days: setting.days, now, upDays: up }).map((v) => {
+    const until = v.verdict === 'retire' ? heldUntil(log, v.name, now) : null;
+    return until ? { ...v, verdict: 'keep', why: 'its last removal did not go through, so Kosmos tries again on ' + until } : v;
+  });
+  return { setting, choices: DAY_CHOICES, verdicts, recent: log.retired, unreadable: log.unreadable === true };
 }
 
 module.exports = { readSetting, writeSetting, assess, makeTick, view, realReaders, readLog, dayOf, DAY_CHOICES, DEFAULT_DAYS, KEEP_LOG, MAX_PER_TICK };

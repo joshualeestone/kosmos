@@ -30298,6 +30298,12 @@ function idrList(id, headId, head, items) {
   h.textContent = head;
   for (const line of items) { const li = document.createElement('li'); li.textContent = line; ul.appendChild(li); }
 }
+/* The person's local day for an ISO time, as YYYY-MM-DD; the raw text when it does not parse. */
+function idrDay(iso) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso || '');
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 function paintIdleRetireFrom(r) {
   const s = (r && r.setting) || {};
   const on = s.on === true;
@@ -30326,7 +30332,7 @@ function paintIdleRetireFrom(r) {
     v.filter((x) => x.verdict === 'unknown').map((x) => x.shownAs));
   const recent = Array.isArray(r.recent) ? r.recent : [];
   idrList('idr-recent', 'idr-recent-h', 'Recently retired (Restore is under Show removed agents on the Agents page):',
-    recent.slice(0, 10).map((x) => x.shownAs + ', ' + String(x.at || '').slice(0, 10) + ': ' + (x.outcome === 'removed' ? 'retired, ' : x.outcome === 'partial' ? 'partly removed, ' : 'not retired, ') + x.because));
+    recent.slice(0, 10).map((x) => x.shownAs + ', ' + idrDay(x.tried || x.at) + ': ' + (x.outcome === 'removed' ? 'retired, ' : x.outcome === 'partial' ? 'partly removed, ' : 'not retired, ') + x.because));
 }
 async function paintIdleRetire(keepMsg) {
   const mine = ++IDR_EPOCH;

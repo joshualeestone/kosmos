@@ -82,14 +82,17 @@ test('assess: each protection keeps an idle agent and says why; the same agent w
     ['busy', { at: idle }, { state: 'working' }, /shows it as working right now/],
     ['asking-now', { at: idle }, { state: 'needs_you' }, /shows it as needs you right now/],
     ['no-state', { at: idle }, { state: undefined }, /shows it as unknown right now/],
+    ['restarting', { at: idle }, { state: 'restarting' }, /shows it as restarting right now/],
     ['foreign', { at: idle }, { isNamedOurs: false }, /not an agent Kosmos runs/],
   ];
   for (const [name, rec, extra, why] of cases) {
     const kept = verdictOf(ir.assess([{ sessionName: name, state: 'idle', ...extra }], readersOf({ [name]: rec }), { days: 30, now: NOW, upDays: UP }), name);
     assert.equal(kept.verdict, 'keep', name);
     assert.match(kept.why, why, name);
-    const bare = verdictOf(ir.assess([{ sessionName: name, state: 'idle' }], readersOf({ [name]: { at: idle, state: 'idle' } }), { days: 30, now: NOW, upDays: UP }), name);
-    assert.equal(bare.verdict, 'retire', name + ' control: without the protection it is retired');
+    for (const state of ['idle', 'stopped']) {
+      const bare = verdictOf(ir.assess([{ sessionName: name, state }], readersOf({ [name]: { at: idle, state: 'idle' } }), { days: 30, now: NOW, upDays: UP }), name);
+      assert.equal(bare.verdict, 'retire', name + ' control: without the protection it is retired, ' + state);
+    }
   }
 });
 
@@ -283,5 +286,37 @@ test('a damaged log is set aside, not overwritten, and reads as no running days'
   ir.readLog();
   assert.equal(fs.readdirSync(store.ROOT).filter((n) => n.startsWith('idleretire-log.json.damaged-')).length, 1);
   for (const n of aside) fs.rmSync(path.join(store.ROOT, n), { force: true });
+  clean();
+});
+
+test('a log that cannot be READ is left alone and the tick does nothing; one that does not parse is set aside (control)', { skip: process.platform === 'win32' || (process.getuid && process.getuid() === 0) }, () => {
+  clean();
+  seedUp(upFor(100));
+  ir.writeSetting({ on: true });
+  const f = path.join(store.ROOT, 'idleretire-log.json');
+  const before = fs.readFileSync(f, 'utf8');
+  fs.chmodSync(f, 0o000);
+  const removed = [];
+  let r;
+  try {
+    assert.equal(ir.readLog().unreadable, true);
+    r = ir.makeTick({ allowed: () => true, roster: () => rows('x'), readers: readersOf({ x: { at: ago(40) } }), now: () => NOW, remove: (n) => { removed.push(n); return { outcome: 'removed' }; } })();
+  } finally { fs.chmodSync(f, 0o600); }
+  assert.equal(r.because, 'its record could not be read, so it did nothing');
+  assert.deepEqual(removed, []);
+  assert.equal(fs.readFileSync(f, 'utf8'), before, 'an unreadable log was overwritten');
+  assert.equal(fs.readdirSync(store.ROOT).filter((n) => n.includes('.damaged-')).length, 0, 'an unreadable log was renamed aside');
+  clean();
+});
+
+test('view: a retire verdict the tick is holding (refused under a week ago) shows as kept, with the day it is tried again', () => {
+  clean();
+  const at = new Date(NOW - 2 * DAY).toISOString();
+  fs.writeFileSync(path.join(store.ROOT, 'idleretire-log.json'), JSON.stringify({ up: upFor(100), retired: [{ name: 'held', shownAs: 'HELD', at, outcome: 'refused', because: 'busy' }, null, 'junk'] }));
+  const v = ir.view(rows('held', 'free'), readersOf({ held: { at: ago(40) }, free: { at: ago(40) } }), NOW).verdicts;
+  assert.equal(verdictOf(v, 'held').verdict, 'keep');
+  assert.match(verdictOf(v, 'held').why, new RegExp('tries again on ' + ir.dayOf(NOW + 5 * DAY)));
+  assert.equal(verdictOf(v, 'free').verdict, 'retire', 'control: an agent with no refusal is shown as retiring');
+  assert.equal(ir.readLog().retired.length, 1, 'a junk entry in the log was kept');
   clean();
 });

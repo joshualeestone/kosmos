@@ -21,13 +21,19 @@ Design decided on the card (comment 7225269552).
 
 ## Shape
 - engine/idleretire.js: the setting ({ on: false, days: 30 }, days one of 14/30/60/90) in <ROOT>/idleretire.json,
-  assess(rows, readers, now) -> one verdict per agent, and makeTick(deps) for the daily sweep, with its own record
-  (<ROOT>/idleretire-log.json: the last day it ran, the last 50 retirements).
-- Verdicts: retire (measured idle >= days, nothing protecting it); keep (with the reason); unknown (no liveness record).
-- Protected, listed with the reason, never retired: the setup guide (row.isGuide); latest self-report needs_you or
-  blocked; an open task with it as who; a member of a project that is not archived.
-- Routes: GET /api/idle-retire (setting + verdicts + recent retirements), PUT /api/idle-retire (on, days).
-- Settings: a section with the switch, the days, and the lists.
+  assess(rows, readers, { days, now, upDays }) -> one verdict per agent, and makeTick(deps) for the HOURLY sweep (a
+  first tick a minute after start), with its own record <ROOT>/idleretire-log.json: up (running days, last 120),
+  tried (today's attempted names), retired (last 50 outcomes, newest first; a repeated refusal updates `tried`).
+- Verdicts: retire (calendar AND running days since the last beat >= N, nothing protecting it); keep (with the
+  reason); unknown (no liveness record). The Settings view also shows a held retire (tried today, or refused or
+  partial under a week ago) as kept, with the day it is tried again.
+- Protected, listed with the reason, never retired: a live state other than idle or stopped; a card Kosmos does not
+  run; the setup guide (marked by isSetupGuide in server.js idleRetireRows); latest self-report in
+  WAITING_ON_A_PERSON; an open task with it as who; a member of a project that is not archived; any failed read.
+- At most 3 removals per tick; a refused or partial one is retried after a week; dry-run counts as refused.
+- Log reading: missing is empty; unreadable is empty and the tick writes nothing; unparseable is renamed aside.
+- Routes: GET /api/idle-retire (setting + verdicts + recent; 500 when the agent list cannot be read), PUT (on, days).
+- Settings: Automation > Idle agents, the switch, the days, and the lists, shown while off as a preview.
 
 ## Changed from the card's design (decided while building)
 - Second source dropped: I wrote that message and chat dates would back up liveness. Both are written during a turn,
