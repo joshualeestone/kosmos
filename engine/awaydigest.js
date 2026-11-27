@@ -275,7 +275,9 @@ function waitText(wait, opts) {
 const OPEN_SHOWN = 12;   // task numbers named before "and N more"; the count is always whole
 function openWorkText(work) {
   if (!work || typeof work !== 'object') return '';
-  const open = Array.isArray(work.open) ? work.open.filter((t) => t && typeof t.projectId === 'string' && Number.isInteger(t.number)) : [];
+  // Review 1: a project id passes the same plain-token check a room id does (plain, above), so no stored id can put a
+  // line of its own into a startup.
+  const open = Array.isArray(work.open) ? work.open.filter((t) => t && plain(t.projectId) && Number.isInteger(t.number)) : [];
   const unanswered = Number.isInteger(work.unanswered) && work.unanswered > 0 ? work.unanswered : 0;
   if (!open.length && !unanswered) return '';
   const bits = [];

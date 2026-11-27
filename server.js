@@ -20254,8 +20254,10 @@ const server = http.createServer(async (req, res) => {
          read that fails leaves that part out, never the rest of the answer. */
       const openWork = { open: [], unanswered: 0 };
       try {
-        const caller = agentTokenCaller(req) || { name, key: store.safeKey(name) };
-        openWork.open = myOpenTasks(caller, projects.readAll()).map((t) => ({ projectId: t.projectId, number: t.number }));
+        // Review 1: only the caller's OWN token says whose tasks these are (GET /api/tasks/mine's rule). Without one (a
+        // pane, or a key-only token whose key is shared), a name's key could match another agent's, so they are left out.
+        const caller = agentTokenCaller(req);
+        if (caller) openWork.open = myOpenTasks(caller, projects.readAll()).map((t) => ({ projectId: t.projectId, number: t.number }));
       } catch { unread = true; }
       try {
         const rows = (chat.readThread(chat.DIRECT, name).messages || []).filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
@@ -20264,11 +20266,15 @@ const server = http.createServer(async (req, res) => {
       if (as === 'hook') { sendText(res, 200, away.hookJson(digest, wait, { openWork })); return; }
       if (as === 'text') {
         const cannot = 'Kosmos could not read every record just now, so this may not be everything; try again in a minute.';
-        const said = away.contextText(digest, wait, { openWork });
-        if (unread) { sendText(res, 200, (said ? said + '\n' : '') + cannot + '\n'); return; }
+        // Review 1: what arrived (or the sentence saying nothing did) first, then what is waiting now, so open work never
+        // hides "Nothing arrived" or "no earlier report".
+        const said = away.contextText(digest, wait);
+        const now9239 = away.openWorkText(openWork);
+        const tail = now9239 ? '\n\n' + now9239 : '';
+        if (unread) { sendText(res, 200, (said ? said + '\n' : '') + cannot + tail + '\n'); return; }
         sendText(res, 200, (said || (win ? 'Nothing arrived for you while you were not running.'
           : hist && hist.truncated ? 'Kosmos cannot tell when you were last running: your report record is longer than it reads back.'
-            : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + '\n');
+            : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + tail + '\n');
         return;
       }
       sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped, wait, openWork, ...(unread ? { unread: true } : {}) });
