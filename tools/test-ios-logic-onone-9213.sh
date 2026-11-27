@@ -62,16 +62,22 @@ xcrun swiftc -O -o "$out/y" "$here/y.swift"
 }'
 expect "swiftc followed by a ) is still a compile"                      1 's|xcrun swiftc -Onone -o|"$(xcrun -f swiftc)" -O -o|'
 expect "a single-quoted '-O' beside -Onone"                             1 "s|swiftc -Onone -o|swiftc -Onone '-O' -o|"
+expect "a backslash-escaped \\-O beside -Onone"                          1 's|swiftc -Onone -o|swiftc -Onone \\-O -o|'
 expect "a swiftc command whose file ends mid-command (last line ends in a backslash)" 1 '$a\
 xcrun swiftc -O -o "$out/z" \\
 '
 
+expect2() { # <label> <the message its own guard prints>: exit 2 AND that guard, not another, said why
+  local got; got="$(check)" # stdin is /dev/null below, so a dropped guard cannot hang on a terminal
+  if [ "$got" = 2 ] && grep -qF "$2" "$T/out"; then pass "$1 is exit 2, said by its own guard"
+  else fail "$1: exit $got, want 2 with \"$2\": $(head -1 "$T/out")"; fi
+}
 fresh; rm -rf "${T:?}/r/ios/tools"
-got="$(check)"; if [ "$got" = 2 ]; then pass "a missing folder is exit 2, not a pass"; else fail "a missing folder: exit $got, want 2"; fi
+expect2 "a missing folder" "is missing, so nothing was checked" < /dev/null
 fresh; find "$T/r/ios" -name '*.sh' -exec sed -i.bak 's/swiftc/swift-compiler/g' {} +
-got="$(check)"; if [ "$got" = 2 ]; then pass "no swiftc line at all is exit 2, not a pass"; else fail "no swiftc line: exit $got, want 2"; fi
+expect2 "no swiftc command at all" "no swiftc command found" < /dev/null
 fresh; find "$T/r/ios" -name '*.sh' -exec mv {} {}.txt \;
-got="$(check)"; if [ "$got" = 2 ]; then pass "no *.sh file at all is exit 2, not a pass"; else fail "no *.sh file: exit $got, want 2"; fi
+expect2 "no *.sh file at all" "no *.sh file found" < /dev/null
 
 # The count it reports is the real count (presence, not only absence).
 fresh; bash "$REPO/ios/tools/check-logic-onone.sh" "$T/r" > "$T/out" 2>&1
