@@ -84,7 +84,7 @@ test('kosmos#9217: one agent cannot end another agent\'s job', async () => {
   await asAgent(ta, { action: 'end' });
 });
 
-test('kosmos#9217: a job tied to a process that has exited is not listed', async () => {
+test('kosmos#9217: a process that does not exist is refused at start', async () => {
   const { ada } = twoAgents();
   const tok = sendertoken.mint(ada).token;
   const r = await asAgent(tok, { action: 'start', label: 'tied', pid: process.pid });
@@ -172,4 +172,50 @@ test('kosmos#9217: partial reads never start an agent\'s grace; the first comple
   assert.deepEqual(read(10 * 60 * 1000, false), ['partial'], 'ten minutes of partial reads: kept, the clock never started');
   assert.deepEqual(read(10 * 60 * 1000 + 1, true), ['partial'], 'the first complete read starts the grace');
   assert.deepEqual(read(20 * 60 * 1000, true), [], 'and it runs out from there');
+});
+
+test('kosmos#9217: a job tied to a process stops being listed once that process exits', async () => {
+  const { ada } = twoAgents();
+  const tok = sendertoken.mint(ada).token;
+  const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  try {
+    const r = await asAgent(tok, { action: 'start', label: 'child job', pid: child.pid });
+    assert.equal(r.status, 200, await r.clone().text());
+    assert.deepEqual((await jobsInStatus()).map((j) => j.label), ['child job'], 'control: listed while it runs');
+  } finally {
+    const gone = new Promise((res) => child.once('exit', res));
+    child.kill('SIGKILL');   // this test's own child, by its handle
+    await gone;
+  }
+  assert.deepEqual(await jobsInStatus(), [], 'still listed after its process exited');
+});
+
+test('kosmos#9217: a complete read with every agent stopped still starts the grace', async () => {
+  const { ada, bo } = twoAgents();
+  const tok = sendertoken.mint(ada).token;
+  assert.equal((await asAgent(tok, { action: 'start', label: 'all stopped' })).status, 200);
+  const t3 = Date.now() + 2 * 60 * 60 * 1000;
+  const stopped = { running: [], offline: [{ sessionName: ada, name: 'Ada' }, { sessionName: bo, name: 'Bo' }], complete: true };
+  assert.deepEqual(heavyJobsNow(stopped, t3).map((j) => [j.label, j.name]), [['all stopped', 'Ada']]);
+  assert.deepEqual(heavyJobsNow(stopped, t3 + 5 * 60 * 1000), [], 'every agent stopped: the job still clears after the grace');
+  assert.equal((await asAgent(tok, { action: 'start', label: 'empty read' })).status, 200);
+  const none = { running: [], offline: [], complete: true };
+  assert.deepEqual(heavyJobsNow(none, t3 + 10 * 60 * 1000).map((j) => j.label), ['empty read']);
+  assert.deepEqual(heavyJobsNow(none, t3 + 20 * 60 * 1000).map((j) => j.label), ['empty read'], 'control: a read with no rows at all judges nobody');
+  await asAgent(tok, { action: 'end' });
+});
+
+test('kosmos#9217: a missing mark does not outlive the job it was about', async () => {
+  const { ada, bo } = twoAgents();
+  const hj = require('./engine/heavyjobs');
+  const others = { running: [{ sessionName: bo, name: 'Bo' }], offline: [], complete: true };
+  const t4 = Date.now() + 4 * 60 * 60 * 1000;
+  assert.equal(hj.start({ root: store.ROOT, agent: ada, label: 'first', now: t4 }).ok, true);
+  assert.deepEqual(heavyJobsNow(others, t4).map((j) => j.label), ['first'], 'the mark starts here');
+  assert.equal(hj.end({ root: store.ROOT, agent: ada }).ended, 1);
+  assert.deepEqual(heavyJobsNow(others, t4 + 1000), [], 'no job: its mark goes with it');
+  // A record made without the route (so nothing clears the mark there): a fresh grace, not the old one.
+  assert.equal(hj.start({ root: store.ROOT, agent: ada, label: 'second', now: t4 + 5 * 60 * 1000 }).ok, true);
+  assert.deepEqual(heavyJobsNow(others, t4 + 5 * 60 * 1000).map((j) => j.label), ['second'], 'judged by the old mark');
+  assert.equal(hj.end({ root: store.ROOT, agent: ada }).ended, 1);
 });

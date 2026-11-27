@@ -3373,16 +3373,17 @@ function sweepRoster(now = Date.now()) {
 /* kosmos#9217: the live heavy jobs (engine/heavyjobs.js), never throwing, each with the agent's display name.
    roster: the status payload's { running, offline, complete }. An agent missing from the running rows is only judged
    gone once it has been missing for HEAVY_AGENT_GRACE_MS across reads, so one poll caught mid-restart does not take its
-   record away; a partial snapshot (complete false), an empty one, or none at all (GET /api/heavy) judges nobody newly
-   missing, and only a grace already run out on an earlier read clears. */
+   record away; a partial snapshot (complete false), one with no rows at all, or none (GET /api/heavy) judges nobody
+   newly missing, and only a grace already run out on an earlier read clears. */
 const HEAVY_AGENT_GRACE_MS = 90 * 1000;
 const heavyMissingSince = new Map();
 function heavyJobsNow(roster, now = Date.now()) {
   try {
     const running = (roster && Array.isArray(roster.running)) ? roster.running : [];
-    const rows = running.concat((roster && Array.isArray(roster.offline)) ? roster.offline : []);
+    const rows = running.concat((roster && Array.isArray(roster.offline)) ? roster.offline : []);   // names only
     const display = new Map(rows.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a.name || a.sessionName]));
-    const judging = Boolean(roster && roster.complete && running.length);
+    const offlineRows = (roster && Array.isArray(roster.offline)) ? roster.offline : [];
+    const judging = Boolean(roster && roster.complete && (running.length || offlineRows.length));
     const up = new Set(running.map((a) => a && a.sessionName).filter(Boolean));
     if (judging) for (const n of [...heavyMissingSince.keys()]) if (up.has(n)) heavyMissingSince.delete(n);
     const agentAlive = (n) => {
@@ -3391,8 +3392,10 @@ function heavyJobsNow(roster, now = Date.now()) {
       const since = heavyMissingSince.get(n);
       return since !== undefined && now - since >= HEAVY_AGENT_GRACE_MS ? false : null;
     };
-    return require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive })
-      .map((j) => ({ ...j, name: display.get(j.agent) || j.agent }));
+    const jobs = require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive });
+    const holders = new Set(jobs.map((j) => j.agent));
+    for (const n of [...heavyMissingSince.keys()]) if (!holders.has(n)) heavyMissingSince.delete(n);   // a mark lives only as long as a job
+    return jobs.map((j) => ({ ...j, name: display.get(j.agent) || j.agent }));
   } catch { return []; }
 }
 function safeRoster() {

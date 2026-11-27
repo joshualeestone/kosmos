@@ -15,7 +15,7 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
   server through restoresink's `processStart`, so a reused pid is not mistaken for the job).
   Every read drops a record whose process is gone or reused, whose agent is gone, or that is older than 12 hours (a
   ceiling against a stuck record). A process is first asked by signal 0 (no process spawned, works on Windows); only a
-  live one has its start time read, and that read is kept 10 s. One agent holds at most 4 records. A write that fails
+  live one has its start time read, and that read is kept 10 s. One agent holds at most 4 live records (a start drops its dead ones). A write that fails
   is said in Kosmos words, never thrown.
 - `server.js`: `POST /api/heavy {action: start|end, label, pid}` and `GET /api/heavy`, agent-token routes. The caller
   is named the way `/api/agent/reply-channel` names it (processCaller); a page is refused. `GET` refuses a cross-site or
