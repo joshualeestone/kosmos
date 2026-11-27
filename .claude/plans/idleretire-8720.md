@@ -63,3 +63,6 @@ Design decided on the card (comment 7225269552).
   is written only by this process (server.js, on a report), so no report can land mid-tick; the pane could change,
   but an agent silent for N running days waking in those seconds is negligible and Restore undoes it.
 - **A refused or partial removal is retried after a week**, not daily (review 4); a damaged log is renamed aside.
+- Review 7: the guide is checked with isGuideFolderStrict (fail closed; a throw protects), the read-only view uses the
+  sweeps' 20 s roster (the sweep stays fresh), a refused agent's retry day is the later of its two holds, and the
+  screen says when retiring is paused on this computer.

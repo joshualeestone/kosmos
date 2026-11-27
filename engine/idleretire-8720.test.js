@@ -84,6 +84,7 @@ test('assess: each protection keeps an idle agent and says why; the same agent w
     ['no-state', { at: idle }, { state: undefined }, /shows it as unknown right now/],
     ['restarting', { at: idle }, { state: 'restarting' }, /shows it as restarting right now/],
     ['foreign', { at: idle }, { isNamedOurs: false }, /not an agent Kosmos runs/],
+    ['guide-unreadable', { at: idle }, { isGuide: null }, /could not tell whether it is the setup guide/],
   ];
   for (const [name, rec, extra, why] of cases) {
     const kept = verdictOf(ir.assess([{ sessionName: name, state: 'idle', ...extra }], readersOf({ [name]: rec }), { days: 30, now: NOW, upDays: UP }), name);
@@ -214,7 +215,7 @@ test('makeTick records each running day, even while off, and a closed stretch is
   clean();
 });
 
-test('makeTick: a dry-run REMOVED is recorded as refused; a refusal repeated next day is logged once; an unreadable roster does nothing', () => {
+test('makeTick: a dry-run REMOVED is recorded as refused; a refused agent is tried again a week later and logged once; an unreadable roster does nothing', () => {
   clean();
   seedUp(upFor(100));
   ir.writeSetting({ on: true });
@@ -321,5 +322,15 @@ test('view: a retire verdict the tick is holding (refused under a week ago) show
   assert.match(verdictOf(v, 'held').why, new RegExp('tries again on ' + ir.dayOf(NOW + 5 * DAY)));
   assert.equal(verdictOf(v, 'free').verdict, 'retire', 'control: an agent with no refusal is shown as retiring');
   assert.equal(ir.readLog().retired.length, 1, 'a junk entry in the log was kept');
+  clean();
+});
+
+test('view: on the day of a refusal the retry day is a week out, not tomorrow (both holds, the later wins)', () => {
+  clean();
+  seedUp(upFor(100));
+  ir.writeSetting({ on: true });
+  ir.makeTick({ allowed: () => true, roster: () => rows('r'), readers: readersOf({ r: { at: ago(40) } }), now: () => NOW, remove: () => ({ outcome: 'refused', because: 'held' }) })();
+  const v = verdictOf(ir.view(rows('r'), readersOf({ r: { at: ago(40) } }), NOW).verdicts, 'r');
+  assert.match(v.why, new RegExp('tries again on ' + ir.dayOf(NOW + 7 * DAY)), v.why);
   clean();
 });

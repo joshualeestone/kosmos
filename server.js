@@ -5412,11 +5412,23 @@ function isSetupGuide(name) {
 }
 
 /* #8720: the agent rows the idle-retire sweep and its Settings view judge. safeRoster's rows do not carry `isGuide`
-   (markGuide marks only /api/status's copies), so the guide is marked here by the same test the secrets mask uses. */
-function idleRetireRows() {
-  const rows = safeRoster();
+   (markGuide marks only /api/status's copies), so it is set here: true or false, or null when the guide marker could
+   not be read (isGuideFolderStrict, the fail-closed form for automatic callers), which protects. `fresh` is for the
+   sweep, which acts; the read-only view takes the sweeps' 20 s roster. */
+function idleRetireRows({ fresh = true } = {}) {
+  const rows = fresh ? safeRoster() : sweepRoster();
   if (!Array.isArray(rows)) return null;
-  return rows.map((a) => (a && typeof a === 'object' ? { ...a, isGuide: isSetupGuide(a.sessionName) } : a));
+  return rows.map((a) => {
+    if (!a || typeof a !== 'object') return a;
+    let isGuide;
+    try { isGuide = setupAssistant.isGuideFolderStrict(a.sessionName) || isSetupGuide(a.sessionName); } catch { isGuide = null; }
+    return { ...a, isGuide };
+  });
+}
+
+/* #8720: whether the idle-retire sweep acts on this board now (live execution, and no operator brake). */
+function idleRetireActive() {
+  return liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1';
 }
 
 /* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
@@ -14949,9 +14961,9 @@ const server = http.createServer(async (req, res) => {
      that reads as "nobody would be retired". PUT {on} or {days}, screen-only as the Recommender's. */
   if (pathname === '/api/idle-retire' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
-      const rows = idleRetireRows();
+      const rows = idleRetireRows({ fresh: false });
       if (!Array.isArray(rows)) { sendJson(res, 500, { error: 'the agent list could not be read' }); return; }
-      sendJson(res, 200, require('./engine/idleretire').view(rows));
+      sendJson(res, 200, require('./engine/idleretire').view(rows, undefined, undefined, { active: idleRetireActive() }));
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
@@ -14966,9 +14978,9 @@ const server = http.createServer(async (req, res) => {
         const idleretire = require('./engine/idleretire');
         const saved = idleretire.writeSetting({ on: body.on, days: body.days });
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        const rows = idleRetireRows();
+        const rows = idleRetireRows({ fresh: false });
         // Saved either way; without the agent list the screen re-reads, and that read says what failed.
-        sendJson(res, 200, Array.isArray(rows) ? idleretire.view(rows) : { setting: idleretire.readSetting(), choices: idleretire.DAY_CHOICES, verdicts: null, recent: null });
+        sendJson(res, 200, Array.isArray(rows) ? idleretire.view(rows, undefined, undefined, { active: idleRetireActive() }) : { setting: idleretire.readSetting(), choices: idleretire.DAY_CHOICES, verdicts: null, recent: null });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -31131,8 +31143,8 @@ function start(port = PORT) {
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_IDLE_RETIRE_OFF=1, own hourly timer, unref'd, best-effort. */
       const idleretireTick = require('./engine/idleretire').makeTick({
-        allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1',
-        roster: () => idleRetireRows(),
+        allowed: () => idleRetireActive(),
+        roster: () => idleRetireRows({ fresh: true }),
         remove: (name) => removal.remove(name),
         log: (line) => process.stdout.write(line + '\n'),
       });
@@ -32683,7 +32695,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _clearSweepRosterForTest: () => { sweepRosterKept = null; } /* kosmos#8720 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
