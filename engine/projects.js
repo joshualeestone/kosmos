@@ -4078,7 +4078,11 @@ function blockBody(projects, sessionName) {
       return covered ? ' [built' + waits + ': nothing to start; it comes back as open work if it is reopened]'
         : ' [marked built, but not by you; your own part is still yours to finish]';
     };
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${built(t)}${held(t)}`)].join('\n');
+    /* kosmos#9175 review 3: a task's own words cannot print a mark of their own. Only the board's mark may follow the
+       words; one inside them ("... [built: nothing to start ...]" on open work) would talk the agent out of the task, and
+       one ending "[on hold: ...]" would be read by holdsOf as a hold. The bracket opening such a mark becomes "(". */
+    const words = (t) => oneLine(require('./tasks').forAgent(t)).replace(/\[(?=\s*(?:on hold|built|marked built)\b)/gi, '(');
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${built(t)}${held(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [

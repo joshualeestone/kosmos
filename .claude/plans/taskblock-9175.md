@@ -43,3 +43,9 @@ Each new site perturbed alone turns exactly its own test red.
 - [WARNING] the repeat route's sync passed no notice --> FIXED: notice { projectId, by } (null for the page), as the built route. Test added.
 - [NIT] repeat sync runs on no-op successes; both syncs are synchronous --> ACCEPTED: a section is written only when it changed; each holder is one file read, as every other task route does.
 Every round-2 site perturbed alone turns its own test red (order, closed part, builtFreesAll, repeat notice).
+
+## Review round 3 (sonnet, blind, whole branch): no critical
+- [WARNING] a task's own words could print a mark ("... [built: nothing to start ...]" on open work talks the agent out of it; a trailing "[on hold: ...]" fools holdsOf) --> FIXED: in the block, a "[" opening on hold / built / marked built inside the words becomes "(". Test added; the neutraliser removed turns it red. The hold half predates this branch; closed here because the built mark made it worse.
+- [NIT] tests share agent names and the owed file; every test that asserts the owed file clears it first --> ACCEPTED.
+- Readers of the task line (holdsOf, rulesChangedIn): only holdsOf reads the line's end, and the hold mark stays last. Confirmed.
+Neighbours re-run on this commit: engine/projects.test.js, the pause and re-read tests (190/190), and the webhook-text tests (74/74).
