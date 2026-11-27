@@ -87,7 +87,6 @@ function macHome(withEngine) {
   return home;
 }
 let MAC_HOME = null;
-let MAC_HOME_OLD = null;
 function mac(args, home) {
   const env = { ...process.env, KOSMOS_HOME: home, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '' };
   return new Promise((resolve, reject) => {
@@ -103,7 +102,9 @@ const rowOf = (text, words) => text.split('\n').find((l) => l.includes(words));
 
 test('#9201 engine: a title ending in any closing bracket counts; one with a bracket elsewhere does not', () => {
   for (const t of ['fix the login (otto)', 'fix the login (otto) ', 'fix the login (a (otto))', 'fix the login [otto]',
-    'fix the login \uFF08otto\uFF09', 'fix the login (otto)\u200B', 'fix the login (otto\u2769']) {
+    'fix the login \uFF08otto\uFF09', 'fix the login (otto)\u200B', 'fix the login (otto\u2769',
+    // Review 1: a blank-looking character the fold keeps, a lookalike that is an OPENING bracket, a full stop.
+    'fix the login (otto)\uE000', 'fix the login (otto)\u{1D159}', 'fix the login (otto\uFD3F', 'fix the login (otto).']) {
     assert.equal(markwords.usesListMarkWord(t), true, 'missed: ' + JSON.stringify(t));
   }
   for (const t of ['fix the login', 'fix (otto) the login', 'the (old) docs need work', 'tidy the docs.']) {

@@ -84,11 +84,14 @@ const LIST_WORD = new RegExp('(?<![\\p{L}\\p{N}])(?:' + LIST_PHRASES.join('|') +
 const FIRST_DONE = /^[^\p{L}\p{N}]*(?:[[(#]\s*\d+\s*[\])]?[^\p{L}\p{N}]*)?done(?![\p{L}\p{N}])/iu;
 /* kosmos#9201: both long lists print a task's owner right after its words as " (name)", and an unowned task prints
    nothing there, so an unowned task titled "fix the login (otto)" printed exactly as one otto holds. A bare name has no
-   fixed word to test, so the test is the title's END: a title whose last character (on the folded copy, so a trailing
-   invisible character or a fullwidth bracket counts) is any closing bracket is printed quoted. Any bracket and not only
-   ")": "(otto]" or a nested "(a (otto))" would read the same, and a test on the last character needs no list of shapes.
-   The cost, stated: an ordinary title ending in brackets ("fix the build (again)") prints quoted, its words unchanged. */
-const ENDS_IN_BRACKET = /\p{Pe}$/u;
+   fixed word to test, so the test is the title's END: a title (on the folded copy, so a fullwidth bracket counts) whose
+   last bracket of ANY kind is followed by nothing but characters that are not letters or digits is printed quoted.
+   Any bracket and not only ")": "(otto]" or a nested "(a (otto))" read the same. Opening brackets too (review 1:
+   U+FD3F reads as a right parenthesis and is Ps). And not only the last character (review 1): a private-use or other
+   blank-looking character the fold keeps, or a "." after the name, would otherwise hide the bracket.
+   The cost, stated: an ordinary title ending in brackets ("fix the build (again)", "call foo()") prints quoted, its
+   words unchanged. */
+const ENDS_IN_BRACKET = /[\p{Ps}\p{Pe}][^\p{L}\p{N}]*$/u;
 function usesListMarkWord(text) {
   const f = fold(text);
   return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f) || BRACKET_DONE.test(f) || ENDS_IN_BRACKET.test(f.trim());
