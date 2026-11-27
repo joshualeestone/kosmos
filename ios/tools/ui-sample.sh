@@ -123,6 +123,11 @@ classes="$classes DuoFoldUITests:2"
 #   pixel judge sees navy and each exact ground (2 checks). A fresh simulator is light, so CI sees light; dark is by hand
 #   (simctl appearance dark, which the sample board follows).
 classes="$classes BoardGroundUITests:2"
+# kosmos#9095: FailureScreensUITests, the four failure screens (offline, Kosmos+ not answering, a computer not answering, a
+#   page that did not load; KOSMOS_SAMPLE_FAILURE) in light and dark (the board's theme set at launch, so a fresh simulator
+#   runs both), each read from its pixels: the exact ground, no navy or old blue above the tab bar, Try again gold; with a
+#   control that the judges see navy, blue and each ground (3 checks).
+classes="$classes FailureScreensUITests:3"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
