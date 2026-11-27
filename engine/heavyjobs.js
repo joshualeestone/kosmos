@@ -13,9 +13,10 @@
  *     read by the server when the job started, no longer matches);
  *   - it names no process and its agent is gone (judged by the caller: server.js heavyJobsNow); a job tied to a
  *     process lives as long as that process, whatever the roster says;
- *   - it was last announced more than MAX_AGE_MS ago and nothing can judge it (a ceiling, so it cannot stay for ever;
- *     a process confirmed by its start time is judged, and stays while it runs, kosmos#9222; a hung one is ended
- *     with `kosmos heavy end --pid N`).
+ *   - it was last announced more than MAX_AGE_MS ago and names no process, or a process with no recorded start (a
+ *     ceiling, so it cannot stay for ever). A process with a recorded start is judged by it instead (kosmos#9222):
+ *     confirmed, it stays while it runs (a hung one is ended with `kosmos heavy end --pid N`); unread on a read past
+ *     the ceiling, it is hidden for that read but kept for the next one to judge.
  * Without --pid a record is tied to its agent only: it ends with `kosmos heavy end`, with the agent, or at the ceiling.
  * Where a start time cannot be read (Windows has no ps), a --pid record still clears when its process is gone (signal 0),
  * but a reused number is not told apart from the job.
@@ -100,23 +101,31 @@ function locked(root, fn) {
 
 /* Whether record j is still live. startOf(pid) gives the process's start identity (a string), null when there is no
    such process, or undefined when it cannot be asked; agentAlive(name) gives true, false, or null for "could not tell". */
-function isLive(j, { now, startOf, agentAlive }) {
-  const aged = now - (Number.isFinite(j.at) ? j.at : j.since) > MAX_AGE_MS;   // from the last announcement
+const agedOf = (j, now) => now - (Number.isFinite(j.at) ? j.at : j.since) > MAX_AGE_MS;   // from the last announcement
+
+/* What one read does with record j: 'show' it, 'hide' it (not shown, not counted, but left in the file for a later read
+   to judge), or 'drop' it from the file. */
+function judge(j, { now, startOf, agentAlive }) {
+  const aged = agedOf(j, now);
   if (j.pid !== null) {
     // A job tied to a process lives as long as that process, whatever the roster says: --pid is for a wrapper that
     // outlives its agent's call, and an agent restarting while its suite runs is when the line matters most.
     const s = startOf(j.pid);
-    if (s === null) return false;                                  // no such process
-    // kosmos#9222: a record with its start recorded is judged by that start, with no ceiling, so an overnight run
-    // stays on the board: a different start is a reused number (gone); undefined means the process answers signal 0
-    // and its start was not read this time (ps budget spent, timed out, or a read without ps), which keeps it: one
-    // read that could not ask must not delete what the next read would confirm.
-    if (j.pidStart) return typeof s === 'string' ? s === j.pidStart : true;
-    return !aged;   // no start recorded (Windows: no ps): nothing can tell a reused number, so the ceiling holds
+    if (s === null) return 'drop';                                 // no such process
+    if (j.pidStart) {
+      // kosmos#9222: a recorded start judges the record, with no ceiling: the same start is the same process, still
+      // running (an overnight run stays); a different one is a reused number. Unread this time (undefined: signal 0
+      // answers, but ps was over budget, timed out or not asked): shown inside the ceiling; past it, hidden but kept,
+      // so a read that could not ask neither deletes what the next one confirms nor shows what it cannot vouch for.
+      if (typeof s === 'string') return s === j.pidStart ? 'show' : 'drop';
+      return aged ? 'hide' : 'show';
+    }
+    return aged ? 'drop' : 'show';   // no start recorded (Windows: no ps): nothing can tell a reused number
   }
-  if (aged) return false;
-  return !(agentAlive && agentAlive(j.agent) === false);
+  if (aged) return 'drop';
+  return agentAlive && agentAlive(j.agent) === false ? 'drop' : 'show';
 }
+function isLive(j, opts) { return judge(j, opts) === 'show'; }
 
 /* Signal 0 first: a gone process costs nothing to recognise (another user's process answers EPERM, and is kept as
    alive). A live one's start time is read with ps and kept for START_CACHE_MS, so a board polled by several pages does
@@ -152,12 +161,17 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
   }
-  const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };
-  // The agent's other records are judged without ps (signal 0 and the cache): this runs under the lock, on the route.
-  const othersOf = startOf === defaultStartOf ? (q) => defaultStartOf(q, now, 'alive') : startOf;   // since: shown; at: the ceiling counts from it
+  const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };   // since: shown; at: the ceiling counts from it
+  let othersOf = startOf;
   let out = { ok: true, job };
   const r = locked(root, () => {
     const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
+    // The agent's other records (at most MAX_PER_AGENT) are judged by signal 0 and the cache, since this runs under the
+    // lock, on the route; an aged one gets a real read, because without one it could only be hidden (kosmos#9222).
+    if (startOf === defaultStartOf) {
+      const aged = new Set(list.filter((j) => j.agent === agent && j.pid !== null && agedOf(j, now)).map((j) => j.pid));
+      othersOf = (q) => defaultStartOf(q, now, aged.has(q) ? 'cached' : 'alive');
+    }
     if (list.filter((j) => j.agent === agent && isLive(j, { now, startOf: othersOf, agentAlive: null })).length >= MAX_PER_AGENT) {
       out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
       return;
@@ -165,7 +179,7 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     const was = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
     if (was && isLive(was, { now, startOf: othersOf, agentAlive: null })) job.since = was.since;   // announced again: since stays
     list.push(job);
-    if (!writeAll(root, list.filter((j) => j.agent !== agent || isLive(j, { now, startOf: othersOf, agentAlive: null })))) out = { ok: false, because: NOT_SAVED };
+    if (!writeAll(root, list.filter((j) => j.agent !== agent || judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop'))) out = { ok: false, because: NOT_SAVED };
   });
   return r.ok ? out : { ok: false, because: r.because };
 }
@@ -193,19 +207,27 @@ function end({ root, agent, pid }) {
    could not be saved changes nothing the reader is told. */
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null }) {
   if (startOf === defaultStartOf) {
+    // Only a ps run spends the budget (a fresh cache hit costs none), and aged records are judged first, so the ones
+    // that need a read to be shown get it (kosmos#9222).
     let budget = PS_PER_READ;
     const until = Date.now() + PS_MS_PER_READ;
-    startOf = (pid) => defaultStartOf(pid, now, budget-- > 0 && Date.now() < until ? 'cached' : 'alive');
+    startOf = (pid) => {
+      const hit = startCache.get(pid);
+      if (hit && now - hit.at < START_CACHE_MS) return defaultStartOf(pid, now, 'cached');
+      if (budget > 0 && Date.now() < until) { budget -= 1; return defaultStartOf(pid, now, 'cached'); }
+      return defaultStartOf(pid, now, 'alive');
+    };
   }
   const all = readAll(root);
-  const keep = all.filter((j) => isLive(j, { now, startOf, agentAlive }));
-  if (keep.length !== all.length) {
+  const order = all.map((_, i) => i).sort((a, b) => Number(agedOf(all[b], now)) - Number(agedOf(all[a], now)));
+  const verdict = [];
+  for (const i of order) verdict[i] = judge(all[i], { now, startOf, agentAlive });
+  if (verdict.includes('drop')) {
     require('./filelock').withFileLock(fileOf(root), () => {
-      const fresh = readAll(root).filter((j) => isLive(j, { now, startOf, agentAlive }));
-      writeAll(root, fresh);
+      writeAll(root, readAll(root).filter((j) => judge(j, { now, startOf, agentAlive }) !== 'drop'));
     }, { waitMs: 0 });   // its { ok:false } (busy) and writeAll's false both leave the file for the next read
   }
-  return keep.map((j) => ({ agent: j.agent, label: j.label, pid: j.pid, since: j.since }));
+  return all.filter((_, i) => verdict[i] === 'show').map((j) => ({ agent: j.agent, label: j.label, pid: j.pid, since: j.since }));
 }
 
-module.exports = { FILE, MAX_AGE_MS, MAX_LABEL, MAX_PER_AGENT, defaultStartOf, normalizeLabel, normalizePid, readAll, isLive, start, end, live };
+module.exports = { FILE, MAX_AGE_MS, MAX_LABEL, MAX_PER_AGENT, defaultStartOf, normalizeLabel, normalizePid, readAll, judge, isLive, start, end, live };
