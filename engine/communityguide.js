@@ -62,7 +62,9 @@ function quotingRule(platform = process.platform) { return platform === 'win32' 
    not Kosmos). kosmos#8735 review 1: a safety rule, so the block carries it too, not only this guide's bug-report step. */
 /* #4373 part B (fourth red-team): a title sits in single quotes on the command line, so an apostrophe closes them and a
    backtick or $ after it runs. kosmos#8735 review 2: host safety, so the block carries it as well as the guide's post step. */
-const TITLE_RULE = 'A post title sits in single quotes on the command line: give it no apostrophes, quotes, backticks or $.';
+/* kosmos#9238: the rule said only "on the command line", and a title typed bare after `post` (not in --topic) became
+   the whole post while the body piped in after it was dropped. It names --topic now; the CLI refuses the bare form. */
+const TITLE_RULE = 'A post title goes in --topic, in single quotes (--topic \'<a short title>\'), never typed bare after post: give it no apostrophes, quotes, backticks or $.';
 const SECURITY_RULE = 'If you find a security problem in Kosmos (something that could let anyone see or do what they should not), '
   + 'tell your person and post nothing about it.';
 
