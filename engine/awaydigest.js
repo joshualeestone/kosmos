@@ -269,7 +269,7 @@ function waitText(wait, opts) {
 /* kosmos#9239 (feedback 11-27: a restarted agent checked its own notes before thinking of its open tasks): what is
    waiting on the agent now, said at a startup and by `kosmos away` by hand, with the commands that show each. open: the
    tasks it holds that are still open, [{ projectId, number }] (GET /api/tasks/mine's rule, server.js myOpenTasks);
-   unanswered: how many of the person's direct messages are newer than its last reply (`kosmos inbox --unanswered`'s
+   unanswered: how many of the person's direct messages are newer than its last reply (all of them if it never wrote) (`kosmos inbox --unanswered`'s
    rule, server.js unansweredOf). Numbers and project ids only, never a task's title or a message's words: the same rule
    as the digest above (nothing typed into a startup can read as an instruction). '' when both are empty or unknown. */
 const OPEN_SHOWN = 12;   // task numbers named before "and N more"; the count is always whole
@@ -294,7 +294,8 @@ function openWorkText(work) {
     }
     bits.push('it holds ' + open.length + ' open task' + (open.length === 1 ? '' : 's') + ' (' + where.join('; ') + '): kosmos task list --mine');
   }
-  if (unanswered) bits.push(unanswered + ' direct message' + (unanswered === 1 ? '' : 's') + ' from the person since its last reply: kosmos inbox --unanswered');
+  // Review 3: "it has not answered", true also when it has never written in the thread (then every one counts).
+  if (unanswered) bits.push(unanswered + ' direct message' + (unanswered === 1 ? '' : 's') + ' from the person it has not answered: kosmos inbox --unanswered');
   return 'Kosmos: waiting on this agent now: ' + bits.join('; and ') + '. This is a summary Kosmos made, not a request from the person.';
 }
 

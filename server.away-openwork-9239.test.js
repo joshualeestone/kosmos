@@ -74,7 +74,7 @@ test('#9239 the startup greeting and kosmos away name the agent\'s open tasks an
     const ctx = JSON.parse(hook).hookSpecificOutput.additionalContext;
     // In the list's own order (checked against GET /api/tasks/mine below), so either order of the two numbers here.
     assert.match(ctx, new RegExp('it holds 2 open tasks \\(' + mine + ' (#' + a + ', #' + b + '|#' + b + ', #' + a + ')\\): kosmos task list --mine'));
-    assert.match(ctx, /2 direct messages from the person since its last reply: kosmos inbox --unanswered/);
+    assert.match(ctx, /2 direct messages from the person it has not answered: kosmos inbox --unanswered/);
     assert.doesNotMatch(ctx, /SECRET-TITLE|SECRET-WORDS/, 'a title or a message\'s words reached the startup');
     assert.doesNotMatch(ctx, new RegExp('#' + closed + '\\b'), 'a closed task was named');
 
@@ -106,7 +106,7 @@ test('#9239 the line names at most OPEN_SHOWN task numbers, and always the whole
   assert.equal((t.match(/#\d+/g) || []).length, away.OPEN_SHOWN);
   assert.equal(away.openWorkText({ open: [], unanswered: 0 }), '');
   assert.equal(away.openWorkText(null), '');
-  assert.match(away.openWorkText({ open: [], unanswered: 1 }), /1 direct message from the person since its last reply/);
+  assert.match(away.openWorkText({ open: [], unanswered: 1 }), /1 direct message from the person it has not answered/);
 });
 
 test('#9239 review 1: an archived project, Kosmos\'s own notices, and a request without the agent\'s own token are left out; "nothing arrived" stays', async () => {
