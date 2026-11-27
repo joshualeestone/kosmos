@@ -68,7 +68,13 @@ function run(args, { home, data, preload }, api) {
     child.stderr.on('data', (d) => { err += d; });
     const killer = setTimeout(() => child.kill('SIGKILL'), 30000);
     child.on('error', reject);
-    child.on('close', (code) => { clearTimeout(killer); resolve({ code, out, err }); });
+    child.on('close', (code, signal) => {
+      clearTimeout(killer);
+      // #3628: a killed CLI has no exit code; that is a hang, never a result to compare.
+      const res = { code, out, err };
+      if (typeof res.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + '): it hung')); return; }
+      resolve(res);
+    });
   });
 }
 
