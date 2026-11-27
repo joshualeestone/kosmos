@@ -137,9 +137,10 @@ test('a write that fails is said in Kosmos words, never thrown, and a reader is 
   const r = root();
   assert.equal(hj.start({ root: r, agent: 'renet', label: 'kept', now: T0 }).ok, true);
   assert.equal(hj.start({ root: r, agent: 'kitty', label: 'gone soon', now: T0 }).ok, true);
-  // A folder where the write's temp file goes: the lock still works, only the write fails (EISDIR).
-  const blocker = path.join(r, hj.FILE) + '.tmp-' + process.pid;
-  fs.mkdirSync(blocker);
+  // The lock still works; only the write fails, with an fs-shaped error that names a path.
+  const store = require('./store');
+  const was = store.saveFlushed;
+  store.saveFlushed = (f) => { throw Object.assign(new Error('EACCES: permission denied, open ' + f), { code: 'EACCES' }); };
   try {
     const s = hj.start({ root: r, agent: 'renet', label: 'new', pid: 4242, now: T0, startOf: alwaysStart('s') });
     assert.deepEqual([s.ok, s.because], [false, 'Kosmos could not save its heavy-job record just now']);
@@ -148,8 +149,8 @@ test('a write that fails is said in Kosmos words, never thrown, and a reader is 
     const seen = hj.live({ root: r, now: T0 + 1000, agentAlive: (n) => n === 'renet' });
     assert.deepEqual(seen.map((j) => j.label), ['kept'], 'a removal that could not be saved still leaves the reader the live jobs');
     assert.deepEqual(hj.readAll(r).map((j) => j.label), ['kept', 'gone soon'], 'nothing was written while the write failed');
-  } finally { fs.rmdirSync(blocker); }
-  assert.equal(hj.end({ root: r, agent: 'renet' }).ok, true, 'control: with the folder gone, the same write succeeds');
+  } finally { store.saveFlushed = was; }
+  assert.equal(hj.end({ root: r, agent: 'renet' }).ok, true, 'control: with the real writer back, the same write succeeds');
 });
 
 test('defaultStartOf: a gone process reads as none with no ps; a live one reads its start, the same twice', () => {

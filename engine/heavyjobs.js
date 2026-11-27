@@ -79,14 +79,10 @@ function readAll(root) {
 /* Writes the list; false (never a throw) when it could not be saved, so no caller passes an fs message, with its path,
    to an agent or a page. */
 function writeAll(root, list) {
-  const file = fileOf(root);
-  const tmp = file + '.tmp-' + process.pid;
   try {
-    fs.writeFileSync(tmp, JSON.stringify(list.slice(-MAX_JOBS)) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    require('./store').saveFlushed(fileOf(root), JSON.stringify(list.slice(-MAX_JOBS)) + '\n');   // flushed, then renamed
     return true;
   } catch {
-    try { fs.unlinkSync(tmp); } catch { /* there was none */ }
     return false;
   }
 }
