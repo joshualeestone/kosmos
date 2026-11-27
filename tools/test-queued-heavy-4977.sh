@@ -10,6 +10,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 U=$((1000000 + $$ * 10))   # sleep lengths U+1..U+9 belong to this run alone: live pids are unique, so two copies differ by >= 10
 REAL_QH="$HERE/queued-heavy.sh"
+SELF="$HERE/$(basename "$0")"   # kosmos#9191: this file by an absolute path ($0 can be relative, and the file cds away)
 # #4298 exception, same mechanism as test-light-side-4911: root $S in a literal /tmp, not ${TMPDIR}.
 # In the suite TMPDIR is run-tests.sh's kt<digits> sandbox; rooting the wrapper tree inside it makes
 # cut-guard/process-fixture's kt-sandbox cwd rule (_kosmos_path_in_kt_sandbox) misfire and hangs the
@@ -43,7 +44,7 @@ kill_waiters() { local p
 # every arm that lists one must unlist it when its wait returns. Only that pid's line goes; others stay.
 own_waiter() { echo "$1" >> "$S/own-waiters"; }
 unown_waiter() { { grep -vx -- "$1" "$S/own-waiters" 2>/dev/null || true; } > "$S/own-waiters.n" && mv "$S/own-waiters.n" "$S/own-waiters"; }
-trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; kill_waiters; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
+trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
 # #5331: a whole-file deadline that outlives anything this file runs: past it the file stops itself and FAILS, so a hang
 # in here can never hold the canary, a full validation or CI that runs it (one held Agent1s 1 h 43 min on 10-05).
 QH_FILE_DEADLINE="${QH_FILE_DEADLINE:-900}"
@@ -57,7 +58,8 @@ trap 'exit 124' TERM
   while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
   echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
   kill -TERM "$me" 2>/dev/null; sleep 15; alive || exit 0
-  pkill -KILL -P "$me" 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; kill_waiters
+  kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
+  pkill -KILL -P "$me" 2>/dev/null   # kosmos#9191: last but the file: procps pkill -P (Linux) does not leave out its caller
   kill -KILL "$me" 2>/dev/null ) & WD=$!
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
@@ -858,14 +860,20 @@ ok "#9118: a dead run's leftover label .tmp file is removed" '[ "$rw" = 1 ] && [
 bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args $1/tmp/queued-heavy-args.in9191" sleep 60' _ "$S" & KA9191=$!
 bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.own9191-$2" sleep 60' _ "$S" "$$" & KB9191=$!
 bash -c 'exec -a "/bin/bash /nowhere/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.other9191-$1" sleep 60' _ "$$" & KC9191=$!
+# The listed-pid forms the real stale-TMPDIR waiter has: the wrapper before its re-exec (REAL_QH pointed at the fake path
+# for this one call) and perl before it execs the wrapper.
+bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$S" & KD9191=$!
+bash -c 'exec -a "perl -e alarm(shift); exec @ARGV or die 60 /bin/bash fakeqh9191" sleep 60' & KE9191=$!
 # Ready once each has exec'd: before that its bash -c line already holds the words --queued-args, unexpanded.
-until_true 10 'ps -ww -o command= -p $KA9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KB9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh"'; k9191_up=$?
+until_true 10 'ps -ww -o command= -p $KA9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KB9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && ps -ww -o command= -p $KD9191 | grep -q "^/bin/bash $S/fakeqh9191.sh stale" && ps -ww -o command= -p $KE9191 | grep -q "^perl -e alarm"'; k9191_up=$?
 # KC is listed too: a listed pid whose command is not a waiter of this run (a reused pid) must be left alone.
-own_waiter $KB9191; own_waiter $KC9191; kill_waiters; unown_waiter $KB9191; unown_waiter $KC9191
+# Called mid-run: it also ends any other live waiter of this run, and none is alive at this point.
+own_waiter $KB9191; own_waiter $KC9191; own_waiter $KD9191; own_waiter $KE9191; REAL_QH="$S/fakeqh9191.sh" kill_waiters
+for p in $KB9191 $KC9191 $KD9191 $KE9191; do unown_waiter $p; done
 dead9191() { local st; st="$(ps -o stat= -p "$1" 2>/dev/null)"; st="${st// /}"; [ -z "$st" ] || [ "${st#Z}" != "$st" ]; }   # gone, or a zombie not yet reaped (kill -0 succeeds on those)
-until_true 10 'dead9191 $KA9191 && dead9191 $KB9191'
-ok "#9191: kill_waiters ends a waiter whose arguments file is in this run's dir and one this run listed, and leaves a listed pid that is not its waiter alone" '[ "$k9191_up" = 0 ] && dead9191 $KA9191 && dead9191 $KB9191 && ! dead9191 $KC9191'
-kill -KILL $KC9191 2>/dev/null; wait $KA9191 $KB9191 $KC9191 2>/dev/null
+until_true 10 'dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191'
+ok "#9191: kill_waiters ends a waiter whose arguments file is in this run's dir and the listed ones in each form (re-exec'd, before it, perl), and leaves a listed pid that is not its waiter alone" '[ "$k9191_up" = 0 ] && dead9191 $KA9191 && dead9191 $KB9191 && dead9191 $KD9191 && dead9191 $KE9191 && ! dead9191 $KC9191'
+kill -KILL $KC9191 2>/dev/null; wait $KA9191 $KB9191 $KC9191 $KD9191 $KE9191 2>/dev/null
 # kosmos#9191: joiner_under finds the waiter under the pid it is given, not an OLDER process with the same command line
 # (the stray a killed earlier run left behind, which `pgrep -o` picked). This guards the helper; the three #5923 arms
 # that call it are not run here with a stray beside them (that needs a real-path stand-in, which other agents' queue
@@ -882,9 +890,9 @@ kill -KILL $JD9191 $jw9191 2>/dev/null; wait $JD9191 $JP9191 2>/dev/null
 # kosmos#9191: the three #5923 lock-loop arms find their joiner with joiner_under, and no pick of "the oldest process
 # running this path" is left. A source check: running those arms with a stray beside them would need a real-path
 # stand-in, which other agents' queue scans on this Mac would see.
-cs9191=$(grep -cE '^until_true 30 .[a-z]+5923="[$][(]joiner_under [$][A-Z]+5923[)]"' "$0")
-po9191=$(grep -c 'pgrep -o -f "^/bin/bash [$]REAL_QH' "$0")
-ok "#9191: the three #5923 lock-loop arms call joiner_under, and none picks the oldest process of the path" '[ "$cs9191" = 3 ] && [ "$po9191" = 0 ]'
+cs9191=$(grep -cE '^until_true 30 .[a-z]+5923="[$][(]joiner_under [$][A-Z]+5923[)]"' "$SELF")
+po9191=$(grep -c 'pgrep -o -f "^/bin/bash [$]REAL_QH' "$SELF")
+ok "#9191: the three #5923 lock-loop arms call joiner_under, and none picks the oldest process of the path" '[ -r "$SELF" ] && [ "$cs9191" = 3 ] && [ "$po9191" = 0 ]'
 
 EXPECTED=178   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, three #9191 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
