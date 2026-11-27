@@ -43,7 +43,7 @@ const ok = (c) => (c.method === 'GET'
 test('heavy start sends the action, label and pid, and says it is recorded', async () => {
   const r = await run(['heavy', 'start', 'full test run', '--pid', '4242'], ok);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^Recorded: full test run\. It shows on the board as running while process 4242 runs\./);
+  assert.match(r.out, /^Recorded: full test run\. It shows on the board as running while process 4242 runs\. kosmos heavy end --pid 4242 when it is done\.$/);
   const posts = r.calls.filter((c) => c.method === 'POST');
   assert.equal(posts.length, 1);
   assert.match(posts[0].url, /\/api\/heavy$/);

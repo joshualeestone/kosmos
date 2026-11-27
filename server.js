@@ -3385,9 +3385,10 @@ function heavyJobsNow(roster, now = Date.now()) {
     const offlineRows = (roster && Array.isArray(roster.offline)) ? roster.offline : [];
     const judging = Boolean(roster && roster.complete && (running.length || offlineRows.length));
     const up = new Set(running.map((a) => a && a.sessionName).filter(Boolean));
-    if (judging) for (const n of [...heavyMissingSince.keys()]) if (up.has(n)) heavyMissingSince.delete(n);
+    // A running row is proof in any read, complete or not: only judging someone NEWLY missing needs a complete one.
+    for (const n of [...heavyMissingSince.keys()]) if (up.has(n)) heavyMissingSince.delete(n);
     const agentAlive = (n) => {
-      if (judging && up.has(n)) return true;
+      if (up.has(n)) return true;
       if (judging && !heavyMissingSince.has(n)) heavyMissingSince.set(n, now);
       const since = heavyMissingSince.get(n);
       return since !== undefined && now - since >= HEAVY_AGENT_GRACE_MS ? false : null;

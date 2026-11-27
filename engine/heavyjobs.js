@@ -31,8 +31,8 @@ const MAX_LABEL = 80;
 const MAX_JOBS = 50;   // a bound on the file (the oldest go past it), not a policy: no computer runs fifty heavy jobs
 const MAX_PER_AGENT = 4;   // and on what one agent's records can cost every status poll (one start-time read each)
 const START_CACHE_MS = 10 * 1000;
-const PS_PER_READ = 8;   // at most this many ps runs in one live(), and none once PS_MS_PER_READ is spent;
-const PS_MS_PER_READ = 500;   // the rest are judged by signal 0 and the cache
+const PS_PER_READ = 8;   // at most this many ps runs in one live(), and none STARTED once PS_MS_PER_READ is spent
+const PS_MS_PER_READ = 500;   // (so one read is bounded by about PS_MS_PER_READ + PS_TIMEOUT_MS); the rest are judged by signal 0 and the cache
 const PS_TIMEOUT_MS = 750;   // one ps, on the status route's event loop, never waits longer than this
 
 function fileOf(root) { return path.join(root, FILE); }
@@ -148,18 +148,20 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
   }
-  const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };   // since: shown; at: the ceiling counts from it
+  const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };
+  // The agent's other records are judged without ps (signal 0 and the cache): this runs under the lock, on the route.
+  const othersOf = startOf === defaultStartOf ? (q) => defaultStartOf(q, now, 'alive') : startOf;   // since: shown; at: the ceiling counts from it
   let out = { ok: true, job };
   const r = locked(root, () => {
     const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
-    if (list.filter((j) => j.agent === agent && isLive(j, { now, startOf, agentAlive: null })).length >= MAX_PER_AGENT) {
+    if (list.filter((j) => j.agent === agent && isLive(j, { now, startOf: othersOf, agentAlive: null })).length >= MAX_PER_AGENT) {
       out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
       return;
     }
     const was = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
-    if (was && isLive(was, { now, startOf, agentAlive: null })) job.since = was.since;   // announced again: since stays
+    if (was && isLive(was, { now, startOf: othersOf, agentAlive: null })) job.since = was.since;   // announced again: since stays
     list.push(job);
-    if (!writeAll(root, list.filter((j) => j.agent !== agent || isLive(j, { now, startOf, agentAlive: null })))) out = { ok: false, because: NOT_SAVED };
+    if (!writeAll(root, list.filter((j) => j.agent !== agent || isLive(j, { now, startOf: othersOf, agentAlive: null })))) out = { ok: false, because: NOT_SAVED };
   });
   return r.ok ? out : { ok: false, because: r.because };
 }

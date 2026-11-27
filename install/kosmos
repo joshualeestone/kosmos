@@ -3992,7 +3992,7 @@ cmd_heavy() {
   printf '%s' "$ans" | "$_n" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { j = null; }
-      if (j && j.ok === true && j.job) { console.log("Recorded: " + j.job.label + ". It shows on the board as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy end when it is done."); return; }
+      if (j && j.ok === true && j.job) { console.log("Recorded: " + j.job.label + ". It shows on the board as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy end" + (j.job.pid ? " --pid " + j.job.pid : "") + " when it is done."); return; }
       if (j && j.ok === true && typeof j.ended === "number") {
         const left = typeof j.others === "number" ? j.others : 0;
         if (j.ended) { console.log("Ended: it no longer shows on the board." + (left ? " You still have " + left + " running; kosmos heavy lists them." : "")); return; }

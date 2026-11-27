@@ -294,3 +294,13 @@ test('a ps read for a heavy job is given a short timeout, not the 5 s default', 
   assert.equal(rs.processStart(process.pid, { timeoutMs: 1 }), undefined, 'a 1 ms timeout should stop ps (it cannot start and answer that fast): the option is not read');
   assert.equal(typeof rs.processStart(process.pid, { timeoutMs: 5000 }), 'string', 'control: a normal read still answers');
 });
+
+test('a start runs ps once, for its own record; the agent\'s other records are judged by signal 0 and the cache', () => withProcesses((seen) => {
+  const r = root();
+  const now = Date.now() + 4 * 60 * 60 * 1000;
+  for (let i = 0; i < 3; i++) hj.start({ root: r, agent: 'renet', label: 'j' + i, pid: 95000 + i, now, startOf: () => 'A' });
+  seen.ps = 0;
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'new', pid: 95009, now: now + 60 * 1000 }).ok, true);
+  assert.equal(seen.ps, 1, 'ps ran ' + seen.ps + ' times inside one start');
+  assert.equal(hj.readAll(r).length, 4, 'control: the other records were kept, not dropped for want of a read');
+}));
