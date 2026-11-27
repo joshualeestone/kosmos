@@ -150,11 +150,11 @@ const above = (text, words) => {
 };
 
 test('#9169: a stored row with an unreadable time never reaches the view, and the rows around it keep their days', async () => {
-  const { p } = datedRoom('Day Lines Bad Time');
+  const { p, ids } = datedRoom('Day Lines Bad Time');
   const { text } = await roomText(p.id);
   // The room's reader leaves it out before the text is built, so roomDay's null (unit test above) is the only guard there.
   assert.doesNotMatch(text, /unreadable time/, text);
-  assert.equal(above(text, 'wednesday ask'), '09:00  [' + 'm' + (seq - 2) + '] askerseat -> readerseat: wednesday one', text);
+  assert.equal(above(text, 'wednesday ask'), '09:00  [' + ids.wed1 + '] askerseat -> readerseat: wednesday one', text);
   assert.deepEqual(dayLines(text), ['-- Tue 25 Nov 2025 --', '-- Wed 26 Nov 2025 --'], text);
 });
 
