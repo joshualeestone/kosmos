@@ -1105,8 +1105,8 @@ t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannslow QUEUED_HEAVY_AN
 rm -f $S/kosmos-slow
 ok "#9217: the call is detached: a board that takes 30 s does not hold the run (it took $((t1-t0)) s)" '[[ "$o" == *"END rc=0"* ]] && [ $((t1-t0)) -lt 20 ] && [ -s $S/kosmos-calls ]'
 rm -f $S/kosmos-calls
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannpath QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "cut 0.9 tools/release.sh" true 2>&1); calls
-ok "#9217: no word of the label can read as a script path in argv (#5467): / and .sh are broken up" 'grep -qxE "heavy start cut 0.9 tools release sh --pid [0-9]+" $S/kosmos-calls'
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannpath QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "cut 0.9 tools/release.sh after run-tests" true 2>&1); calls
+ok "#9217: no word of the label can read as a script in argv (#5467): /, .sh and run-tests are broken up" 'grep -qxE "heavy start cut 0.9 tools release sh after run tests --pid [0-9]+" $S/kosmos-calls'
 rm -f $S/kosmos-calls; mkdir -p $S/home
 o=$(cd /tmp && unset KOSMOS_RUN_MARKER_DIR QUEUED_HEAVY_ANNOUNCE; HOME=$S/home TMUX_PANE=%42 /bin/bash $QH "real markers" true 2>&1); calls
 ok "#9217: with the real markers (unset) and nothing else said, a run announces: the fleet's default" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board"* ]] && grep -qE "^heavy start real markers --pid [0-9]+$" $S/kosmos-calls'
