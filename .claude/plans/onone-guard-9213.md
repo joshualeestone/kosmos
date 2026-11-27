@@ -17,7 +17,7 @@ After #9214 merged, a content check on main found ios/LogicTests/run-updates.sh 
 - run-updates.sh passes at -Onone (121/121).
 - The continuation-line arm separates old from new: the previous line-at-a-time check passed a file with `-O` alone on a continuation line (rc 0); this one fails it (rc 1).
 - So does the backslash-comment arm: the previous version passed an -O compile hidden behind a comment ending in a backslash (rc 0); this one fails it (rc 1).
-- And the trailing-comment-with-backslash arm: the previous version passed an -O compile after a " # note \\" line (rc 0); this one fails it (rc 1). awk failing is exit 2.
+- And the trailing-comment-with-backslash arm: the previous version passed an -O compile after a " # note \" line (rc 0); this one fails it (rc 1). awk failing is exit 2.
 
 ## Weakest premise
 It reads the scripts as text. swiftc reached through a function or another script, a flag in a variable placed beside a literal -Onone, or anything after a " #" inside a quoted string (taken for a comment), is not seen; no script does either today, each spells xcrun swiftc on the line. The step runs last in the build job, so it reports only after the build and not at all when an earlier step is already red: chosen so a stray flag never hides the suites themselves.
