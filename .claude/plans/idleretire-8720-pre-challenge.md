@@ -2,23 +2,25 @@
 pre_challenge: true
 method: challenge-loop
 branch: idleretire-8720
-diff_hash: b83e5aa481a50bfa05fd84dde70641d315bc72cae18893872168d8c8bdbd0341
-validation: passed (Mortals, 31759 tests, 0 failed, entry clean b83e5aa481a5)
+diff_hash: ab537e72fc763a098bc04e107777553299cd4e911cdfa87a451f708f90bc253f
+validation: passed (local, after the rebase: 31838 tests, 0 failed, entry clean ab537e72fc76)
 subdir_audit: passed
-timestamp: 2026-11-27T20:16:18Z
-iterations: 8
+timestamp: 2026-11-27T21:07:12Z
+iterations: 9
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
+**Iterations:** 9 (8 before the rebase, 1 after)
 **Converged:** No. Stopped after iteration 8 by Splinter's standing review-usage rule ("A review loop stops at 8 rounds unless a BLOCKER is still open", 2026-10-22, restated in Fleet Builders m510 on 2026-10-26). No BLOCKER was open. Round 8 found 1 WARNING and 1 CONVENTION, both fixed in 8e869fc26a after the last round. Those two edits were not reviewed by a further round. The residuals are on kosmos#9228.
-**Total findings:** 46 (1 BLOCKER, 27 WARNINGs, 5 CONVENTIONs, 13 NITs)
-**Fixed:** 39 | **Deferred:** 6 | **Asked (awaiting user):** 0
+**Total findings:** 49 (1 BLOCKER, 28 WARNINGs, 5 CONVENTIONs, 15 NITs)
+**Fixed:** 42 | **Deferred:** 6 | **Asked (awaiting user):** 0
 (One further NIT, the Recommender-like save-epoch pattern, was folded into round 7's in-flight save fix.)
 
 After the loop, the full Mortals run at 8e869fc26a was red on 5 source-scanning guards: fixture-discipline, sweeproster-7693, windows-tests-1777, browser-checks-indexed, tools.browser-checks-wired. There were 0 product failures. The guards were fixed in 9c6989203a, and the full rerun passed.
+
+**Rebase (2026-11-27 14:2x):** PR #9234 conflicted with main, which was 30 commits ahead. The only conflict was server.js's `module.exports` line, where both sides had added an export at the start; both were kept. That invalidated the Mortals pass, so iteration 9 was a whole-branch blind review against the new main. A full local validation at 08c7404054 then passed (31,838 tests, 0 failed).
 
 ### Per-Iteration Breakdown
 
@@ -99,6 +101,14 @@ After the loop, the full Mortals run at 8e869fc26a was red on 5 source-scanning 
 - [WARNING] isNamedOurs undefined was retirable --> FIXED (8e869fc26a), fail closed
 - [CONVENTION] an unused timer env seam --> FIXED (8e869fc26a), removed; untested wiring --> #9228
 - [NIT] header and copy notes --> DEFERRED (accurate as written)
+
+#### Iteration 9 (after the rebase, whole-branch against the new main, nothing settled)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 1 of the above (the unreadable-log path, from iteration 5)
+- [WARNING] engine/idleretire.js + web/index.html: an unreadable record stopped the sweep silently, while Settings still said "retired soon" (MEASURED) --> FIXED (08c7404054)
+- [NIT] "each tick records a running day" should say each allowed tick --> FIXED; the browser check's header named the case it covers too broadly --> FIXED
+- Checked against main's 30 new commits: the conflict resolution kept both exports; no callee changed; no new pin breaks (MEASURED)
 
 ### Final Ledger
 
