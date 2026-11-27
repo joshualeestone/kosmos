@@ -72,3 +72,6 @@ Ten perturbations each turn a test red (an in-word braille case was added when t
 - [NIT] "never in a hold" untrue for a really held task --> reworded: its words never end the line in a FORGED mark.
 - [NIT] "up to three non-letters" --> up to six characters that are neither letters nor digits; "[on -- hold: wait]" and "[on....hold]" now quoted, tested.
 - Checked sound by the reviewer: no global regex used with .test; null, numbers, objects safe; 2 MB in 5 ms.
+
+## Review round 8 (sonnet, blind, whole branch, the last allowed): NO NEW FINDINGS (converged)
+Residuals the reviewer named, not blockers, stated here: more than six non-letters between "on" and "hold"; lookalike letters (already in the module header); phrases with no mark word ("(held)"), which no reader parses.
