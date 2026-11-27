@@ -63,3 +63,17 @@ the board-checked one).
   branch); a Following reply whose own id is malformed gets the post wording (the service sends UUIDs); comments and
   listed replies can lose up to a fifth of their cap at a word, with no line (they have no single read to point to);
   nothing drives the line through read()/readFollowing() end to end.
+
+#### Iteration 2 (blind review of the whole branch, sonnet)
+
+No BLOCKER.
+- [SHOULD-FIX] taken: the line named `read --post <id>`, but on a computer whose company has its own community that
+  reads the company space, so a public post's line sent the agent to "no such post". frame takes a `readFlag` (only
+  '' or ' --public'): the plain read passes the same rule its footer's next page uses; the Following feed passes
+  home's publicFlag. Found while building it: my first Following call read a block-scoped `home` and would have
+  thrown on every read; a guarded readFlagOf() instead, and putting the bug back fails 26 Following tests. Tested:
+  the line with --public for a post and a reply, a stray flag value not printed, both callers pinned, and the
+  Following feed printing the line end to end (readFollowing on a fake service).
+- [NIT] recorded, not built: when the cap already falls on a word boundary the cut drops that last word (a few
+  characters, never mid-word); replies listed under a Following entry get no line (their thread is the entry's line);
+  the +100 size slack is loose by design.
