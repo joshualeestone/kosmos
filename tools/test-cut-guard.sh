@@ -1557,7 +1557,7 @@ rm -rf "$MB/own.lock"
 # holder X; X releases and Z takes the lock (no pid yet) just as the breaker reads it empty; Z writes its pid, releases,
 # and Y takes it (no pid yet). Comparing the two EMPTY reads broke Y's live lock: two holders. It must not get the lock.
 rm -rf "$MB/aba.lock"; aba9139="$( (
-  d="$MB/aba.lock"; sleep 300 & X=$!; sleep 300 & Z=$!; mkdir "$d"; echo "$X" > "$d/pid"; nk=0; : > "$MB/aba.nc"
+  d="$MB/aba.lock"; perl -e 'select(undef, undef, undef, 300)' < /dev/null > /dev/null 2>&1 & X=$!; perl -e 'select(undef, undef, undef, 300)' < /dev/null > /dev/null 2>&1 & Z=$!; mkdir "$d"; echo "$X" > "$d/pid"; nk=0; : > "$MB/aba.nc"
   # The lib reads the pid inside $( ), a subshell, so the read count is kept in a file: a variable would stay at 1.
   cat() { echo x >> "$MB/aba.nc"; [ "$(wc -l < "$MB/aba.nc" | tr -d ' ')" = 3 ] && echo "$Z" > "$d/pid"; command cat "$@"; }
   kill() {
@@ -1602,7 +1602,7 @@ rm -rf "$MB/bk.lock" "$MB/bk.lock.break" "$MB/bk.n"
 [ "$bk9139" = survived ] && pass "#9139 a fresh break lock survives a waiter that judged the old one" || fail "#9139 a fresh break lock was removed (got '$bk9139')"
 # Review 8: a non-empty pid that changes between the first read and the second is not broken. The first pid is dead,
 # so the outer check calls the lock stale; under the break lock live A is read; A releases and live C takes the lock.
-rm -rf "$MB/eq.lock"; eq9139="$( ( d="$MB/eq.lock"; sleep 300 & A=$!; sleep 300 & C=$!; mkdir "$d"; echo 99998 > "$d/pid"
+rm -rf "$MB/eq.lock"; eq9139="$( ( d="$MB/eq.lock"; perl -e 'select(undef, undef, undef, 300)' < /dev/null > /dev/null 2>&1 & A=$!; perl -e 'select(undef, undef, undef, 300)' < /dev/null > /dev/null 2>&1 & C=$!; mkdir "$d"; echo 99998 > "$d/pid"
   : > "$MB/eq.nc"; nk=0
   cat() { echo x >> "$MB/eq.nc"; [ "$(wc -l < "$MB/eq.nc" | tr -d ' ')" = 2 ] && echo "$A" > "$d/pid"; command cat "$@"; }
   kill() { if [ "$1" = -0 ]; then nk=$((nk + 1)); [ "$nk" = 2 ] && { rm -f "$d/pid"; rmdir "$d"; command kill "$A"; wait "$A" 2>/dev/null; mkdir "$d"; echo "$C" > "$d/pid"; }; fi; command kill "$@"; }
@@ -1704,7 +1704,7 @@ ns9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; rm -rf "$MB/awkbin"
 # #9139 follow-up: the lock names its holder. A lock whose HOLDER IS ALIVE is never broken, however old (a slowed holder
 # was broken at 10 s, and two holders at once cut the log short); a lock whose holder is gone is broken at once.
 : > "$MB/beside-runs.log"; rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
-mkdir -p "$MB/beside-runs.log.lock"; sleep 300 & LH9139=$!; echo "$LH9139" > "$MB/beside-runs.log.lock/pid"
+mkdir -p "$MB/beside-runs.log.lock"; perl -e 'select(undef, undef, undef, 300)' < /dev/null > /dev/null 2>&1 & LH9139=$!; echo "$LH9139" > "$MB/beside-runs.log.lock/pid"
 TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 120 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 120 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"
 KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=3 kosmos_note_beside_run start live-held "live holder"
 { [ "$(cat "$MB/beside-runs.log.lock/pid" 2>/dev/null)" = "$LH9139" ] && ! grep -q live-held "$MB/beside-runs.log" && [ -n "$(ls "$MB" | grep '^beside-runs\.log\.pending\.')" ]; } \
