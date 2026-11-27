@@ -125,3 +125,8 @@ name (#9201). About 130 adversarial variants caught except imitations no printer
   functions"; no test of the Windows missing-module path, acrossLines, showLines or a closed row.
 Rebased onto main after #9179 (PR #9198, fef6c7cd8c) merged: only this branch's 9 commits replayed (rebase --onto),
 clean; the neighbouring set passes again on the new base (533: 512 pass, 0 fail).
+
+Found after convergence by Ice Cream Kitty (her #9201 review round 2, on her branch stacked on this one): one more
+fixture title used a mark word, server.task-built-3951.test.js "Listed as built" (now quoted, as intended); renamed
+"Listed as finished". My neighbouring set had covered cli.task-* and a few Windows tests only; every test file with
+"task" in its name (179 files, server, engine, web, cli and the Windows CLI's) now passes (1818: 1804 pass, 0 fail).
