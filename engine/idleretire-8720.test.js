@@ -276,14 +276,17 @@ test('a damaged log is set aside, not overwritten, and reads as no running days'
   clean();
   const f = path.join(store.ROOT, 'idleretire-log.json');
   fs.writeFileSync(f, '{damaged');
-  const log = ir.readLog();
+  /* The Settings read moves nothing. */
+  ir.view([], readersOf({}), NOW);
+  assert.equal(fs.readFileSync(f, 'utf8'), '{damaged', 'the Settings read moved the damaged log');
+  const log = ir.readLog({ setAside: true });
   assert.deepEqual(log.up, []);
   const aside = fs.readdirSync(store.ROOT).filter((n) => n.startsWith('idleretire-log.json.damaged-'));
   assert.equal(aside.length, 1, 'the damaged file was not set aside');
   assert.equal(fs.readFileSync(path.join(store.ROOT, aside[0]), 'utf8'), '{damaged');
   assert.equal(fs.existsSync(f), false);
   /* CONTROL: a missing file is not "damaged", so nothing is set aside. */
-  ir.readLog();
+  ir.readLog({ setAside: true });
   assert.equal(fs.readdirSync(store.ROOT).filter((n) => n.startsWith('idleretire-log.json.damaged-')).length, 1);
   for (const n of aside) fs.rmSync(path.join(store.ROOT, n), { force: true });
   clean();

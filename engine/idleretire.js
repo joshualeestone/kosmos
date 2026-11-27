@@ -77,15 +77,17 @@ const EMPTY_LOG = () => ({ up: [], tried: { day: null, names: [] }, retired: [] 
 
 /* { up: [running days, oldest first], tried: { day, names }, retired: [newest first], unreadable }. Missing reads empty.
    A file that cannot be READ (permissions, a lock) reads empty with unreadable: true, and the tick then writes nothing
-   over it. A file that reads but does not parse is renamed aside, never deleted, and reads empty, so the next write
-   starts fresh without losing it. Empty counts no running days, so it can only retire fewer. */
-function readLog() {
+   over it. A file that reads but does not parse reads empty; with { setAside: true } (the tick, never the Settings
+   read) it is first renamed aside, never deleted, so the next write starts fresh without losing it. Empty counts no
+   running days, so it can only retire fewer. */
+function readLog({ setAside = false } = {}) {
   let raw;
   try { raw = fs.readFileSync(logFile(), 'utf8'); } catch (e) {
     return e && e.code === 'ENOENT' ? EMPTY_LOG() : { ...EMPTY_LOG(), unreadable: true };
   }
   let v;
   try { v = JSON.parse(raw); } catch {
+    if (!setAside) return { ...EMPTY_LOG(), unreadable: true };
     try { fs.renameSync(logFile(), logFile() + '.damaged-' + Date.now()); } catch { return { ...EMPTY_LOG(), unreadable: true }; }
     return EMPTY_LOG();
   }
@@ -206,9 +208,9 @@ function makeTick(deps) {
       if (!deps.allowed()) return { act: 'skip', because: 'live execution is off' };
       const t = now();
       const today = dayOf(t);
-      const log = readLog();
+      const log = readLog({ setAside: true });
       if (log.unreadable) return { act: 'skip', because: 'its record could not be read, so it did nothing' };
-      if (!log.up.includes(today)) { log.up.push(today); log.up.sort(); if (!writeLog(log)) return { act: 'skip', because: 'its record could not be written, so it did nothing' }; }
+      if (!log.up.includes(today)) { log.up.push(today); log.up.sort(); if (!writeLog(log)) { if (deps.log) deps.log('idle-retire: its record could not be written, so it did nothing'); return { act: 'skip', because: 'its record could not be written, so it did nothing' }; } }
       const setting = readSetting();
       if (!setting.on) return { act: 'skip', because: 'off' };
       const rows = deps.roster();
