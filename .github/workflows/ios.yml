@@ -132,6 +132,14 @@ jobs:
           xcrun swiftc --version
           xcrun simctl list runtimes
 
+      # kosmos#9213: the logic suites compile with -Onone (the optimizer was most of their time on a slow runner).
+      # A new run*.sh copied from an older one can bring -O back, so this fails on any.
+      - name: Logic tests compile without the optimizer
+        run: |
+          if grep -rnE "swiftc +-O( |\$)" ios/LogicTests ios/tools; then
+            echo "Compile logic tests with -Onone, not -O (kosmos#9213)."; exit 1
+          fi
+
       # The suite prints one VERDICT line last. Assert that line, not only the exit
       # code, so a run cut off before it cannot read as green.
       - name: Push bridge logic tests
