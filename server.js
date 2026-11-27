@@ -7737,6 +7737,30 @@ function heldByCaller(holder, caller) {
     ? sameAgentName(holder, caller.name, true)
     : (sameAgentName(holder, caller.name, false) || (!caller.twins && sameAgentName(holder, caller.key, false)));
 }
+/* The open tasks a caller holds, in list order: GET /api/tasks/mine's rule, also the restart greeting's (kosmos#9239), so
+   the two cannot disagree. Throws when the projects cannot be read (the caller says so). */
+function myOpenTasks(caller, everyProject) {
+  const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
+  return tasks.inListOrder(
+    tasks.allTasks(everyProject).filter((t) =>
+      myIds.has(t.projectId)
+      && t.projectArchived !== true                 // an archived project's tasks are not live work (the Tasks view drops them too)
+      && tasks.listGroup(t, (n) => heldByCaller(n, caller)) === 'open'   // kosmos#9177: built for this caller
+      && Array.isArray(t.whoNames) && t.whoNames.some((n) => heldByCaller(n, caller))),
+    'open', (n) => heldByCaller(n, caller));
+}
+/* The person's direct messages newer than the agent's own last reply: `kosmos inbox --unanswered`'s rule (#7155), also
+   the restart greeting's count (kosmos#9239). messages: the thread's rows with Kosmos's own notices already left out. */
+function unansweredOf(messages, me) {
+  const timeOf = (m) => (typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) ? Date.parse(m.at) : null);
+  let lastYou = null;
+  for (const m of messages) {
+    const t = timeOf(m);
+    if (m.from === me && t !== null && (lastYou === null || t > lastYou)) lastYou = t;
+  }
+  return messages.filter((m) => !(typeof m.from === 'string' && m.from) && !(typeof m.wire === 'string' && m.wire)
+    && (lastYou === null || timeOf(m) === null || timeOf(m) > lastYou));
+}
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
@@ -20225,17 +20249,29 @@ const server = http.createServer(async (req, res) => {
         if (!log || log.ok === false) unread = true;
         digest = away.build({ name, sinceMs: win.sinceMs, untilMs: win.untilMs, rows: log && log.ok !== false ? log.rows : [], direct, namedIn: messages.namedIn });
       }
-      if (as === 'hook') { sendText(res, 200, away.hookJson(digest, wait)); return; }
+      /* kosmos#9239: what is waiting on the agent now (its open tasks, the person's messages it has not answered), at a
+         startup and by hand. Its own token names it if it sent one, else the name the sender resolved to. Best-effort: a
+         read that fails leaves that part out, never the rest of the answer. */
+      const openWork = { open: [], unanswered: 0 };
+      try {
+        const caller = agentTokenCaller(req) || { name, key: store.safeKey(name) };
+        openWork.open = myOpenTasks(caller, projects.readAll()).map((t) => ({ projectId: t.projectId, number: t.number }));
+      } catch { unread = true; }
+      try {
+        const rows = (chat.readThread(chat.DIRECT, name).messages || []).filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
+        openWork.unanswered = unansweredOf(rows, name).length;
+      } catch { unread = true; }
+      if (as === 'hook') { sendText(res, 200, away.hookJson(digest, wait, { openWork })); return; }
       if (as === 'text') {
         const cannot = 'Kosmos could not read every record just now, so this may not be everything; try again in a minute.';
-        const said = away.contextText(digest, wait);
+        const said = away.contextText(digest, wait, { openWork });
         if (unread) { sendText(res, 200, (said ? said + '\n' : '') + cannot + '\n'); return; }
         sendText(res, 200, (said || (win ? 'Nothing arrived for you while you were not running.'
           : hist && hist.truncated ? 'Kosmos cannot tell when you were last running: your report record is longer than it reads back.'
             : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + '\n');
         return;
       }
-      sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped, wait, ...(unread ? { unread: true } : {}) });
+      sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped, wait, openWork, ...(unread ? { unread: true } : {}) });
     } catch { fail(500, 'we could not put together what arrived while you were away just now'); }
     return;
   }
@@ -20302,15 +20338,7 @@ const server = http.createServer(async (req, res) => {
          written in, since this is read to catch up after one. A row with no readable time is kept by both filters. */
       const timeOf = (m) => (typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) ? Date.parse(m.at) : null);
       const me = sender.card.sessionName;
-      if (unanswered) {
-        let lastYou = null;
-        for (const m of all) {
-          const t = timeOf(m);
-          if (m.from === me && t !== null && (lastYou === null || t > lastYou)) lastYou = t;
-        }
-        all = all.filter((m) => !(typeof m.from === 'string' && m.from) && !(typeof m.wire === 'string' && m.wire)
-          && (lastYou === null || timeOf(m) === null || timeOf(m) > lastYou));
-      }
+      if (unanswered) all = unansweredOf(all, me);   // kosmos#9239: one rule, shared with the restart greeting
       if (since !== null) all = all.filter((m) => timeOf(m) === null || timeOf(m) >= since);
       /* With a filter the rows are put in time order (a held DM can be stored after a newer one; a row with no readable
          time goes last) and the OLDEST are kept, so the first message to answer is never the one cut; the rest are named
@@ -24768,14 +24796,7 @@ const server = http.createServer(async (req, res) => {
     try { everyProject = projects.readAll(); }
     catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now'), projectsUnreadable: true }); return; }
 
-    const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
-    const open = tasks.inListOrder(
-      tasks.allTasks(everyProject).filter((t) =>
-        myIds.has(t.projectId)
-        && t.projectArchived !== true                 // an archived project's tasks are not live work (the Tasks view drops them too)
-        && tasks.listGroup(t, (n) => heldByCaller(n, caller)) === 'open'   // kosmos#9177: built for this caller
-        && Array.isArray(t.whoNames) && t.whoNames.some((n) => heldByCaller(n, caller))),
-      'open', (n) => heldByCaller(n, caller));
+    const open = myOpenTasks(caller, everyProject);   // kosmos#9239: one rule, shared with the restart greeting
     sendJson(res, 200, {
       tasks: open.map((t) => ({ project: t.projectName, projectId: t.projectId, number: t.number, title: String(t.sentence == null ? '' : t.sentence) })),
       count: open.length,
