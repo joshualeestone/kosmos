@@ -232,7 +232,7 @@ test('--out over an existing PNG replaces it whole; a failed draw leaves it as i
   assert.match(linked.err[0], /is a link/);
 });
 
-test('a renderer killed for printing too much is a failure, not a timeout', { skip: process.platform === 'win32' && 'uses /bin/sh' }, async () => {
+test('a renderer killed for printing too much is a failure, not a timeout', { skip: !fs.existsSync('/bin/sh') && 'its renderer stand-in is a /bin/sh script' }, async () => {
   const d = fresh();
   const bin = fresh();
   /* A real pdftoppm stand-in that floods stderr past the buffer and exits: runReal itself, not the seam. Review 1 reasoned
