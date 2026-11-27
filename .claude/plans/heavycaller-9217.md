@@ -15,7 +15,7 @@ Slice 1 (#9225, merged) added `kosmos heavy start "<label>" [--pid N]`. Splinter
 - `tools/run-tests.sh` exports `QUEUED_HEAVY_ANNOUNCE=0`, so a queued-heavy a test starts never writes to a real board
   (tools/test-queued-heavy-4977.sh runs the whole script, and its stand-in jobs would otherwise show on the person's
   board). The outer queued-heavy that runs a validation is above run-tests.sh, so it still announces. The 4977 test sets
-  it too, and its seven new arms use a stand-in `kosmos` that records its arguments.
+  it too, and its nine new arms use a stand-in `kosmos` that records its arguments.
 
 ## Weakest premise
 That the run's environment can name the agent (an agent token, or a tmux pane) and has `kosmos` on its PATH. A job
@@ -26,7 +26,7 @@ refused call is discarded, so the log says only that the board was asked. Best-e
 The installed copy (~/.cache/claude-handoffs/queued-heavy.sh) is updated separately, by mv, after this merges.
 
 ## Known, not handled
-- The detached `kosmos heavy start` carries the run's name in its argv for up to about 17 s. A scanner that matches argv
-  text (heavy-gate.sh, ci-runner-setup.sh's pgrep) could read a run whose own NAME contains `run-tests.sh` or
-  `release.sh` as a live run. The usual names do not.
+- (Handled, after review round 3.) The detached `kosmos heavy start` carries the label in its argv for up to about 17 s,
+  where #5467 took the run's name out of argv. So the label has / and .sh broken up ("cut tools/release.sh" becomes
+  "cut tools release sh"): no word of it can read as a script path to heavy-gate.sh or a cut wrapper's pgrep.
 - A name starting with `-` is skipped, with a line saying so (the board refuses such a label).

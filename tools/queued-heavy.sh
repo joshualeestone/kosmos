@@ -1033,15 +1033,22 @@ fi
 # and never waits on the board (a busy one is given 2 s, KOSMOS_BUSY_WAIT); the call's own output and exit status are
 # discarded, and a call that lands after this script exited is refused by the board (no such process), which is right.
 # One line says whether the board was asked, so a run whose PATH has no kosmos (a tmux run-shell or launchd job) shows
-# it. QUEUED_HEAVY_ANNOUNCE=0 asks nothing and says nothing (tools/run-tests.sh sets it, so a test's queued-heavy never
+# it; it cannot tell a refusal from success (nor a kosmos too old to have the verb), since nothing waits to hear.
+# The line clears itself when this script's process is gone: a zombie wrapper counts as alive until reaped, and a call
+# that lands after the script exited is refused unless the number was already reused (then the 12 h ceiling bounds it). QUEUED_HEAVY_ANNOUNCE=0 asks nothing and says nothing (tools/run-tests.sh sets it, so a test's queued-heavy never
 # writes to a real board). The label is the run's own name, cut to 80 characters (bash's count: a name with non-ASCII
-# letters, under a C locale, can be cut mid-letter or refused; the run is unaffected).
+# letters can be cut mid-letter under a C locale, or refused when it holds an emoji; the run is unaffected).
 if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$QH_RUNS_BC" = 1 ]; } \
   && [ "${QUEUED_HEAVY_ANNOUNCE:-1}" != 0 ]; then
-  if [ "${WHAT#-}" != "$WHAT" ]; then
+  # The label goes into the argv of the detached call (and its node child), where #5467 took the run's name OUT of argv:
+  # a check that matches a script path in argv (heavy-gate.sh's script_of, a cut wrapper's pgrep) must never read a
+  # name like "cut tools/release.sh" as a live run. So no word of it can be a script path: / and .sh are broken up.
+  qh_label="${WHAT//\// }"; qh_label="${qh_label//.sh/ sh}"; qh_label="${qh_label:0:80}"
+  qh_lead="${qh_label#"${qh_label%%[![:space:]]*}"}"
+  if [ "${qh_lead#-}" != "$qh_lead" ]; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: a name starting with - cannot be a label"
   elif command -v kosmos >/dev/null 2>&1; then
-    ( KOSMOS_BUSY_WAIT=2 kosmos heavy start "${WHAT:0:80}" --pid "$$" </dev/null >/dev/null 2>&1 & )
+    ( KOSMOS_BUSY_WAIT=2 kosmos heavy start "$qh_label" --pid "$$" </dev/null >/dev/null 2>&1 & )
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') asked the board to show this run as a heavy job (kosmos heavy start, kosmos#9217; best-effort: it can still refuse, and nothing here waits to hear)"
   else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: no kosmos command on this PATH"

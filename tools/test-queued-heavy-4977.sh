@@ -93,7 +93,7 @@ export PATH="$S/bin:$PATH"
 # kosmos#9217: no case here may announce to a real board; the arms that test the announcement turn it on, with a
 # stand-in `kosmos` in $S/bin that records its arguments (and, when $S/kosmos-noisy exists, prints and fails).
 export QUEUED_HEAVY_ANNOUNCE=0
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/kosmos-calls"\n[ -e "%s/kosmos-noisy" ] && { echo KOSMOS-STUB-OUT; echo KOSMOS-STUB-ERR >&2; exit 1; }\n[ -e "%s/kosmos-slow" ] && sleep 6\nexit 0\n' "$S" "$S" "$S" > $S/bin/kosmos; chmod +x $S/bin/kosmos
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/kosmos-calls"\n[ -e "%s/kosmos-noisy" ] && { echo KOSMOS-STUB-OUT; echo KOSMOS-STUB-ERR >&2; exit 1; }\n[ -e "%s/kosmos-slow" ] && exec perl -e "select(undef,undef,undef,30)"\nexit 0\n' "$S" "$S" "$S" > $S/bin/kosmos; chmod +x $S/bin/kosmos
 # The cases also spell real scripts by relative path (`bash tools/test-install.sh`): run from an empty dir, where no such
 # path exists, so a refusal that ever lapsed could not start the real install harness.
 mkdir -p $S/cwd && cd $S/cwd || { echo "FAIL  tools/test-queued-heavy-4977.sh: cannot enter $S/cwd"; exit 1; }
@@ -1079,9 +1079,10 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $
 hp=$(printf '%s\n' "$o" | sed -n 's/^HOLDER \([0-9]*\)$/\1/p')
 ok "#9217: a main turn asks the board, with the wrapper's own pid, says so, and the run still goes" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board to show this run"* ]] && [ -n "$hp" ] && grep -qxF "heavy start ann job --pid $hp" $S/kosmos-calls'
 rm -f $S/kosmos-calls
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann0 /bin/bash $QH "quiet job" true 2>&1); sleep 1
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann0 /bin/bash $QH "quiet job" true 2>&1); sleep 3
 ok "#9217: with QUEUED_HEAVY_ANNOUNCE=0 nothing is asked and nothing is said" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannside QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light job" true 2>&1); sleep 1
+rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannside QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light job" true 2>&1); sleep 3
 ok "#9217: a --light run, given an ordinary turn on a free machine, announces nothing" '[[ "$o" == *"TURN: running light job"* && "$o" == *"END rc=0"* ]] && [ ! -e $S/kosmos-calls ]'
 o=$(cd $S/cwd && KOSMOS_RUN_MARKER_DIR=$S/mannbc QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "light suite" bash tools/run-tests.sh 2>&1); calls
 ok "#9217: a --light run that runs a suite takes an ordinary turn, and announces" 'grep -qE "^heavy start light suite --pid [0-9]+$" $S/kosmos-calls'
@@ -1096,14 +1097,17 @@ ok "#9217: a kosmos that fails and prints changes nothing: the run keeps its own
 rm -f $S/kosmos-calls; : > $S/kosmos-slow
 t0=$(date +%s); o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannslow QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "slow board" true 2>&1); t1=$(date +%s); calls
 rm -f $S/kosmos-slow
-ok "#9217: the call is detached: a board that takes 6 s does not hold the run (it took $((t1-t0)) s)" '[[ "$o" == *"END rc=0"* ]] && [ $((t1-t0)) -lt 5 ] && [ -s $S/kosmos-calls ]'
+ok "#9217: the call is detached: a board that takes 30 s does not hold the run (it took $((t1-t0)) s)" '[[ "$o" == *"END rc=0"* ]] && [ $((t1-t0)) -lt 20 ] && [ -s $S/kosmos-calls ]'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannpath QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "cut 0.9 tools/release.sh" true 2>&1); calls
+ok "#9217: no word of the label can read as a script path in argv (#5467): / and .sh are broken up" 'grep -qxE "heavy start cut 0.9 tools release sh --pid [0-9]+" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 cap_hold $S/mannbeside "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_HEAVY_ANNOUNCE=1 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "beside job" true 2>&1); calls
 ok "#9217: a beside run (past the cap) announces too" '[[ "$o" == *"RUNNING BESIDE"* ]] && grep -qE "^heavy start beside job --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 
-EXPECTED=210   # eight #9217 announce arms (a main turn and its pid, off, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=211   # nine #9217 announce arms (a main turn and its pid, off, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
