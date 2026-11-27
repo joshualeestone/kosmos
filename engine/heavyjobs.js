@@ -27,7 +27,7 @@ const path = require('path');
 const FILE = 'heavy-jobs.json';
 const MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const MAX_LABEL = 80;
-const MAX_JOBS = 50;   // a bound on the file, not a policy: no computer runs fifty heavy jobs at once
+const MAX_JOBS = 50;   // a bound on the file (the oldest go past it), not a policy: no computer runs fifty heavy jobs
 const MAX_PER_AGENT = 4;   // and on what one agent's records can cost every status poll (one start-time read each)
 const START_CACHE_MS = 10 * 1000;
 
@@ -107,7 +107,8 @@ function isLive(j, { now, startOf, agentAlive }) {
 }
 
 /* Signal 0 first: a gone process costs nothing to recognise. A live one's start time is read with ps, and kept for
-   START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll. */
+   START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll; a number reused
+   inside that window is judged by the old start until it runs out. */
 const startCache = new Map();
 function defaultStartOf(pid, now = Date.now()) {
   const rs = require('./restoresink');
@@ -138,12 +139,12 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
   let out = { ok: true, job };
   const r = locked(root, () => {
     const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
-    if (list.filter((j) => j.agent === agent).length >= MAX_PER_AGENT) {
+    if (list.filter((j) => j.agent === agent && isLive(j, { now, startOf, agentAlive: null })).length >= MAX_PER_AGENT) {
       out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
       return;
     }
     list.push(job);
-    if (!writeAll(root, list)) out = { ok: false, because: NOT_SAVED };
+    if (!writeAll(root, list.filter((j) => j.agent !== agent || isLive(j, { now, startOf, agentAlive: null })))) out = { ok: false, because: NOT_SAVED };
   });
   return r.ok ? out : { ok: false, because: r.because };
 }

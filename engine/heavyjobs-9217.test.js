@@ -94,7 +94,7 @@ test('a repeated start for the same agent and process updates the job instead of
   const r = root();
   hj.start({ root: r, agent: 'renet', label: 'first', now: T0 });
   hj.start({ root: r, agent: 'renet', label: 'tied', pid: 4242, now: T0, startOf: alwaysStart('s') });
-  hj.start({ root: r, agent: 'renet', label: 'second', now: T0 + 5 });
+  hj.start({ root: r, agent: 'renet', label: 'second', now: T0 + 5, startOf: alwaysStart('s') });   // 4242 is a stand-in: a real read would find it gone
   const jobs = hj.live({ root: r, now: T0 + 10, startOf: alwaysStart('s') });
   assert.deepEqual(jobs.map((j) => [j.label, j.pid]).sort(), [['second', null], ['tied', 4242]]);
   assert.deepEqual(hj.end({ root: r, agent: 'renet', pid: 4242 }), { ok: true, ended: 1, others: 1 }, 'end names one job by its process; the other stays');
@@ -158,4 +158,15 @@ test('defaultStartOf: a gone process reads as none with no ps; a live one reads 
   if (process.platform === 'win32') { assert.equal(a, undefined); return; }
   assert.equal(typeof a, 'string');
   assert.equal(b, a, 'a second read inside the cache window gives the same start');
+});
+
+test('the per-agent cap counts only live records, and a start drops the agent\'s dead ones', () => {
+  const r = root();
+  const dead = (pid) => (pid >= 3000 ? null : 's');
+  for (let i = 0; i < hj.MAX_PER_AGENT; i++) {
+    assert.equal(hj.start({ root: r, agent: 'renet', label: 'old ' + i, pid: 3000 + i, now: T0, startOf: () => 's' }).ok, true);
+  }
+  const s = hj.start({ root: r, agent: 'renet', label: 'new', pid: 2000, now: T0 + 1, startOf: dead });
+  assert.equal(s.ok, true, 'refused although every recorded process is gone: ' + s.because);
+  assert.deepEqual(hj.readAll(r).map((j) => j.label), ['new'], 'the dead records stayed in the file');
 });

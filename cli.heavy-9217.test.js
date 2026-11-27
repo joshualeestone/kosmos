@@ -124,3 +124,10 @@ test('a bare end with only process-tied jobs left says how to end them; the list
     const l = await runCli(['heavy'], envFor(port));
     assert.match(l.out, /^suite \(Ada, since \d\d:\d\d\)$/m);
   }));
+
+test('a refused list says what the board refused', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => ({ error: 'only an agent or the person on this computer can list its heavy jobs' }), async (port) => {
+    const r = await runCli(['heavy'], envFor(port));
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not list heavy jobs: only an agent or the person on this computer can list its heavy jobs\./);
+  }));

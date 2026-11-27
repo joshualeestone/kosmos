@@ -3959,13 +3959,14 @@ cmd_heavy() {
     printf '%s' "$ans" | "$_n" -e '
       let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
         let j; try { j = JSON.parse(s); } catch { j = null; }
+        if (j && typeof j.error === "string") { console.log("Kosmos could not list heavy jobs: " + j.error + "."); process.exit(1); }
         if (!j || !Array.isArray(j.jobs)) { console.log("Kosmos gave an answer we could not read."); process.exit(1); }
         if (!j.jobs.length) { console.log("No heavy job is running on this computer."); return; }
         for (const x of j.jobs) {
           const t = new Date(x.since); const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0");
           console.log(x.label + " (" + (x.name || x.agent) + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")");
         }
-      });' 2>/dev/null || exit 1
+      });' 2>/dev/null || { token_refused_hint "$_tok" "$ans"; exit 1; }
     exit 0
   fi
   case "$sub" in
