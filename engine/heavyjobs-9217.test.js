@@ -324,7 +324,7 @@ test('kosmos#9222: a job whose process is confirmed by its start time outlives t
   assert.deepEqual(hj.live({ root: n, now: T0 + 13 * H }), [], 'control: a job with no process still meets the ceiling');
 });
 
-test('kosmos#9222: with the real reader, a later start by the same agent and an over-budget read keep the overnight job', () => withProcesses((seen) => {
+test('kosmos#9222: with the real reader, a later start by the same agent keeps the overnight job', () => withProcesses((seen) => {
   const H = 60 * 60 * 1000;
   const base = Date.now() + 10 * H;   // past every cache entry an earlier test made
   const r = root();
@@ -332,9 +332,18 @@ test('kosmos#9222: with the real reader, a later start by the same agent and an 
   assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 96001, now: base }).ok, true);
   assert.equal(hj.start({ root: r, agent: 'renet', label: 'later', pid: 96002, now: base + 13 * H }).ok, true);
   assert.deepEqual(hj.readAll(r).map((j) => j.label).sort(), ['later', 'overnight'], 'a second start dropped the overnight job');
-  // Nine other records, so one read spends its ps budget before reaching some of them.
-  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'a' + i, label: 'x' + i, pid: 96100 + i, now: base + 13 * H, startOf: () => 'A' });
+}));
+
+test('kosmos#9222: a read whose ps budget is spent before it reaches the overnight job keeps it', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 30 * H;   // past every cache entry an earlier test made
+  const r = root();
+  // Nine records first, so they are read first (oldest first) and spend the read's eight ps reads.
+  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'a' + i, label: 'x' + i, pid: 97100 + i, now: base, startOf: () => 'A' });
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 97001, now: base }).ok, true);   // its start cached at base
+  seen.ps = 0;
   const shown = hj.live({ root: r, now: base + 14 * H }).map((j) => j.label);
+  assert.equal(seen.ps, 8, 'control: the read spent its whole ps budget on the records before the overnight one');
   assert.ok(shown.includes('overnight'), 'a read whose ps budget ran out deleted the overnight job: ' + shown.join(','));
-  assert.deepEqual(hj.readAll(r).filter((j) => j.label === 'overnight').length, 1, 'and it is still in the file');
+  assert.equal(hj.readAll(r).filter((j) => j.label === 'overnight').length, 1, 'and it is still in the file');
 }));

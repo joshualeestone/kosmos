@@ -14,7 +14,8 @@
  *   - it names no process and its agent is gone (judged by the caller: server.js heavyJobsNow); a job tied to a
  *     process lives as long as that process, whatever the roster says;
  *   - it was last announced more than MAX_AGE_MS ago and nothing can judge it (a ceiling, so it cannot stay for ever;
- *     a process confirmed by its start time is judged, and stays while it runs, kosmos#9222).
+ *     a process confirmed by its start time is judged, and stays while it runs, kosmos#9222; a hung one is ended
+ *     with `kosmos heavy end --pid N`).
  * Without --pid a record is tied to its agent only: it ends with `kosmos heavy end`, with the agent, or at the ceiling.
  * Where a start time cannot be read (Windows has no ps), a --pid record still clears when its process is gone (signal 0),
  * but a reused number is not told apart from the job.
@@ -118,9 +119,9 @@ function isLive(j, { now, startOf, agentAlive }) {
 }
 
 /* Signal 0 first: a gone process costs nothing to recognise (another user's process answers EPERM, and is kept as
-   alive). A live one's start time is read with ps, and kept for
-   START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll; a number reused
-   inside that window is judged by the old start until it runs out. */
+   alive). A live one's start time is read with ps and kept for START_CACHE_MS, so a board polled by several pages does
+   not run ps for every record on every poll; a number reused inside that window is judged by the old start until it
+   runs out. */
 const startCache = new Map();
 /* how: 'cached' (a read, from the cache when it is fresh), 'fresh' (always ps: what a new record stores, so a number
    cached for an earlier process is never stored as this one's start), or 'alive' (signal 0 and the cache only: no ps;
