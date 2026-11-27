@@ -78,7 +78,6 @@ final class ChatTallOpenUITests: XCTestCase {
             back.tap()
             XCTAssertTrue(dana.waitForExistence(timeout: 10), "re-open \(i): Dana's row is not showing")
             dana.tap()
-            // A frozen app never draws the chat: its composer never shows.
             XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "re-open \(i) of \(Self.REOPENS): the chat did not open (the app froze)")
             XCTAssertTrue(newest(app).waitForExistence(timeout: 5), "re-open \(i): the newest message was not drawn")
         }
