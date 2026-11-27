@@ -28441,8 +28441,14 @@ const server = http.createServer(async (req, res) => {
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     // The roster only names the agents here (complete: false judges nobody missing; a status read does that).
     const roster = safeRoster();
-    // kosmos#9222: with the jobs no read could check, marked unchecked, so an agent can see (and end) what it holds.
-    sendJson(res, 200, { ok: true, jobs: heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null, Date.now(), { hidden: true }) });
+    // kosmos#9222: with the caller's own jobs no read could check, marked unchecked, so an agent can see (and end, which
+    // only its own may) what holds its places. Another agent's, and anything for a caller it cannot name (the person,
+    // a page), stay off the list, as off the board. The caller is named as POST names it, from its token or pane.
+    const caller = isViaScreen(req, {}) ? { card: null } : processCaller(req, {}, roster, false, 'nothing was listed');
+    const me = (caller && caller.card && caller.card.sessionName) || null;
+    const jobs = heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null, Date.now(), { hidden: Boolean(me) })
+      .filter((j) => !j.unchecked || j.agent === me);
+    sendJson(res, 200, { ok: true, jobs });
     return;
   }
   if (pathname === '/api/heavy' && req.method === 'POST') {
