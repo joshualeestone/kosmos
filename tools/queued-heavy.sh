@@ -1038,9 +1038,11 @@ fi
 # letters, under a C locale, can be cut mid-letter or refused; the run is unaffected).
 if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$QH_RUNS_BC" = 1 ]; } \
   && [ "${QUEUED_HEAVY_ANNOUNCE:-1}" != 0 ]; then
-  if command -v kosmos >/dev/null 2>&1; then
+  if [ "${WHAT#-}" != "$WHAT" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: a name starting with - cannot be a label"
+  elif command -v kosmos >/dev/null 2>&1; then
     ( KOSMOS_BUSY_WAIT=2 kosmos heavy start "${WHAT:0:80}" --pid "$$" </dev/null >/dev/null 2>&1 & )
-    echo "QUEUED-HEAVY $(date '+%H:%M:%S') asked the board to show this run as a heavy job (kosmos heavy start, kosmos#9217)"
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') asked the board to show this run as a heavy job (kosmos heavy start, kosmos#9217; best-effort: it can still refuse, and nothing here waits to hear)"
   else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: no kosmos command on this PATH"
   fi

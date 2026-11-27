@@ -24,3 +24,9 @@ refused call is discarded, so the log says only that the board was asked. Best-e
 
 ## Not here
 The installed copy (~/.cache/claude-handoffs/queued-heavy.sh) is updated separately, by mv, after this merges.
+
+## Known, not handled
+- The detached `kosmos heavy start` carries the run's name in its argv for up to about 17 s. A scanner that matches argv
+  text (heavy-gate.sh, ci-runner-setup.sh's pgrep) could read a run whose own NAME contains `run-tests.sh` or
+  `release.sh` as a live run. The usual names do not.
+- A name starting with `-` is skipped, with a line saying so (the board refuses such a label).
