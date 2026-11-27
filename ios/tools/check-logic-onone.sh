@@ -2,9 +2,9 @@
 # kosmos#9213: fails when an iOS logic-test compile is not plainly -Onone. The suites compile with -Onone; a branch
 # that started before that change can land a run*.sh with -O after it (run-updates.sh did). Usage, from the repo
 # root or with the root as $1: ios/tools/check-logic-onone.sh [root]
-# It reads every *.sh under ios/LogicTests and ios/tools (this file aside), drops comment lines (a comment never
-# continues onto the next line, as in bash), joins lines continued with a trailing backslash, drops trailing " # ..."
-# comments, and for each command that names swiftc (by name or by path; a bare mention such as `command -v swiftc`
+# It reads every *.sh under ios/LogicTests and ios/tools (this file aside), drops comment lines and trailing " # ..."
+# comments first (a comment never continues onto the next line, as in bash), then joins lines continued with a
+# trailing backslash, and for each command that names swiftc (by name or by path; a bare mention such as `command -v swiftc`
 # counts too, and fails here, which errs toward red) requires a literal -Onone and no other -O
 # flag (-O, -Osize, -Ounchecked, ..., bare, quoted, or after = or a comma). It reads text: a flag passed in a variable
 # is caught only when it stands in for -Onone, swiftc reached through a function or another script is not seen at
