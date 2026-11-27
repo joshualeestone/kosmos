@@ -4067,7 +4067,12 @@ function blockBody(projects, sessionName) {
       if (T.isOnHold(t) && t.onHoldForPerson === true) return ' [on hold' + waits + ', waiting on your person: do not start it until they answer and it is taken off hold. When you ask them, name task ' + Number(t.number) + ', so Kosmos shows them you asked]';
       return ' [on hold' + waits + ': do not start it until it is taken off hold]';
     };
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
+    /* kosmos#9176: a task marked built by the person (builtFreesAll) or by this agent (builtWho) is listed with a mark.
+       Another holder's mark alone leaves it unmarked. A hold or a paused project is named first (held, as #5864). */
+    const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
+      && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
+      ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t) || built(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [

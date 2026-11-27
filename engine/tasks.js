@@ -2183,6 +2183,8 @@ function setRepeat(projectId, n, rule, opts = {}) {
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats', ...(person ? { person: true } : {}) });
+  // kosmos#9176 review 6: `opts.out`, when given, learns whether this write dropped a built mark (setOnHold's `out` pattern).
+  if (opts.out && typeof opts.out === 'object') opts.out.droppedBuilt = droppedBuilt;
   if (didChange) {
     // Flat fields (review 1: taskchat keeps strings and numbers; an object was stored as "[object Object]").
     taskchat.record(projectId, changed.number, next
