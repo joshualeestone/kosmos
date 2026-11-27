@@ -92,6 +92,9 @@ test('kosmos#9217: a process that does not exist is refused at start', async () 
   assert.equal((await jobsInStatus()).length, 1, 'control: this live process keeps it');
   const child = require('node:child_process').spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
   const dead = Number(child.stdout);
+  let reused = false;
+  try { process.kill(dead, 0); reused = true; } catch { /* gone, as expected */ }
+  if (reused) { await asAgent(tok, { action: 'end', pid: process.pid }); return; }   // its number already went to another process
   const refused = await asAgent(tok, { action: 'start', label: 'gone', pid: dead });
   assert.equal(refused.status, 400, 'a process that does not exist is refused at start');
   assert.match((await refused.json()).error, /there is no process/);
@@ -216,6 +219,6 @@ test('kosmos#9217: a missing mark does not outlive the job it was about', async 
   assert.deepEqual(heavyJobsNow(others, t4 + 1000), [], 'no job: its mark goes with it');
   // A record made without the route (so nothing clears the mark there): a fresh grace, not the old one.
   assert.equal(hj.start({ root: store.ROOT, agent: ada, label: 'second', now: t4 + 5 * 60 * 1000 }).ok, true);
-  assert.deepEqual(heavyJobsNow(others, t4 + 5 * 60 * 1000).map((j) => j.label), ['second'], 'judged by the old mark');
+  assert.deepEqual(heavyJobsNow(others, t4 + 5 * 60 * 1000).map((j) => j.label), ['second'], 'a fresh grace: the old mark would have cleared it at once');
   assert.equal(hj.end({ root: store.ROOT, agent: ada }).ended, 1);
 });

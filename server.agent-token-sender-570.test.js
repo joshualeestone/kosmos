@@ -208,7 +208,8 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      returns times and ids, never the message text; measured in server.msg-status-8961.test.js. */
   /* kosmos#9217 added GET /api/heavy, a READ of the heavy jobs agents said are running (agent, label, pid, since), and
      POST /api/heavy, a WRITE whose handler names the caller with processCaller, as POST /api/agent/reply-channel does:
-     a token exactly, else the pane the body gives (as given). server.heavy-9217.test.js has the arms. */
+     a token exactly, else the pane the body gives (as given), so a local caller that can name an agent's pane can
+     record or end a job as that agent, as it can set that agent's reply channel. server.heavy-9217.test.js has the arms. */
   assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/connections/found', 'GET /api/heavy', 'GET /api/project-file/who', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/connections/found', 'POST /api/heavy', 'POST /api/msg', 'POST /api/msg/status', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */

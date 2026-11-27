@@ -30,14 +30,18 @@ const MAX_LABEL = 80;
 const MAX_JOBS = 50;   // a bound on the file (the oldest go past it), not a policy: no computer runs fifty heavy jobs
 const MAX_PER_AGENT = 4;   // and on what one agent's records can cost every status poll (one start-time read each)
 const START_CACHE_MS = 10 * 1000;
+const PS_PER_READ = 8;   // at most this many ps runs in one live(); the rest are judged by signal 0 and the cache
 
 function fileOf(root) { return path.join(root, FILE); }
 
-/* The label to store, or throws an Error with a sentence for the agent. */
+/* The label to store, or throws an Error with a sentence for the agent. Another agent reads it in `kosmos heavy`, so it
+   is stored as server.js othersWordsOneLine shapes someone else's words (#3311): no bracket to spell a marker with
+   (every marker starts with `[`), and no character that reorders the text around it. */
 function normalizeLabel(value) {
   if (typeof value !== 'string') throw new Error('say what the job is, in words');
-  if (/[\u0000-\u001f\u007f\u2028\u2029]/.test(value)) throw new Error('say what the job is on one line');
-  const v = value.replace(/\s+/g, ' ').trim();
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value)) throw new Error('say what the job is on one line');
+  if (/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(value)) throw new Error('say what the job is in plain text, without direction marks');
+  const v = value.replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ').trim();
   if (!v) throw new Error('say what the job is, in words');
   if (v.length > MAX_LABEL) throw new Error('keep the job to ' + MAX_LABEL + ' characters');
   if (v.startsWith('-')) throw new Error('a job cannot start with -');
@@ -110,11 +114,15 @@ function isLive(j, { now, startOf, agentAlive }) {
    START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll; a number reused
    inside that window is judged by the old start until it runs out. */
 const startCache = new Map();
-function defaultStartOf(pid, now = Date.now()) {
+/* how: 'cached' (a read, from the cache when it is fresh), 'fresh' (always ps: what a new record stores, so a number
+   cached for an earlier process is never stored as this one's start), or 'alive' (signal 0 and the cache only: no ps;
+   a live process with no fresh cached start is undefined, kept). */
+function defaultStartOf(pid, now = Date.now(), how = 'cached') {
   const rs = require('./restoresink');
   if (!rs.pidAlive(pid)) { startCache.delete(pid); return null; }
   const hit = startCache.get(pid);
-  if (hit && now - hit.at < START_CACHE_MS) return hit.v;
+  if (how !== 'fresh' && hit && now - hit.at < START_CACHE_MS) return hit.v;
+  if (how === 'alive') return undefined;
   const v = rs.processStart(pid);
   if (v === null) { startCache.delete(pid); return null; }
   if (startCache.size > MAX_JOBS * 2) startCache.clear();
@@ -131,7 +139,7 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
   catch (err) { return { ok: false, because: err.message, refused: true }; }
   let pidStart = null;
   if (p !== null) {
-    const s = startOf(p);
+    const s = startOf === defaultStartOf ? defaultStartOf(p, now, 'fresh') : startOf(p);
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
   }
@@ -143,6 +151,8 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
       out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
       return;
     }
+    const was = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
+    if (was && isLive(was, { now, startOf, agentAlive: null })) job.since = was.since;   // announced again: since stays
     list.push(job);
     if (!writeAll(root, list.filter((j) => j.agent !== agent || isLive(j, { now, startOf, agentAlive: null })))) out = { ok: false, because: NOT_SAVED };
   });
@@ -171,6 +181,10 @@ function end({ root, agent, pid }) {
    lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
    could not be saved changes nothing the reader is told. */
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null }) {
+  if (startOf === defaultStartOf) {
+    let budget = PS_PER_READ;
+    startOf = (pid) => defaultStartOf(pid, now, budget-- > 0 ? 'cached' : 'alive');
+  }
   const all = readAll(root);
   const keep = all.filter((j) => isLive(j, { now, startOf, agentAlive }));
   if (keep.length !== all.length) {
