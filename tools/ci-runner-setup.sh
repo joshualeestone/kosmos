@@ -176,9 +176,11 @@ put() { cat > "$1.new" && chmod "$2" "$1.new" && mv -f "$1.new" "$1" || { rm -f 
 # can compare the installed file byte for byte (a job could rewrite a hook to skip the guard; see the header).
 # kosmos#9149: the cleanup hook's pgrep runs under LC_ALL=C (the runner's .env sets a UTF-8 LANG, and there pgrep exits 3,
 # so the hook killed nothing, whenever any process's name is not valid UTF-8). The hook is its own file, so the pgrep
-# wrapper in this script does not reach it. hook_body_prev is the text before that change: verify reads an installed
-# copy of it as the previous version (a note: install again to update), not as a rewrite.
-hook_body_prev() { hook_body "$1" | LC_ALL=C sed 's/\$(LC_ALL=C pgrep -u /$(pgrep -u /'; }
+# wrapper in this script does not reach it. HOOK_CLEANUP_PREV_SHA is the sha256 of the cleanup hook as installed before
+# that change (frozen from main at 6062059be8, 1897 bytes): verify reads a copy of exactly that text as the previous
+# version (a note: install again to update), not as a rewrite. Frozen, not derived from today's text, so a later edit
+# of the hook cannot widen what passes as "previous" (review 1). Remove it once every runner has been reinstalled.
+HOOK_CLEANUP_PREV_SHA=57255eaf719136a9b21c737510e2c1b04dd0f54274fa751a40e278a96e92650c
 hook_body() {
   case "$1" in
     cleanup) cat <<'HOOK'
@@ -1453,7 +1455,7 @@ EOF
     for h in cleanup completed started; do
       if [ -r "$CI_DIR/job-$h.sh" ]; then
         if hook_body "$h" | cmp -s - "$CI_DIR/job-$h.sh"; then ok "job-$h.sh is what install writes"
-        elif hook_body_prev "$h" | cmp -s - "$CI_DIR/job-$h.sh"; then
+        elif [ "$h" = cleanup ] && [ "$(shasum -a 256 < "$CI_DIR/job-$h.sh" | cut -d' ' -f1)" = "$HOOK_CLEANUP_PREV_SHA" ]; then
           echo "note:   job-$h.sh is the version before kosmos#9149 (its pgrep is not under LC_ALL=C): run install again to update it"
         else problem "$CI_DIR/job-$h.sh differs from what install writes: something rewrote it"; fi
       fi

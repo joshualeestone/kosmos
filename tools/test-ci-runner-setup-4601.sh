@@ -1100,7 +1100,9 @@ vcase() {  # vcase <name> <want rc> <want text> <env...>
 }
 vcase clear 0 "verify: clear"
 # kosmos#9149: an installed cleanup hook from before its pgrep went under LC_ALL=C is the previous version, a note to
-# install again, not a rewrite; any OTHER difference is still a problem.
+# install again, not a rewrite; any OTHER difference is still a problem. The previous text is today's minus the nine
+# bytes, which verify checks against a FROZEN sha: this arm goes red if the cleanup hook is edited again, the cue to
+# drop that acceptance (or freeze the then-installed text) rather than let it drift.
 cp "$VCI/.kosmos-ci/job-cleanup.sh" "$T/vci-cleanup.cur"
 LC_ALL=C sed 's/\$(LC_ALL=C pgrep -u /$(pgrep -u /' "$T/vci-cleanup.cur" > "$VCI/.kosmos-ci/job-cleanup.sh"
 ! cmp -s "$T/vci-cleanup.cur" "$VCI/.kosmos-ci/job-cleanup.sh" && pass "fixture: the previous hook text differs from today's" || fail "fixture: the previous hook text is the same as today's"
