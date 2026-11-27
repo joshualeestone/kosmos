@@ -10,7 +10,7 @@ src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 # -Onone, not -O (kosmos#9213): the tests run in seconds and the optimizer was a third of this
-# step (the compile went from 80 s to 52 s on this Mac; the step took up to 13 min on a slow CI runner).
+# compile on this Mac (80 s to 52 s). On a slow CI runner the whole step took up to 13 min.
 # The optimized app is still built by the Release and archive steps in ios.yml. Every run*.sh in this
 # folder compiles the same way.
 xcrun swiftc -Onone -o "$out/push-logic-tests" \
