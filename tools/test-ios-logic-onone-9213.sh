@@ -46,6 +46,7 @@ expect "a quoted \"-O\" in place of -Onone"                              1 's|sw
 expect "the flag passed through a variable in place of -Onone"          1 's|swiftc -Onone -o|swiftc $OPT -o|'
 expect "a quoted \"-O\" beside -Onone (swiftc takes the later flag)"     1 's|swiftc -Onone -o|swiftc -Onone "-O" -o|'
 expect "swiftc called by its path"                                      1 's|xcrun swiftc -Onone -o|/usr/bin/swiftc -O -o|'
+expect "-O attached with = (a frontend flag) beside -Onone"             1 's|swiftc -Onone -o|swiftc -Onone -Xfrontend=-O -o|'
 expect "a comment ending in a backslash does not hide the next line"    1 '/swiftc -Onone -o/i\
 # a note that ends in a backslash \\\
 xcrun swiftc -O -o "$out/x" "$here/x.swift"

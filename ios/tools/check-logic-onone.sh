@@ -5,8 +5,9 @@
 # It reads every *.sh under ios/LogicTests and ios/tools (this file aside), drops comment lines (a comment never
 # continues onto the next line, as in bash), joins lines continued with a trailing backslash, drops trailing " # ..."
 # comments, and for each command that runs swiftc (by name or by path) requires a literal -Onone and no other -O
-# flag (-O, -Osize, -Ounchecked, ..., bare or quoted). It reads text: a flag passed in a variable is caught only when
-# it stands in for -Onone, and swiftc reached through a function or another script is not seen at all.
+# flag (-O, -Osize, -Ounchecked, ..., bare, quoted, or after = or a comma). It reads text: a flag passed in a variable
+# is caught only when it stands in for -Onone, swiftc reached through a function or another script is not seen at
+# all, and a " #" inside a quoted string is taken for a comment, so anything after it on that command is not read.
 # Exit 0: every swiftc command is -Onone. Exit 1: one is not (each is printed as file:first-line: command).
 # Exit 2: nothing could be checked (a folder missing, or no swiftc command found at all).
 set -u
@@ -32,7 +33,7 @@ report="$(awk '
     sub(/[[:space:]]#.*$/, "", cmd)
     if (cmd !~ /(^|[[:space:]\/])swiftc([[:space:]]|$)/) next
     n++
-    if (cmd !~ /[[:space:]]-Onone([[:space:]]|$)/ || cmd ~ /[[:space:]"\047]-O([^n]|$)/) print "BAD " FILENAME ":" start ": " cmd
+    if (cmd !~ /[[:space:]]-Onone([[:space:]]|$)/ || cmd ~ /[[:space:]"\047=,]-O([^n]|$)/) print "BAD " FILENAME ":" start ": " cmd
   }
   END { print "COUNT " n + 0 }
 ' "${files[@]}")"
