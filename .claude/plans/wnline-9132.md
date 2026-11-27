@@ -11,16 +11,25 @@ release/whats-new-pool.json holds one pending line for #9132 that the next cut's
 ## The change
 
 One item, after the 0.8.25 lines owed the same way:
-  title "Half-typed messages survive a reload" (36), line "Words you start typing to an agent or in a project room
-  come back after a reload, and Kosmos can still update itself while they wait." (133), icon chat, rank 10.6
-  (beside 10 and 10.5, the other owed lines), since 0.8.26, pending, no platforms.
+  title "Words you were typing are kept" (30), line "Words you start typing to an agent or in a project come back if
+  the Kosmos page reloads, instead of being lost." (111), icon chat, rank 10.6 (beside 10 and 10.5, the other owed
+  lines), since 0.8.26, pending, no platforms.
 
 ## Decided
 
-- No platform tag: the kept drafts are the page's, on every platform; only the self-restart is the Mac window's, and
-  the line says "Kosmos can still update itself", true where it updates itself and harmless elsewhere.
+- No platform tag: the kept drafts are the page's, on every platform.
+- Review 1: no promise about updating. #9150's weakest premise (that localStorage survives the Mac window's own
+  restart) is reasoned, not measured, and the browser check showed a page reload only; the window says only what was
+  shown. "a project" covers both a project's message box and its room; plain words, no "reload" in the title.
 - "Kosmos", never "this Mac" (the product voice; engine/machine.test.js guards it).
 - since 0.8.26 and pending, as a097779666 set its lines (since the version that shipped them).
+
+#### Iteration 1 (blind review, sonnet)
+
+- [SHOULD-FIX] taken: "Kosmos can still update itself" pointed the wrong way (a draft used to block the update).
+- [SHOULD-FIX] taken: the update half rested on an unmeasured premise (above); the clause is gone.
+- [NIT] taken: plainer title; "a project" for both its boxes.
+- [NIT] not taken: the 14-day age-out (a highlight, not the release notes).
 
 ## Verified
 

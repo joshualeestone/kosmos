@@ -2977,8 +2977,8 @@
       "status": "pending"
     },
     {
-      "title": "Half-typed messages survive a reload",
-      "line": "Words you start typing to an agent or in a project room come back after a reload, and Kosmos can still update itself while they wait.",
+      "title": "Words you were typing are kept",
+      "line": "Words you start typing to an agent or in a project come back if the Kosmos page reloads, instead of being lost.",
       "icon": "chat",
       "rank": 10.6,
       "since": "0.8.26",
