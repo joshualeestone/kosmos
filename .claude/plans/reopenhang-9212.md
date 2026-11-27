@@ -3,7 +3,8 @@
 ## Finished looks like
 Re-opening Dana's tall20 sample chat (20 tall replies) many times in one launch never freezes the app on the iOS 26.5
 simulator, the chat still opens on its newest message (ChatTallOpenUITests), and the old open (KOSMOS_SAMPLE_ANCHORATOPEN=1)
-still freezes under the new check, so the check can see the defect.
+still freezes under the new check, so the check can see the defect (a by-hand control run, recorded on the card; CI runs the
+check on the fix only).
 
 ## What was measured (probe branch reopenprobe-9212, never merged; iPhone 17e, iOS 26.5, runs of 10 re-opens)
 - As shipped (build 75): froze in 6 of 10 runs. Build 73 (before #9089): 3 of 12 (Ice Cream Kitty), so older than #9089.
@@ -16,8 +17,9 @@ still freezes under the new check, so the check can see the defect.
 
 ## The change
 - ChatView: the open scrolls to "end" without naming the anchor and sets a one-shot flag (anchorOnEndAppear); the end
-  marker's onAppear uses it up and names positionId "end" if nothing else named one and no person is scrolling. A person's
-  scroll and a fresh chat clear the flag. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
+  marker's onAppear uses it up and names positionId "end" if nothing else named one and no person is scrolling (personScrolling,
+  or UIKit's own under-a-finger reading, since iOS 17 sets no personScrolling). A person's scroll (iOS 18+) and a fresh chat
+  clear the flag. A chat whose end appeared before the open ran (short enough to fit) is anchored at once. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
 - KOSMOS_SAMPLE_ANCHORATOPEN=1 (Debug only) restores the old open: the control.
 - ChatTallOpenUITests: a third check re-opens the chat 8 times in one launch; TEST_RUNNER_KOSMOS_ANCHORATOPEN=1 runs it
   against the old open. ios/tools/ui-sample.sh: the class count is 3.
@@ -26,6 +28,13 @@ still freezes under the new check, so the check can see the defect.
 - Turning the id anchor off: #7265 added it so a reader's place holds while messages arrive.
 - Deferring the anchor by one turn: measured worse (above).
 - Quarantining ChatTallOpenUITests: it is the one CI signal for this hang.
+
+## Left as it is, deliberately
+- recoverEmpty's rebuild (a blank list, rare) still names "end" through goNewest on a fresh list after its first layout. Not
+  measured to freeze; the probe never rebuilt. Changing it unmeasured would trade one unknown for another. If it ever shows,
+  the same treatment applies.
+- The new check asks that each re-open draws the chat and its newest message, not that the newest is wholly on screen: the
+  landing is the other two checks' job, and a freeze draws nothing at all.
 
 ## Weakest premise
 The simulator, not a phone. And between the open and the end's appearance (a frame or two) no anchor holds the list;
