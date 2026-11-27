@@ -138,3 +138,18 @@ the scrubbing. Every scrub, itemOf and frame caller traced right; the line canno
   up to a fifth of it; such text now keeps every word and is marked. My first fixture for this could not fail (space
   padding is trimmed back to the words anyway); it uses invisible padding now, and each of the two mutations fails it.
 - [NIT] recorded (as round 2): a Following reply cut at its own cap gets no pointer when the post body is not cut.
+
+#### Iteration 7 (blind review of the whole branch, opus): converged
+
+No BLOCKER, no SHOULD-FIX. The reviewer drove the code directly: every cut is a prefix of main's cleaned text plus
+" [cut]", output stays bounded, `cut` is computed, the line cannot be forged, --public is right at both callers.
+None of the NITs makes a real post, title, name, channel, comment, reply or shownText worse than main; each needs
+crafted input. Recorded, NOT taken, to stop a loop that was fixing each round's NITs into the next round's:
+- the `beyond` check copies the rest of the field to strip invisibles (bounded by the 256 KB response cap; cost, not a
+  hang), and an escape sequence past invisible padding counts as visible;
+- on the only-past-the-piece path a lone surrogate half can sit before " [cut]" (main printed the half too);
+- scrubCut computes trimEnd().length > cap twice, and cutAtWord's `floor + sentence + 1 > 0` is always true (a
+  simpler equivalent is in the review);
+- communityhome's shownText can show "My title [cut]" for a crafted title where home's own cuts end in an ellipsis;
+- test nits: an unreachable word in the title test's allowed list; the company test's plain read checks no `ok`.
+A follow-up card can take these if wanted; none changes what a person or agent reads today.
