@@ -13,7 +13,8 @@
  *     read by the server when the job started, no longer matches);
  *   - it names no process and its agent is gone (judged by the caller: server.js heavyJobsNow); a job tied to a
  *     process lives as long as that process, whatever the roster says;
- *   - it is older than MAX_AGE_MS (a ceiling, so a record nothing can judge cannot stay for ever).
+ *   - it was last announced more than MAX_AGE_MS ago and nothing can judge it (a ceiling, so it cannot stay for ever;
+ *     a process confirmed by its start time is judged, and stays while it runs, kosmos#9222).
  * Without --pid a record is tied to its agent only: it ends with `kosmos heavy end`, with the agent, or at the ceiling.
  * Where a start time cannot be read (Windows has no ps), a --pid record still clears when its process is gone (signal 0),
  * but a reused number is not told apart from the job.
@@ -99,19 +100,25 @@ function locked(root, fn) {
 /* Whether record j is still live. startOf(pid) gives the process's start identity (a string), null when there is no
    such process, or undefined when it cannot be asked; agentAlive(name) gives true, false, or null for "could not tell". */
 function isLive(j, { now, startOf, agentAlive }) {
-  if (now - (Number.isFinite(j.at) ? j.at : j.since) > MAX_AGE_MS) return false;   // from the last announcement
+  const aged = now - (Number.isFinite(j.at) ? j.at : j.since) > MAX_AGE_MS;   // from the last announcement
   if (j.pid !== null) {
     // A job tied to a process lives as long as that process, whatever the roster says: --pid is for a wrapper that
     // outlives its agent's call, and an agent restarting while its suite runs is when the line matters most.
     const s = startOf(j.pid);
     if (s === null) return false;                                  // no such process
     if (typeof s === 'string' && j.pidStart && s !== j.pidStart) return false;   // the number was reused
-    return true;   // the same process, or undefined (could not ask): kept, the safe side for a passive notice
+    // kosmos#9222: the same process, confirmed by its start time, is judged, so the ceiling (for what nothing can
+    // judge) does not apply: an overnight run stays on the board. Could not ask (undefined, or no recorded start):
+    // kept until the ceiling, the safe side for a passive notice.
+    if (typeof s === 'string' && j.pidStart && s === j.pidStart) return true;
+    return !aged;
   }
+  if (aged) return false;
   return !(agentAlive && agentAlive(j.agent) === false);
 }
 
-/* Signal 0 first: a gone process costs nothing to recognise (another user's process answers EPERM, and is kept as alive). A live one's start time is read with ps, and kept for
+/* Signal 0 first: a gone process costs nothing to recognise (another user's process answers EPERM, and is kept as
+   alive). A live one's start time is read with ps, and kept for
    START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll; a number reused
    inside that window is judged by the old start until it runs out. */
 const startCache = new Map();
