@@ -29,7 +29,7 @@ converged: true
 - [WARNING] the new holder was excepted even when its heard line did not go out (budget skip, COULD_NOT) FIXED
 - [WARNING] the agent-adds test expected what the control expects, so it could pass with no notice: a third holder now must be owed one FIXED
 - [WARNING] droppedBuiltForWork was only ever stubbed: a real-engine test now pins it (add, give open, keepBuilt refusal, put back, a fresh read) FIXED
-- [NIT]  names trimmed; the failover-source exclusion documented as a backstop (the Assigner refuses a built task inside the write) FIXED
+- [NIT] the `except` names trimmed; the failover-source exclusion documented as a backstop (the Assigner refuses a built task inside the write) FIXED
 
 #### Iteration 2
 **Reviewer model:** opus
@@ -43,4 +43,4 @@ converged: true
 
 - No issues found at BLOCKER or WARNING.
 - [NIT] an adder that cannot be named is owed a re-read of its own change: accepted (one redundant notice, never a missed one)
-- [NIT]  matches names exactly while owesNotice matches by key: accepted (who is stored trimmed and exact)
+- [NIT] `except` matches names exactly while owesNotice matches by key: accepted (who is stored trimmed and exact)
