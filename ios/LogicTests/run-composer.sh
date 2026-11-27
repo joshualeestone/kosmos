@@ -6,6 +6,6 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -O -o "$out/composer-logic-tests" "$src/ComposerLogic.swift" "$here/composer/main.swift"
+xcrun swiftc -Onone -o "$out/composer-logic-tests" "$src/ComposerLogic.swift" "$here/composer/main.swift"
 # The repo root, so the suite can read the board's own emoji list (web/index.html).
 KOSMOS_REPO="$here/../.." "$out/composer-logic-tests"

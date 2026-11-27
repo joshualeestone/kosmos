@@ -107,7 +107,9 @@ jobs:
     needs: route
     if: ${{ !cancelled() }}
     runs-on: ${{ fromJSON(needs.route.outputs.build_runner || '"macos-latest"') }}
-    timeout-minutes: 40
+    # kosmos#9213: hosted macOS runners come in two speeds; on a slow one this job took 31-40 min and was cancelled
+    # at the old 40. The logic tests now compile without the optimizer (ios/LogicTests/run.sh), and 55 leaves room.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 

@@ -7,5 +7,5 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "${out:?}"' EXIT
-xcrun swiftc -O -o "$out/account-logic-tests" "$src/AccountLogic.swift" "$here/account/main.swift"
+xcrun swiftc -Onone -o "$out/account-logic-tests" "$src/AccountLogic.swift" "$here/account/main.swift"
 "$out/account-logic-tests"

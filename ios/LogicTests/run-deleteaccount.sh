@@ -7,6 +7,6 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "${out:?}"' EXIT
-xcrun swiftc -O -o "$out/deleteaccount-logic-tests" \
+xcrun swiftc -Onone -o "$out/deleteaccount-logic-tests" \
   "$src/SignInLogic.swift" "$src/DeleteAccountLogic.swift" "$here/deleteaccount/main.swift"
 "$out/deleteaccount-logic-tests"

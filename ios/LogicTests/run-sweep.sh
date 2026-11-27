@@ -111,12 +111,12 @@ grep -qE 'let elapsed = tl\.date\.timeIntervalSince\(shownAt\)' "$src/SweepDots.
 echo "ok   the launch mark is SweepDots' $side pt ring at its first frame, and the wait to connect centres it on the screen as the launch screen does"
 # The launch mark's PNGs, drawn again and compared, decoded, with the committed ones (pixels, with a small tolerance,
 # not file bytes), so a change to SweepLogic cannot leave the launch screen behind (ios/tools/render-launch-sweep.sh).
-xcrun swiftc -O -o "$out/render-launch-sweep" "$src/SweepLogic.swift" "$here/../tools/launch-sweep/main.swift"
+xcrun swiftc -Onone -o "$out/render-launch-sweep" "$src/SweepLogic.swift" "$here/../tools/launch-sweep/main.swift"
 if "$out/render-launch-sweep" --check "$src/Assets.xcassets/LaunchSweep.imageset" "$side" | grep -v '^ok$'; [ "${PIPESTATUS[0]}" -eq 0 ]; then
   echo "ok   the launch screen's mark matches SweepLogic (6 PNGs)"
 else
   echo "VERDICT: FAIL (the launch screen's mark is stale)"; exit 1
 fi
 
-xcrun swiftc -O -o "$out/sweep-logic-tests" "$src/SweepLogic.swift" "$here/sweep/main.swift"
+xcrun swiftc -Onone -o "$out/sweep-logic-tests" "$src/SweepLogic.swift" "$here/sweep/main.swift"
 KOSMOS_REPO="$here/../.." "$out/sweep-logic-tests"

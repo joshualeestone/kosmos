@@ -6,5 +6,5 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -O -o "$out/hop-logic-tests" "$src/HopLogic.swift" "$src/KDots.swift" "$here/hop/main.swift"
+xcrun swiftc -Onone -o "$out/hop-logic-tests" "$src/HopLogic.swift" "$src/KDots.swift" "$here/hop/main.swift"
 "$out/hop-logic-tests" "$here/hop/k-dots.json"

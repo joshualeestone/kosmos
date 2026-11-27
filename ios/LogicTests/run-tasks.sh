@@ -7,7 +7,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -O -o "$out/tasks-logic-tests" \
+xcrun swiftc -Onone -o "$out/tasks-logic-tests" \
   "$src/PushBridgeLogic.swift" "$src/BoardLogic.swift" "$src/SignInLogic.swift" "$src/TodayLogic.swift" "$src/TasksLogic.swift" "$here/tasks/main.swift"
 # The repo root, so the suite can read the board's own words (web/index.html).
 KOSMOS_REPO="$here/../.." "$out/tasks-logic-tests"
