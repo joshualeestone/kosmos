@@ -126,3 +126,15 @@ the cap plus " [cut]"; the line cannot be forged; every scrub and frame caller i
 - [NIT] taken: the test line-finders skip every quoted line (/^\s*\| /), not only the first level.
 - [NIT] recorded: a body of only whitespace past the cap and then text shows a bare "[cut]" with the honest line
   under it (as main shows the mark).
+
+#### Iteration 6 (blind review of the whole branch, sonnet)
+
+No BLOCKER, no SHOULD-FIX. The reviewer measured the round-5 `beyond` check: its regex stops at the first visible
+character, so its cost is the space run after the piece (50 MB of spaces in 20 ms); the cap*4 bound still holds for
+the scrubbing. Every scrub, itemOf and frame caller traced right; the line cannot be forged; tests restore every stub.
+- [NIT] taken: invisible padding past the piece counted as lost text (a "Kosmos cut this" with nothing visible lost);
+  `beyond` now looks for a visible character.
+- [NIT] taken: when only text past the piece was lost and the cleaned text was under the cap, cutAtWord still trimmed
+  up to a fifth of it; such text now keeps every word and is marked. My first fixture for this could not fail (space
+  padding is trimmed back to the words anyway); it uses invisible padding now, and each of the two mutations fails it.
+- [NIT] recorded (as round 2): a Following reply cut at its own cap gets no pointer when the post body is not cut.
