@@ -65,18 +65,26 @@ const GAP = '[^\\p{L}\\p{N}]{0,6}';
 const phrase = (...words) => words.join(GAP);
 const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('project', 'paused'), phrase('project', 'is', 'paused'),
   phrase('added', 'by'), phrase('subtasks', 'done'), 'repeats', 'waits', 'woke\\s*:', phrase('checks', 'reported'), phrase('outside', 'text'),
-  'through\\s*#\\s*\\d+', phrase('under', 'task'), 'owner\\s*:', phrase('reported', 'finished'), phrase('still', 'to', 'finish'),
+  // Review 3: "through task N" too (the long list's "(owner: X, through task N)").
+  'through\\s*(?:#|task)\\s*#?\\s*\\d+', phrase('under', 'task'), 'owner\\s*:', phrase('reported', 'finished'), phrase('still', 'to', 'finish'),
   phrase('last', 'activity'), 'quiet\\s*\\d+', phrase('left', 'under', 'closed'),
   // Review 2: the compact and across lists' other words in parentheses.
   phrase('no', 'activity', 'on', 'record'), phrase('next', 'run'), phrase('held', 'by', 'the', 'person'),
-  phrase('only', 'the', 'person', 'can', 'lift'), phrase('condition', 'is', 'met')];
+  phrase('only', 'the', 'person', 'can', 'lift'), phrase('condition', 'is', 'met'),
+  // Review 3: the built mark's words ("[built, waiting on a review]", "the person", "a release"), "(seen by the person",
+  // and a hold's "until task N is closed".
+  phrase('waiting', 'on', '(?:a|the)', '(?:review|person|release)'), phrase('seen', 'by', 'the', 'person'),
+  phrase('until', 'task') + '\\s*#?\\s*\\d+'];
+// Review 3: "done" in brackets or parentheses ANYWHERE ("release notes [done]", "fix login (done)"), as the list prints it;
+// a bare "done" still counts only as the first word.
+const BRACKET_DONE = /[[(]\s*done\s*[\])]/iu;
 const LIST_WORD = new RegExp('(?<![\\p{L}\\p{N}])(?:' + LIST_PHRASES.join('|') + ')(?![\\p{L}\\p{N}])', 'iu');
 // Review 1: also after a number written as a row's own label, "[7] [done] x" or "#3 [done] x" (a bracket or # before the
 // digits, so "3 done items" stays plain).
 const FIRST_DONE = /^[^\p{L}\p{N}]*(?:[[(#]\s*\d+\s*[\])]?[^\p{L}\p{N}]*)?done(?![\p{L}\p{N}])/iu;
 function usesListMarkWord(text) {
   const f = fold(text);
-  return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f);
+  return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f) || BRACKET_DONE.test(f);
 }
 
 module.exports = { usesMarkWord, quoteOwnWords, usesListMarkWord };

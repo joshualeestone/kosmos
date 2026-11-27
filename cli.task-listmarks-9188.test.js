@@ -102,13 +102,16 @@ test('#9188 engine: usesListMarkWord catches the list\'s marks, and only a FIRST
     'x (still to finish: otto)', 'x (last activity today)', 'x (quiet 3 days, left under closed task #5)',
     // Review 2: the compact and across lists' other parenthesised words.
     'x (no activity on record)', 'x (next run tomorrow)', 'x (its project is paused)', 'x (held by the person)',
-    'x (only the person can lift it)', "x (its hold's condition is met)"]) {
+    'x (only the person can lift it)', "x (its hold's condition is met)",
+    // Review 3: a bracketed done anywhere, the built mark's words, the long list's "through task N", and two more.
+    'Release notes [done]', 'fix login (done)', '[waiting on a review] ship the login', 'x [built, waiting on the person]',
+    'fix the login (mara, through task 2)', 'x (seen by the person)', 'x [until task 3 is closed]']) {
     assert.equal(markwords.usesListMarkWord(t), true, 'missed: ' + t);
   }
   for (const t of ['tidy the docs', 'get it done', 'undone work', 'pre-done notes', 'a reporter checks in',
     '3 done items', 'go through the list', 'a quiet room', 'under the bridge', 'the owner of the site', 'still running',
     // Review 2: narrowed to the printers' exact words.
-    'Fix subtasks rendering', 'Woke up bug', 'Left under pressure']) {
+    'Fix subtasks rendering', 'Woke up bug', 'Left under pressure', 'waiting for the vendor', 'the work is done now']) {
     assert.equal(markwords.usesListMarkWord(t), false, 'quoted an ordinary title: ' + t);
   }
   // It includes the instructions block's own test (#9179), never less.
