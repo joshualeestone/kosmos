@@ -66,3 +66,21 @@ the wake words (engine/taskwake.js waitWords: "waits for ..."); a new mark added
 - [NIT] recorded, not built: no test of the Windows CLI with no markwords.js in its engine folder (the fallback is
   read correct, as the Mac one is tested); the agent nudges were not checked for titles printed beside marks.
 cli.task-listmarks-9188 4 of 4 and the neighbouring set (533: 512 pass, 0 fail).
+
+#### Iteration 2 (blind review of the whole branch, sonnet)
+
+No BLOCKER. The reviewer listed every mark the three printers emit and ran about 100 titles: every bracket mark and
+the parenthesised ones from round 1 are covered; the string-built regexes escape as intended; empty, 2M-character and
+invisible-character titles run in under 40 ms.
+- [SHOULD-FIX] taken: six compact/across-list marks were not covered: "(no activity on record)", "(next run ...)",
+  "(its project is paused)" (my gap rule allows no letters, so "project paused" could not match it),
+  "(held by the person)", "(only the person can lift it)", "(its hold's condition is met)". Added as phrases (a small
+  phrase() helper joins the words with the gap); dropping "project is paused" fails the test.
+- [NIT] taken: three phrases narrowed to the printers' exact words ("subtasks done", "woke:", "left under closed"), so
+  "Fix subtasks rendering", "Woke up bug" and "Left under pressure" stay plain (tested).
+- [NIT] recorded, not built: "(owner:otto)" with no space is a near-imitation only (the printer writes "owner: ");
+  FIRST_DONE costs "Done with X" a quote in the compact lists, which never list closed rows; showLines quotes an
+  "Under:" parent title that uses a mark word (as titleOf does everywhere); no test drives acrossLines, showLines, a
+  closed task, or the Windows missing-module path; the remaining common words ("repeats", "waits", "replaced by",
+  "not run", "owner:") quote some ordinary titles, the same cost #9179 accepted.
+cli.task-listmarks-9188 4 of 4 and the neighbouring set (533: 512 pass, 0 fail).
