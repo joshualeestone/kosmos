@@ -21,8 +21,8 @@ whose arguments file is in its own $S.
   does not leave out its caller's parent (procps, Linux). Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
   whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters. Both are KILLed only when the command line has
   a waiter's shape (a bash running a script with --queued-args; for a listed pid also its forms before the re-exec,
-  perl about to run this tree's wrapper, or that wrapper with its first arguments, since it is listed only while its
-  own arm runs; a separate "a script in $S" branch was dropped in round 7, as nothing real could reach it). The stale-TMPDIR arm (#5467) needs the second kind:
+  perl about to run this tree's wrapper, that wrapper with its first arguments, or the forked copy of this file before
+  its exec, since it is listed only while its own arm runs and is this shell's own child; a separate "a script in $S" branch was dropped in round 7, as nothing real could reach it). The stale-TMPDIR arm (#5467) needs the second kind:
   its TMPDIR does not exist, so the wrapper falls back to /tmp and the arguments file is outside $S. That arm now runs
   as `( ... exec perl ... ) &` and lists its pid (the waiter's, through perl's exec and the wrapper's re-exec) only
   while it runs (between the fork and its listing, and between the wait and its unlisting, a stop would miss or keep it;
@@ -32,8 +32,10 @@ whose arguments file is in its own $S.
 - `joiner_under` takes an optional command prefix, so its regression arm can use a fake script path.
 - Three regression arms (EXPECTED 175 -> 178): kill_waiters ends a stand-in whose arguments file is in $S and a listed
   one in each form the real stale-TMPDIR waiter has (re-exec'd, before it with REAL_QH pointed at the fake path for
-  that one call, and perl), and leaves a LISTED pid that is not a waiter of this run alone (CONTROLS, measured: with the
-  reused-pid guard removed, the REAL_QH branch removed, or the perl branch removed, the arm reads BAD); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
+  that one call, and perl), and leaves alone both a LISTED pid that is not a waiter of this run and an UNLISTED waiter
+  whose arguments file is outside $S (CONTROLS, measured: with the reused-pid guard removed, the REAL_QH branch
+  removed, the perl branch removed, or the first loop's $S anchor and shape check removed, the arm reads BAD). That
+  arm calls kill_waiters mid-run, so arms that start wrappers go before it (said at the arm); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
   with a CONTROL that `pgrep -o` picks the older; and a source check that the three #5923 arms call joiner_under and that
   no `pgrep -o -f "^/bin/bash $REAL_QH` pick is left (on origin/main's file the same greps read 0 and 3, so it would be
   BAD there). Since round 9 it checks each arm passes its OWN background pid (glw/GLR, ilw/ILR, wp/LIVE; CONTROL: a
@@ -65,6 +67,13 @@ whose arguments file is in its own $S.
 - Whole file after rounds 6, 7 and 8: 178/178 each. Watchdog harness re-run on round 8's sh-based pid: stand-in gone,
   file ended (124).
 - Whole file after round 1: 177/177.
+- Disclosed (round 10, 23:49 CST): the last control above (the first loop's $S anchor and shape check BOTH removed)
+  was run against the real process table, so it KILLed every `--queued-args` waiter on the Mac for those seconds, not
+  only the stand-ins. Two colleagues' runs were hit (a queued wait that had not started, and a mutation-check run);
+  both were told at once and re-queued. Any later control on a kill path keeps the run's own path in its pattern.
+- Round 9's whole-file run read 177/1: `#9118: --withdraw refuses a foreground holder` went BAD (load average 12). It
+  runs before every #9191 change in the file, and the same arm passed in rounds 1 to 8; read as a timing flake under
+  load, to be confirmed by the next whole-file run.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
   `.../queued-heavy.sh --queued-args` command line, so other agents' lib-move scans could see it and say "another
   queued-heavy.sh is live" (they then join on the old lib and run; nothing is held). The regression arm avoids that.
