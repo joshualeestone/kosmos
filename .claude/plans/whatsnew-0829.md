@@ -7,10 +7,12 @@ The gap alarm (kosmos#1050), 2026-11-27 13:26 CST: main 72 commits past staging 
   running on this computer, whose it is and since when (`paintHeavyJobs`, web/index.html). Title "The board says when
   a heavy job is running" (42), line 120 characters, rank 10.8, since 0.8.29, untagged: web/index.html is the board
   page every platform serves, and `kosmos heavy` is in both CLIs (install/kosmos and tools/windows/kosmos-cli.js).
-- A notes-only line for the agent command itself, `kosmos heavy start | end | list` (rank 158).
+- A notes-only line for the agent command itself: `kosmos heavy start`, `kosmos heavy end`, and bare `kosmos heavy`
+  to list (rank 158).
 - Shortens a title I added in #9215 from 54 to 47 characters ("kosmos project show says when no agent is on it"). The
   window's title limit is 48, and `build` checks every pending line against it, notes-only ones too, so the 54-character
-  title refused this build. #9215's checks never ran `build`, which is how it merged.
+  title refused this build. Reasoned from tools/whats-new-pool.js, not measured: the per-pending-line check runs only
+  inside `build`, and #9215 ran prod-check, notes and the tests but not `build`.
 - Builds the 0.8.29 window: one highlight (the heavy-job line). Prod and Windows prod 0.8.28 were already recorded
   (#9215), so nothing is newly marked shown.
 
@@ -18,6 +20,10 @@ The gap alarm (kosmos#1050), 2026-11-27 13:26 CST: main 72 commits past staging 
 - `whats-new-check 0.8.29`: mac 1, windows 1. prod-check exit 0. `notes 0.8.29` exit 0 on mac, linux and windows.
 - What's New tests by name (check-3955, pool-5711, pool-sync-5713, pool-win-8924, web.whatsnew-3955,
   web.whatsnew-phone-7839): 74 pass, 0 fail.
+
+## Correction
+- The first commit's Browser-check trailer said "an unchanged window". That is false: the window loses 0.8.27's two
+  lines and gains the heavy-job line. The second commit carries the corrected reason.
 
 ## Rejected
 - Cutting 0.8.29 with no window again: #9217 is a board change people will see, so it gets its line.
