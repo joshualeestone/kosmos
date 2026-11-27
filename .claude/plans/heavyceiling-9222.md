@@ -54,3 +54,9 @@ next read that confirms it. With the real defaultStartOf: a later start by the s
 also while ps cannot answer; aged records are read first (an overnight job written after nine fresh ones is
 confirmed); a fresh cache hit costs no ps read; and when other aged records spend the budget, the overnight job is
 hidden for that read but kept. Every one of those arms was mutated to red.
+
+## Review stop
+
+Eight blind rounds (opus and sonnet alternating), then stopped by Splinter's usage rule (Fleet Builders m510,
+2026-10-26). Round 8's open WARNINGs are kosmos#9230: the pane-named unchecked listing (advisory, as `end` already is),
+the start carry-over read outside the lock, and a wall-clock arm's lower bound.
