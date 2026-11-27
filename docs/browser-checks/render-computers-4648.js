@@ -21,6 +21,7 @@
  */
 const path = require('node:path');
 const playwright = require('playwright');
+const { isFilePageNoise } = require('./lib-file-console.js'); // #9161: one pattern for file:// start-up fetch noise
 /* The Mac app renders in WebKit (WKWebView), so WebKit is not optional here. */
 const ENGINES = ['chromium', 'webkit'];
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
@@ -77,7 +78,7 @@ const FOUR = {
     page.on('console', (m) => {
       if (m.type() !== 'error') return;
       const x = m.text();
-      if (HARNESS.test(x)) return;
+      if (HARNESS.test(x) || isFilePageNoise(x)) return;
       problems.push(`[${engine} ${theme}] console: ${x}`);
     });
     // kosmos#6406: arriving with a ticket in the fragment (a window already signed in here), the page takes it out.

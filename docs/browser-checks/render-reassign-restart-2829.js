@@ -19,6 +19,7 @@
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { isFilePageNoise } = require('./lib-file-console.js'); // #9161: one pattern for file:// start-up fetch noise
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 
 const problems = [];
@@ -33,7 +34,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const x = m.text();
-    if (/ERR_FILE_NOT_FOUND|URL scheme "file"|Failed to (fetch|load)/.test(x)) return;
+    if (isFilePageNoise(x)) return;
     problems.push('console: ' + x);
   });
   await page.goto(PAGE);
