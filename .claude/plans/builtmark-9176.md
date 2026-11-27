@@ -11,12 +11,16 @@ Split from #9166 item 5 (feedback triage 11-26).
   the previous holder is synced when a part moves. Not in this card.
 
 ## Change
-- A task that is built FOR THIS AGENT gets " [built: done and waiting; its note says what is left]" (worded in review 3). Built
+- A task that is built FOR THIS AGENT gets " [built: done and waiting; `kosmos task show <project> <n>` has the rest]"
+  (worded in review 5: a mark can carry no note, so the line names where the rest is). Built
   for this agent is the Assigner's rule (hasOpenWork, busyHold): builtAt, and either the person's mark freed everyone
   (builtFreesAll) or this agent's own mark is in builtWho. It stays on the list: the agent uses its number to follow up.
 - Another holder's mark does not cover this agent's open part, so such a task is listed unmarked (review 1).
 - A hold or a paused project is still named first (`held(t) || built(t)`), as #5864 keeps a built task in a paused
   project "on hold". One mark per task.
+
+- The instruction blocks follow the mark (review 4, 5): the task built route (set and clear) and the repeat route (a
+  repeat rule drops a built mark) re-sync every holder through tellEveryoneOn, owing re-reads per owesNotice.
 
 ## Rejected
 - Dropping built tasks from the block: the agent would lose the number it reports against.
@@ -72,3 +76,12 @@ filter matches whoOf against the same name).
   - WARNING: repeating tasks waiting for their next run: unreachable (setBuilt drops built on a recurring task).
   - NIT taken: the test header named the wait. NITs not taken: a sentence in the standing rules about the mark (changes
     every agent's instructions; the mark explains itself); the plan's suite count (measured here, stated with its files).
+- Round 5 (opus): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 3 NIT.
+  - WARNING: a repeat rule drops a built mark (setRepeat) but the repeat route synced nobody, so the block kept "built".
+    Fixed: the route reads the task first and, if the mark went, re-syncs the holders (tellEveryoneOn with notice). Test +
+    CONTROL (not built: no sync); perturbation red. (Give and part routes already rewrite the block through
+    tellEveryoneOn when they drop the mark for new work, and the holder is told of the new work.)
+  - WARNING: "its note says what is left" could point at no note. Fixed: the mark names `task show <project> <n>`.
+  - NITs taken: the built route now calls tellEveryoneOn (it fetches a roster if none), not a hand copy, and its comment
+    says owesNotice decides; the route test's agent case now runs the real new-mark path (waitsOnly off).
+  - After: new files 5/5 and 5/5; every repeat, built, block and sync file (67): 2186 tests, 0 fail.

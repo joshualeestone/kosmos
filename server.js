@@ -28353,6 +28353,7 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen && !card) { sendJson(res, 403, { error: 'Kosmos could not tell which agent sent that, so the task was not changed' }); return; }
       const by = viaScreen ? 'operator' : card.sessionName;
       let task;
+      let builtDropped = null;   // kosmos#9176 review 5: a repeat rule drops a built mark (setRepeat); its holders are re-synced below
       try {
         if (taskRepeat[3] === 'ran') {
           // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
@@ -28376,7 +28377,12 @@ const server = http.createServer(async (req, res) => {
             const problem = cur ? tasks.reviewerProblem(proj, cur, body.reviewer, { person: viaScreen }) : null;
             if (problem) throw new Error(problem);
           }
-          if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          if (rule === null || body.every !== undefined) {
+            let prior = null;
+            try { const pr = projects.readAll().find((x) => x && x.id === id); prior = pr ? tasks.byNumber(pr, taskRepeat[2]) : null; } catch { prior = null; }
+            task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+            if (prior && prior.builtAt && task && !task.builtAt) builtDropped = task;
+          }
           // Review 3: a time or day with no frequency would be dropped without a word (both CLIs refuse it too).
           if (rule !== null && body.every === undefined && (body.at !== undefined || body.on !== undefined || body.minute !== undefined)) throw new Error('a time or a day goes with how often: hourly, daily or weekly');
           if (rule !== null && body.reviewer !== undefined) task = tasks.setReviewer(id, taskRepeat[2], body.reviewer, { person: viaScreen });
@@ -28387,6 +28393,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
+      // kosmos#9176 review 5: the holders' instruction blocks showed it built; they are rewritten now the mark is gone.
+      if (builtDropped) { try { tellEveryoneOn(builtDropped, null, { notice: { projectId: id, by: viaScreen ? null : by } }); } catch { /* the rule stands */ } }
       /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
          look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
       if (taskRepeat[3] === 'ran' && task) {
@@ -28575,14 +28583,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
-      /* kosmos#9176 review 4: each holder's instruction block marks a task built for that holder (projects.blockBody), so
-         a set or a clear that changed the mark re-syncs every holder, owing a re-read to each one it did not come from.
-         The mark stands whatever the sync does. */
-      if (out.changed) {
-        for (const one of tasks.whoOf(out.task)) {
-          try { projects.syncAgent(one, roster, { byOther: owesNotice(id, one, by) }); } catch { /* the mark stands; the next sync catches up */ }
-        }
-      }
+      /* kosmos#9176 review 4: each holder's instruction block shows a task built for that holder (projects.blockBody), so a
+         set or a clear that changed the mark re-syncs every holder; owesNotice decides who is owed a re-read. */
+      if (out.changed) { try { tellEveryoneOn(out.task, null, { notice: { projectId: id, by } }); } catch { /* the mark stands; the next sync catches up */ } }
       let delivered = null;
       let summary = null;
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the

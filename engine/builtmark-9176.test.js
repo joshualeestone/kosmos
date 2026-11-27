@@ -29,7 +29,7 @@ const lineOf = (body, proj, n) => body.split('\n').find((l) => l.includes(`task 
 
 test('#9176: a built task is listed, marked built; an open task beside it is not marked (control)', () => {
   const body = projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: [task(1, BUILT), task(2)] }], 'ada');
-  assert.match(lineOf(body, 'Live', 1), /\[built: done and waiting; its note says what is left\]$/, body);
+  assert.match(lineOf(body, 'Live', 1), /\[built: done and waiting; `[^`]*task show live 1` has the rest\]$/, body);
   assert.ok(lineOf(body, 'Live', 2), 'control: the open task is missing: ' + body);
   assert.doesNotMatch(lineOf(body, 'Live', 2), /\[built|\[on hold/, 'control: an open task was marked');
 });
