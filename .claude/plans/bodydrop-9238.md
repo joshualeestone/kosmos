@@ -9,8 +9,8 @@ Card: kosmos#9238. Finished means: `kosmos community post '<title>' <<'END' <bod
 - The server and the reader are not involved: the board stored what the CLI sent.
 
 ## Change
-1. install/kosmos: `_words_and_piped`, called by post, comment, edit and endorse when there are words and no --body-file. It refuses (exit 2, nothing sent) when stdin holds text that is not white space. Found without waiting where it can: a regular file (a heredoc under zsh or bash 3.2, `< file`) is read at once; a FIFO (a bash 5 heredoc, `cat f |`) gets 300 ms; a terminal, a socket (what a tool runner such as node hands over) or /dev/null is never read. The probe failing is not a refusal.
-2. tools/windows/kosmos-cli.js: the same, as `stdinHasText` and `wordsAndPiped`, through a ctx seam (`stdinHasText`); a caller that hands in its own `readStdin` and no probe gets none.
+1. install/kosmos: `_words_and_piped`, called by post, comment, edit and endorse when there are words and no --body-file. It refuses (exit 2, nothing sent) when stdin holds text that is not white space. One rule on both CLIs: a regular file (a heredoc under zsh or bash 3.2, `< file`) is read at once, to its end or its first text; a terminal or a character device (/dev/null, NUL) is never read; anything else (a FIFO such as a bash 5 heredoc or `cat f |`, a Windows named pipe, the socket a program spawning kosmos hands over) is watched for at most 300 ms in all, stopping at its first text, so a writer that never stops cannot hold it. Only whether text came is kept. The probe failing is not a refusal. The three hints are the same words on both CLIs (a test reads both files).
+2. tools/windows/kosmos-cli.js: the same rule, as `stdinHasText` (its own fixed deadline, not readStandardInput's quiet timer, which a steady writer resets for ever) and `wordsAndPiped`, through a ctx seam (`stdinHasText`); a caller that hands in its own `readStdin` and no probe gets none.
 3. engine/communityguide.js TITLE_RULE names --topic and says never to type the title bare.
 4. Tests: cli.community-words-and-piped-9238.test.js (the real Mac CLI against a stub board that records what reaches it: --topic plus a heredoc arrives whole with its title; the bare title with a heredoc as a file and as a FIFO is refused with nothing sent; words alone with /dev/null, an empty FIFO, white space, node's open pipe, and an idle FIFO post at once, the idle FIFO after the 0.3 s peek; comment/edit/endorse refused and their controls). tools.windows-kosmos-cli-words-and-piped-9238.test.js (the four verbs through main()'s seams, and the real probe against a file, white space, /dev/null, a socket, a FIFO with text, an empty FIFO and an idle FIFO).
 
@@ -19,9 +19,10 @@ Card: kosmos#9238. Finished means: `kosmos community post '<title>' <<'END' <bod
 - The 27 related files (every cli.community-*, every tools.windows-kosmos-cli-community-*, body-file, reply-stdin, communityblock, communityguide): 312 tests, 0 failed. engine.reachable, install.reachable, fixture-discipline: 74/74.
 
 ## Rejected
+- Leaving sockets unread (the first version): a program that spawns kosmos with words and a body still lost the body silently, and Windows (where the same pipe is a named pipe) behaved differently.
 - Taking the words as the title when text is piped: matches every case seen, but publishes a public post on a guess; refusing costs one re-run and is never wrong.
 - Fixing only TITLE_RULE: anyone who types the bare form would still lose the body silently.
 - Reading stdin whenever there are words: a plain `post "words"` from a tool runner would wait the 3 s quiet read every time.
 
 ## Weakest premise
-That the other two affected authors (other installs) hit this same path. Their stored posts have the same shape on the reader (a one-line body equal to the title), but their commands are not visible here. A socket stdin carrying a body (a tool runner piping text and passing words) is also not caught; it is pinned by a test as deliberate.
+That the other two affected authors (other installs) hit this same path. Their stored posts have the same shape on the reader (a one-line body equal to the title), but their commands are not visible here. Also: text that reaches a pipe more than 300 ms after the command starts is not seen, and the words are sent as before.

@@ -43,10 +43,10 @@ function harness({ piped }) {
 }
 
 const VERBS = [
-  { args: ['community', 'post', 'A stale lock rule'], verbed: 'posted', hint: /put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>'/ },
-  { args: ['community', 'comment', ID, 'a reply'], verbed: 'sent' },
-  { args: ['community', 'edit', 'post', ID, 'new words'], verbed: 'changed', hint: /To change the title, put it in --topic\./ },
-  { args: ['community', 'endorse', 'someagent', '4', 'good work'], verbed: 'sent' },
+  { args: ['community', 'post', 'A stale lock rule'], verbed: 'posted', hint: 'To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic \'<a short title>\', with the post piped in after it.' },
+  { args: ['community', 'comment', ID, 'a reply'], verbed: 'sent', hint: 'Pipe the text in alone, or give all of it as words.' },
+  { args: ['community', 'edit', 'post', ID, 'new words'], verbed: 'changed', hint: 'To change the title, put it in --topic; pipe the text in alone, or give all of it as words.' },
+  { args: ['community', 'endorse', 'someagent', '4', 'good work'], verbed: 'sent', hint: 'Pipe the text in alone, or give all of it as words.' },
 ];
 
 for (const v of VERBS) {
@@ -57,7 +57,7 @@ for (const v of VERBS) {
     assert.equal(code, 2, h.all());
     assert.equal(h.sent.length, 0, 'it was sent anyway: ' + JSON.stringify(h.sent[0] && h.sent[0].body));
     assert.match(h.all(), new RegExp('Nothing was ' + v.verbed + ': there are words on the command line and text piped in too'));
-    if (v.hint) assert.match(h.all(), v.hint);
+    assert.ok(h.all().split('\n').includes(v.hint), 'the hint is not said word for word: ' + h.all());
   });
   test('#9238 CONTROL ' + name + ' with words and nothing piped still sends the words', async () => {
     const h = harness({ piped: false });
@@ -102,6 +102,8 @@ function probe(stdin) {
     else if (stdin.fifo !== undefined) {
       const f = path.join(TMP, 'fifo-' + Math.random().toString(16).slice(2)); fs.writeFileSync(f, stdin.fifo);
       cmd = '/bin/sh'; argv = ['-c', 'cat "$1" | "$2" -e "$3"', 'sh', f, process.execPath, PROBE];
+    } else if (stdin.producer !== undefined) {
+      cmd = '/bin/sh'; argv = ['-c', stdin.producer + ' | { "$1" -e "$2"; echo; echo PROBE_DONE_9238; }', 'sh', process.execPath, PROBE];
     } else if (stdin.fifoIdle !== undefined) {
       cmd = '/bin/sh'; argv = ['-c', 'sleep "$1" | { "$2" -e "$3"; echo; echo PROBE_DONE_9238; }', 'sh', String(stdin.fifoIdle), process.execPath, PROBE];
     }
@@ -121,11 +123,22 @@ function probe(stdin) {
 test('#9238 stdinHasText: a heredoc (a file) with text is text', async () => { assert.equal((await probe({ file: BODY + '\n' })).value, 'true'); });
 test('#9238 stdinHasText: a file of white space only is not text', async () => { assert.equal((await probe({ file: '  \n\n' })).value, 'false'); });
 test('#9238 stdinHasText: /dev/null is not text', async () => { assert.equal((await probe({ devnull: true })).value, 'false'); });
-test('#9238 stdinHasText: node\'s own pipe (a socket) is never read, even with text on it', async () => { assert.equal((await probe({ socket: BODY })).value, 'false'); });
+test('#9238 stdinHasText: node\'s own pipe (a socket, what a program spawning kosmos hands over) with text is text', async () => { assert.equal((await probe({ socket: BODY })).value, 'true'); });
+test('#9238 stdinHasText: a file whose text comes after 70,000 spaces is text', async () => { assert.equal((await probe({ file: ' '.repeat(70000) + BODY })).value, 'true'); });
 test('#9238 stdinHasText: a shell pipe with text is text', { skip: SKIP_SHELL }, async () => { assert.equal((await probe({ fifo: BODY + '\n' })).value, 'true'); });
 test('#9238 stdinHasText: an empty shell pipe is not text', { skip: SKIP_SHELL }, async () => { assert.equal((await probe({ fifo: '' })).value, 'false'); });
 test('#9238 stdinHasText: a shell pipe whose writer sends nothing answers false after the short peek, not the 3 s read', { skip: SKIP_SHELL }, async () => {
   const r = await probe({ fifoIdle: 4 });
   assert.equal(r.value, 'false', r.out);
   assert.ok(typeof r.doneAt === 'number' && r.doneAt >= 250 && r.doneAt < 2500, 'the probe answered after ' + r.doneAt + ' ms (the peek is ' + cli.PIPED_PEEK_MS + ' ms)');
+});
+test('#9238 stdinHasText: a writer that never stops (yes) is text at once, not a hold', { skip: SKIP_SHELL }, async () => {
+  const r = await probe({ producer: 'yes' });
+  assert.equal(r.value, 'true', r.out);
+  assert.ok(typeof r.doneAt === 'number' && r.doneAt < 2500, 'the probe answered after ' + r.doneAt + ' ms');
+});
+test('#9238 stdinHasText: a writer of spaces that never stops is not text, and the peek ends on time', { skip: SKIP_SHELL }, async () => {
+  const r = await probe({ producer: "yes ' '" });
+  assert.equal(r.value, 'false', r.out);
+  assert.ok(typeof r.doneAt === 'number' && r.doneAt >= 250 && r.doneAt < 2500, 'the probe answered after ' + r.doneAt + ' ms (the peek is ' + cli.PIPED_PEEK_MS + ' ms in all)');
 });

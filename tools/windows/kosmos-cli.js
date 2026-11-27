@@ -300,6 +300,50 @@ function textFileDecoded(buf) {
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
 function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, ''); }
 
+/* kosmos#9238: the same rule as the Mac's _words_and_piped. Whether stdin holds text (not white space only) when the
+   words are on the command line too: a file (a heredoc, `< file`) is read at once, to its end or its first text; a
+   console or a character device (NUL, /dev/null) is never read; anything else (a pipe, a named pipe, a socket) is
+   watched for at most PIPED_PEEK_MS in all, stopping at its first text, so a writer that never stops cannot hold it.
+   Only whether text came is kept, never the text. A probe that fails answers false: the words are sent, as before. */
+const PIPED_PEEK_MS = 300;
+function stdinHasText(fd = 0, stream) {
+  const has = (b) => /\S/.test(b.toString('utf8'));
+  let st;
+  try { st = fs.fstatSync(fd); } catch { return Promise.resolve(false); }
+  if (st.isFile()) {
+    const buf = Buffer.alloc(65536);
+    for (;;) {
+      let n = 0;
+      try { n = fs.readSync(fd, buf, 0, buf.length, null); } catch { return Promise.resolve(false); }
+      if (n === 0) return Promise.resolve(false);
+      if (has(buf.subarray(0, n))) return Promise.resolve(true);
+    }
+  }
+  const input = stream || process.stdin;
+  if (st.isCharacterDevice() || input.isTTY) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => {
+      if (done) return; done = true; clearTimeout(timer);
+      input.removeListener('data', onData);
+      input.pause(); if (typeof input.destroy === 'function') input.destroy();
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(false), PIPED_PEEK_MS);
+    function onData(d) { if (has(Buffer.isBuffer(d) ? d : Buffer.from(String(d)))) finish(true); }
+    input.on('data', onData);
+    input.once('end', () => finish(false));
+    input.once('error', () => finish(false));
+  });
+}
+async function wordsAndPiped(ctx, verbed, hint) {
+  if (ctx.psPipeline) return undefined;   // PowerShell never hands its pipeline to node (see psPipelineRefused)
+  if (!(await ctx.stdinHasText())) return undefined;
+  ctx.err('Nothing was ' + verbed + ': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.');
+  ctx.err(hint);
+  return 2;
+}
+
 /* How long piped input may stay silent before it is taken as ended (review round 1).
    A tool runner can hand `kosmos` a stdin pipe it never writes to and never closes,
    and reading that to its end would hang the command for good. Text piped in by
@@ -321,32 +365,6 @@ const STDIN_QUIET_LIMIT_MS = 3000;
  *   writes to can never hang the command.
  * `stream` and `quietMs` are also the seams a test drives.
  */
-/* kosmos#9238: as the Mac's _words_and_piped. Whether stdin holds text (not white space only) when the words are on the
-   command line too: a file (a heredoc, `< file`) is read at once; a pipe gets PIPED_PEEK_MS; a console or anything
-   else is never read, so words alone cost nothing. A probe that fails answers false: the words are sent, as before. */
-const PIPED_PEEK_MS = 300;
-function stdinHasText(fd = 0) {
-  const has = (b) => /\S/.test(b.toString('utf8'));
-  let st;
-  try { st = fs.fstatSync(fd); } catch { return Promise.resolve(false); }
-  if (st.isFile()) {
-    if (st.size === 0) return Promise.resolve(false);
-    const buf = Buffer.alloc(Math.min(st.size, 65536));
-    let n = 0;
-    try { n = fs.readSync(fd, buf, 0, buf.length, null); } catch { return Promise.resolve(false); }
-    return Promise.resolve(has(buf.subarray(0, n)));
-  }
-  if (!st.isFIFO() || process.stdin.isTTY) return Promise.resolve(false);
-  return readStandardInput(process.stdin, PIPED_PEEK_MS).then((r) => has(Buffer.from(String(r.text || ''))), () => false);
-}
-async function wordsAndPiped(ctx, verbed, hint) {
-  if (ctx.psPipeline) return undefined;   // PowerShell never hands its pipeline to node (see psPipelineRefused)
-  if (!(await ctx.stdinHasText())) return undefined;
-  ctx.err('Nothing was ' + verbed + ': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.');
-  if (hint) ctx.err(hint);
-  return 2;
-}
-
 function readStandardInput(stream, quietMs, maxBytes) {
   const input = stream || process.stdin;
   if (input.isTTY) return Promise.resolve({ text: '', ended: false });
@@ -3926,7 +3944,7 @@ async function communityPost(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>'"); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the post as words or in --body-file, not both, so nothing was posted.'); return 2; }
@@ -4006,7 +4024,7 @@ async function communityComment(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent'); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the comment as words or in --body-file, not both, so nothing was sent.'); return 2; }
@@ -4234,7 +4252,7 @@ async function communityEdit(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', 'To change the title, put it in --topic.'); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', "To change the title, put it in --topic; pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the new words as words or in --body-file, not both, so nothing was changed.'); return 2; }
@@ -4301,7 +4319,7 @@ async function communityEndorse(ctx, args) {
   if (args.length < 2 || !args[0]) { ctx.err(ENDORSE_USAGE); return 2; }
   const [name, stars, ...rest] = args;
   if (!/^[1-5]$/.test(stars)) { ctx.err('Give 1 to 5 stars. ' + ENDORSE_USAGE); return 2; }
-  if (rest.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent'); if (c !== undefined) return c; }   // kosmos#9238
+  if (rest.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
   let text = rest.join(' ');
   if (bf.file !== null) {
     if (rest.length) { ctx.err('Give the review as words or in --body-file, not both, so nothing was sent.'); return 2; }

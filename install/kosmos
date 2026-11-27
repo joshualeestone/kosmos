@@ -628,10 +628,13 @@ _body_file_and_words() {
 
 # kosmos#9238: words on the command line AND text piped in. These verbs take the words and never read stdin, so a post
 # sent with its title typed bare (post '<title>' <<'END' ...) arrived as the title alone, and the verb said it was
-# queued. Now that is refused and nothing is sent. Whether stdin holds text is decided without waiting where it can: a
-# regular file (a heredoc, a here-string, < file) is read at once; a pipe gets KOSMOS_PIPED_PEEK_MS of quiet; a
-# terminal, a socket or /dev/null is never read, so words alone cost nothing. The probe failing is not a refusal (the
-# words are sent, as before). Only text that is not white space counts. <past tense> [<a line saying what to do>]
+# queued. Now that is refused and nothing is sent. Whether stdin holds text is decided the same way as the Windows CLI's
+# stdinHasText: a regular file (a heredoc, a here-string, < file) is read at once, to its end or its first text; a
+# terminal or a character device (/dev/null) is never read; anything else (a pipe, or the socket a program such as
+# node hands over) is watched for at most KOSMOS_PIPED_PEEK_MS in all, stopping at its first text, so a writer that
+# never stops cannot hold it. Only whether text came is kept, never the text. Words alone with an open, empty pipe or
+# socket cost that peek, nothing more. The probe failing is not a refusal (the words are sent, as before). Only text
+# that is not white space counts. <past tense> <a line saying what to do>
 KOSMOS_PIPED_PEEK_MS=300   # never taken from the caller's environment
 _words_and_piped() {
   [ -t 0 ] && return 0
@@ -641,21 +644,23 @@ _words_and_piped() {
     const fs = require("fs"); const has = (b) => /\S/.test(b.toString("utf8"));
     let st; try { st = fs.fstatSync(0); } catch { process.exit(0); }
     if (st.isFile()) {
-      if (st.size === 0) process.exit(0);
-      const buf = Buffer.alloc(Math.min(st.size, 65536)); let n = 0;
-      try { n = fs.readSync(0, buf, 0, buf.length, null); } catch { process.exit(0); }
-      process.exit(has(buf.subarray(0, n)) ? 3 : 0);
+      const buf = Buffer.alloc(65536);
+      for (;;) {
+        let n = 0;
+        try { n = fs.readSync(0, buf, 0, buf.length, null); } catch { process.exit(0); }
+        if (n === 0) process.exit(0);
+        if (has(buf.subarray(0, n))) process.exit(3);
+      }
     }
-    if (!st.isFIFO()) process.exit(0);
-    const chunks = [];
-    const t = setTimeout(() => process.exit(has(Buffer.concat(chunks)) ? 3 : 0), Number(process.env.KOSMOS_PEEK_MS));
-    process.stdin.on("data", (d) => { chunks.push(d); if (has(Buffer.concat(chunks))) { clearTimeout(t); process.exit(3); } });
-    process.stdin.on("end", () => { clearTimeout(t); process.exit(has(Buffer.concat(chunks)) ? 3 : 0); });
+    if (st.isCharacterDevice()) process.exit(0);
+    const t = setTimeout(() => process.exit(0), Number(process.env.KOSMOS_PEEK_MS));
+    process.stdin.on("data", (d) => { if (has(Buffer.isBuffer(d) ? d : Buffer.from(String(d)))) { clearTimeout(t); process.exit(3); } });
+    process.stdin.on("end", () => { clearTimeout(t); process.exit(0); });
     process.stdin.on("error", () => { clearTimeout(t); process.exit(0); });
   ' || _rc=$?
   [ "$_rc" -eq 3 ] || return 0
   say "Nothing was $1: there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other."
-  [ -z "${2:-}" ] || say "$2"
+  say "$2"
   exit 2
 }
 
@@ -5115,7 +5120,7 @@ cmd_community() {
   if [ $# -gt 0 ]; then
     _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped posted "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>' <<'KOSMOS_END'"   # kosmos#9238
+  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped posted "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."   # kosmos#9238
   if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "posted" "post" "Save it in a file instead and give its path: kosmos community post --body-file <file>"; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin)."
@@ -5234,7 +5239,7 @@ cmd_community_comment() {
   if [ $# -gt 0 ]; then
     _text_args "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped sent   # kosmos#9238
+  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped sent "Pipe the text in alone, or give all of it as words."   # kosmos#9238
   if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "sent" "comment" "Save it in a file instead and give its path: kosmos community comment <post-id> --body-file <file>"; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin)."
@@ -5683,7 +5688,7 @@ cmd_community_edit() {
   if [ $# -gt 0 ]; then
     _text_args "community edit" "$_usage" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}
   fi
-  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped changed "To change the title, put it in --topic."   # kosmos#9238
+  [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped changed "To change the title, put it in --topic; pipe the text in alone, or give all of it as words."   # kosmos#9238
   if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community edit" "$_usage"; _read_body_file changed; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "changed" "text" "Save it in a file instead and give its path: kosmos community edit <post|comment> <id> --body-file <file>"; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to change: give the new words (after the id, or piped in on stdin)."
@@ -5755,7 +5760,7 @@ cmd_community_endorse() {
       *) say "Give 1 to 5 stars. $_usage"; exit 2 ;;
     esac
     if [ "${1:-}" = "--" ]; then shift; fi   # kosmos#5970: `--` ends the options, as for the other verbs, and is not review text
-    [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped sent   # kosmos#9238
+    [ $# -eq 0 ] || [ -n "$KOSMOS_BODY_FILE" ] || _words_and_piped sent "Pipe the text in alone, or give all of it as words."   # kosmos#9238
     if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community endorse" "$_usage"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else _read_stdin_quiet || _stdin_refused $? "sent" "review" "Save it in a file instead and give its path: kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>"; text="$KOSMOS_STDIN_TEXT"; fi   # kosmos#5970, #8905
     if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
       say "Nothing to send: an endorsement needs a short review (pass it after the stars, or pipe it in on stdin)."

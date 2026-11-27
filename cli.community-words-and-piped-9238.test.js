@@ -53,6 +53,11 @@ function run(args, port, stdin) {
       fs.writeFileSync(f, stdin.fifo);
       cmd = '/bin/sh'; argv = ['-c', 'cat "$1" | { shift; "$CLI9238" "$@"; }', 'sh', f, ...args];
       env.CLI9238 = CLI;
+    } else if (stdin.producer !== undefined) {
+      // a fixed shell command written by this test, piped into the CLI (for writers that never stop)
+      cmd = '/bin/sh';
+      argv = ['-c', stdin.producer + ' | { "$CLI9238" "$@"; rc=$?; echo "CLI_DONE_9238" >&2; exit $rc; }', 'sh', ...args];
+      env.CLI9238 = CLI;
     } else if (stdin.fifoIdle !== undefined) {
       cmd = '/bin/sh';
       argv = ['-c', 'sleep "$1" | { shift; "$CLI9238" "$@"; rc=$?; echo "CLI_DONE_9238" >&2; exit $rc; }', 'sh', String(stdin.fifoIdle), ...args];
@@ -115,26 +120,40 @@ test('#9238 CONTROL: the title in --topic and the body in a heredoc: the board g
   assert.equal(seen[0].body.topic, TITLE);
 }));
 
-for (const [how, stdin] of [['a heredoc (a file)', { file: BODY + '\n' }], ['a heredoc on Linux bash (a pipe)', { fifo: BODY + '\n' }]]) {
+const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const POST_HINT = "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it.";
+const ALONE_HINT = 'Pipe the text in alone, or give all of it as words.';
+const EDIT_HINT = 'To change the title, put it in --topic; pipe the text in alone, or give all of it as words.';
+
+for (const [how, stdin] of [
+  ['a heredoc (a file)', { file: BODY + '\n' }],
+  ['a heredoc on Linux bash (a pipe)', { fifo: BODY + '\n' }],
+  ['node\'s own pipe (a socket, what a program spawning kosmos hands over)', { socket: BODY + '\n' }],
+  ['a file whose text comes after 70,000 spaces', { file: ' '.repeat(70000) + BODY }],
+]) {
   test('#9238 the title typed bare with the body in ' + how + ' is refused, nothing reaches the board, and --topic is named', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(['community', 'post', TITLE], port, stdin);
     assert.equal(r.code, 2, r.out);
     assert.equal(seen.length, 0, 'it was sent anyway: ' + JSON.stringify(seen[0] && seen[0].body));
     assert.match(r.out, /Nothing was posted: there are words on the command line and text piped in too/);
-    assert.match(r.out, /put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>'/);
+    assert.match(r.out, new RegExp(esc(POST_HINT)));
     assert.doesNotMatch(r.out, /Queued for the Kosmos\+ community/);
   }));
 }
 
-test('#9238 CONTROL: the title typed bare with the body on node\'s own stdin pipe (a socket, never read) still posts the words, as before', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
-  // A socket is what a tool runner, not a shell, hands over; the check reads only files and FIFOs, so this is the
-  // shape it deliberately leaves alone. Pinned so a widening of the probe is a decision, not a side effect.
-  const r = await run(['community', 'post', TITLE], port, { socket: BODY + '\n' });
-  assert.equal(r.code, 0, r.out);
-  assert.equal(seen.length, 1, r.out);
+test('#9238 a writer that never stops (yes) is refused at its first text, not held by it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const r = await run(['community', 'post', TITLE], port, { producer: 'yes' });
+  assert.equal(r.code, 2, r.out);
+  assert.equal(seen.length, 0, r.out);
+  assert.ok(typeof r.cliDone === 'number' && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms');
 }));
 
-for (const [how, stdin] of [['/dev/null', { devnull: true }], ['an empty shell pipe', { fifo: '' }], ['a heredoc of white space only', { file: '  \n\n' }], ['node\'s own pipe left open with nothing on it', { open: true }]]) {
+for (const [how, stdin] of [
+  ['/dev/null', { devnull: true }],
+  ['an empty shell pipe', { fifo: '' }],
+  ['a heredoc of white space only', { file: '  \n\n' }],
+  ['node\'s own pipe left open with nothing on it', { open: true }],
+]) {
   test('#9238 words alone with ' + how + ' on stdin still post the words, at once', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(['community', 'post', 'just these words'], port, stdin);
     assert.equal(r.code, 0, r.out);
@@ -144,26 +163,29 @@ for (const [how, stdin] of [['/dev/null', { devnull: true }], ['an empty shell p
   }));
 }
 
-test('#9238 words alone with a shell pipe whose writer sends nothing waits only the short peek, then posts the words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
-  const r = await run(['community', 'post', 'just these words'], port, { fifoIdle: 4 });
-  assert.equal(r.code, 0, r.out);
-  assert.equal(seen.length, 1, r.out);
-  assert.equal(seen[0].body.body, 'just these words');
-  assert.ok(typeof r.cliDone === 'number', 'the shell never said the CLI finished: ' + r.out);
-  assert.ok(r.cliDone >= 250 && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms: the peek is 0.3 s, never the 3 s quiet read, and not 0 (it did look)');
-}));
+for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoIdle: 4 }], ['a writer of spaces that never stops', { producer: "yes ' '" }]]) {
+  test('#9238 words alone with ' + how + ' wait only the short peek, then post the words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+    const r = await run(['community', 'post', 'just these words'], port, stdin);
+    assert.equal(r.code, 0, r.out);
+    assert.equal(seen.length, 1, r.out);
+    assert.equal(seen[0].body.body, 'just these words');
+    assert.ok(typeof r.cliDone === 'number', 'the shell never said the CLI finished: ' + r.out);
+    assert.ok(r.cliDone >= 250 && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms: the peek is 0.3 s in all, never the 3 s quiet read, and not 0 (it did look)');
+  }));
+}
 
 for (const v of [
-  { args: ['community', 'comment', ID, 'a reply'], verbed: 'sent' },
-  { args: ['community', 'edit', 'post', ID, 'new words'], verbed: 'changed' },
-  { args: ['community', 'endorse', 'someagent', '4', 'good work'], verbed: 'sent' },
+  { args: ['community', 'comment', ID, 'a reply'], verbed: 'sent', hint: ALONE_HINT },
+  { args: ['community', 'edit', 'post', ID, 'new words'], verbed: 'changed', hint: EDIT_HINT },
+  { args: ['community', 'endorse', 'someagent', '4', 'good work'], verbed: 'sent', hint: ALONE_HINT },
 ]) {
   const name = 'kosmos ' + v.args.slice(0, 2).join(' ');
-  test('#9238 ' + name + ' with words and a heredoc too is refused, nothing reaches the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  test('#9238 ' + name + ' with words and a heredoc too is refused, nothing reaches the board, and what to do is said', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(v.args, port, { file: BODY + '\n' });
     assert.equal(r.code, 2, r.out);
     assert.equal(seen.length, 0, 'it was sent anyway: ' + r.out);
     assert.match(r.out, new RegExp('Nothing was ' + v.verbed + ': there are words on the command line and text piped in too'));
+    assert.match(r.out, new RegExp(esc(v.hint)));
   }));
   test('#9238 CONTROL ' + name + ' with words alone still reaches the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(v.args, port, { devnull: true });
@@ -171,3 +193,12 @@ for (const v of [
     assert.ok(seen.length >= 1, 'nothing reached the board, so this control shows nothing: ' + r.out);
   }));
 }
+
+test('#9238 the Mac and Windows CLIs say the same three hints, word for word', () => {
+  const mac = fs.readFileSync(CLI, 'utf8');
+  const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  for (const h of [POST_HINT, ALONE_HINT, EDIT_HINT]) {
+    assert.ok(mac.includes(h.replace(/'/g, "'")), 'the Mac CLI lacks: ' + h);
+    assert.ok(win.includes(JSON.stringify(h)), 'the Windows CLI lacks: ' + h);
+  }
+});
