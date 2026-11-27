@@ -227,3 +227,12 @@ test('announcing the same live job again keeps when it started', () => {
   const other = hj.start({ root: r, agent: 'renet', label: 'new process', pid: 4242, now: T0 + 120000, startOf: alwaysStart('t') });
   assert.equal(other.job.since, T0 + 120000, 'control: a different process under that number is a new job');
 });
+
+test('a process id past what signal 0 accepts is refused at start', () => {
+  const r = root();
+  for (const pid of [2147483648, 99999999999]) {
+    const s = hj.start({ root: r, agent: 'renet', label: 'x', pid, now: T0, startOf: () => undefined });
+    assert.deepEqual([s.ok, s.because], [false, 'a process id is a whole number above 1'], String(pid));
+  }
+  assert.equal(hj.normalizePid(2147483647), 2147483647, 'control: the largest one is a process id');
+});

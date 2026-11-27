@@ -48,11 +48,11 @@ function normalizeLabel(value) {
   return v;
 }
 
-/* A positive process id, or null for none; throws on anything else. */
+/* A process id (2 to 2^31-1, what signal 0 accepts everywhere), or null for none; throws on anything else. */
 function normalizePid(value) {
   if (value === undefined || value === null || value === '') return null;
   const n = typeof value === 'number' ? value : (/^[0-9]+$/.test(String(value)) ? Number(value) : NaN);
-  if (!Number.isSafeInteger(n) || n <= 1) throw new Error('a process id is a whole number above 1');
+  if (!Number.isSafeInteger(n) || n <= 1 || n > 2147483647) throw new Error('a process id is a whole number above 1');
   return n;
 }
 
@@ -110,7 +110,7 @@ function isLive(j, { now, startOf, agentAlive }) {
   return true;
 }
 
-/* Signal 0 first: a gone process costs nothing to recognise. A live one's start time is read with ps, and kept for
+/* Signal 0 first: a gone process costs nothing to recognise (another user's process answers EPERM, and is kept as alive). A live one's start time is read with ps, and kept for
    START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll; a number reused
    inside that window is judged by the old start until it runs out. */
 const startCache = new Map();
