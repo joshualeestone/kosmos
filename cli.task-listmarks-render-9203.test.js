@@ -16,13 +16,19 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * What is left of a row once its groups are out must be the printer's fixed columns, so a mark printed without
  * brackets is caught too (review 1).
  *
- * The second test keeps the first honest: every field a printer reads (`x.<field>`, and a sub-field of an object field,
- * `x.subtasks.<name>` or through a name for it, read out of each printer's source) must be set by some fixture, and
- * every helper a printer calls with the task must be inside the source read. So a printer that grows a mark on a NEW
- * field turns this red until the fixtures (and so the first test) cover it.
+ * The second test keeps the first honest: every field a printer reads must be set by some fixture, and every helper a
+ * printer calls with the task must be inside the source read. A read is found as `x.<field>` or `x?.<field>`, as a
+ * helper's own parameter when the helper is called with x first, as destructuring (`const { f } = x`), and one level
+ * down for an object field (`x.subtasks.<name>`, or through a name for it: `const u = x && x.onHoldUntil; u.task`).
+ * A read written any other way (a computed `x[k]`, a second alias of an alias) is not seen.
  * NOT COVERED, stated (review 1): a new mark on a new VALUE of a field the fixtures already set (builtWaitingOn ===
  * 'deploy'). No field scan can see a value; only a fixture with that value can. Lines without the title (done when,
  * still to finish, the fingerprint) are not checked: a title is folded onto one line, so it can never start one.
+ * A group is checked whole: a new word added INSIDE a group that already has a mark word ("(last activity today;
+ * zebra crossing)") passes. Splitting groups on commas would turn harmless parts red ("1 dropped", "next Monday"), and a
+ * title passes for the group only by carrying its known word too. The wake mark's words ("[waits for ...]") come from
+ * the board (engine/taskwake.js, which always starts them "waits until" or "waits for"), not from the printer; the
+ * fixture uses the board's form.
  * Rows are matched to fixtures by order (every printer keeps the board's order); a printer that sorted would give a
  * false red here, never a false pass.
  *
@@ -161,7 +167,7 @@ function markGroups(row, x) {
    (project, #N, the state, the owner's names or "nobody") or nothing on a long list; after it, nothing but a webhook
    title's closing quote. */
 function leftover(text) { let out = text; for (const g of groupsOf(text)) out = out.replace(g, ''); return out; }
-const COLUMNS = /^(?:p {2})?#\d+ {2}(?:open|blocked|built) {2}(?:nobody|[a-z]+(?:, [a-z]+)*) ?(?: {2})"?$/;
+const COLUMNS = /^(?:p {2})?#\d+ {2}(?:open|blocked|built) {2}(?:nobody|(?:otto|mara)(?:, (?:otto|mara))*) ?(?: {2})"?$/;
 function unbracketed(label, row) {
   const at = row.indexOf(T);
   const before = leftover(row.slice(0, at)); const after = leftover(row.slice(at + T.length));
@@ -222,25 +228,52 @@ test('#9203 the groups test can fail: an unknown mark, and the owner name outsid
 });
 
 /* ---- the fields ---- */
-// x.<field> reads in a piece of source: not part of a longer name (so ctx.x.y or max.z do not count).
+const ID = '[A-Za-z_$][\\w$]*';
+const esc = (n) => n.replace(/\$/g, '\\$');
+const GET = '\\??\\.';   // . or ?.
+/* The names the task goes by in a piece of source: x, and (review 2) the first parameter of every helper defined there
+   that is called with x first ("function zebraOf(t)" called as zebraOf(x) reads the task as t). */
+function taskNames(src) {
+  const names = new Set(['x']);
+  const called = new Set([...src.matchAll(new RegExp('(?<![\\w$.])(' + ID + ')\\(\\s*x\\s*[,)]', 'g'))].map((m) => m[1]));
+  for (const n of called) {
+    const d = src.match(new RegExp('function\\s+' + esc(n) + '\\s*\\(\\s*(' + ID + ')'))
+      || src.match(new RegExp('(?:const|let)\\s+' + esc(n) + '\\s*=\\s*(?:function\\s*)?\\(?\\s*(' + ID + ')'));
+    if (d) names.add(d[1]);
+  }
+  return [...names];
+}
+// <name>.<field> reads in a piece of source, for each name the task goes by: not part of a longer name (ctx.x.y does
+// not count), with ?. too, and (review 2) destructuring: const { a, b: c } = x.
 function fieldsRead(src) {
-  return new Set([...src.matchAll(/(?<![\w$.])x\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));
+  const out = new Set();
+  for (const n of taskNames(src)) {
+    for (const m of src.matchAll(new RegExp('(?<![\\w$.])' + esc(n) + GET + '(' + ID + ')', 'g'))) out.add(m[1]);
+    for (const m of src.matchAll(new RegExp('(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*' + esc(n) + '(?![\\w$])', 'g'))) {
+      for (const part of m[1].split(',')) { const k = part.split(':')[0].trim(); if (k) out.add(k); }
+    }
+  }
+  return out;
 }
 /* Review 1: a mark can also hang off a SUB-field of a field the fixtures already set ("x.subtasks.zebra"), read either
-   directly or through a name for the field ("const u = x.onHoldUntil; u.task"). Each such read of an OBJECT field (an
-   array's or a string's methods are not fields) must be set by some fixture too. */
+   directly or through a name for the field ("const u = x.onHoldUntil; u.task"; review 2: also "= x && x.onHoldUntil",
+   followed by anything, and ?.). Each such read of an OBJECT field (an array's or a string's methods are not fields)
+   must be set by some fixture too. */
 function subFieldsRead(src) {
   const out = new Set();
-  for (const m of src.matchAll(/(?<![\w$.])x\.([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)/g)) out.add(m[1] + '.' + m[2]);
-  for (const a of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*x\.([A-Za-z_$][\w$]*)\s*[;,]/g)) {
-    for (const m of src.matchAll(new RegExp('(?<![\\w$.])' + a[1].replace(/\$/g, '\\$') + '\\.([A-Za-z_$][\\w$]*)', 'g'))) out.add(a[2] + '.' + m[1]);
+  for (const n of taskNames(src)) {
+    const N = esc(n);
+    for (const m of src.matchAll(new RegExp('(?<![\\w$.])' + N + GET + '(' + ID + ')' + GET + '(' + ID + ')', 'g'))) out.add(m[1] + '.' + m[2]);
+    for (const a of src.matchAll(new RegExp('(?:const|let|var)\\s+(' + ID + ')\\s*=\\s*(?:' + N + '\\s*&&\\s*)?' + N + GET + '(' + ID + ')', 'g'))) {
+      for (const m of src.matchAll(new RegExp('(?<![\\w$.])' + esc(a[1]) + GET + '(' + ID + ')', 'g'))) out.add(a[2] + '.' + m[1]);
+    }
   }
   return out;
 }
 // Review 1: a helper called with the task must be inside the source the field check reads, or its reads are unseen.
 function helpersOutside(src) {
-  const defined = new Set([...src.matchAll(/(?:function\s+|(?:const|let)\s+)([A-Za-z_$][\w$]*)\s*(?:\(|=)/g)].map((m) => m[1]));
-  return [...new Set([...src.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)\(\s*x\s*[,)]/g)].map((m) => m[1]))]
+  const defined = new Set([...src.matchAll(new RegExp('(?:function\\s+|(?:const|let)\\s+)(' + ID + ')\\s*(?:\\(|=)', 'g'))].map((m) => m[1]));
+  return [...new Set([...src.matchAll(new RegExp('(?<![\\w$.])(' + ID + ')\\(\\s*x\\s*[,)]', 'g'))].map((m) => m[1]))]
     .filter((n) => !defined.has(n) && !['String', 'Number', 'Boolean', 'Array', 'Object'].includes(n));
 }
 function between(src, from, to) {
