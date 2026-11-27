@@ -379,7 +379,8 @@ async function pull(dir, opts) {
     toFetch.push(b);
   }
   /* A few at a time, each result kept in its list place, then written IN LIST ORDER below, so two same-day blobs of one
-     install (the collect route's brief write-then-delete window) resolve exactly as the one-at-a-time loop did. */
+     install fetched in one pull (the collect route's brief write-then-delete window) resolve as the one-at-a-time loop
+     did. One already here is not fetched again, so the file keeps the newest write; the next pull settles it either way. */
   const progress = typeof o.onProgress === 'function' ? o.onProgress : null;
   const fetched = new Array(toFetch.length);
   let done = 0;
@@ -422,8 +423,10 @@ async function pull(dir, opts) {
   /* Review 1 and 2: a file about to be written will hold one of THESE reports, so no other store object may stay indexed
      as saved in it (two same-day objects of one install write one file: the one written first stayed indexed, and once
      the other was deleted from the store it was skipped for ever with the wrong content). The index is saved with those
-     entries gone BEFORE any file is written, so a pull killed mid-write, or a second pull racing it, leaves a re-fetch,
-     never a wrong skip. */
+     entries gone BEFORE any file is written, so a pull killed mid-write leaves a re-fetch, never a wrong skip. NOT covered
+     (review 3): two pulls into ONE folder at once, inside the collect route's brief window when one install has two
+     same-day objects; the later index save can then name the object the file does not hold. Pulls are run by hand, one
+     at a time; --all repairs it. */
   const goingTo = new Set(items.map((x) => path.basename(x.dest)));
   if (goingTo.size) {
     for (const k of Object.keys(index)) if (goingTo.has(index[k])) delete index[k];
@@ -464,7 +467,7 @@ async function pull(dir, opts) {
         if (REFUSED_STATUS.test(lastErr) && !/token withheld/.test(lastErr)) {
           writeIndex(target, index);
           return { ok: false, written, alreadyHere, skipped, dir: target,
-            because: 'every listed report is already in ' + target + ', but reading one back to check the token was refused: '
+            because: 'nothing new could be read, and reading back a report already in ' + target + ' to check the token was refused: '
               + lastErr + '. The token may no longer have read access to the store.' };
         }
       }
@@ -496,8 +499,7 @@ async function pull(dir, opts) {
      beside ones already here do not fail it (those are the store's, not this pull's, fault). */
   if (written === 0 && skipped > 0 && (alreadyHere === 0 || unreadable > 0 || unwritten > 0)) {
     return { ok: false, ...counts,
-      because: 'the store listed ' + reports(total) + (alreadyHere ? ': ' + alreadyHere + ' already here, and none of the new ones (' + (total - alreadyHere) + ') could be pulled: ' : ' and none was pulled: ')
-        + '' + reasonClauses(counts).join('; ')
+      because: 'the store listed ' + reports(total) + (alreadyHere ? ': ' + alreadyHere + ' already here, and none of the new ones (' + (total - alreadyHere) + ') could be pulled: ' : ' and none was pulled: ') + reasonClauses(counts).join('; ')
         + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.

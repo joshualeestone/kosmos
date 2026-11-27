@@ -46,3 +46,9 @@ module's own `runCli`.
 - [WARNING] "none was pulled (2 already here)" overstated a complete folder --> FIXED: "N already here, and none of the new ones (M) could be pulled".
 - [NIT] a pull killed between a report write and its index save could leave a wrong entry --> FIXED: records are parsed first, the files about to be written are un-indexed and the index SAVED before any write. Test simulates the stop (every later index save fails).
 - [NIT] an existing index folder keeps its mode --> ACCEPTED: the file itself is 0600.
+
+## Review round 3 (opus, blind, whole branch): no critical
+- [WARNING] a comment claimed a second pull racing into the same folder "never" causes a wrong skip; it can, inside the collect route's two-objects window --> FIXED as an ACCEPTED, stated limit: the comment now says so (pulls are run by hand, one at a time; --all repairs it). Rejected: a lock file, which adds a stale-lock failure for a case nobody has hit.
+- [NIT] "exactly as the one-at-a-time loop" was not true with a held report --> comment corrected.
+- [NIT] the refused read-back message said "every listed report is already in" beside url-less new reports --> reworded ("nothing new could be read, and reading back a report already in ..."); the test asserts the whole sentence.
+- [NIT] a stray + '' --> removed. [NIT] progress counts a url-less report as fetched --> ACCEPTED (cosmetic).

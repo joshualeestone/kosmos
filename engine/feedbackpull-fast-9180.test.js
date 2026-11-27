@@ -203,7 +203,7 @@ test('review 1: a token that can no longer read fails the pull, even when every 
   st.transport.get = async () => { throw new Error('blob get HTTP 403'); };
   const r = await fp.pull(dir, { token: TOKEN });
   assert.equal(r.ok, false, 'a pull that could read nothing passed as a success');
-  assert.match(r.because, /already in .*reading one back to check the token was refused: blob get HTTP 403\. The token may no longer have read access/, r.because);
+  assert.match(r.because, /^nothing new could be read, and reading back a report already in .* to check the token was refused: blob get HTTP 403\. The token may no longer have read access/, r.because);
   // Some new, every new one refused, others already here: still a failure.
   st.transport.get = realGet;
   st.put('feedback/x7.json', REC('c', '2026-11-26', 'three'), '2026-11-26T07:00:00.000Z');
