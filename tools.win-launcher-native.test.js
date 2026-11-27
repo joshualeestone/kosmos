@@ -497,12 +497,14 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
      web link to the person's browser (OpenInPersonsBrowser). #4543: a board that holds its port
      and does not answer is replaced before the hand-off, by schtasks /End and /Run (RunSchtasks)
      and, when it outlives that, taskkill /T on its listener (EndProcessTree); only for a person at
-     a desktop, after the checks (tools.win-launcher-stuck-board-4543.test.js). */
+     a desktop, after the checks (tools.win-launcher-stuck-board-4543.test.js). #9144: the runtime is run once,
+     `node -e 0`, to find one that crashes on every run (CheckRuntime), after the checks and before anything
+     else runs it, and again by the repair on its fresh copy (tools.win-launcher-runtime-9144.test.js). */
   const declarations = [...SOURCE.matchAll(/\n {4}(?:internal |public |private )?static [^\n(=]*?\b(\w+)\(/g)].map((m) => ({ name: m[1], at: m.index }));
   const ownerOf = (at) => declarations.filter((d) => d.at < at).pop().name;
   assert.deepEqual(launches.map(ownerOf).sort(),
-    ['EndProcessTree', 'Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'RunSchtasks', 'StartLauncherAt'],
-    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, the window\'s opener and links, and a stuck board\'s replacement');
+    ['CheckRuntime', 'EndProcessTree', 'Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'RunSchtasks', 'StartLauncherAt'],
+    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, the window\'s opener and links, a stuck board\'s replacement, and the runtime check');
   const mainAt = SOURCE.indexOf('static int Main(');
   for (const at of launches.filter((l) => ownerOf(l) === 'Main')) {
     assert.ok(at > mainAt + appCheck, 'a process is started before the runtime and app checks; the tests below would reach the hand-off');
@@ -545,7 +547,7 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
      only when it decides to serve here. Neither can fire during a hand-off that goes
      on to succeed. */
   assert.match(main,
-    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*bool provablyServingHere = ListenerStateOf\(p\.Id\) == ListenerAnswer\.Listening \|\| ServeHereSignalPresent\(serveHereSignal\);\s*if \(provablyServingHere\) \{ stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
+    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*bool provablyServingHere = ListenerStateOf\(p\.Id\) == ListenerAnswer\.Listening \|\| ServeHereSignalPresent\(serveHereSignal\);\s*if \(provablyServingHere\) \{ servedHere = true; stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
     'the box is no longer gated on positive proof alone (the board listening, or its serve-here signal), in GUI mode');
   /* #2983: the time-derived unreadable-table fallback is gone from BOTH sides. It
      fired a false box during a slow-but-successful boot, which is the whole bug. */

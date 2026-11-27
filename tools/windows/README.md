@@ -62,6 +62,15 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   status lines, the board's own output, and a window held open on failure. From
   Command Prompt, run `start /wait Kosmos.exe --console`. A GUI exe does not
   otherwise hold the prompt.
+- **A runtime that crashes on every run is found before anything runs it (#9144).** Each launch runs
+  `node.exe -e 0` once from this folder's `runtime\` and once from the logon task's anchored copy
+  (`%LOCALAPPDATA%\Kosmos\runtime`, which the board under its task and every agent run; it was the one that crashed
+  on the box while a byte-identical copy ran clean). One that RAN and ended non-zero offers **Repair**: a fresh copy
+  of this folder's runtime is checked against the manifest's `runtime_node_sha256`, must run `-e 0`, and takes the
+  damaged file's place; the old file is kept as `node.exe.damaged-<time>` (one at a time). A runtime Windows will not
+  start (security software, a policy), a check that does not finish in 30 s, and a No all go on with the launch. After
+  a hand-off, a board not listening within 90 s gets the anchored copy checked, and only a failing check is said.
+  From a console: `Kosmos.exe --repair-runtime`.
 - **`Kosmos.exe --check-run-folder`** answers whether its own folder is one other people on this PC can change,
   as one JSON line on stdout, and does nothing else (no box, no console, no errand; Main answers it before anything).
   The board asks it at start (engine/win32runfolder.js) when it is serving from a folder outside the profile, and
