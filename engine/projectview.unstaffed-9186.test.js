@@ -16,6 +16,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const v = require('./projectview');
+const projects = require('./projects');
 
 test.after(() => fs.rmSync(DIR, { recursive: true, force: true }));
 
@@ -33,7 +34,9 @@ test('#9186: open and on-hold tasks on a project with no agent are counted; buil
 });
 
 test('#9186 CONTROL: the same tasks with an agent on the project count 0, and a project with no task counts 0', () => {
-  assert.equal(act({ id: 'staffed', createdAt: made, agents: ['ada'], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 0);
+  assert.equal(act({ id: 'staffed', createdAt: made, agents: ['ada'], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 0, 'a stored name');
+  assert.equal(act({ id: 'staffed2', createdAt: made, agents: [{ sessionName: 'ada' }], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 0, 'a described member');
+  assert.equal(act({ id: 'blank', createdAt: made, agents: ['', { sessionName: '' }, null], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'empty entries are nobody');
   assert.equal(act({ id: 'none', createdAt: made, agents: [], tasks: [] }).unstaffed, 0);
   assert.equal(act({ id: 'nofield', createdAt: made, tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'no agents field: nobody');
 });
@@ -48,8 +51,8 @@ test('#9186: the line says nobody will move them, and names the command that add
 
 test('#9186: a paused project with no agent says its tasks wait on purpose; staffed or archived says nothing of it', () => {
   const paused = v.activityLine(act({ id: 'pz', createdAt: made, paused: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'pz');
-  assert.match(paused, /The project is paused, so quiet is expected\. No agent is on it either, so when your person resumes it, its 1 open or on-hold task still need someone added\.$/, paused);
-  const staffed = v.activityLine(act({ id: 's', createdAt: made, agents: ['ada'], tasks: [{ number: 1, sentence: 'open' }] }), 's');
+  assert.match(paused, /The project is paused, so quiet is expected\. No agent is on it either, so when your person resumes it, its 1 open or on-hold task still needs someone added\.$/, paused);
+  const staffed = v.activityLine(act({ id: 's', createdAt: made, agents: [{ sessionName: 'ada' }], tasks: [{ number: 1, sentence: 'open' }] }), 's');
   assert.doesNotMatch(staffed, /No agent is on/, 'CONTROL: a staffed project: ' + staffed);
   const archived = v.activityLine(act({ id: 'a', createdAt: made, archived: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'a');
   assert.doesNotMatch(archived, /No agent is on/, 'an archived project: ' + archived);
@@ -63,4 +66,17 @@ test('#9186: project show prints it on the activity line, and overviewOf carries
   const lines = v.renderShow({ project: { id: 'empty', name: 'Empty', folder: '/tmp/e', briefFound: false, tasks: { total: 1 }, members: [], activity: o.activity } });
   const line = lines.find((l) => l.startsWith('Last activity: ')) || '';
   assert.match(line, /No agent is on this project, so nothing will move its 1 open or on-hold task\./, lines.join('\n'));
+});
+
+test('#9186 review 1: on the real path (a project described by projects.describe, then overviewOf) a member counts', () => {
+  const opts = { now: NOW, lastPostAt: () => null, lastActivityOf: () => null, readBrief: () => ({ goal: null, done: null, found: false }),
+    readReport: () => null, folderOf: () => null, allProjects: [] };
+  const raw = (agents) => ({ id: 'real', name: 'Real', folder: DIR, createdAt: made, agents, tasks: [{ number: 1, sentence: 'open' }] });
+  const staffed = projects.describe(raw(['ada']), []);
+  assert.equal(typeof staffed.agents[0], 'object', 'fixture: describe turns members into objects');
+  const o = v.overviewOf(staffed, [], opts);
+  assert.equal(o.activity.unstaffed, 0, 'a staffed project is not unstaffed: ' + JSON.stringify(staffed.agents));
+  assert.doesNotMatch(v.activityLine(o.activity, 'real'), /No agent is on/);
+  const empty = v.overviewOf(projects.describe(raw([]), []), [], opts);
+  assert.equal(empty.activity.unstaffed, 1, 'CONTROL: no member');
 });

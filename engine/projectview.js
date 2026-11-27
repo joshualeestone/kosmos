@@ -580,7 +580,10 @@ function activityOf(p, o) {
   let unstaffed = 0;
   try {
     const { listGroup } = require('./tasks');
-    const members = Array.isArray(p.agents) ? p.agents.filter((a) => typeof a === 'string' && a) : [];
+    /* review 1: on the real path (overviewOf of a described project) each member is an object with a sessionName; a stored
+       project holds names. Either counts; an empty entry does not. */
+    const named = (a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : ''));
+    const members = Array.isArray(p.agents) ? p.agents.filter((a) => named(a)) : [];
     if (!members.length) unstaffed = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && (listGroup(t) === 'open' || listGroup(t) === 'held')).length;
   } catch { unstaffed = 0; }
   const base = { quietDays: QUIET_DAYS, expected, unstaffed };
@@ -763,14 +766,14 @@ function activityLine(a, id) {
   return core && extra ? core + ' ' + extra : core;
 }
 /* kosmos#9186: the sentence for tasks with nobody to move them. A paused project says its tasks wait on purpose, so a
-   coordinator can tell a pause from missing staff; an archived, test or starter project says nothing more. */
+   coordinator can tell a pause from missing staff; an archived or test project says nothing more. */
 function unstaffedSentence(a, id) {
   if (!a || typeof a !== 'object') return null;
   const count = Math.max(0, Math.floor(Number(a.unstaffed) || 0));
   if (!count || a.expected === 'archived' || a.expected === 'test' || a.expected === 'starter') return null;
   const tasksWord = count === 1 ? '1 open or on-hold task' : count + ' open or on-hold tasks';
   const pid = typeof id === 'string' && id ? one(id) : '<project-id>';
-  if (a.expected === 'paused') return 'No agent is on it either, so when your person resumes it, its ' + tasksWord + ' still need someone added.';
+  if (a.expected === 'paused') return 'No agent is on it either, so when your person resumes it, its ' + tasksWord + (count === 1 ? ' still needs' : ' still need') + ' someone added.';
   return 'No agent is on this project, so nothing will move its ' + tasksWord + '. Tell your person, or give one to an agent with'
     + ' `kosmos task assign ' + pid + ' <task-number> <agent> --add-member`.';
 }
