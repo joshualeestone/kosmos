@@ -39,3 +39,15 @@ second message there would be a duplicate, not a lost one.
   plan's earlier weakest premise.
 - Measured: server test 7/7, engine test 5/5; mutant (always except the assignee) fails exactly the heard-did-not-go-out
   give test, restored byte-identical; neighbours and meta 64/64.
+
+## Review round 2 (21:13): no blocker, no defect in the logic; one coverage gap fixed
+- Checked clean (reasoned): no path sends a heard line AND a re-read; the async heard line is awaited before the notice
+  is built; the budget-skipped arm returns COULD_NOT (so its holder is owed one); every Assigner path refuses a built
+  task inside the write, so the notice fires only on a screen give or an unnamed process give.
+- SHOULD-FIX (coverage): no test drove an UNCONFIRMED heard line, so dropping that half of the rule passed. Added a test
+  at both sites. Mutant (PLACED only at the add site) fails it; restored byte-identical.
+- NIT fixed: the test's stale "not typed" comment.
+- Residuals accepted (reasoned): an UNCONFIRMED paste that is never submitted leaves the new holder without a re-read
+  (UNCONFIRMED is counted as went, the side that avoids a duplicate); an adder that cannot be named is owed a re-read of
+  its own change (errs toward telling, as owesNotice does).
+- Measured: server test 8/8, engine test 5/5.
