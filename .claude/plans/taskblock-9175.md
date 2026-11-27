@@ -27,3 +27,11 @@
 `server.taskblock-built-9175.test.js`, end to end, nothing stubbed: mark, clear, the owed re-read both arms, and a
 reassignment. Red without the fix (2 of 3; the reassignment one passes on main, by #8989), and red with either site
 reverted alone.
+
+## Review round 1 (sonnet, blind): no critical
+- [WARNING] paused project + built showed only the pause mark, though the live list groups it built --> FIXED: both marks; a task ON HOLD keeps only the hold (listGroup puts it in held). Test added.
+- [WARNING] the repeat route drops the built mark (tasks.setRepeat) and never re-synced holders --> FIXED: tellEveryoneOn after a repeat change. Test added.
+- [NIT] an agent's mark covers only itself (builtWho, as agentnudge and the Assigner read it), so a co-holder read "nothing to start" --> FIXED: a co-holder not covered is told its part is still to finish. Test added.
+- [WARNING] done-when says "matches the live list"; built tasks stay listed, marked, while --mine omits them --> ACCEPTED as the decided call above (the per-project list shows them marked [built]); stated on the card.
+- [NIT] the reassignment test passes on main --> ACCEPTED: it locks #8989, which already fixed that half.
+Each new site perturbed alone turns exactly its own test red.

@@ -28424,6 +28424,9 @@ const server = http.createServer(async (req, res) => {
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
       // answers for what it found.
       const vsTold = taskRepeat[3] === 'ran' && typeof body.value === 'string' && task ? tasks.versusTold(task, guideMasked(viaScreen ? null : by, body.value)) : null;
+      /* kosmos#9175 review 1: making a task repeat drops its built mark (tasks.setRepeat), which each holder's "Your
+         projects" shows, so their sections are rewritten (a write only when the section changed). Never fails the change. */
+      if (taskRepeat[3] === 'repeat' && task) { try { tellEveryoneOn(task); } catch { /* the rule stands; the next sync catches up */ } }
       sendJson(res, 200, { task: taskForCaller(req, body, task), ...(vsTold ? { vs_told: vsTold } : {}), ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });

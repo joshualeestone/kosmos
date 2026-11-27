@@ -139,3 +139,48 @@ test('a task given to somebody else leaves the old holder\'s section and joins t
   assert.equal(lineFor(files.otto, k.number, p.name), null, 'the old holder still lists a task that moved to someone else');
   assert.match(lineFor(files.mara, k.number, p.name) || '', /draft the letter$/, 'the new holder\'s section does not list it');
 });
+
+test('review 1: a built task in a paused project shows both marks; one on hold shows only the hold', async (t) => {
+  const { board, p, k, files } = setup('Paused');
+  t.after(() => board.restore());
+  assert.equal(tasksEngine.setBuilt(p.id, k.number, { by: 'otto' }).ok, true);
+  const all = projectsEngine.readAll();
+  all.find((x) => x.id === p.id).paused = true;
+  projectsEngine.writeAll(all);
+  projectsEngine.syncAgent('otto', board.roster);
+  const line = lineFor(files.otto, k.number, p.name) || '';
+  assert.match(line, /\[on hold: the project is paused/, 'fixture: the pause mark: ' + line);
+  assert.match(line, /\[built: nothing to start/, 'a built task in a paused project lost its built mark: ' + line);
+  const back = projectsEngine.readAll();
+  back.find((x) => x.id === p.id).paused = false;
+  projectsEngine.writeAll(back);
+  assert.equal(tasksEngine.setOnHold(p.id, k.number, true).ok !== false, true);
+  projectsEngine.syncAgent('otto', board.roster);
+  const held = lineFor(files.otto, k.number, p.name) || '';
+  assert.equal(tasksEngine.listGroup(projectsEngine.readAll().find((x) => x.id === p.id).tasks[0]), 'held', 'fixture: the live list has it held');
+  assert.match(held, /\[on hold/, 'fixture: the hold mark: ' + held);
+  assert.doesNotMatch(held, /\[built/, 'a held task also carried the built mark, which the live list does not group it by: ' + held);
+});
+
+test('review 1: one holder\'s mark covers only that holder; the other is told its part is still to finish', async (t) => {
+  const { board, p, k, files } = setup('Shared');
+  t.after(() => board.restore());
+  assert.equal(tasksEngine.addPart(p.id, k.number, { sentence: 'check the figures', who: 'mara', made: { via: 'screen' } }).ok, true);
+  const r = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(sendertoken.mint('otto').token), body: { note: 'my half' } });
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built: nothing to start/, 'the marker was not told its part is built');
+  const other = lineFor(files.mara, k.number, p.name) || '';
+  assert.match(other, /\[built by another agent on it; your own part is still yours to finish\]/, 'the other holder read the mark as covering it: ' + other);
+});
+
+test('review 1: making a built task repeat drops the mark, and the holder\'s section with it', async (t) => {
+  const { board, p, k, files } = setup('Repeat');
+  t.after(() => board.restore());
+  const otto = sendertoken.mint('otto').token;
+  assert.equal((await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(otto), body: {} })).code, 200);
+  assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built/, 'fixture: the section has the mark');
+  const r = await call('POST', `/api/project/${p.id}/task/${k.number}/repeat`, { headers: asAgent(otto), body: { every: 'hourly' } });
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  assert.notEqual(tasksEngine.listGroup(projectsEngine.readAll().find((x) => x.id === p.id).tasks[0]), 'built', 'fixture: the repeat dropped the mark');
+  assert.doesNotMatch(lineFor(files.otto, k.number, p.name) || '', /\[built/, 'the section kept a built mark the repeat dropped');
+});
