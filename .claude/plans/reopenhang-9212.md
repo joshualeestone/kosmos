@@ -15,6 +15,12 @@ check on the fix only).
 - Naming the anchor one main-loop turn later (DispatchQueue.main.async): froze 3 of 3, at re-open 2. Rejected.
 - Opening with a one-off proxy.scrollTo("end") and naming the anchor when the end marker appears: 0 of 8 (80 re-opens). Chosen.
 - Clean branch, iteration 2 code (d3aaeb719b): ChatTallOpenUITests x4, 12 of 12 passed (32 re-opens in the re-open check).
+- Fix as shipped (c5b765bc59, ChatView identical to d3aaeb719b): ChatTallOpenUITests x4, 12 of 12 (80 re-opens in the
+  20-re-open check); the probe as Ice Cream Kitty ran it, 12 iterations of 10 re-opens: 0 of 12 hung.
+- Controls that afternoon, the old open restored by KOSMOS_SAMPLE_ANCHORATOPEN=1: the 20-re-open check 0 of 4 runs froze
+  (80 re-opens), the probe 1 of 6 (60). So the old open froze far less often then (about 1 re-open in 140) than in the
+  morning (about one run of 10 in two), and the afternoon's clean runs on the fix are weaker evidence than the morning's
+  rates suggest. A same-session A/B (fix and old open, 12 probe iterations each) is the measurement that separates them.
 - Clean branch after review rounds 6 and 7 (0079264007), which treated only an EMPTY binding as "no anchor yet": the tall
   chat froze on its second open, 2 of 2. After the open's scroll SwiftUI writes a row id into the binding itself, so those
   guards let the looks and goNewest name "end" over estimates again. Restored: during the open's request a row id counts
@@ -37,7 +43,7 @@ Each round found real edge cases, and the fixes were built on top (a lapse for t
 "end" whenever the binding is empty, routing the box, keyboard and tray follows through the request, a refused read
 dropping the anchor). Measured on the simulator, that code froze again: 0079264007 2 of 2, and 91e39396f0 3 of 4 on the
 landing check, where d3aaeb719b had passed 12 of 12. So the shipped change is the measured one, and the edge cases below
-go to a follow-up card, each to be measured before it is built:
+go to a follow-up card (kosmos#9226, claimed by monalisa), each to be measured before it is built:
 - iOS 17 reports no person's scroll, so a request the end never meets stays set: goNewest only scrolls, and a later end
   appearance names "end".
 - goNewest's callers (an arrival, a send, a read that follows the newest) only scroll while the request is set; the box,
