@@ -105,7 +105,7 @@ classes="$classes GlobalSkillsUITests:1"
 #   is handed out, and Remove asking once (1 check; lazy arm only). Its own line, as above.
 classes="$classes AIPoliciesUITests:1"
 # kosmos#9089: ChatTallOpenUITests, a short chat of tall replies (20 messages) opens on its newest, first time and on
-#   coming back, with the one-liner chat as its control (2 checks). This lazy-arm run only: the lazy list is the one that
+#   coming back, with the one-liner chat as its control (2 checks; #9212's third is below). This lazy-arm run only: the lazy list is the one that
 #   opened above the newest (3 of 3 before the fix), the UIKit list already passed. 20 messages, so not the 260-message
 #   chat's query limit that keeps ChatOpensAtNewestUITests by hand. Its own line, as above.
 # kosmos#9212: plus one check that re-opens that chat 8 times in one launch (the app froze on a re-open about one run in two).

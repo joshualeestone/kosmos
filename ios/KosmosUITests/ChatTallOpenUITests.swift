@@ -76,11 +76,15 @@ final class ChatTallOpenUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 2.0)   // past the open's last look (1.6 s, ChatView.openLandLooks)
             XCTAssertTrue(back.waitForExistence(timeout: 10), "re-open \(i): no Back button")
             back.tap()
-            XCTAssertTrue(dana.waitForExistence(timeout: 10), "re-open \(i): Dana's row is not showing")
+            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: composer(app)); waitForExpectations(timeout: 10)
+            XCTAssertTrue(dana.waitForExistence(timeout: 10) && dana.isHittable, "re-open \(i): Dana's row is not showing")
             dana.tap()
             XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "re-open \(i) of \(Self.REOPENS): the chat did not open (the app froze)")
             XCTAssertTrue(newest(app).waitForExistence(timeout: 5), "re-open \(i): the newest message was not drawn")
         }
+        // The last open's looks too: past them, the app still answers.
+        Thread.sleep(forTimeInterval: 2.0)
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "after the last re-open: the app stopped answering")
     }
     // CONTROL: the same 20 messages, one line each.
     func testTheSameChatInOneLinersOpensOnItsNewest() throws { try run("short20") }

@@ -85,6 +85,7 @@ struct ChatView: View {
     @State private var anchorLetGo = false
     // kosmos#9212: the open asks for the id anchor on "end" once the end marker has appeared (why: ChatView.sampleAnchorAtOpen's note).
     @State private var anchorOnEndAppear = false
+    @State private var anchorAsks = 0   // kosmos#9212: counts the opens' requests, so a lapse drops only its own
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
     @State private var rowTops = RowTops()
     // kosmos#7609 review 2: the moves the chat makes on purpose (to the newest message: a send, New messages, an arrival),
@@ -970,17 +971,15 @@ struct ChatView: View {
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     // kosmos#9212: to the end by a scroll, the anchor named only once the end has appeared (sampleAnchorAtOpen's note).
-                    // An end already seen when this runs is anchored at once.
+                    // No anchor left over from an earlier list of this chat either (a refused read drops the list and keeps it).
                     if Self.idAnchor, !Self.sampleAnchorAtOpen {
-                        appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom)
-                        if endSeen { positionId = "end" } else {
-                            anchorOnEndAppear = true
-                            // Asked for this open only: dropped a little after its last look, so a request the end never met
-                            // cannot hold goNewest to scrolls, or name "end" under a later fling (iOS 17 sets no personScrolling).
-                            let chatAt = epoch, listAt = listEpoch
-                            DispatchQueue.main.asyncAfter(deadline: .now() + (Self.openLandLooks.last ?? 1.6) + 0.3) {
-                                if epoch == chatAt, listEpoch == listAt { anchorOnEndAppear = false }
-                            }
+                        appMoves &+= 1; positionId = nil; proxy.scrollTo("end", anchor: .bottom)
+                        anchorOnEndAppear = true; anchorAsks &+= 1
+                        // Dropped a little after the last look, so a request the end never met cannot hold goNewest to scrolls,
+                        // or name "end" under a later fling (iOS 17 sets no personScrolling). Only this open's request.
+                        let ask = anchorAsks
+                        DispatchQueue.main.asyncAfter(deadline: .now() + (Self.openLandLooks.last ?? 1.6) + 0.3) {
+                            if anchorAsks == ask { anchorOnEndAppear = false }
                         }
                     }
                     else { goNewest(proxy) }
