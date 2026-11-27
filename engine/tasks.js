@@ -2815,24 +2815,30 @@ function holdsOpenPart(t, who) {
 }
 /* kosmos#9177: is a task built FOR this agent? One agent's mark covers that agent only (builtWho); the person's mark
    (builtFreesAll) covers every agent on it. `who` is a name, matched exactly, or a function given each marked name.
-   The one reading shared by the Assigner (hasOpenWork, busyHold) and an agent's own list (--mine). */
+   The Assigner (hasOpenWork, busyHold, agentnudge) reads exactly this. An agent's own list reads builtForReader below,
+   which adds two cases on top: no open part of its own, and an old mark with no builtWho list. */
 function builtFor(t, who) {
   if (!t || !t.builtAt) return false;
   if (t.builtFreesAll === true) return true;
   const match = typeof who === 'function' ? who : (n) => n === who;
   return Array.isArray(t.builtWho) && t.builtWho.some((n) => typeof n === 'string' && match(n));
 }
-/* `who` (kosmos#9177): reading for one agent, a marked task is built for it when the mark covers it (builtFor) or it
-   holds no open part (every part of its own closed: hasOpenWork's reading). Otherwise another holder's mark leaves the
-   task in its other group (open, or held when its project is paused). Without `who`, any mark is built.
-   A mark with no builtWho list (made before marks named who made them) cannot say whose it is, so it stays built.
-   The string test on builtAt is the one the rest of the list uses (#8577); builtFor alone only asks that it is set. */
+/* kosmos#9177: on one agent's own list, does a task's mark (it has one: a non-empty builtAt string, the test the rest of
+   the list uses, #8577) cover that agent? Yes when builtFor says so, when the agent holds no open part (every part of
+   its own closed: hasOpenWork's reading), or when the mark has no builtWho list (made before marks named who made them,
+   so it cannot say whose it is). false for a task with no mark. */
+function builtForReader(t, who) {
+  if (!t || typeof t.builtAt !== 'string' || !t.builtAt) return false;
+  return !Array.isArray(t.builtWho) || builtFor(t, who) || !holdsOpenPart(t, who);
+}
+/* `who` (kosmos#9177): reading for one agent, a marked task is built only when builtForReader says so; otherwise
+   another holder's mark leaves it in its other group (open, or held when its project is paused). Without `who`, any
+   mark is built. */
 function listGroup(t, who = null) {
   if (!t) return 'open';
   if (t.isClosed === true || progressOf(t).closed) return 'done';
   if (isOnHold(t)) return 'held';
-  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || !Array.isArray(t.builtWho) || builtFor(t, who)
-    || !holdsOpenPart(t, who))) return 'built';
+  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || builtForReader(t, who))) return 'built';
   if (t.projectPaused === true) return 'held';
   return 'open';
 }
@@ -3481,6 +3487,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { WAITING_ON /* kosmos#8934 */, WAITING_NONE, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, builtFor, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
+  setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, builtFor, builtForReader, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, filesOf /* kosmos#9105 */, BUILT_FILES_MAX, withoutFilePaths, withoutLocalPaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setWake, saveWakeMet, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
