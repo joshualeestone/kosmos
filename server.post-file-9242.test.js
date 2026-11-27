@@ -194,3 +194,14 @@ test('#9242 review 1: a corrected file posted again is a new post; the same file
   assert.equal(storedCount(), copies, 'the folded repeat left an orphan copy');
   assert.equal(replyfile.sentToday(WHO), total, 'the folded repeat was charged');
 }));
+
+test('#9242 review 2: two identical posts of the same file at once leave exactly one copy, charged once, whichever path folds them', () => withLeo(async () => {
+  const src = write(path.join(FILES, 'twice.txt'), 'the same bytes, sent twice at once');
+  const copies = storedCount();
+  const total = replyfile.sentToday(WHO);
+  const [a, b] = await Promise.all([post({ project: 'room-9242', text: 'at once', file: src }), post({ project: 'room-9242', text: 'at once', file: src })]);
+  assert.ok(a.json.delivery && a.json.delivery.id && b.json.delivery && b.json.delivery.id, a.text + ' / ' + b.text);
+  assert.equal(a.json.delivery.id, b.json.delivery.id, 'the two were not folded into one post');
+  assert.equal(storedCount(), copies + 1, 'a copy no post carries was left behind');
+  assert.equal(replyfile.sentToday(WHO), total + fs.statSync(src).size, 'the daily total was charged other than once');
+}));

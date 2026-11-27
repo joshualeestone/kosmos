@@ -21704,9 +21704,26 @@ const server = http.createServer(async (req, res) => {
           if (postFiles) require('./engine/replyfile').discard(postFiles[0]);
           throw err;
         }
-        // kosmos#9242: a copy no post carries (refused, held to ask which room, not recorded) is taken back, and so is
-        // one whose post was folded into an earlier identical one (a retry): that post carries the earlier copy.
-        if (postFiles && (!(delivery && delivery.id) || delivery.duplicate === true)) require('./engine/replyfile').discard(postFiles[0]);
+        /* kosmos#9242: a copy no post carries is taken back. Asked of the record itself, not of the answer's flags (review 2):
+           - no post id (refused, or held to ask which room): taken back;
+           - folded into an earlier identical post, or answered by a twin still being delivered: that post's row carries
+             ITS copy, not this one, so this one is taken back;
+           - posted and recorded with this copy: kept.
+           Kept too, on purpose: a post that reached members but could not be recorded (no row): they were told this copy's
+           path, so taking it back would break their download. */
+        if (postFiles) {
+          let carries = null;   // true: the post's row carries this copy; false: it carries another or none; null: no row
+          if (delivery && delivery.id) {
+            try {
+              const row = (messages.record().rows || []).find((r) => r && r.kind === 'post' && r.id === delivery.id);
+              if (row) {
+                const f = Array.isArray(row.attachments) && row.attachments.length ? row.attachments : (row.attachment ? [row.attachment] : []);
+                carries = f.some((x) => x && x.id === postFiles[0].id);
+              }
+            } catch { carries = null; }
+          }
+          if (!(delivery && delivery.id) || delivery.duplicate === true || carries === false) require('./engine/replyfile').discard(postFiles[0]);
+        }
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
