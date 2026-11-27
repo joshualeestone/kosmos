@@ -757,7 +757,12 @@ function winRealRefusal(real, given, roots) {
  * Copy one of the agent's own files into the attachment store.
  * Returns { ok: true, rec } (rec as attachments.save returns it) or { ok: false, because }.
  */
-function attach(sessionName, given, { roster, platform = process.platform } = {}) {
+/* kosmos#9242: `scope` and `owner` say where the copy is kept: the agent's own reply ('agent', its session, the default)
+   or a room post ('project', the project's id, where the room's attachments live, so the room draws and serves it as a
+   person's upload to that room). Which files may go is decided exactly the same way either way, and the daily total is
+   the agent's own in both (the copy keeps `from`, the sending agent). */
+function attach(sessionName, given, { roster, platform = process.platform, scope = 'agent', owner = sessionName } = {}) {
+  if (scope !== 'agent' && scope !== 'project') return { ok: false, because: 'that is not a place a file can be kept' };
   if (typeof given !== 'string' || !given || given.includes('\0')) return { ok: false, because: 'name the file to attach by its path' };
   if (!path.isAbsolute(given)) return { ok: false, because: 'give the full path of the file to attach' };
   if (given.split(/[\\/]/).includes('..')) return { ok: false, because: 'a path with .. in it cannot be attached; give the file\'s own full path' };
@@ -796,12 +801,12 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   if (size === 0) return { ok: false, because: 'there is nothing in that file' };
   const used = sentToday(sessionName);
   if (used + size > DAILY_BYTES) {
-    return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
+    return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies and posts in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
   }
   const name = path.basename(real);   // review r2 finding 5: the file's own name, not a link's (report.pdf -> notes.txt is notes.txt)
   try {
     /* #6734: copied across in chunks into the stored file, never held whole; a refused read leaves nothing stored. */
-    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
+    const kept = attachments.saveFilled(scope, owner, { name, type: typeOf(name), by: 'agent', ...(scope === 'project' ? { from: sessionName } : {}) }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
     if (!kept.ok) return kept;
     const rec = kept.rec;
     /* kosmos#9016: an agent is told to make it again, rather than handing a person a file that is not whole. */
@@ -904,21 +909,27 @@ let ledger = null;   // key -> Map(id -> { at, size })
 function keyOf(sessionName) { try { return store.safeKey(sessionName); } catch { return null; } }
 function seed(now = Date.now()) {
   ledger = new Map();
-  const base = path.join(attachments.ROOT, 'agent');
-  let keys = [];
-  try { keys = fs.readdirSync(base); } catch { return; }
-  for (const key of keys) {
-    let ids = [];
-    try { ids = fs.readdirSync(path.join(base, key)); } catch { continue; }
-    for (const id of ids) {
-      /* Review r6 finding 5: a record folder last changed more than a day ago cannot hold a copy from the last day,
-         so the boot read skips it without parsing (a store keeps every upload ever made). */
-      try { if (now - fs.statSync(path.join(base, key, id)).mtimeMs >= DAY_MS) continue; } catch { continue; }
-      let rec;
-      try { rec = JSON.parse(fs.readFileSync(path.join(base, key, id, 'record.json'), 'utf8')); } catch { continue; }
-      if (!rec || rec.by !== 'agent' || !Number.isFinite(rec.size)) continue;
-      const at = Date.parse(rec.at);
-      if (Number.isFinite(at) && now - at < DAY_MS) entriesFor(key).set(id, { at, size: rec.size });
+  /* kosmos#9242: an agent's copies on room posts live under 'project' (owner: the project), each keeping `from`, the
+     agent; they count against that agent's total too, so a board restart cannot reset it. */
+  for (const scope of ['agent', 'project']) {
+    const base = path.join(attachments.ROOT, scope);
+    let keys = [];
+    try { keys = fs.readdirSync(base); } catch { continue; }
+    for (const key of keys) {
+      let ids = [];
+      try { ids = fs.readdirSync(path.join(base, key)); } catch { continue; }
+      for (const id of ids) {
+        /* Review r6 finding 5: a record folder last changed more than a day ago cannot hold a copy from the last day,
+           so the boot read skips it without parsing (a store keeps every upload ever made). */
+        try { if (now - fs.statSync(path.join(base, key, id)).mtimeMs >= DAY_MS) continue; } catch { continue; }
+        let rec;
+        try { rec = JSON.parse(fs.readFileSync(path.join(base, key, id, 'record.json'), 'utf8')); } catch { continue; }
+        if (!rec || rec.by !== 'agent' || !Number.isFinite(rec.size)) continue;
+        const who = scope === 'agent' ? key : keyOf(rec.from);
+        if (!who) continue;
+        const at = Date.parse(rec.at);
+        if (Number.isFinite(at) && now - at < DAY_MS) entriesFor(who).set(id, { at, size: rec.size });
+      }
     }
   }
 }

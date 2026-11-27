@@ -93,7 +93,7 @@ const USAGE = {
   heavy: 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid)',
   'reply-channel': 'Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, and their thread with you says you answer there, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
-  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
+  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; --file <path>: attach one file from your Files folder or a project you are on, up to 100 MB) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   claim: 'Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3]); kosmos claim --how: what to do in the cases that come up now and then',
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>". A name can be up to 200 characters, a status 80, a source 500 and a label 40.',
@@ -731,16 +731,11 @@ const REPLY_FILE_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const REPLY_FILE_CONTROL_ALL = /[\u0000-\u001f\u007f-\u009f]/g;
 const REPLY_FILE_CONTROL_SAYS = 'That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.';
 const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
-async function verbReply(ctx, args) {
-  /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
-     the shared readPipedMessage; every failure after the read keeps the piped reply in a private
-     file, since it may have no other copy. Parity with install/kosmos. */
-  /* #6726, as install/kosmos: --file <path> (or --file=<path>) attaches one of the agent's own files, as the
-     attachment a person's upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as
-     before; past `--` it is words. The board decides which files may go (engine/replyfile.js); this only makes a
-     relative path absolute and refuses one it cannot send as written. */
+/* #6726 and kosmos#9242: take --file <path> (or --file=<path>) out of args before `--`, wherever it sits (past `--` it is
+   words), make a relative path absolute, and refuse one that cannot be sent as written. Shared by reply and post, so the
+   two read a path the same way; `words` carries each verb's own sentences. Returns { file, rest } or { code }. */
+function takeFileArg(ctx, args, words) {
   let file = '';
-  {
     const rest = [];
     let past = false;
     let got = false;
@@ -748,14 +743,14 @@ async function verbReply(ctx, args) {
       const a = args[i];
       if (!past && a === '--') { past = true; rest.push(a); continue; }
       if (past || !(a === '--file' || a.startsWith('--file='))) { rest.push(a); continue; }
-      if (got) { ctx.err('--file was given twice, so nothing was sent. Attach one file per reply.'); return 2; }
+      if (got) { ctx.err(words.twice); return { code: 2 }; }
       got = true;
       if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
-      if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
+      if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(words.needsPath); return { code: 2 }; }
       const given = file;
       /* Review 6726 r7: the typed path first, so a refusal below never echoes an escape sequence or a carriage
          return to the agent's terminal; the joined path is checked again after (the folder can carry one too). */
-      if (REPLY_FILE_CONTROL.test(given)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
+      if (REPLY_FILE_CONTROL.test(given)) { ctx.err(words.control); return { code: 2 }; }
       // The folder is read only for a relative path; one deleted under the command reads as '' and is refused.
       const here = () => { try { return ctx.cwd(); } catch { return ''; } };
       file = replyFileAbsolute(given, here, ctx.pathRules);
@@ -766,19 +761,36 @@ async function verbReply(ctx, args) {
         // it has no drive; the reason to give is the `..`, which the board refuses wherever it is.
         const dotdot = given.split(/[\\/]/).includes('..');
         ctx.err(rel && !here()
-          ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and nothing was sent. Give the file\'s full path.'
+          ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and ' + words.nothing + '. Give the file\'s full path.'
           : dotdot
-          ? 'A path with .. in it cannot be attached, so nothing was sent: give the file\'s own full path, without ..'
+          ? 'A path with .. in it cannot be attached, so ' + words.nothing + ': give the file\'s own full path, without ..'
           : rel
-            ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'
-            : 'Give the file\'s full path on this computer, starting with its drive (C:/... or C:\\...), so nothing was sent: ' + given + ' is not one.');
-        return 2;
+            ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so ' + words.nothing + '. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'
+            : 'Give the file\'s full path on this computer, starting with its drive (C:/... or C:\\...), so ' + words.nothing + ': ' + given + ' is not one.');
+        return { code: 2 };
       }
       /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. C1 too (U+0080 to U+009F),
          as bash's [[:cntrl:]] matches them in a UTF-8 locale. */
-      if (REPLY_FILE_CONTROL.test(file)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
+      if (REPLY_FILE_CONTROL.test(file)) { ctx.err(words.control); return { code: 2 }; }
     }
-    args = rest;
+  return { file, rest };
+}
+const POST_FILE_WORDS = { twice: '--file was given twice, so nothing was posted. Attach one file per post.', needsPath: '--file needs the path of the file to attach, so nothing was posted: kosmos post <project-id> --file <path> "what it is"', control: 'That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then post it again.', nothing: 'nothing was posted' };
+const REPLY_FILE_WORDS = { twice: '--file was given twice, so nothing was sent. Attach one file per reply.', needsPath: USAGE_REPLY_FILE_NEEDS_PATH, control: REPLY_FILE_CONTROL_SAYS, nothing: 'nothing was sent' };
+async function verbReply(ctx, args) {
+  /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
+     the shared readPipedMessage; every failure after the read keeps the piped reply in a private
+     file, since it may have no other copy. Parity with install/kosmos. */
+  /* #6726, as install/kosmos: --file <path> (or --file=<path>) attaches one of the agent's own files, as the
+     attachment a person's upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as
+     before; past `--` it is words. The board decides which files may go (engine/replyfile.js); this only makes a
+     relative path absolute and refuses one it cannot send as written. */
+  let file = '';
+  {
+    const took = takeFileArg(ctx, args, REPLY_FILE_WORDS);
+    if (took.code !== undefined) return took.code;
+    file = took.file;
+    args = took.rest;
   }
   const fromStdin = args[0] === '--stdin';
   if (fromStdin) args.shift();
@@ -839,11 +851,18 @@ async function verbPost(ctx, args) {
     ctx.out(guide);
     return 0;
   }
-  if (args.some((a) => /^--(file|attach)(=|$)/.test(a))) {
-    ctx.err('Attaching a file to a room post is not supported yet (kosmos#1955).');
-    ctx.err('Paste the document\'s content inline as the message, or share its path with the operator.');
-    ctx.err('Text only for now: kosmos post <project-id> <text>');
+  /* kosmos#9242, as install/kosmos (was #1955's refusal): --file <path> attaches one of the agent's own files to the
+     post, read by the same helper as reply's (takeFileArg); the board decides which files may go. --attach is refused. */
+  if (args.some((a, i) => /^--attach(=|$)/.test(a) && !args.slice(0, i).includes('--'))) {
+    ctx.err('To attach a file to a room post use --file: kosmos post <project-id> --file <path> "what it is"');
     return 2;
+  }
+  let file = '';
+  {
+    const took = takeFileArg(ctx, args, POST_FILE_WORDS);
+    if (took.code !== undefined) return took.code;
+    file = took.file;
+    args = took.rest;
   }
   // #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags (--stdin also alone after the project, kosmos#8769) in any order, matching
   // install/kosmos (the parity this second CLI must keep). --no-reply marks a post an
@@ -898,8 +917,9 @@ async function verbPost(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   }
-  if (!project || !text) { ctx.err(USAGE.post); return 2; }
+  if (!project || (!text && !file)) { ctx.err(USAGE.post); return 2; }
   const body = { project, text, from_pane: '' };
+  if (file) body.file = file;   // kosmos#9242
   if (noReply) body.reply_expected = false;
   if (inReplyTo) body.in_reply_to = inReplyTo;
   if (newPost) body.new_post = true;
@@ -931,6 +951,8 @@ async function verbPost(ctx, args) {
     return code;
   }
   if (ctx.wrongWorld(r)) {
+    // kosmos#9242, as install/kosmos: a kept post would be replayed without its file, so one with a file is not kept.
+    if (file) { ctx.err('Nothing was posted: this board is serving another Kosmos, and a post with a file is not kept to send later. Post it again once your own Kosmos is open.'); return 1; }
     let kept = 1;
     try { kept = ctx.keepForLater('post', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
     if (kept !== 0) keepPiped();   /* #2909: the outbox refused it (e.g. too long); keep a piped message */

@@ -184,7 +184,7 @@ function slot(scope, owner, name) {
   return { id, dir, name: clean, file, part: path.join(dir, PART) };
 }
 /** The slot's part file renamed into place and its record written. Returns the record with its paths. */
-function finish(s, scope, owner, { type, size, by }) {
+function finish(s, scope, owner, { type, size, by, from }) {
   // Review 25: a Windows scanner often opens a file just written; the repo's retrying rename rides that out.
   require('./win32swap').renameWithRetry(s.part, s.file);
   /* kosmos#9016: a zip-based file (xlsx, docx, pptx, epub and the like) whose end is missing is not whole, whatever
@@ -194,6 +194,8 @@ function finish(s, scope, owner, { type, size, by }) {
     id: s.id, name: s.name, type: String(type || 'application/octet-stream').split(';')[0].trim().slice(0, 100) || 'application/octet-stream',
     size, kind: kindOf(type, s.name), at: new Date().toISOString(), scope, owner: String(owner),
     ...(by === 'agent' ? { by: 'agent' } : {}),   // #6726: a file the agent attached to its reply, counted against its daily total
+    // kosmos#9242: on a room post the owner is the project, so which agent sent it is kept too (its daily total reads it).
+    ...(by === 'agent' && typeof from === 'string' && from ? { from } : {}),
     ...(incomplete ? { incomplete: true } : {}),   // kosmos#9016
   };
   fs.writeFileSync(path.join(s.dir, 'record.json'), JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });   // review 12: as the file
@@ -263,7 +265,7 @@ function save(scope, owner, { name, type, bytes, by }) {
  * Returns { ok: true, rec } or { ok: false, because }. Used by a reply's attachment (engine/replyfile.js), which
  * copies the agent's file across in chunks rather than holding it whole.
  */
-function saveFilled(scope, owner, { name, type, by }, fill) {
+function saveFilled(scope, owner, { name, type, by, from }, fill) {
   const s = slot(scope, owner, name);
   let fd = null;
   try {
@@ -274,7 +276,7 @@ function saveFilled(scope, owner, { name, type, by }, fill) {
     if (!got || !got.ok) { abandon(s); return { ok: false, because: (got && got.because) || 'that file could not be kept' }; }
     if (!(got.size > 0)) { abandon(s); return { ok: false, because: 'there is nothing in that file' }; }
     if (got.size > MAX_BYTES) { abandon(s); return { ok: false, because: TOO_LARGE }; }
-    return { ok: true, rec: finish(s, scope, owner, { type, size: got.size, by }) };
+    return { ok: true, rec: finish(s, scope, owner, { type, size: got.size, by, from }) };
   } catch (err) {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
     abandon(s);
