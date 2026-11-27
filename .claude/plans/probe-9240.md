@@ -51,3 +51,8 @@ by `kosmos msg` itself when the text is a single word.
 - `msg --status` reads direct messages only; a room post is answered by its own output (whom it reached).
 - A send that printed no id (a duplicate of a message the board already has, or an older board) leaves the agent no id
   to ask about. Rare; the line says "the id your send printed".
+
+## Review stop
+Eight blind rounds (opus and sonnet alternating), then stopped by Splinter's usage rule (Fleet Builders m510,
+2026-10-26). Round 8's WARNINGs are kosmos#9243: the CLIs' timeout and unconfirmed lines that still say "check with
+them", no guidance with nothing real to send yet, an "unknown" status answer, and an unreached post.
