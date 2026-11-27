@@ -3370,13 +3370,29 @@ function sweepRoster(now = Date.now()) {
   return roster;
 }
 
-/* kosmos#9217: the live heavy jobs (engine/heavyjobs.js), never throwing. agents: the status payload's roster, used to
-   clear a gone agent's record; null, or an empty list (a roster that failed to read reads empty), means "could not
-   tell", and nothing is cleared for it. */
-function heavyJobsNow(agents) {
+/* kosmos#9217: the live heavy jobs (engine/heavyjobs.js), never throwing, each with the agent's display name.
+   roster: the status payload's { running, offline, complete }. An agent missing from the running rows is only judged
+   gone once it has been missing for HEAVY_AGENT_GRACE_MS across reads, so one poll caught mid-restart does not take its
+   record away; a partial snapshot (complete false), an empty one, or none at all (GET /api/heavy) judges nobody newly
+   missing, and only a grace already run out on an earlier read clears. */
+const HEAVY_AGENT_GRACE_MS = 90 * 1000;
+const heavyMissingSince = new Map();
+function heavyJobsNow(roster, now = Date.now()) {
   try {
-    const names = Array.isArray(agents) && agents.length ? new Set(agents.map((a) => a && a.sessionName).filter(Boolean)) : null;
-    return require('./engine/heavyjobs').live({ root: store.ROOT, agentAlive: names ? (n) => names.has(n) : null });
+    const running = (roster && Array.isArray(roster.running)) ? roster.running : [];
+    const rows = running.concat((roster && Array.isArray(roster.offline)) ? roster.offline : []);
+    const display = new Map(rows.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a.name || a.sessionName]));
+    const judging = Boolean(roster && roster.complete && running.length);
+    const up = new Set(running.map((a) => a && a.sessionName).filter(Boolean));
+    if (judging) for (const n of [...heavyMissingSince.keys()]) if (up.has(n)) heavyMissingSince.delete(n);
+    const agentAlive = (n) => {
+      if (judging && up.has(n)) return true;
+      if (judging && !heavyMissingSince.has(n)) heavyMissingSince.set(n, now);
+      const since = heavyMissingSince.get(n);
+      return since !== undefined && now - since >= HEAVY_AGENT_GRACE_MS ? false : null;
+    };
+    return require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive })
+      .map((j) => ({ ...j, name: display.get(j.agent) || j.agent }));
   } catch { return []; }
 }
 function safeRoster() {
@@ -9453,7 +9469,7 @@ const server = http.createServer(async (req, res) => {
         updateAbort: updates.updateAbort(),
         /* kosmos#9217: the heavy jobs agents said are running on this computer (`kosmos heavy start`), for the top
            note. engine/heavyjobs.js clears a record whose process or agent is gone, or past its age ceiling. */
-        heavyJobs: heavyJobsNow(agents),
+        heavyJobs: heavyJobsNow({ running: agents, offline, complete: !couldNotAccount }),
         /* And the two facts the overlay needs even when the attempt record
            is gone with the old server: the diary's path (from the engine's
            root, never guessed by the page) and THIS server's boot identity,
@@ -28361,14 +28377,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* kosmos#5805 part 2: an agent declares where it answers the person (`kosmos reply-channel`). Body { channel }
-     (empty, or "kosmos", clears it). With one declared, the first-reply nudge stays quiet for it
-     (engine/replychannel.js says why). Only an agent sets it, and only its own: processCaller names the caller (a
-     token exactly; a pane, from_pane, as given). A page request is refused outright, pane or not. */
   /* kosmos#9217 slice 1: `kosmos heavy start "<label>" [--pid N]` / `kosmos heavy end [--pid N]` (POST, {action, label,
      pid, from_pane}) and `kosmos heavy` (GET). Only an agent records a job, and only its own: processCaller names the
      caller as for the reply channel above; a page request is refused. engine/heavyjobs.js says what clears a record. */
   if (pathname === '/api/heavy' && req.method === 'GET') {
+    // Labels are an agent's own words and can name its folders: this computer's agents and person only (#4973).
+    const refusedRead = crossSiteRead(req) || (isSiblingRead(req) ? 'only an agent or the person on this computer can list its heavy jobs' : null);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     sendJson(res, 200, { ok: true, jobs: heavyJobsNow(null) });
     return;
   }
@@ -28390,12 +28405,17 @@ const server = http.createServer(async (req, res) => {
         ? hj.start({ root: store.ROOT, agent: name, label: body.label, pid: body.pid })
         : hj.end({ root: store.ROOT, agent: name, pid: body.pid });
       if (!out.ok) { sendJson(res, out.refused ? 400 : 503, { error: out.because }); return; }
-      sendJson(res, 200, body.action === 'start' ? { ok: true, job: { label: out.job.label, pid: out.job.pid, since: out.job.since } } : { ok: true, ended: out.ended });
+      if (body.action === 'start') heavyMissingSince.delete(name);   // it just answered as itself: not missing
+      sendJson(res, 200, body.action === 'start' ? { ok: true, job: { label: out.job.label, pid: out.job.pid, since: out.job.since } } : { ok: true, ended: out.ended, others: out.others });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
     return;
   }
+  /* kosmos#5805 part 2: an agent declares where it answers the person (`kosmos reply-channel`). Body { channel }
+     (empty, or "kosmos", clears it). With one declared, the first-reply nudge stays quiet for it
+     (engine/replychannel.js says why). Only an agent sets it, and only its own: processCaller names the caller (a
+     token exactly; a pane, from_pane, as given). A page request is refused outright, pane or not. */
   if (pathname === '/api/agent/reply-channel' && req.method === 'POST') {
     readBody(req).then((raw) => {
       let body = null;
@@ -32603,7 +32623,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it

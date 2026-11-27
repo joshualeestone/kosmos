@@ -207,8 +207,8 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      resolves the caller with resolveAgentSender, token first, answers only the message's sender, and
      returns times and ids, never the message text; measured in server.msg-status-8961.test.js. */
   /* kosmos#9217 added GET /api/heavy, a READ of the heavy jobs agents said are running (agent, label, pid, since), and
-     POST /api/heavy, a WRITE whose handler names the caller with processCaller (token, else pane) and records or ends
-     only that agent's own job, never a name from the body; measured in server.heavy-9217.test.js. */
+     POST /api/heavy, a WRITE whose handler names the caller with processCaller, as POST /api/agent/reply-channel does:
+     a token exactly, else the pane the body gives (as given). server.heavy-9217.test.js has the arms. */
   assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/connections/found', 'GET /api/heavy', 'GET /api/project-file/who', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/connections/found', 'POST /api/heavy', 'POST /api/msg', 'POST /api/msg/status', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */

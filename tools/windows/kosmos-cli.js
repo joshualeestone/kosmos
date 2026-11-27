@@ -90,6 +90,7 @@ const WRONG_WORLD_STATUS = 421;
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
   msg: 'Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written; --no-reply: they are told no answer is wanted)',
+  heavy: 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid)',
   'reply-channel': 'Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, and their thread with you says you answer there, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
@@ -2802,6 +2803,63 @@ async function verbReplyChannel(ctx, args) {
   return 1;
 }
 
+/* kosmos#9217, as install/kosmos cmd_heavy: an agent says a heavy job of its own is running on this computer, or has
+   ended, and anyone here lists them. The board names the caller from its token. */
+function heavyWhen(since) {
+  const t = new Date(since);
+  return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+}
+async function verbHeavy(ctx, args) {
+  if (args.length) { ctx.err(USAGE.heavy); return 2; }
+  const r = await ctx.call('GET', '/api/heavy');
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting.') : ctx.unreachable('list heavy jobs');
+  if (r.status === 200 && r.json && Array.isArray(r.json.jobs)) {
+    if (!r.json.jobs.length) { ctx.out('No heavy job is running on this computer.'); return 0; }
+    for (const x of r.json.jobs) ctx.out(x.label + ' (' + (x.name || x.agent) + ', since ' + heavyWhen(x.since) + (x.pid ? ', process ' + x.pid : '') + ')');
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not list heavy jobs: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }
+  ctx.err('Kosmos gave an answer we could not read.');
+  return 1;
+}
+/* The words after start/end: a label (start only) and --pid N, as the Mac parses them; null for a usage error. */
+function heavyArgs(sub, args) {
+  let label = '', pid = '';
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--pid') { if (i + 1 >= args.length) return null; pid = args[i + 1]; i += 1; }
+    else if (a.startsWith('--pid=')) pid = a.slice('--pid='.length);
+    else if (sub === 'start' && !label) label = a;
+    else return null;
+  }
+  if (sub === 'start' && !label) return null;
+  return { label, pid };
+}
+function heavySend(sub) {
+  return async (ctx, args) => {
+    const got = heavyArgs(sub, args);
+    if (!got) { ctx.err(USAGE.heavy); return 2; }
+    if (got.pid && !/^[0-9]+$/.test(got.pid)) { ctx.err('Kosmos did not record that: a process id is a whole number above 1.'); return 1; }
+    const r = await ctx.call('POST', '/api/heavy', { action: sub, label: sub === 'start' ? got.label : undefined, pid: got.pid ? Number(got.pid) : undefined });
+    if (!r.reached) {
+      return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+        : ctx.unreachable('record that');
+    }
+    const j = r.json;
+    if (r.status === 200 && j && j.ok === true && j.job) { ctx.out('Recorded: ' + j.job.label + '. It shows on the board as running' + (j.job.pid ? ' while process ' + j.job.pid + ' runs' : '') + '. kosmos heavy end when it is done.'); return 0; }
+    if (r.status === 200 && j && j.ok === true && typeof j.ended === 'number') {
+      const left = typeof j.others === 'number' ? j.others : 0;
+      if (j.ended) ctx.out('Ended: it no longer shows on the board.' + (left ? ' You still have ' + left + ' running; kosmos heavy lists them.' : ''));
+      else if (left && !got.pid) ctx.out('Nothing of yours was recorded without a process. Your ' + left + ' recorded ' + (left === 1 ? 'job is' : 'jobs are') + ' tied to a process: end ' + (left === 1 ? 'it' : 'each') + ' with kosmos heavy end --pid N (kosmos heavy lists them).');
+      else ctx.out('Nothing of yours was recorded as running' + (got.pid ? ' for that process' : '') + '.');
+      return 0;
+    }
+    if (ctx.refusedBy(r)) { ctx.err('Kosmos did not record that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }
+    ctx.err('Kosmos gave an answer we could not read.');
+    return 1;
+  };
+}
+
 /* #5300, as install/kosmos cmd_project role: an agent says what it does on one project, for itself only (the board
    names the caller from its token). An empty role clears it. */
 async function projectRole(ctx, args) {
@@ -4626,6 +4684,7 @@ const VERB_HANDLERS = {
   msg: verbMsg,
   reply: verbReply,
   'reply-channel': verbReplyChannel,
+  heavy: verbHeavy,   // kosmos#9217
   post: verbPost,
   react: verbReact,
   claim: verbClaim,
@@ -4661,6 +4720,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
+  heavy: { start: heavySend('start'), end: heavySend('end') },   // kosmos#9217
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold, wake: taskWake, edit: taskEdit /* kosmos#8664 */ },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
@@ -4689,6 +4749,7 @@ const DESCRIBE = {
   msg: 'send a message to one agent',
   reply: 'message the person in your conversation with them (an answer, or one you start)',
   'reply-channel': 'say where you answer the person, when it is not kosmos reply',
+  heavy: 'say a heavy job (a long test run) is running on this computer, or list them',
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   'file-notices': 'take the notices Kosmos kept for you when another agent was about to change a file of yours',
   away: 'what reached you while you were not running',

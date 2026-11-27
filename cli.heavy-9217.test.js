@@ -101,3 +101,26 @@ test('bad arguments are refused before any request', { skip: SKIP_POSIX_SHELL },
     assert.match(bad.out, /a process id is a whole number above 1/);
     assert.deepEqual(hits.filter((h) => h.url === '/api/heavy'), [], 'nothing reached the board');
   }));
+
+test('kosmos heavy --help (and -h) prints the heavy usage, exits 0, and reads nothing', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(answerOk, async (port, hits) => {
+    for (const args of [['heavy', '--help'], ['heavy', '-h'], ['heavy', 'start', '--help']]) {
+      const r = await runCli(args, envFor(port));
+      assert.equal(r.code, 0, args.join(' ') + ': ' + r.out);
+      assert.match(r.out, /^\s*Usage: kosmos heavy \| kosmos heavy start /m, args.join(' ') + ' printed: ' + r.out.slice(0, 200));
+    }
+    assert.deepEqual(hits, [], 'a --help asked the board something');
+  }));
+
+test('a bare end with only process-tied jobs left says how to end them; the list shows the display name', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard((method) => (method === 'GET'
+    ? { ok: true, jobs: [{ agent: 'ada-discord', name: 'Ada', label: 'suite', pid: null, since: Date.UTC(2026, 10, 27, 15, 5) }] }
+    : { ok: true, ended: 0, others: 2 }), async (port) => {
+    const r = await runCli(['heavy', 'end'], envFor(port));
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Your 2 recorded jobs are tied to a process: end each with kosmos heavy end --pid N/);
+    const p = await runCli(['heavy', 'end', '--pid', '77'], envFor(port));
+    assert.match(p.out, /Nothing of yours was recorded as running for that process\./, 'control: with a pid it says the plain sentence');
+    const l = await runCli(['heavy'], envFor(port));
+    assert.match(l.out, /^suite \(Ada, since \d\d:\d\d\)$/m);
+  }));

@@ -14,6 +14,8 @@
  *   - its agent is gone (not on the roster, when the roster could be read);
  *   - it is older than MAX_AGE_MS (a ceiling, so a record nothing can judge cannot stay for ever).
  * Without --pid a record is tied to its agent only: it ends with `kosmos heavy end`, with the agent, or at the ceiling.
+ * Where a start time cannot be read (Windows has no ps), a --pid record still clears when its process is gone (signal 0),
+ * but a reused number is not told apart from the job.
  *
  * Weakest premise (Splinter's review): that agents call start and end. A missing end is bounded by the clearing above; a
  * missing start is simply not shown. Slice 2 (a takeable turn) builds on these records.
@@ -26,6 +28,8 @@ const FILE = 'heavy-jobs.json';
 const MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const MAX_LABEL = 80;
 const MAX_JOBS = 50;   // a bound on the file, not a policy: no computer runs fifty heavy jobs at once
+const MAX_PER_AGENT = 4;   // and on what one agent's records can cost every status poll (one start-time read each)
+const START_CACHE_MS = 10 * 1000;
 
 function fileOf(root) { return path.join(root, FILE); }
 
@@ -64,12 +68,21 @@ function readAll(root) {
     && (j.pidStart === null || typeof j.pidStart === 'string'));
 }
 
+/* Writes the list; false (never a throw) when it could not be saved, so no caller passes an fs message, with its path,
+   to an agent or a page. */
 function writeAll(root, list) {
   const file = fileOf(root);
   const tmp = file + '.tmp-' + process.pid;
-  fs.writeFileSync(tmp, JSON.stringify(list.slice(-MAX_JOBS)) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(list.slice(-MAX_JOBS)) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* there was none */ }
+    return false;
+  }
 }
+const NOT_SAVED = 'Kosmos could not save its heavy-job record just now';
 
 function locked(root, fn) {
   try { fs.mkdirSync(root, { recursive: true }); } catch { /* the lock below says so */ }
@@ -93,8 +106,19 @@ function isLive(j, { now, startOf, agentAlive }) {
   return true;
 }
 
-function defaultStartOf(pid) {
-  return require('./restoresink').processStart(pid);
+/* Signal 0 first: a gone process costs nothing to recognise. A live one's start time is read with ps, and kept for
+   START_CACHE_MS so a board polled by several pages does not run ps for every record on every poll. */
+const startCache = new Map();
+function defaultStartOf(pid, now = Date.now()) {
+  const rs = require('./restoresink');
+  if (!rs.pidAlive(pid)) { startCache.delete(pid); return null; }
+  const hit = startCache.get(pid);
+  if (hit && now - hit.at < START_CACHE_MS) return hit.v;
+  const v = rs.processStart(pid);
+  if (v === null) { startCache.delete(pid); return null; }
+  if (startCache.size > MAX_JOBS * 2) startCache.clear();
+  startCache.set(pid, { v, at: now });
+  return v;
 }
 
 /* Record that agent's job is running. Replaces the agent's own record for the same process (or its process-less one),
@@ -111,32 +135,40 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     pidStart = typeof s === 'string' ? s : null;
   }
   const job = { agent, label: lab, pid: p, pidStart, since: now };
+  let out = { ok: true, job };
   const r = locked(root, () => {
     const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
+    if (list.filter((j) => j.agent === agent).length >= MAX_PER_AGENT) {
+      out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; end one with kosmos heavy end first', refused: true };
+      return;
+    }
     list.push(job);
-    writeAll(root, list);
+    if (!writeAll(root, list)) out = { ok: false, because: NOT_SAVED };
   });
-  return r.ok ? { ok: true, job } : { ok: false, because: r.because };
+  return r.ok ? out : { ok: false, because: r.because };
 }
 
 /* Record that agent's job has ended: the record for that process, or with no pid the agent's process-less record.
-   Returns { ok, ended: <count> }. Ending what is not there is not an error (ended: 0). */
+   Returns { ok, ended: <count>, others: <the agent's records left> }. Ending what is not there is not an error. */
 function end({ root, agent, pid }) {
   if (!agent) return { ok: false, because: 'Kosmos could not tell which agent you are' };
   let p;
   try { p = normalizePid(pid); } catch (err) { return { ok: false, because: err.message, refused: true }; }
-  let ended = 0;
+  let ended = 0, others = 0, saved = true;
   const r = locked(root, () => {
     const all = readAll(root);
     const keep = all.filter((j) => !(j.agent === agent && j.pid === p));
     ended = all.length - keep.length;
-    if (ended) writeAll(root, keep);
+    others = keep.filter((j) => j.agent === agent).length;
+    if (ended) saved = writeAll(root, keep);
   });
-  return r.ok ? { ok: true, ended } : { ok: false, because: r.because };
+  if (!r.ok) return { ok: false, because: r.because };
+  return saved ? { ok: true, ended, others } : { ok: false, because: NOT_SAVED };
 }
 
 /* The live records, oldest first, each as { agent, label, pid, since }. Stale ones are removed from the file when its
-   lock can be had at once; a reader never waits for it, so the board's status poll is never held up. */
+   lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
+   could not be saved changes nothing the reader is told. */
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null }) {
   const all = readAll(root);
   const keep = all.filter((j) => isLive(j, { now, startOf, agentAlive }));
@@ -144,9 +176,9 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
     require('./filelock').withFileLock(fileOf(root), () => {
       const fresh = readAll(root).filter((j) => isLive(j, { now, startOf, agentAlive }));
       writeAll(root, fresh);
-    }, { waitMs: 0 });
+    }, { waitMs: 0 });   // its { ok:false } (busy) and writeAll's false both leave the file for the next read
   }
   return keep.map((j) => ({ agent: j.agent, label: j.label, pid: j.pid, since: j.since }));
 }
 
-module.exports = { FILE, MAX_AGE_MS, MAX_LABEL, normalizeLabel, normalizePid, readAll, isLive, start, end, live };
+module.exports = { FILE, MAX_AGE_MS, MAX_LABEL, MAX_PER_AGENT, defaultStartOf, normalizeLabel, normalizePid, readAll, isLive, start, end, live };

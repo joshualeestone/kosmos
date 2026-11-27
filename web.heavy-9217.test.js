@@ -51,6 +51,14 @@ test('two jobs read as one plural sentence, in the order the server gave', () =>
   assert.equal(b.slot.textContent, 'Heavy jobs are running on this computer: cargo test (Angel, since 09:05); full suite (Mona Lisa, since 14:30).');
 });
 
+test('the note names the agent by the display name the server adds, and by its session name when there is none', () => {
+  const b = board();
+  b.paint([{ agent: 'ada-discord', name: 'Ada', label: 'suite', since: at(9, 5) }, { agent: 'bo-discord', label: 'build', since: at(9, 6) }]);
+  assert.equal(b.slot.textContent, 'Heavy jobs are running on this computer: suite (Ada, since 09:05); build (bo-discord, since 09:06).');
+  b.paint([{ agent: 'ada-discord', name: 'Ada Lovelace', label: 'suite', since: at(9, 5) }, { agent: 'bo-discord', label: 'build', since: at(9, 6) }]);
+  assert.match(b.slot.textContent, /suite \(Ada Lovelace, since/, 'a renamed agent kept its old name on the note');
+});
+
 test('a label with markup in it stays text: no element is made from it', () => {
   const b = board();
   b.paint([{ agent: 'Angel', label: '<b>x</b><img src=y>', since: at(9, 5) }]);
