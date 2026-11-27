@@ -33,12 +33,12 @@ ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
 # run's $S (TMPDIR is $S/tmp, and the arms that set their own TMPDIR keep it under $S), matched byte-wise (LC_ALL=C);
 # and one an arm lists in $S/own-waiters while it runs, because its arguments file is outside $S (the stale-TMPDIR arm,
 # whose wrapper falls back to /tmp). Each kind is KILLed only when its command line has a waiter's shape: a bash running
-# a script with --queued-args, or for a listed pid also the forms it has before its re-exec (perl, or this tree's
-# wrapper with its first arguments), since a pid is listed only while its own arm runs. The list is a file so the
+# a script with --queued-args, or for a listed pid also the forms it has before its re-exec (perl about to run this
+# tree's wrapper, or that wrapper with its first arguments), since a pid is listed only while its own arm runs. The list is a file so the
 # watchdog, forked before any arm, reads it as it is now.
 kill_waiters() { local p
   for p in $(LC_ALL=C pgrep -f -- "--queued-args $S/" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash "*" --queued-args $S/"*) kill -KILL "$p" 2>/dev/null;; esac; done
-  for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"/bin/bash $S/"*" --queued-args "*|"perl -e alarm"*) kill -KILL "$p" 2>/dev/null;; esac; done; }
+  for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH "*|"/bin/bash $S/"*" --queued-args "*|"perl -e alarm"*" /bin/bash $REAL_QH "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
 # own_waiter <pid> lists a pid for kill_waiters, unown_waiter <pid> takes it off again: an arm lists its waiter only
 # while that arm runs (kill_waiters also accepts its pre-exec forms, which is safe only for a pid still its own), so
 # every arm that lists one must unlist it when its wait returns. Only that pid's line goes; others stay.
@@ -53,13 +53,15 @@ trap 'exit 124' TERM
 # signals a pid reused after the file was killed from outside. A TERM reaches the file only between foreground commands;
 # when one is hung, the KILL 15 s later stops the file's children, this run's sleeps and waiters (kill_waiters), and then
 # the file (its EXIT trap does not run then, so $S can be left behind: the limit).
-( trap - EXIT TERM; me=$$; t0=$(date +%s)
+( trap - EXIT TERM; me=$$; t0=$(date +%s); wd=$(exec perl -e 'print getppid')   # kosmos#9191: this watchdog's own pid ($$ is the file's here, and bash 3.2 has no BASHPID)
   alive() { case "$(ps -o command= -p "$me" 2>/dev/null)" in *test-queued-heavy-4977*) return 0;; *) return 1;; esac; }
   while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
   echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
   kill -TERM "$me" 2>/dev/null; sleep 15; alive || exit 0
   kill_waiters; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
-  pkill -KILL -P "$me" 2>/dev/null   # kosmos#9191: last but the file: procps pkill -P (Linux) does not leave out its caller
+  # kosmos#9191: the file's children one by one, leaving out this watchdog (also its child), so the KILL of the file
+  # below still runs; a `pkill -P` here matches the watchdog itself where pkill does not leave out its caller's parent.
+  for p in $(pgrep -P "$me" 2>/dev/null); do [ "$p" = "$wd" ] || kill -KILL "$p" 2>/dev/null; done
   kill -KILL "$me" 2>/dev/null ) & WD=$!
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
@@ -863,7 +865,7 @@ bash -c 'exec -a "/bin/bash /nowhere/fakeqh9191.sh --queued-args /tmp/queued-hea
 # The listed-pid forms the real stale-TMPDIR waiter has: the wrapper before its re-exec (REAL_QH pointed at the fake path
 # for this one call) and perl before it execs the wrapper.
 bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$S" & KD9191=$!
-bash -c 'exec -a "perl -e alarm(shift); exec @ARGV or die 60 /bin/bash fakeqh9191" sleep 60' & KE9191=$!
+bash -c 'exec -a "perl -e alarm(shift); exec @ARGV or die 60 /bin/bash $1/fakeqh9191.sh stale-tmpdir true" sleep 60' _ "$S" & KE9191=$!
 # Ready once each has exec'd: before that its bash -c line already holds the words --queued-args, unexpanded.
 until_true 10 'ps -ww -o command= -p $KA9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KB9191 | grep -q "^/bin/bash $S/fakeqh9191.sh" && ps -ww -o command= -p $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && ps -ww -o command= -p $KD9191 | grep -q "^/bin/bash $S/fakeqh9191.sh stale" && ps -ww -o command= -p $KE9191 | grep -q "^perl -e alarm"'; k9191_up=$?
 # KC is listed too: a listed pid whose command is not a waiter of this run (a reused pid) must be left alone.
