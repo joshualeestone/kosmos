@@ -4,7 +4,7 @@
  * kosmos#8658: an agent's message (`kosmos msg`, POST /api/msg) to an agent that has only just started on Windows
  * was answered "we cannot see an agent by exactly this name" and not kept, the same race #8652 closed for a person's
  * message. It now waits for the roster row the same way (server.js startingAgent / awaitRosterRow), then sends, or
- * answers that the agent is still starting. A name that is really missing answers as before, at once.
+ * answers that the agent is still starting. A name that is really missing answers as before, without the start wait.
  *
  * The sender is identified by its agent token (the header form `kosmos msg` uses), and the roster comes through
  * status.setPaneSource, so this runs on every platform.
@@ -91,7 +91,9 @@ test.before(async () => {
 /* kosmos#9231: whether a message PAID the start wait is counted, not timed. The wait's own step hook (refresh, called
    once per 100 ms step while server.js waitForRosterRow is waiting) counts the steps, so a path that must not wait is
    checked by 0 steps: no load on the box can make that red, and a path that wrongly waits makes about 19 (the CONTROL in
-   the "never appears" test proves the count moves). Time limits that remain are scaled (test-support/eventually.js). */
+   the "never appears" test proves the count moves). Time limits that remain are scaled (test-support/eventually.js).
+   Review 1: so these checks say "without the start wait", not "at once": a NEW slowness on those paths (a delivery retry, a
+   slow roster read) is not what they measure, and a fixed time limit there is what a loaded box reddened. */
 let waitSteps = 0;
 const { scaleBudget } = require('./test-support/eventually');
 test.beforeEach(() => {
@@ -125,11 +127,13 @@ async function msg(to, text) {
 
 test('#8658 a message to an agent whose row appears a moment later is waited for and placed', async () => {
   worker('fresh'); recordRow('fresh', 1000);
-  roster.name = 'fresh'; roster.visibleAt = Date.now() + 300;
+  // kosmos#9231 review 1: listed from the wait's first step, not 300 ms later (a loaded box passed that before the board
+  // looked, so the message was placed without any wait and this test could not see the wait missing).
+  roster.name = 'fresh'; roster.visibleAt = 'step';
   const r = await msg('fresh', 'welcome aboard');
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.delivery.state, 'placed', 'the message to a starting agent was not delivered: ' + JSON.stringify(r.json));
-  assert.ok(r.ms >= 250, 'premise: the row was not there when the message arrived, yet it took ' + r.ms + ' ms');
+  assert.ok(waitSteps >= 1, 'premise: it was placed without waiting (' + waitSteps + ' steps), so the wait was not what placed it');
 });
 
 test('#8658 CONTROL: with the wait off, the same message is not delivered (the race this file must see)', async () => {
@@ -156,17 +160,17 @@ test('#8658 a starting agent that never appears: not delivered, and said to be s
   assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.match(r.delivery.because, /slow is still starting, so nothing was sent/);
   assert.ok(r.ms >= 1900 && r.ms < scaleBudget(5000), 'the wait was not bounded as set: ' + r.ms + ' ms');
-  assert.ok(waitSteps >= 5, 'CONTROL (kosmos#9231): the wait ran ' + waitSteps + ' counted steps, so a 0 below would prove nothing');
+  assert.ok(waitSteps >= 1, 'CONTROL (kosmos#9231): the wait ran ' + waitSteps + ' counted steps, so a 0 below would prove nothing');
 });
 
-test('#8658 a name that is really missing answers as before, at once', async () => {
+test('#8658 a name that is really missing answers as before, without the start wait', async () => {
   const r = await msg('nobodyhere', 'hello');
   assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.doesNotMatch(String(r.delivery.because), /still starting/);
   assert.equal(waitSteps, 0, 'a missing name paid the wait: it entered the start wait (' + waitSteps + ' steps, ' + r.ms + ' ms)');
 });
 
-test('#8658 a message to a running agent is unchanged: placed at once', async () => {
+test('#8658 a message to a running agent is unchanged: placed without the start wait', async () => {
   worker('steady'); roster.name = 'steady'; roster.visibleAt = 0;
   const r = await msg('steady', 'hello');
   assert.equal(r.delivery.state, 'placed', JSON.stringify(r.json));
@@ -182,10 +186,10 @@ function stateFile(name, startedAgoMs, writtenAgoMs = startedAgoMs) {
 
 test('#8658 a crash relaunch (old ownership row, fresh supervisor state file) is waited for and placed', async () => {
   worker('relaunched'); recordRow('relaunched', 10 * 60 * 1000); stateFile('relaunched', 500);
-  roster.name = 'relaunched'; roster.visibleAt = Date.now() + 300;
+  roster.name = 'relaunched'; roster.visibleAt = 'step';   // kosmos#9231 review 1, as the first test
   const r = await msg('relaunched', 'are you back?');
   assert.equal(r.delivery.state, 'placed', 'a message during a relaunch was not waited for: ' + JSON.stringify(r.json));
-  assert.ok(r.ms >= 250, 'premise: the row was not there when the message arrived: ' + r.ms + ' ms');
+  assert.ok(waitSteps >= 1, 'premise: it was placed without waiting (' + waitSteps + ' steps)');
 });
 
 test('#8658 CONTROL for the relaunch: an old row and an old state file is not starting, and does not wait', async () => {
@@ -257,7 +261,7 @@ test('#8658 DM route: a relaunching agent is waited for, then refused as startin
   assert.ok(r.ms >= 1900, 'it did not wait: ' + r.ms + ' ms');
 });
 
-test('#8658 DM route CONTROL: a stopped agent (old row, old run) is 404 at once, as before', async () => {
+test('#8658 DM route CONTROL: a stopped agent (old row, old run) is 404 without the start wait, as before', async () => {
   worker('dmstopped'); recordRow('dmstopped', 10 * 60 * 1000); stateFile('dmstopped', 10 * 60 * 1000);
   const r = await dm('dmstopped', 'hello');
   assert.equal(r.status, 404, JSON.stringify(r.json));
