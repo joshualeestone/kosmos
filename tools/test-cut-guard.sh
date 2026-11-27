@@ -1571,6 +1571,35 @@ rm -rf "$MB/aba.lock"; aba9139="$( (
   unset -f cat kill; command kill "$X" "$Z" 2>/dev/null; true ) 2>/dev/null )"
 rm -rf "$MB/aba.lock" "$MB/aba.nc"
 [ "$aba9139" = refused ] && pass "#9139 a breaker does not break a lock that changed hands between two empty reads" || fail "#9139 two holders through two empty pid reads (got '$aba9139')"
+# Review 7: a lock with no pid under 300 s old is not broken (a holder slowed between its mkdir and its pid write).
+rm -rf "$MB/np.lock"; mkdir "$MB/np.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/np.lock"
+np9139="$( ( if KOSMOS_BESIDE_LOCK_TRIES=2 _kosmos_beside_lock "$MB/np.lock"; then echo broken; else echo kept; fi ) 2>/dev/null )"
+rm -rf "$MB/np.lock"
+[ "$np9139" = kept ] && pass "#9139 a lock with no pid under 300 s old is not broken" || fail "#9139 a 60 s old lock with no pid was broken (got '$np9139')"
+# Review 7: an OLD pid-less lock replaced by a fresh one between the breaker's two reads is not broken (the age is judged
+# again after the second read). The hook swaps the dir on the third read of the pid.
+rm -rf "$MB/sw.lock"; mkdir "$MB/sw.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 400 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 400 ))" +%Y%m%d%H%M.%S)" "$MB/sw.lock"
+sw9139="$( ( d="$MB/sw.lock"; : > "$MB/sw.nc"
+  cat() { echo x >> "$MB/sw.nc"; [ "$(wc -l < "$MB/sw.nc" | tr -d ' ')" = 3 ] && { rmdir "$d"; mkdir "$d"; }; command cat "$@"; }
+  if KOSMOS_BESIDE_LOCK_TRIES=3 _kosmos_beside_lock "$d"; then echo two-holders; else echo refused; fi
+  unset -f cat; true ) 2>/dev/null )"
+rm -rf "$MB/sw.lock" "$MB/sw.nc"
+[ "$sw9139" = refused ] && pass "#9139 an old pid-less lock swapped for a fresh one between the two reads is not broken" || fail "#9139 a fresh pid-less lock was broken (got '$sw9139')"
+# Review 7: a waiter that judged an OLD break lock does not remove a FRESH one taken meanwhile (reviewer's interleaving:
+# the hook swaps in a fresh break lock, with its taker's token, just after the old one's age is read).
+rm -rf "$MB/bk.lock" "$MB/bk.lock.break"; mkdir "$MB/bk.lock"; echo 999999 > "$MB/bk.lock/pid"; mkdir "$MB/bk.lock.break"; : > "$MB/bk.lock.break/old.1"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 400 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 400 ))" +%Y%m%d%H%M.%S)" "$MB/bk.lock.break"
+# The hook uses an if, not a case: a case pattern ends in a bare paren, which bash 3.2 can read as the end of the
+# substitution. No apostrophe in a comment inside the substitution either: bash reads it as a quote.
+bk9139="$( ( d="$MB/bk.lock"; : > "$MB/bk.n"; eval "orig9139$(declare -f _kosmos_beside_mtime)"
+  _kosmos_beside_mtime() { if [ "${1%.break}" != "$1" ]; then echo x >> "$MB/bk.n"
+      if [ "$(wc -l < "$MB/bk.n" | tr -d ' ')" = 1 ]; then orig9139_kosmos_beside_mtime "$1"
+        rm -f "$d.break/old.1"; rmdir "$d.break"; mkdir "$d.break"; : > "$d.break/W.2"; return; fi; fi
+    orig9139_kosmos_beside_mtime "$1"; }
+  KOSMOS_BESIDE_LOCK_TRIES=2 _kosmos_beside_lock "$d" >/dev/null 2>&1
+  [ -e "$d.break/W.2" ] && echo survived || echo removed; true ) 2>/dev/null )"
+rm -rf "$MB/bk.lock" "$MB/bk.lock.break" "$MB/bk.n"
+[ "$bk9139" = survived ] && pass "#9139 a fresh break lock survives a waiter that judged the old one" || fail "#9139 a fresh break lock was removed (got '$bk9139')"
 # Review 6: the release removes the lock only while it carries this writer's pid (a ceiling break may have handed it on).
 rm -rf "$MB/rel.lock"; rel9139="$( ( _KOSMOS_BESIDE_OWN=424242; mkdir "$MB/rel.lock"; echo 999999 > "$MB/rel.lock/pid"
   _kosmos_beside_unlock "$MB/rel.lock"; [ -d "$MB/rel.lock" ] && printf kept; echo 424242 > "$MB/rel.lock/pid"
@@ -1678,8 +1707,8 @@ KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end fold-claim
 rm -f "$MB/beside-runs.log" "$MB"/beside-runs.log.pending.*; printf 'S p9 %s only-pending\n' "$now9139" > "$MB/beside-runs.log.pending.test2"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "only-pending (p9)" && pass "#9139 a pending line is named while the log does not exist yet" || fail "#9139 a pending line with no log was not named"
 rm -f "$MB"/beside-runs.log.pending.*
-# Review 2: a lock left by a writer killed while holding it is broken once it is older than 10 s.
-mkdir "$MB/beside-runs.log.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 60 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"   # UTC both sides (#7725)
+# Review 2: a lock left by a writer killed while holding it (no pid) is broken once it is older than 300 s (review 7).
+mkdir "$MB/beside-runs.log.lock"; TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 400 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 400 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"   # UTC both sides (#7725)
 st9139=$(date +%s); KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end after-stale; el9139=$(( $(date +%s) - st9139 ))
 { [ ! -e "$MB/beside-runs.log.lock" ] && tail -1 "$MB/beside-runs.log" | grep -q '^E after-stale ' && [ "$el9139" -lt 5 ]; } \
   && pass "#9139 a stale lock (a writer killed holding it) is broken at once and the line is written" || fail "#9139 a stale lock was not broken (elapsed ${el9139}s, lock $( [ -e "$MB/beside-runs.log.lock" ] && echo present || echo gone))"
