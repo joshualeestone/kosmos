@@ -60,9 +60,9 @@ BEFORE_JOBS="$(lw_snapshot)"
 
 kill_sandbox() {
   # Kill by state path, never by name: a name is a guess, the path is ours.
-  for pid in $(pgrep -f "$SB" 2>/dev/null); do kill "$pid" 2>/dev/null; done
+  for pid in $(LC_ALL=C pgrep -f "$SB" 2>/dev/null); do kill "$pid" 2>/dev/null; done
   sleep 1
-  for pid in $(pgrep -f "$SB" 2>/dev/null); do kill -9 "$pid" 2>/dev/null; done
+  for pid in $(LC_ALL=C pgrep -f "$SB" 2>/dev/null); do kill -9 "$pid" 2>/dev/null; done
 }
 cleanup() {
   # KEEP preserves the DIRECTORY for inspection, never the processes: a

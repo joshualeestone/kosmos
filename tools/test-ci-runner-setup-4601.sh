@@ -113,6 +113,8 @@ case "$me" in
     [ -z "${FX_CRON:-}" ] && { echo "crontab: no crontab for ${FX_WHO:-agent1}" >&2; exit 1; }; printf '%s\n' "$FX_CRON" ;;
   pgrep)
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
+    # kosmos#9149: a pgrep that refuses a stray byte elsewhere on the Mac unless it runs under LC_ALL=C.
+    [ "${FX_PGREP_NEEDC:-0}" = 1 ] && [ "${LC_ALL:-}" != C ] && { echo "pgrep: Regular expression evaluation error (illegal byte sequence)" >&2; exit 3; }
     # A Listener runs while this runner dir's svc state is "started" (cwd is the runner dir), with the pid start gave it.
     # kosmos#7001: a -f pattern is matched (ERE) against this runner's Listener argv and the relay's (#6245), so a pattern
     # that cannot tell the two apart is seen. The relay's pid changes once anything was bootstrapped (a respawn).
@@ -311,6 +313,10 @@ refuse no-services "listed no services at all" FX_NO_SERVICES=1
 for n in df-garbage df-empty; do ! has "pf-$n" "GiB free" && pass "preflight $n: no false 'GiB free' line beside the refusal" || fail "preflight $n printed a GiB line though df could not be read"; done
 ! has pf-no-services "no non-Apple launchd jobs loaded" && pass "preflight: an empty services block is not read as 'no jobs'" || fail "empty services block read as no jobs"
 refuse pgrep-fails "could not list processes (pgrep exit 3)" FX_PGREP_FAIL=1
+# kosmos#9149: a stray non-UTF-8 command line elsewhere on the Mac does not make preflight refuse (pgrep runs under C).
+run pf-needc "$H" FX_PGREP_NEEDC=1 -- preflight
+[ "$(rc pf-needc)" = 0 ] && has pf-needc "preflight: clear" && pass "preflight: a pgrep that refuses a stray byte outside LC_ALL=C still reads clear" \
+  || fail "preflight with a byte-refusing pgrep: rc $(rc pf-needc): $(grep -E 'REFUSE|pgrep' "$T/pf-needc.out" | head -2)"
 refuse crontab-unreadable "could not read the crontab" FX_CRON_FAIL=1
 refuse allow-keeps-others "1 non-Apple launchd job(s) still loaded" "FX_JOBS=io.tailscale.ipn.helper
 com.kosmos.board" KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.'
