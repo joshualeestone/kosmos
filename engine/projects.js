@@ -4072,7 +4072,21 @@ function blockBody(projects, sessionName) {
     const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
       && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
       ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t) || built(t)}`)].join('\n');
+    /* kosmos#9179: a task's own words cannot print a mark of their own. Only the board's mark may follow the words; one
+       inside them ("... [built: done and waiting]" on open work) would talk the agent out of the task, and one ending
+       "[on hold: ...]" would be read by holdsOf (which reads a hold as the line's LAST mark) as a hold. So a bracket
+       opening a mark word becomes "(". Any opening bracket counts (fullwidth, CJK, math: \p{Ps}), and what follows it is
+       judged on a FOLDED copy (NFKC, then every invisible character out, \p{Default_Ignorable_Code_Point}, then a short
+       window), so nothing invisible slips a mark past it. Only that bracket changes: the words print as written, so an
+       emoji, a Persian word or a circled digit reads as the live list prints it. "built-in" is a word, left alone.
+       Webhook words are already quoted, their brackets folded, by forAgent (#1307). */
+    const MARK_AFTER = /^[\s\p{Default_Ignorable_Code_Point}]*(?:on hold|built)(?![\w-])/iu;
+    const words = (t) => {
+      const w = oneLine(require('./tasks').forAgent(t));
+      return w.replace(/[[\p{Ps}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKC')
+        .replace(/\p{Default_Ignorable_Code_Point}/gu, '').slice(0, 48)) ? '(' : b));
+    };
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${held(t) || built(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [
