@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: besidefix-9139
-diff_hash: f17b78395e3ddc96b0c0a79b4021b8634174d5668ea95e1c49dacd92d63a3bec
-validation: full suite through queued-heavy PASSED on 2db15a78f8 (rc 0, head unchanged); the only commit after it adds .claude/plans/besidefix-9139.md, no code
+diff_hash: 1aebe459c542ed2b75c270450b7e7e4d33f2a3f1560982dbc163ed3451a80461
+validation: full suite through queued-heavy on the commit carrying this proof (its parent e223a6a02c holds all code); the result is posted on PR #9163 before the push
 subdir_audit: not run (no CLAUDE.md in the diff)
-timestamp: 2026-11-26T22:11:48Z
-iterations: 5
+timestamp: 2026-11-27T01:05:00Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5
-**Converged:** Yes. Rounds 4 and 5 found no BLOCKER or MAJOR; their minors were fixed with arms.
+**Iterations:** 8
+**Converged:** Stopped at the 8-round cap with no BLOCKER open. Round 6 found a BLOCKER (fixed, with an arm); rounds 7 and 8 found SHOULD-FIX races and test gaps, all fixed with arms that each red under a mutation.
 **Fixed:** all findings below unless marked. **Deferred:** 2 (named in round 5). **Asked (awaiting user):** 0
 
 **Validation, stated plainly.** The full suite ran through queued-heavy on 2db15a78f8 and passed (rc 0). The plan file was added after; it changes no code. The #8195 pipefail ratchet and the #7725 touch -t guard pass. Every fix was mutated and each mutation reds tools/test-cut-guard.sh. Linux: the PR's shell shard runs the file; review 4 ran the awk programs under mawk too.
@@ -56,3 +56,32 @@ converged: true
 **Self-generated:** not measured
 - [NIT] the trim chose a future-dated line as a partner; no arm pinned newest-start/largest-end; two over-strong comments --> FIXED (2db15a78f8)
 - [NIT] the date fallback and the pending-first read order have no arm --> DEFERRED: checked by hand in that review
+
+#### Iteration 6
+**Reviewer model:** opus
+**New findings:** 1 BLOCKER, 2 SHOULD-FIX, 2 NITs
+**Self-generated:** not measured
+- [BLOCKER] two holders: a breaker compared two EMPTY pid reads (a lock just made has none yet) across two changes of hands, and broke a live lock (reproduced) --> FIXED (a4da06a6d5): the pid read once is the value judged and compared; an empty value also needs the dir still old after the second read. Arm: the interleaving driven by cat/kill hooks
+- [SHOULD-FIX] the break-lock steal by age races --> FIXED in iteration 7 (token)
+- [SHOULD-FIX] no arm for the break serialization or the own-pid release --> FIXED (a4da06a6d5): arms for the release and the interleaving
+- [NIT] the live-holder arm passes for $$ --> FIXED: asserts the holder is not $$
+- [NIT] a declined break spun without its sleep --> FIXED
+- (Before this round, self-found: the holder pid taken in $( ) named a dead subshell, 299 of 300 --> FIXED 7d48105f78, arm)
+
+#### Iteration 7
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 SHOULD-FIX, 1 NIT
+**Self-generated:** not measured
+- [SHOULD-FIX] removing an old break lock could remove a fresh one (reproduced) --> FIXED (98e86e9a5b): a token-named file; the takeover removes only the name it saw. Arm
+- [SHOULD-FIX] a holder slowed past 10 s before its pid write was broken while alive --> FIXED (98e86e9a5b): 300 s ceiling for a pid-less lock. Arm
+- [NIT] the empty-value age re-check had no arm that could fail --> FIXED (98e86e9a5b): swap arm
+
+#### Iteration 8
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 SHOULD-FIX, 2 NITs
+**Self-generated:** not measured
+- [SHOULD-FIX] a break dir removed and made again can hold two takers --> FIXED (eeb34afeac): a taker breaks only if its token is the only entry. Arm
+- [SHOULD-FIX] no arm for the second-read equality with a non-empty pid --> FIXED (eeb34afeac): arm
+- [SHOULD-FIX] no positive arm for the takeover of an old break lock --> FIXED (eeb34afeac): arm
+- [NIT] failglob in a caller ends it on an empty glob --> DEFERRED: older code does the same in the pending loops
+- [NIT] pid 1 reads as no holder --> DEFERRED: older code, not this diff
