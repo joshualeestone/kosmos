@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: usagecharts-8959
-diff_hash: 3727f2054ed41b8662ace563e839f9d6ab1fc60c6dfa72771089bf2af3f59dcb
+diff_hash: bc637319e8c4edc5e6f2cacc1697ff561237687e80e889380de9e3e02a51508a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-27T17:00:01Z
+timestamp: 2026-11-27T18:21:11Z
 iterations: 2
 converged: false
 ---
@@ -18,7 +18,8 @@ converged: false
 **Asked (awaiting user):** 0
 
 ### Validation
-- Full validation: passed on this Mac 10:46 CST 2026-11-27 (validate-requeue.sh, rc 0, audit rc 0, head fc6033d95e, hash 3727f2054ed4; 31,730 node tests, 0 failed; four shell shards green), on main with D1c2a. Only this proof file changed after it.
+- Full validation: passed on Mortals 12:20 CST 2026-11-27 (mortals-validate.sh, rc 0, remote hash equal to the local one, bc637319e8c4, head a3ee800a46), on main with D1c2a. Only this proof file changed after it.
+- An earlier pass (10:46, fc6033d95e, 3727f2054ed4) was voided by a CI-found fix: UsageView.swift:138 could not be type-checked in time on CI's compiler; the chart and its label are now split into typed pieces (CI's UI build passes with it).
 - Logic: run-usage.sh 75/75; web.usage-ios-parity-8959 2/2; the #9104 guard and the ui-sample shard test pass.
 - subdir CLAUDE.md audit: passed.
 
