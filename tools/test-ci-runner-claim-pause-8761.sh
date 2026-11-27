@@ -3,6 +3,7 @@
 # is live, and starts it again (only if it stopped it) when the claim clears. launchctl and pgrep are stand-ins that
 # record what they were asked; ps is the real one, against real pids, because the liveness test is the point: pid 1
 # (launchd, owned by root) is a live process of ANOTHER user, where `kill -0` cannot tell alive from dead.
+unset LC_ALL   # kosmos#9149: the byte-refusing pgrep arms must be able to fail (they pass vacuously under an inherited C)
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PAUSE="$HERE/ci-runner-claim-pause.sh"

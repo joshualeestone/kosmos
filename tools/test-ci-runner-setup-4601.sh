@@ -5,6 +5,7 @@
 # on PATH that logs its argv, under a sandbox HOME. A dry run must leave the log free of every changing call and the
 # HOME byte-identical; the CONTROL is the same stage with --apply, which must reach the stubs, so this test can see
 # a call when one happens.
+unset LC_ALL   # kosmos#9149: the byte-refusing pgrep arms must be able to fail (they pass vacuously under an inherited C)
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
@@ -1088,6 +1089,10 @@ vcase() {  # vcase <name> <want rc> <want text> <env...>
   [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'PROBLEM|UNCHECKED|clear' "$T/v-$name.out" | head -2)"
 }
 vcase clear 0 "verify: clear"
+# kosmos#9149: a CI-user process whose argv is not valid UTF-8 (a job's leftover), in a UTF-8 locale: verify still reaches
+# its verdict (macOS awk used to exit 2 on it, and set -e ended verify silently). A line in a stand-in ps, no live process.
+# The byte is in the FIRST word: awk aborts where its sub() rewrites the program name (measured: in a later word it reads on).
+vcase badbyte 0 "no tmux or node left" LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 "FX_PS=$(printf 'zz\377job-leftover --x')"
 vcase labels 1 "labels are 'arm64,macos,self-hosted'" "FX_RUNNER_ROW=online false arm64,macos,self-hosted"
 vcase offline 1 "kosmos-ci-agent1s is offline" "FX_RUNNER_ROW=offline false arm64,kosmos-ci,macos,self-hosted"
 vcase missing 1 "no runner named kosmos-ci-agent1s" FX_RUNNER_ROW=
