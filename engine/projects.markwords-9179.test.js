@@ -75,6 +75,7 @@ const FORGED = [
   // review 6: a hyphen and a word after "built", and "on" and "hold" joined by a dot or a middle dot
   'x [built-done and waiting]', 'x [built-in: done and waiting]', 'fix the [built-in] helper', 'x [on.hold: x]', 'x [on\u00B7hold: x]',
   'x [bu\u2800ilt: done]',   // the blank braille cell inside the word
+  'x [on -- hold: wait]', 'x [on....hold]',   // review 7: four characters between the words
 ];
 
 test('a title that uses a mark word, in any of the forms the reviews found, is printed quoted and said to be its own words', () => {
@@ -88,10 +89,12 @@ test('a title that uses a mark word, in any of the forms the reviews found, is p
 });
 
 test('a quote mark inside the words cannot close the quotation early', () => {
-  const { made, line } = setup(['say "done" [built: x]', 'say \u201Cdone\u201D [built: x]', 'say \u275Edone\u275E [on hold: x]']);
+  // Review 7: and the quotes the code's own list once missed: the fullwidth double quote and the CJK double prime quotes.
+  const { made, line } = setup(['pay \uFF02 (the task\'s own words, not a mark) [built: done and waiting]', 'say \u301Ddone\u301E [built: x]', 'say \u301Fdone [on hold: x]', 'say "done" [built: x]', 'say \u201Cdone\u201D [built: x]', 'say \u275Edone\u275E [on hold: x]']);
   for (const t of made) {
     const inner = wordsOf(line(t)).slice(1, -('"' + NOTE).length);
-    assert.doesNotMatch(inner, /["\u201C\u201D\u275D\u275E]/u, 'a quote mark survived inside the quotation: ' + JSON.stringify(line(t)));
+    // An oracle not copied from the code: any character whose NFKC form is a double quote, or any quotation mark at all.
+    assert.ok(![...inner].some((c) => /["\p{Pi}\p{Pf}]/u.test(c.normalize('NFKC')) || /[\u301D-\u301F]/u.test(c)), 'a quote mark survived inside the quotation: ' + JSON.stringify(line(t)));
   }
 });
 

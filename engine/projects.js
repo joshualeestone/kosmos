@@ -4073,7 +4073,7 @@ function blockBody(projects, sessionName) {
       && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
       ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
     /* kosmos#9179: a task's own words cannot pass for a mark of the board's: a title that uses a mark word at all is
-       printed quoted, said to be the task's own words, so its line ends in that note and never in a hold (the rule, its
+       printed quoted, said to be the task's own words, so its words never end the line in a forged mark (the rule, its
        folding and its stated residual are in engine/markwords.js, which the task list is meant to share, #9188). A
        webhook task is already quoted by forAgent (#1307), so it is not quoted twice. */
     const words = (t) => {

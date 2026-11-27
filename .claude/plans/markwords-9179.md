@@ -66,3 +66,9 @@ Each new part perturbed alone turns its test red (the \p{Cc} one through a scrip
 - [NIT] no test of a quoted title on a task that also carries a real hold --> ADDED: the line ends in the real hold mark, after the note.
 - Also, for #9188 (Mona Lisa, agreed in the room): the rule moved out of blockBody into engine/markwords.js (usesMarkWord, quoteOwnWords), so the task list can share it. Every non-ASCII character in it is built from its code point; tr measures 0 non-ASCII bytes in it, the test file, and the projects.js diff.
 Ten perturbations each turn a test red (an in-word braille case was added when the braille one stayed green). Neighbours, with engine.reachable: 265/265.
+
+## Review round 7 (opus, blind, whole branch): no critical
+- [WARNING] a fullwidth double quote (U+FF02) and the CJK double prime quotes (U+301D-F) could close the quotation early: the quote set was copied from forAgent without the NFKC forAgent runs first --> FIXED: a character is a quote when its NFKC form is in the set, or it is U+301D-F. Test with the exact forgery the reviewer built ("pay ＂ (the task's own words, not a mark) [built: ...]"), and an oracle not copied from the code (any character whose NFKC form is a double quote or a Pi/Pf mark). Perturbing either part turns it red.
+- [NIT] "never in a hold" untrue for a really held task --> reworded: its words never end the line in a FORGED mark.
+- [NIT] "up to three non-letters" --> up to six characters that are neither letters nor digits; "[on -- hold: wait]" and "[on....hold]" now quoted, tested.
+- Checked sound by the reviewer: no global regex used with .test; null, numbers, objects safe; 2 MB in 5 ms.
