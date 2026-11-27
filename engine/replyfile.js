@@ -959,7 +959,8 @@ function sentToday(sessionName, now = Date.now()) {
 function discard(rec) {
   if (!rec || typeof rec.dir !== 'string' || !inside(attachments.ROOT, rec.dir)) return;
   try { fs.rmSync(rec.dir, { recursive: true, force: true }); } catch { /* best effort */ }
-  const key = keyOf(rec.owner);
+  // kosmos#9242: a room post's copy is owned by the project; the agent it counts against is `from`.
+  const key = keyOf(rec.scope === 'project' ? rec.from : rec.owner);
   if (ledger && key && ledger.has(key)) ledger.get(key).delete(rec.id);
 }
 

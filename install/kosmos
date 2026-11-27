@@ -3718,7 +3718,7 @@ cmd_post() {
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
   # kosmos#9242: except a post with a file: the kept post would be replayed without it, so it is not kept.
   case "$body" in '{"wrongWorld":true'*)
-    if [ -n "$_pfile" ]; then say "Nothing was posted: this board is serving another Kosmos, and a post with a file is not kept to send later. Post it again once your own Kosmos is open."; exit 1; fi
+    if [ -n "$_pfile" ]; then say "Nothing was posted: this board is serving another Kosmos, and a post with a file is not kept to send later. Post it again once your own Kosmos is open."; _keep_piped; exit 1; fi
     keep_in_outbox post "$_data" ;; esac
   # ⚠️ Globs are ANCHORED on the top-level keys. The post response embeds
   # `outcomes`, an object keyed by AGENT NAMES -- an agent named "state"

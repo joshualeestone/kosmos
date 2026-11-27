@@ -165,3 +165,32 @@ test('#9242: a room post\'s copy counts against the agent\'s daily total, and st
   replyfile.seed();   // what a board restart does: the ledger is read back from the store
   assert.ok(replyfile.sentToday(WHO) >= 64 * 1024, 'after a restart the room post\'s copy no longer counted: ' + replyfile.sentToday(WHO));
 }));
+
+test('#9242 review 1: refused AFTER the copy (a citation naming no post): no copy left, and the daily total is not charged', () => withLeo(async () => {
+  const src = write(path.join(FILES, 'cited.txt'), Buffer.alloc(1000, 1));
+  const copies = storedCount();
+  const total = replyfile.sentToday(WHO);
+  const r = await post({ project: 'room-9242', text: 'answering', file: src, in_reply_to: 'm999999', new_post: false });
+  assert.equal(r.json.delivery && r.json.delivery.state, 'could_not', r.text);
+  assert.equal(storedCount(), copies, 'the refused post left its copy');
+  assert.equal(replyfile.sentToday(WHO), total, 'the refused post was charged against the daily total');
+}));
+
+test('#9242 review 1: a corrected file posted again is a new post; the same file again folds and its extra copy is taken back', () => withLeo(async () => {
+  const src = write(path.join(FILES, 'report.txt'), 'version one');
+  const first = await post({ project: 'room-9242', text: '', file: src });
+  assert.ok(first.json.delivery && first.json.delivery.id, first.text);
+  fs.writeFileSync(src, 'version two, longer');
+  const fixed = await post({ project: 'room-9242', text: '', file: src });
+  assert.ok(fixed.json.delivery && fixed.json.delivery.id, fixed.text);
+  assert.notEqual(fixed.json.delivery.id, first.json.delivery.id, 'the corrected file was folded into the first post, so the room kept the old one');
+  assert.notEqual(fixed.json.delivery.duplicate, true);
+  // The same file again (a retry after a cut reply): folded, and no second copy is left behind or charged.
+  const copies = storedCount();
+  const total = replyfile.sentToday(WHO);
+  const again = await post({ project: 'room-9242', text: '', file: src });
+  assert.equal(again.json.delivery.duplicate, true, again.text);
+  assert.equal(again.json.delivery.id, fixed.json.delivery.id);
+  assert.equal(storedCount(), copies, 'the folded repeat left an orphan copy');
+  assert.equal(replyfile.sentToday(WHO), total, 'the folded repeat was charged');
+}));

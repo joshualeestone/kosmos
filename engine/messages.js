@@ -2914,11 +2914,17 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      (--new, reply_expected) are NOT: a retry re-sends the same command, so a copy that differs only in a flag is
      the same post again, and the first one's flags stand. */
   const answeredId = answered ? answered.id : null;
-  const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
+  /* kosmos#9242: and the attached file, by its name and size (a copy has a new id every time, and no content hash is
+     kept): the same file again is the same post, a corrected file is a new one. Residual, stated: a different file
+     with the same name and exactly the same size, within the fold's window, still folds. */
+  const fileOf = (a, as) => { const f = Array.isArray(as) && as[0] ? as[0] : a; return f && typeof f.name === 'string' ? f.name + '\u0000' + f.size : ''; };
+  const fileKey = fileOf(attachment, attachments);
+  const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || '') + '\u0000' + fileKey, stored);
   if (operator !== true) {
     const unrecorded = unrecordedTwin(postKey, log, projectId);   // #4926 review 2: delivered but not recorded
     if (unrecorded) return asDuplicate(unrecorded);
-    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
+    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId
+      && fileOf(r.attachment, r.attachments) === fileKey);   // kosmos#9242
     // An outside party's reply in a federated room is an 'external' row: it breaks the quiet like any post.
     if (samePost && quietSince(log, samePost, (r) => (r.kind === 'post' || r.kind === 'external') && r.project === projectId)) {
       const foldedState = aggregateState(samePost.outcomes);

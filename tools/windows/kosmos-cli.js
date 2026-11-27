@@ -952,7 +952,7 @@ async function verbPost(ctx, args) {
   }
   if (ctx.wrongWorld(r)) {
     // kosmos#9242, as install/kosmos: a kept post would be replayed without its file, so one with a file is not kept.
-    if (file) { ctx.err('Nothing was posted: this board is serving another Kosmos, and a post with a file is not kept to send later. Post it again once your own Kosmos is open.'); return 1; }
+    if (file) { ctx.err('Nothing was posted: this board is serving another Kosmos, and a post with a file is not kept to send later. Post it again once your own Kosmos is open.'); keepPiped(); return 1; }
     let kept = 1;
     try { kept = ctx.keepForLater('post', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
     if (kept !== 0) keepPiped();   /* #2909: the outbox refused it (e.g. too long); keep a piped message */

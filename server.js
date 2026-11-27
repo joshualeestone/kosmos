@@ -21704,8 +21704,9 @@ const server = http.createServer(async (req, res) => {
           if (postFiles) require('./engine/replyfile').discard(postFiles[0]);
           throw err;
         }
-        // kosmos#9242: a copy no post carries (refused, held to ask which room, not recorded) is taken back.
-        if (postFiles && !(delivery && delivery.id)) require('./engine/replyfile').discard(postFiles[0]);
+        // kosmos#9242: a copy no post carries (refused, held to ask which room, not recorded) is taken back, and so is
+        // one whose post was folded into an earlier identical one (a retry): that post carries the earlier copy.
+        if (postFiles && (!(delivery && delivery.id) || delivery.duplicate === true)) require('./engine/replyfile').discard(postFiles[0]);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
