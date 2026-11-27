@@ -384,19 +384,20 @@ async function pull(dir, opts) {
   const progress = typeof o.onProgress === 'function' ? o.onProgress : null;
   const fetched = new Array(toFetch.length);
   let done = 0;
+  let failed = 0;   // review 4: a read that failed is said as failed, never as fetched
   let lastSaid = Date.now();
   let next = 0;
   const every = Number.isFinite(o.progressEveryMs) && o.progressEveryMs >= 0 ? o.progressEveryMs : PROGRESS_EVERY_MS;   // tests set it
-  const say = () => { try { progress({ fetched: done, toFetch: toFetch.length, alreadyHere, total: listed.length }); } catch { /* a progress line never fails a pull */ } };
+  const say = () => { try { progress({ fetched: done, failed, toFetch: toFetch.length, alreadyHere, total: listed.length }); } catch { /* a progress line never fails a pull */ } };
   if (progress && toFetch.length) say();   // at once: the pull lives, and says how much it has to fetch
   const worker = async () => {
     while (next < toFetch.length) {
       const i = next++;
       const b = toFetch[i];
-      if (!b || typeof b.url !== 'string') { fetched[i] = { bad: true }; }
+      if (!b || typeof b.url !== 'string') { fetched[i] = { bad: true }; failed += 1; }
       else {
         try { fetched[i] = { text: await tp.get(b.url, tok) }; }
-        catch (e) { fetched[i] = { error: String((e && e.message) || e) }; }
+        catch (e) { fetched[i] = { error: String((e && e.message) || e) }; failed += 1; }
       }
       done += 1;
       if (progress && done < toFetch.length && Date.now() - lastSaid >= every) { lastSaid = Date.now(); say(); }
@@ -467,12 +468,14 @@ async function pull(dir, opts) {
         if (REFUSED_STATUS.test(lastErr) && !/token withheld/.test(lastErr)) {
           writeIndex(target, index);
           return { ok: false, written, alreadyHere, skipped, dir: target,
-            because: 'nothing new could be read, and reading back a report already in ' + target + ' to check the token was refused: '
+            because: 'no report could be read: reading back one already in ' + target + ' to check the token was refused: '
               + lastErr + '. The token may no longer have read access to the store.' };
         }
       }
     }
     if (!read && held.length) checkNote = 'could not read a report back to check the token (' + lastErr + '); the reports already here were kept.';
+    // Review 4: held reports with no url to read back (another store's listing shape): say the check was not made.
+    if (!held.length) checkNote = 'no report could be read back to check the token (the listing gave no url); the reports already here were kept.';
   }
   // Only what the store still lists is kept, so the index never outgrows the store. A failed save costs a re-fetch next time.
   writeIndex(target, index);
@@ -536,7 +539,9 @@ function writeIndex(dir, index) {
 }
 /* kosmos#9180: the progress line the three callers print on stderr (the summary stays on stdout). */
 function progressLine(p) {
-  return 'pulling feedback: ' + p.fetched + ' of ' + p.toFetch + ' fetched' + (p.alreadyHere ? ' (' + p.alreadyHere + ' already here)' : '') + '...';
+  // Review 4: "read", and failures named, so a revoked token does not print a growing count of reports fetched.
+  return 'pulling feedback: ' + p.fetched + ' of ' + p.toFetch + ' read' + (p.failed ? ', ' + p.failed + ' could not be' : '')
+    + (p.alreadyHere ? ' (' + p.alreadyHere + ' already here)' : '') + '...';
 }
 
 /* The public-store hint, one wording for the success summary and the failure. It is

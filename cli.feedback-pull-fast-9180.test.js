@@ -80,7 +80,7 @@ test('Mac CLI: progress on stderr, a second pull fetches nothing, --all fetches 
   const first = await run(['--dir', dir], box, st.api);
   assert.equal(first.code, 0, first.out + first.err);
   assert.equal(st.gets.length, 2, 'fixture: the first pull fetched both reports: ' + first.err);
-  assert.match(first.err, /^pulling feedback: 0 of 2 fetched\.\.\.$/m, 'no progress line on stderr: ' + JSON.stringify(first.err));
+  assert.match(first.err, /^pulling feedback: 0 of 2 read\.\.\.$/m, 'no progress line on stderr: ' + JSON.stringify(first.err));
   assert.doesNotMatch(first.out, /pulling feedback/, 'progress went to stdout');
   assert.match(first.out, /^pulled 2 report\(s\) to /m, first.out);
   const second = await run(['--dir', dir], box, st.api);
@@ -112,7 +112,7 @@ test('Windows CLI: --all and a progress writer reach pull, progress goes to err,
   const r = await go(['feedback', 'pull', '--dir', '/x', '--all']);
   assert.equal(r.code, 0, r.out + r.err);
   assert.equal(seen.length, 1); assert.equal(seen[0].opts.all, true, '--all did not reach pull');
-  assert.match(r.err, /^pulling feedback: 0 of 3 fetched \(1 already here\)\.\.\.$/m, 'progress was not written to err: ' + r.err);
+  assert.match(r.err, /^pulling feedback: 0 of 3 read \(1 already here\)\.\.\.$/m, 'progress was not written to err: ' + r.err);
   assert.match(r.out, /pulled 3 report\(s\), 1 already here to \/x/, r.out);
   const plain = await go(['feedback', 'pull']);
   assert.equal(plain.code, 0); assert.equal(seen[1].opts.all, false, 'a plain pull asked for --all');

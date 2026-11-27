@@ -52,3 +52,9 @@ module's own `runCli`.
 - [NIT] "exactly as the one-at-a-time loop" was not true with a held report --> comment corrected.
 - [NIT] the refused read-back message said "every listed report is already in" beside url-less new reports --> reworded ("nothing new could be read, and reading back a report already in ..."); the test asserts the whole sentence.
 - [NIT] a stray + '' --> removed. [NIT] progress counts a url-less report as fetched --> ACCEPTED (cosmetic).
+
+## Review round 4 (sonnet, blind, whole branch): NITs only (converged)
+- [NIT] progress counted failed reads as fetched --> FIXED: "N of M read, K could not be". Test through the real pool with refused reads.
+- [NIT] "nothing new could be read" when nothing new existed --> FIXED: "no report could be read: reading back one already in ...".
+- [NIT] held reports with no url left the token check unmade, silently --> FIXED: a "note:" line says so. Test.
+Each perturbed alone turns its own test red.

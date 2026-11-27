@@ -140,8 +140,10 @@ test('a long pull reports progress, and a progress callback that throws does not
   seen.length = 0;
   await fp.pull(dir, { token: TOKEN, progressEveryMs: 0, onProgress: (p) => seen.push(p) });
   assert.equal(seen.length, 0, 'a pull with nothing to fetch printed progress');
-  assert.match(fp.progressLine({ fetched: 0, toFetch: 12, alreadyHere: 0, total: 12 }), /^pulling feedback: 0 of 12 fetched\.\.\.$/);
-  assert.match(fp.progressLine({ fetched: 2, toFetch: 5, alreadyHere: 7, total: 12 }), /^pulling feedback: 2 of 5 fetched \(7 already here\)\.\.\.$/);
+  assert.match(fp.progressLine({ fetched: 0, toFetch: 12, alreadyHere: 0, total: 12 }), /^pulling feedback: 0 of 12 read\.\.\.$/);
+  assert.match(fp.progressLine({ fetched: 2, toFetch: 5, alreadyHere: 7, total: 12 }), /^pulling feedback: 2 of 5 read \(7 already here\)\.\.\.$/);
+  // Review 4: failed reads are named, never counted as fetched.
+  assert.match(fp.progressLine({ fetched: 4, failed: 3, toFetch: 9, alreadyHere: 0, total: 9 }), /^pulling feedback: 4 of 9 read, 3 could not be\.\.\.$/);
 });
 
 test('the CLI entry takes --all and prints progress on stderr, the summary on stdout', async () => {
@@ -203,7 +205,7 @@ test('review 1: a token that can no longer read fails the pull, even when every 
   st.transport.get = async () => { throw new Error('blob get HTTP 403'); };
   const r = await fp.pull(dir, { token: TOKEN });
   assert.equal(r.ok, false, 'a pull that could read nothing passed as a success');
-  assert.match(r.because, /^nothing new could be read, and reading back a report already in .* to check the token was refused: blob get HTTP 403\. The token may no longer have read access/, r.because);
+  assert.match(r.because, /^no report could be read: reading back one already in .* to check the token was refused: blob get HTTP 403\. The token may no longer have read access/, r.because);
   // Some new, every new one refused, others already here: still a failure.
   st.transport.get = realGet;
   st.put('feedback/x7.json', REC('c', '2026-11-26', 'three'), '2026-11-26T07:00:00.000Z');
@@ -286,4 +288,31 @@ test('review 2: a pull stopped after writing a report but before its last index 
   assert.match(fs.readFileSync(path.join(dir, '2026-11-26__dup.md'), 'utf8'), /the newer report/, 'fixture: the new report was written over the held one');
   const saved = JSON.parse(fs.readFileSync(fp.indexPath(dir), 'utf8'));
   assert.deepEqual(Object.keys(saved).filter((k) => saved[k] === '2026-11-26__dup.md'), [], 'the index still names an object as saved in a file that was rewritten: ' + JSON.stringify(saved));
+});
+
+test('review 4: progress during a pull whose reads are refused names them as failed', async () => {
+  const dir = path.join(SB, 'progfail');
+  const recs = []; for (let i = 0; i < 6; i++) recs.push(REC('f' + i, '2026-11-25', 'r' + i));
+  const st = makeStore(recs, { delayMs: 20 });
+  st.transport.get = async () => { await new Promise((r) => setTimeout(r, 20)); throw new Error('blob get HTTP 403'); };
+  fp.setTransport(st.transport);
+  const seen = [];
+  const r = await fp.pull(dir, { token: TOKEN, progressEveryMs: 0, onProgress: (p) => seen.push(p) });
+  assert.equal(r.ok, false);
+  assert.ok(seen.length >= 2, 'fixture: progress was reported');
+  const last = seen[seen.length - 1];
+  assert.ok(last.failed > 0 && last.failed === last.fetched, 'refused reads were not counted as failed: ' + JSON.stringify(last));
+  assert.match(fp.progressLine(last), /, \d+ could not be/, fp.progressLine(last));
+});
+
+test('review 4: held reports the listing gives no url for: the summary says the token check was not made', async () => {
+  const dir = path.join(SB, 'heldnourl');
+  const st = makeStore([REC('a', '2026-11-25', 'one')]);
+  fp.setTransport(st.transport);
+  await fp.pull(dir, { token: TOKEN });
+  st.blobs = st.blobs.map(({ url, ...b }) => b);   // the same objects, listed without a url
+  const r = await fp.pull(dir, { token: TOKEN });
+  assert.equal(r.ok, true);
+  assert.equal(r.alreadyHere, 1, 'fixture: the report is held');
+  assert.ok(fp.summaryLines(r).some((l) => /^note: no report could be read back to check the token \(the listing gave no url\)/.test(l)), fp.summaryLines(r).join(' | '));
 });
