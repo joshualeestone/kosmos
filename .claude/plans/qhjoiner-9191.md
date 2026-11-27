@@ -67,7 +67,9 @@ whose arguments file is in its own $S.
   foreground sleep the TERM cannot interrupt, a waiter stand-in in $S): the stand-in is gone and the file ends. Round 6
   code: KILLed (137). Round 7 code (children first): the foreground sleep is one of those children, so the file's TERM
   trap then runs (124) before the KILL is needed. macOS only; the Linux pkill case is reasoned.
-- Whole file after rounds 6, 7 and 8: 178/178 each. Watchdog harness re-run on round 8's sh-based pid: stand-in gone,
+- Whole file after rounds 6, 7 and 8: 178/178 each; after rounds 10 and 11 (dc53f6350b, the final code): 178/178.
+- Linux: this file is not in tools/shell-macos-only.txt, so the Linux CI shell shards run it. The stand-ins' `exec -a`
+  names and `ps -o stat=` are measured on macOS only; the PR's own CI is the Linux measurement. Watchdog harness re-run on round 8's sh-based pid: stand-in gone,
   file ended (124).
 - Whole file after round 1: 177/177.
 - Disclosed (round 10, 23:49 CST): the last control above (the first loop's $S anchor and shape check BOTH removed)
