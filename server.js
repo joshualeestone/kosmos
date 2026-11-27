@@ -24445,6 +24445,10 @@ const server = http.createServer(async (req, res) => {
     }
     /* kosmos#9177: and its groups are the caller's: a task another holder marked built is still open for it. */
     const mineWho = mineCaller ? (n) => heldByCaller(n, mineCaller) : null;
+    /* kosmos#9177: a row the caller's list keeps open although it carries another holder's mark says so, so the list does
+       not print it as waiting on a review (engine/tasklist.js waitsWords). Absent on other rows and on older boards. */
+    const mineMark = (t) => (mineWho && typeof t.builtAt === 'string' && t.builtAt && tasks.listGroup(t, mineWho) !== 'built'
+      ? Object.assign({}, t, { builtForCaller: false }) : t);
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list without the snapshot (kosmos#7151: the stale list adds one board
@@ -24469,7 +24473,7 @@ const server = http.createServer(async (req, res) => {
           .map((x) => ({ ...x, ms: x.at ? Date.parse(x.at) : NaN }))
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
           .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
-          .map((x) => Object.assign({}, withWakeWords(withRepeatWords(x.t)), { lastActivityAt: x.at || null }));
+          .map((x) => Object.assign({}, mineMark(withWakeWords(withRepeatWords(x.t))), { lastActivityAt: x.at || null }));
         /* kosmos#7151 (feedback): a quiet task an agent left under work that has since finished is OFFERED for retiring
            (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
            roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
@@ -24520,7 +24524,7 @@ const server = http.createServer(async (req, res) => {
         }
         return Object.assign({}, t, extra);
       } : (t) => t;
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(withWakeWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(withWakeWords).map(mineMark).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives

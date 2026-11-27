@@ -30,6 +30,7 @@ const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const projectsEngine = require('./engine/projects');
 const tasks = require('./engine/tasks');
+const tasklist = require('./engine/tasklist');
 
 const BOARD = 'BOARDTOKEN_test_9177_tasksmine_0123456789';
 let base;
@@ -60,7 +61,8 @@ async function get(p, token) {
 const AT = '2026-11-26T12:00:00.000Z';
 const both = () => [{ id: 1, who: 'reader-agent' }, { id: 2, who: 'other-agent' }];
 /* One project both agents are on. Each task has an open part for each agent:
-   1 marked built by other-agent only; 2 marked by the person (builtFreesAll); 3 marked by reader-agent only; 4 unmarked. */
+   1 marked built by other-agent only; 2 marked by the person (builtFreesAll); 3 marked by reader-agent only; 4 unmarked.
+   5 is marked by other-agent and reader-agent's part is CLOSED: no open part of its own, so built for reader too. */
 function withProjects(t) {
   const realAll = projectsEngine.readAll;
   projectsEngine.readAll = () => [
@@ -69,6 +71,8 @@ function withProjects(t) {
       { number: 2, sentence: 'shared person-marked', parts: both(), builtAt: AT, builtByPerson: true, builtWho: [], builtFreesAll: true },
       { number: 3, sentence: 'shared reader-marked', parts: both(), builtAt: AT, builtBy: 'reader-agent', builtWho: ['reader-agent'] },
       { number: 4, sentence: 'shared unmarked', parts: both() },
+      { number: 5, sentence: 'shared reader-finished', parts: [{ id: 1, who: 'reader-agent', closedAt: AT }, { id: 2, who: 'other-agent' }],
+        builtAt: AT, builtBy: 'other-agent', builtWho: ['other-agent'] },
     ] },
   ];
   t.after(() => { projectsEngine.readAll = realAll; });
@@ -85,11 +89,15 @@ test('builtFor: one agent\'s mark covers that agent only; the person\'s covers e
   assert.equal(tasks.builtFor(null, 'x'), false);
   // listGroup: without a reader, any mark is built (the board's task-level view, unchanged); with one, the reader's rule.
   assert.equal(tasks.listGroup(other), 'built');
-  assert.equal(tasks.listGroup(other, 'reader-agent'), 'open');
-  assert.equal(tasks.listGroup({ ...other, projectPaused: true }, 'reader-agent'), 'held');
+  const otherOn = { ...other, parts: both() };   // reader-agent holds an open part of it
+  assert.equal(tasks.listGroup(otherOn, 'reader-agent'), 'open');
+  assert.equal(tasks.listGroup({ ...otherOn, projectPaused: true }, 'reader-agent'), 'held');
+  // Another holder's mark, and the reader's own part closed: nothing of the reader's is open, so built for it (hasOpenWork's reading).
+  assert.equal(tasks.listGroup({ ...other, parts: [{ id: 1, who: 'reader-agent', closedAt: AT }, { id: 2, who: 'other-agent' }] }, 'reader-agent'), 'built');
+  assert.equal(tasks.listGroup({ ...other, parts: [{ id: 1, who: 'reader-agent' }, { id: 2, who: 'other-agent' }] }, 'reader-agent'), 'open');
   // A mark with no builtWho list (older than per-agent marks) cannot say whose it is, so it reads built for everyone.
   assert.equal(tasks.listGroup({ builtAt: AT }, 'reader-agent'), 'built');
-  assert.equal(tasks.listGroup({ builtAt: AT, builtWho: [] }, 'reader-agent'), 'open', 'an unnamed caller\'s mark frees nobody');
+  assert.equal(tasks.listGroup({ builtAt: AT, builtWho: [], parts: both() }, 'reader-agent'), 'open', 'an unnamed caller\'s mark frees nobody');
 });
 
 test('#9177: --mine open keeps a shared task another holder marked built; --mine built keeps only the asker\'s', async (t) => {
@@ -99,7 +107,7 @@ test('#9177: --mine open keeps a shared task another holder marked built; --mine
   assert.deepEqual(sentences(open.text), ['shared other-marked', 'shared unmarked'], open.text.slice(0, 400));
   const built = await get('/api/tasks?all=1&order=state&state=built&mine=1', readerToken);
   assert.equal(built.code, 200, built.text.slice(0, 300));
-  assert.deepEqual(sentences(built.text), ['shared person-marked', 'shared reader-marked'], built.text.slice(0, 400));
+  assert.deepEqual(sentences(built.text), ['shared person-marked', 'shared reader-finished', 'shared reader-marked'], built.text.slice(0, 400));
   // The other holder sees the mirror image: its own mark is built for it, the reader's is still open.
   const otherOpen = await get('/api/tasks?all=1&order=state&state=open&mine=1', otherToken);
   assert.deepEqual(sentences(otherOpen.text), ['shared reader-marked', 'shared unmarked'], otherOpen.text.slice(0, 400));
@@ -123,5 +131,31 @@ test('CONTROL: without mine=1 the list is the task-level view, so any mark is bu
   withProjects(t);
   const built = await get('/api/tasks?project=projS&order=state&state=built', readerToken);
   assert.equal(built.code, 200, built.text.slice(0, 300));
-  assert.deepEqual(sentences(built.text), ['shared other-marked', 'shared person-marked', 'shared reader-marked'], built.text.slice(0, 400));
+  assert.deepEqual(sentences(built.text), ['shared other-marked', 'shared person-marked', 'shared reader-finished', 'shared reader-marked'], built.text.slice(0, 400));
+});
+
+test('#9177: the open row carrying another holder\'s mark says so, and the CLI does not print it as waiting on a review', async (t) => {
+  withProjects(t);
+  const r = await get('/api/tasks?all=1&order=state&state=open&mine=1', readerToken);
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  const body = JSON.parse(r.text);
+  const row = (words) => body.tasks.find((x) => x.sentence === words);
+  assert.equal(row('shared other-marked').builtForCaller, false, r.text.slice(0, 400));
+  assert.equal('builtForCaller' in row('shared unmarked'), false, 'an unmarked row was flagged');
+  const { lines } = tasklist.acrossLines(body, 'open', { mine: true });
+  const printed = lines.find((l) => l.includes('shared other-marked'));
+  assert.ok(printed, 'CONTROL: the row is not printed: ' + lines.join('\n'));
+  assert.match(printed, /another holder marked it built; your part is still open/, printed);
+  assert.doesNotMatch(printed, /waits on a review/, printed);
+  // The task-level list (no mine=1) still says a marked task waits on its review.
+  const all = JSON.parse((await get('/api/tasks?all=1&order=state&state=built', readerToken)).text);
+  assert.ok(all.tasks.every((x) => !('builtForCaller' in x)), 'a row of the task-level list was flagged');
+});
+
+test('#9177: --mine --stale (quietDays) keeps the same rows open, flagged the same way', async (t) => {
+  withProjects(t);
+  const r = await get('/api/tasks?all=1&order=state&state=open&quietDays=1&mine=1', readerToken);
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  assert.deepEqual(sentences(r.text), ['shared other-marked', 'shared unmarked'], r.text.slice(0, 400));
+  assert.equal(JSON.parse(r.text).tasks.find((x) => x.sentence === 'shared other-marked').builtForCaller, false);
 });
