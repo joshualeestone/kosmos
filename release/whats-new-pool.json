@@ -2975,6 +2975,14 @@
       "rank": 10.5,
       "since": "0.8.25",
       "status": "pending"
+    },
+    {
+      "title": "Words you were typing are kept",
+      "line": "Words you start typing to an agent or in a project come back if the Kosmos page reloads, instead of being lost.",
+      "icon": "chat",
+      "rank": 10.6,
+      "since": "0.8.26",
+      "status": "pending"
     }
   ],
   "lastProdWin": "0.8.25"
