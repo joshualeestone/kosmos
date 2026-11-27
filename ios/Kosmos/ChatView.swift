@@ -839,7 +839,10 @@ struct ChatView: View {
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
-                                if anchorOnEndAppear { anchorOnEndAppear = false; if positionId != "end", !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" } }   // kosmos#9212
+                                // kosmos#9212: the end on screen, its rows drawn, names the anchor when nothing holds one (the open names none) and
+                                // nothing let it go: not under a person's scroll, a let-go, or search.
+                                anchorOnEndAppear = false
+                                if positionId == nil, !anchorLetGo, !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" }
                                 endVisible = true
                                 rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -970,19 +973,17 @@ struct ChatView: View {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
-                    // kosmos#9212: to the end by a scroll, the anchor named only once the end has appeared (sampleAnchorAtOpen's note).
-                    // No anchor left over from an earlier list of this chat either (a refused read drops the list and keeps it).
+                    // kosmos#9212: to the end by a scroll; the end's appearance names the anchor (sampleAnchorAtOpen's note). A
+                    // short chat's end can appear before this runs and has named it already.
                     if Self.idAnchor, !Self.sampleAnchorAtOpen {
-                        appMoves &+= 1; positionId = nil; proxy.scrollTo("end", anchor: .bottom)
-                        anchorOnEndAppear = true; anchorAsks &+= 1
-                        // Dropped a little after the last look, so a request the end never met cannot hold goNewest to scrolls,
-                        // or name "end" under a later fling (iOS 17 sets no personScrolling). Only this open's request. An end
-                        // already showing then (a short chat's appears before this runs) is named, its rows long drawn.
-                        let ask = anchorAsks
-                        DispatchQueue.main.asyncAfter(deadline: .now() + (Self.openLandLooks.last ?? 1.6) + 0.3) {
-                            guard anchorAsks == ask, anchorOnEndAppear else { return }
-                            anchorOnEndAppear = false
-                            if endSeen, endVisible, positionId != "end", !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" }
+                        if positionId != "end" {
+                            appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom)
+                            anchorOnEndAppear = true; anchorAsks &+= 1
+                            // While it is set goNewest only scrolls. Dropped a little after the last look, only this open's.
+                            let ask = anchorAsks
+                            DispatchQueue.main.asyncAfter(deadline: .now() + (Self.openLandLooks.last ?? 1.6) + 0.3) {
+                                if anchorAsks == ask { anchorOnEndAppear = false }
+                            }
                         }
                     }
                     else { goNewest(proxy) }
@@ -1273,10 +1274,7 @@ struct ChatView: View {
         if Self.idAnchor {
             // kosmos#9212: while the open waits for the end to appear, an arrival or a read goes there by a scroll too; the end's
             // appearance names the anchor.
-            if anchorOnEndAppear, positionId != "end" {
-                if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
-                return
-            }
+            if anchorOnEndAppear, positionId != "end" { proxy.scrollTo("end", anchor: .bottom); return }
             // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
             if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
             return
@@ -1626,7 +1624,7 @@ struct ChatView: View {
         if wrote { Self.trace("keyboard settled: past the end, put back at its end") }
         goNewest(proxy)
         // As recoverEmpty: a direct offset write may have made SwiftUI name a row in the binding; put the end back after it.
-        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
+        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !anchorOnEndAppear, !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
@@ -1693,7 +1691,7 @@ struct ChatView: View {
         // Only after a direct offset write: it may have made SwiftUI name a row in the binding, which goNewest's own put-back
         // (when it had one to make) leaves alone; this runs after it, in main-queue order, and helps only if SwiftUI wrote the
         // binding by then.
-        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
+        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !anchorOnEndAppear, !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
@@ -2997,7 +2995,7 @@ struct ChatView: View {
             // The Mac answered, with a reason: said as it is, never as "not answering".
             // kosmos#7810: a kept copy or small page is not left over the reason (the chat draws the reason only with no
             // thread). A whole window read in this open stays, as before.
-            if !fullRead { thread = nil }
+            if !fullRead { thread = nil; positionId = nil }   // kosmos#9212: the next list is not created anchored over estimates
             refusal = why
             dropChoices()
             failedReads = 0
