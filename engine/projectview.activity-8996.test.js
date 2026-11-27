@@ -34,9 +34,9 @@ const act = (p, o = {}) => v.activityOf(p, {
 });
 
 test('the newest of a room post, a task and the making wins, with what it was', () => {
-  const p = { id: 'p', createdAt: made, tasks: [{ number: 1 }, { number: 2 }] };
+  const p = { id: 'p', createdAt: made, agents: ['ada'], tasks: [{ number: 1 }, { number: 2 }] };   // #9186: staffed, so unstaffed 0
   assert.deepEqual(act(p, { room: NOW - 3 * DAY, tasks: { 1: iso(NOW - 9 * DAY), 2: iso(NOW - 5 * DAY) } }),
-    { at: iso(NOW - 3 * DAY), kind: 'post', ageDays: 3, quietDays: 14, quiet: false, unknown: false, expected: null });
+    { at: iso(NOW - 3 * DAY), kind: 'post', ageDays: 3, quietDays: 14, quiet: false, unknown: false, expected: null, unstaffed: 0 });
   assert.equal(act(p, { room: NOW - 9 * DAY, tasks: { 2: iso(NOW - 2 * DAY) } }).kind, 'task');
   assert.equal(act(p, { room: null }).kind, 'made');
 });
