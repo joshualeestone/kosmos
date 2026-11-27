@@ -41,17 +41,19 @@ test('#9186 CONTROL: the same tasks with an agent on the project count 0, and a 
   assert.equal(act({ id: 'nofield', createdAt: made, tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'no agents field: nobody');
 });
 
-test('#9186: the line says nobody will move them, and names the command that adds someone', () => {
+test('#9186: the line says nobody will move them, and that the person adds an agent (the + beside Members)', () => {
   const line = v.activityLine(act({ id: 'empty', createdAt: made, agents: [], tasks: [{ number: 1, sentence: 'open' }, { number: 2, sentence: 'two' }] }), 'empty');
   assert.match(line, /^Last activity: /, line);
-  assert.match(line, / No agent is on this project, so nothing will move its 2 open or on-hold tasks\. Tell your person, or give one to an agent with `kosmos task assign empty <task-number> <agent> --add-member`\.$/, line);
+  assert.match(line, / No agent is on this project, so nothing will move its 2 open or on-hold tasks\. Tell your person: they add an agent with the \+ beside Members on the project's page\.$/, line);
+  // review 3: no agent command is offered; a reader is not on the project, and the assign route refuses non-members.
+  assert.doesNotMatch(line, /task assign/, line);
   const one = v.activityLine(act({ id: 'empty', createdAt: made, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'empty');
   assert.match(one, /its 1 open or on-hold task\./, one);
 });
 
 test('#9186: a paused project with no agent says its tasks wait on purpose; staffed or archived says nothing of it', () => {
   const paused = v.activityLine(act({ id: 'pz', createdAt: made, paused: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'pz');
-  assert.match(paused, /The project is paused, so quiet is expected\. No agent is on it either, so when your person resumes it, its 1 open or on-hold task still needs someone added\.$/, paused);
+  assert.match(paused, / No agent is on this paused project, so when your person resumes it, its 1 open or on-hold task still needs someone added\.$/, paused);
   const staffed = v.activityLine(act({ id: 's', createdAt: made, agents: [{ sessionName: 'ada' }], tasks: [{ number: 1, sentence: 'open' }] }), 's');
   assert.doesNotMatch(staffed, /No agent is on/, 'CONTROL: a staffed project: ' + staffed);
   const archived = v.activityLine(act({ id: 'a', createdAt: made, archived: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'a');
@@ -86,4 +88,12 @@ test('#9186 review 2: a test project with no agent says nothing about staffing (
   assert.equal(a.expected, 'test', 'fixture: read as a test project');
   assert.equal(a.unstaffed, 1, 'fixture: it does have an unstaffed task');
   assert.doesNotMatch(v.activityLine(a, 't'), /No agent is on/);
+});
+
+test('#9186 review 3: the paused sentence names the pause itself, even when the line before it cannot (no date to give)', () => {
+  const a = act({ id: 'pz', paused: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] });   // no createdAt, no times
+  const line = v.activityLine(a, 'pz');
+  assert.match(line, /^Last activity: none Kosmos can date\. /, 'fixture: the core line with no date: ' + line);
+  assert.match(line, /No agent is on this paused project/, line);
+  assert.doesNotMatch(line, /either/, line);
 });

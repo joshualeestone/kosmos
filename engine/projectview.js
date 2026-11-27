@@ -773,10 +773,13 @@ function unstaffedSentence(a, id) {
   const count = Math.max(0, Math.floor(Number(a.unstaffed) || 0));
   if (!count || a.expected === 'archived' || a.expected === 'test' || a.expected === 'starter') return null;
   const tasksWord = count === 1 ? '1 open or on-hold task' : count + ' open or on-hold tasks';
-  const pid = typeof id === 'string' && id ? one(id) : '<project-id>';
-  if (a.expected === 'paused') return 'No agent is on it either, so when your person resumes it, its ' + tasksWord + (count === 1 ? ' still needs' : ' still need') + ' someone added.';
-  return 'No agent is on this project, so nothing will move its ' + tasksWord + '. Tell your person, or give one to an agent with'
-    + ' `kosmos task assign ' + pid + ' <task-number> <agent> --add-member`.';
+  /* review 3: the person adds a member (the + beside Members, the words of messages.NOT_ON_PROJECT_FIX). An agent reading
+     this is by definition not on the project, and the assign route refuses a non-member's writes on most projects, so no
+     agent command is offered. Review 3: each sentence stands alone, since the line before it does not always name a pause. */
+  if (a.expected === 'paused') return 'No agent is on this paused project, so when your person resumes it, its ' + tasksWord
+    + (count === 1 ? ' still needs' : ' still need') + ' someone added.';
+  return 'No agent is on this project, so nothing will move its ' + tasksWord + '. Tell your person: they add an agent with'
+    + ' the + beside Members on the project\'s page.';
 }
 function activityCoreLine(a, id) {
   if (!a || typeof a !== 'object') return null;

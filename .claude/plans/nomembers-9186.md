@@ -9,11 +9,13 @@ agent members, so nothing could move them, and a newly added coordinator could n
   given a described project, whose members are objects; review 1). Built tasks wait on a release, not on an agent, and closed ones on nothing: left out.
   0 when it has a member.
 - activityLine: the #8996 line plus one sentence (unstaffedSentence) when unstaffed > 0:
-  - "No agent is on this project, so nothing will move its N open or on-hold tasks. Tell your person, or give one to an
-    agent with `kosmos task assign <id> <task-number> <agent> --add-member`." (the verb that adds a member exists);
-  - paused: "No agent is on it either, so when your person resumes it, its N ... still need(s) someone added." (a pause
-    reads as on purpose, distinct from missing staff);
-  - archived or test: nothing more (a starter project with a task is watched like any; with none it has no count).
+  - "No agent is on this project, so nothing will move its N open or on-hold tasks. Tell your person: they add an agent
+    with the + beside Members on the project's page." (review 3: no agent command is offered: the reader is by
+    definition not on the project, and the assign route refuses a non-member's writes on most projects; the words are
+    the board's own NOT_ON_PROJECT_FIX);
+  - paused: "No agent is on this paused project, so when your person resumes it, its N ... still need(s) someone added."
+    (stands alone: the line before it does not always name the pause; review 3);
+  - archived or test: nothing more.
 - The old renderer is now activityCoreLine; activityLine = core + the sentence, so every #8996 path is unchanged.
 
 ## Rejected
@@ -24,7 +26,7 @@ agent members, so nothing could move them, and a newly added coordinator could n
 That an empty `agents` list means nobody can move the work. A person can still give a task to any agent from the
 screen, and the line says "tell your person" first.
 
-## Tests: engine/projectview.unstaffed-9186.test.js (5)
+## Tests: engine/projectview.unstaffed-9186.test.js (8)
 - open + held counted, built and closed not; CONTROL staffed 0, no tasks 0, a missing agents field counts as nobody.
 - the line word for word with the command; 1 task singular; paused wording; CONTROL staffed and archived say nothing.
 - overviewOf on a real project carries the count, and renderShow prints it on the Last activity line.
@@ -51,3 +53,12 @@ screen, and the line says "tell your person" first.
   - NIT taken: a comment that listGroup reads the stored task without projectPaused (paused open tasks count as open).
     NITs not taken: "either" in the paused sentence leans on the core line naming the pause (true on every path today);
     a redundant null check.
+- Round 3 (opus): 1 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT.
+  - BLOCKER: the sentence offered `kosmos task assign ... --add-member`, but the assign route (notOnProjectRefusal) refuses
+    a non-member unless the empty project was made by a process, and every reader of this sentence is a non-member.
+    Confirmed in server.js. Fixed: the sentence points at the person with the board's own words (the + beside
+    Members); no command. Test asserts no `task assign` in the line.
+  - WARNING: the paused sentence's "either" leaned on the core line naming the pause, which the no-date path does not.
+    Fixed: "No agent is on this paused project ..." stands alone; a no-date test; perturbation (old words) red.
+  - NITs: plan test count (now 8); the unreachable starter guard (kept: a newer board); parked + unstaffed reads "quiet
+    is expected" then the staffing sentence (accurate: nothing moves them once holds lift).
