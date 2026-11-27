@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: heavycap-9139
-diff_hash: eda0b9ae5934ec7895f41b2f7c02a795d2aec8cbebd0754cbe519fd1951d0e94
+diff_hash: 6b947e462d556b1dd0ff2ff06c839b3a62628a4482cb9b81dd058ddcd7b168e1
 validation: full suite through queued-heavy on the commit carrying this proof (its parent holds all code); the result is posted on the PR before the push
 subdir_audit: not run (no CLAUDE.md in the diff)
-timestamp: 2026-11-27T07:12:00Z
+timestamp: 2026-11-27T09:26:00Z
 iterations: 8
 converged: true
 ---
@@ -16,7 +16,7 @@ converged: true
 **Converged:** Stopped at the 8-round cap with no BLOCKER open. Rounds 5 to 8 each found SHOULD-FIX defects (all reproduced, all fixed with arms that red under a mutation of their fix); no round found a BLOCKER after review 5's two-beside-runs finding was fixed.
 **Fixed:** all findings below unless marked. **Deferred:** stated in the plan's Decisions. **Asked (awaiting user):** 0
 
-**Validation, stated plainly.** tools/test-queued-heavy-4977.sh: 199 OK on the final code; every fix mutated and each mutation reds its arm. The full suite runs through queued-heavy before the push.
+**Validation, stated plainly.** Rebased onto main after #9191 (Angel) added three arms to the same test file (the only conflict; both kept). tools/test-queued-heavy-4977.sh: 202 OK on the rebased code; queued-heavy.sh is byte-identical to the head validated before the rebase (46d3869343); every fix mutated and each mutation reds its arm. The full suite runs through queued-heavy before the push.
 
 **Departures from the skill:** reviewers were general-purpose subagents briefed blind, one at a time. Rounds 1 to 4 ran in an earlier session; their entries are taken from their commit messages. The Self-generated line was not measured.
 
