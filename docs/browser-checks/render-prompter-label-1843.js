@@ -174,7 +174,7 @@ function chk(ok, label, extra) {
       // #4588 ask 3 added "Gemini subscription agents at once" directly below the Prompter; kosmos#7406 the per-account cap below it.
       // #5080 added "Language" directly below Community (the third time this sibling was missed: web.settings-nav.test.js
       // now asserts the two lists match).
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agents on one account at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner']),
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agents on one account at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner', 'Idle agents']),
         `[${theme}] the Automation headings read Auto-save, Prompter, Gemini subscription agents at once, Agents on one account at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner (#2619, #4288, #4588, #5080, #7406)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
