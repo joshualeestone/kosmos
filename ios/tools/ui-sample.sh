@@ -112,6 +112,11 @@ classes="$classes ChatTallOpenUITests:2"
 # kosmos#9002: DuoFoldUITests, two panes, a fold with a project's room open, its page opened folded, then an unfold and a chat three pages deep, and an
 #   upright phone keeping its tabs out of a project's room, page and task (2 checks).
 classes="$classes DuoFoldUITests:2"
+# kosmos#9202: BoardGroundUITests, the board page over the tabs (Agents + asks, then opens it) on the board's own ground,
+#   never navy, read from the screenshot's pixels in the Close bar row and under the status bar; with a control that the
+#   pixel judge sees navy and each exact ground (2 checks). A fresh simulator is light, so CI sees light; dark is by hand
+#   (simctl appearance dark, which the sample board follows).
+classes="$classes BoardGroundUITests:2"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
