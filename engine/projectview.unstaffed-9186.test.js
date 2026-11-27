@@ -80,3 +80,10 @@ test('#9186 review 1: on the real path (a project described by projects.describe
   const empty = v.overviewOf(projects.describe(raw([]), []), [], opts);
   assert.equal(empty.activity.unstaffed, 1, 'CONTROL: no member');
 });
+
+test('#9186 review 2: a test project with no agent says nothing about staffing (its agents do only what they are asked)', () => {
+  const a = act({ id: 't', createdAt: made, testOnly: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] });
+  assert.equal(a.expected, 'test', 'fixture: read as a test project');
+  assert.equal(a.unstaffed, 1, 'fixture: it does have an unstaffed task');
+  assert.doesNotMatch(v.activityLine(a, 't'), /No agent is on/);
+});

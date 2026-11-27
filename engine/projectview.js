@@ -576,7 +576,8 @@ function activityOf(p, o) {
   const expected = set || (parked ? 'parked' : null);
   /* kosmos#9186: how many open or on-hold tasks wait on a project with NO agent member: nothing can move them, and a newly
      added coordinator could not tell staffing from a pause. Built tasks wait on a release, not on an agent, and are left
-     out. 0 when it has a member or no such task. */
+     out. 0 when it has a member or no such task. listGroup reads the stored task without projectPaused, so in a paused
+     project an open task counts as open (the paused sentence covers it). */
   let unstaffed = 0;
   try {
     const { listGroup } = require('./tasks');

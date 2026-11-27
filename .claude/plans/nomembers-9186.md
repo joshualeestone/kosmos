@@ -45,3 +45,9 @@ screen, and the line says "tell your person" first.
   - WARNING: #8996's shape fixture used the raw shape too. Fixed: a described member object.
   - NITs taken: "still needs" for one task; the comment no longer claims a starter case that cannot reach the sentence.
   - After: the two files 27/27; every project view file (31): 386 tests, 0 fail.
+- Round 2 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT.
+  - WARNING: the guard skips a test project, but no test pinned it. Fixed: a testOnly project with an open task and no
+    agent says nothing about staffing; perturbation (test not skipped) 1 fail.
+  - NIT taken: a comment that listGroup reads the stored task without projectPaused (paused open tasks count as open).
+    NITs not taken: "either" in the paused sentence leans on the core line naming the pause (true on every path today);
+    a redundant null check.
