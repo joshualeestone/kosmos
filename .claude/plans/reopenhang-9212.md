@@ -14,6 +14,11 @@ check on the fix only).
   then no view body ever runs again; main thread 100% in LazySubviewPlacements.makeIDPlacementContextIfNeeded.
 - Naming the anchor one main-loop turn later (DispatchQueue.main.async): froze 3 of 3, at re-open 2. Rejected.
 - Opening with a one-off proxy.scrollTo("end") and naming the anchor when the end marker appears: 0 of 8 (80 re-opens). Chosen.
+- Clean branch, iteration 2 code (d3aaeb719b): ChatTallOpenUITests x4, 12 of 12 passed (32 re-opens in the re-open check).
+- Clean branch after review rounds 6 and 7 (0079264007), which treated only an EMPTY binding as "no anchor yet": the tall
+  chat froze on its second open, 2 of 2. After the open's scroll SwiftUI writes a row id into the binding itself, so those
+  guards let the looks and goNewest name "end" over estimates again. Restored: during the open's request a row id counts
+  as not anchored (positionId != "end"), as in the iteration 2 code.
 
 ## The change
 - ChatView, the open: when nothing names "end" yet, it goes there with a one-off proxy.scrollTo and names no anchor, and sets
@@ -21,8 +26,8 @@ check on the fix only).
   its own open). While the request is set and nothing has named "end", goNewest (an arrival, a read that follows the newest)
   only scrolls, unanimated, as goNewest always is under the anchor, and so do the paths that wrote "end" directly (the box
   height, keyboard and tray follows and settleAtNewest's put-back, now through nameEnd()). The two delayed put-backs that
-  name "end" after an offset write wait on the same condition. Once anything (a person's scroll on iOS 17) has named a row, they all
-  behave as before.
+  name "end" after an offset write wait on the same condition. A row id in the
+  binding during the request is SwiftUI's own (above), so it does not end the wait.
 - The end marker's onAppear names "end" whenever nothing holds an anchor (positionId nil) and nothing let it go: not under a
   person's scroll (personScrolling, or UIKit's under-a-finger reading, since iOS 17 sets no personScrolling), not after a
   let-go (anchorLetGo), not in search. Its rows are drawn then. That also covers an end that first shows after the lapse,
@@ -53,6 +58,10 @@ check on the fix only).
   (loadEarlier("settled") runs a turn later).
   A person who reaches the top in those frames can ask for the page before (loadEarlier("top")) with no anchor to hold it;
   that is the same narrow window.
+
+- On iOS 17, where a person's scroll is not reported, a reader who drags in the open's first 1.9 s and then sends has the
+  send only scrolled to the newest, not anchored there, until the request lapses. iOS 18 and later end the request on
+  their scroll.
 
 ## Weakest premise
 The simulator, not a phone. And between the open and the end's appearance (a frame or two) no anchor holds the list;

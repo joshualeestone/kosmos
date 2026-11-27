@@ -839,10 +839,12 @@ struct ChatView: View {
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
-                                // kosmos#9212: the end on screen, its rows drawn, names the anchor when nothing holds one (the open names none) and
-                                // nothing let it go: not under a person's scroll, a let-go, or search.
+                                // kosmos#9212: the end on screen, its rows drawn, names the anchor: over whatever row SwiftUI wrote into
+                                // the binding while the open waited for it, or else when nothing holds one; never under a person's scroll, a
+                                // let-go, or search.
+                                let asked = anchorOnEndAppear
                                 anchorOnEndAppear = false
-                                if Self.idAnchor, positionId == nil, !anchorLetGo, !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" }
+                                if Self.idAnchor, asked ? positionId != "end" : positionId == nil, !anchorLetGo, !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" }
                                 endVisible = true
                                 rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -1271,15 +1273,16 @@ struct ChatView: View {
     // kosmos#7265: to the newest message. With the id anchor (idAnchor) the anchor is the end marker, which keeps the
     // end in view as rows land, until the person's own scroll moves the anchor; re-set through nil so a repeat is seen.
     // Under the anchor the move is not animated (`animated` applies to the iOS 16 path only).
-    // kosmos#9212: the anchor to "end", except while the open waits for its end with no anchor yet: the end's appearance names it.
-    private func nameEnd() { if !(anchorOnEndAppear && positionId == nil) { positionId = "end" } }
+    // kosmos#9212: the anchor to "end", except while the open waits for its end: the end's appearance names it. A row id in the
+    // binding then is SwiftUI's own after the open's scroll (measured: naming "end" over it froze again, 2 of 2), not a reader's.
+    private func nameEnd() { if !anchorOnEndAppear { positionId = "end" } }
 
     private func goNewest(_ proxy: ScrollViewProxy, animated: Bool = false) {
         appMoves &+= 1
         if Self.idAnchor {
             // kosmos#9212: while the open waits for the end to appear, an arrival or a read goes there by a scroll too; the end's
             // appearance names the anchor.
-            if anchorOnEndAppear, positionId == nil { proxy.scrollTo("end", anchor: .bottom); return }
+            if anchorOnEndAppear, positionId != "end" { proxy.scrollTo("end", anchor: .bottom); return }
             // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
             if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
             return
@@ -1312,9 +1315,8 @@ struct ChatView: View {
                 Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
                 appMoves &+= 1
                 proxy.scrollTo("end", anchor: .bottom)
-                // kosmos#9212: with no anchor yet, the end's appearance names it (sampleAnchorAtOpen's note); a row that a
-                // person's scroll named is moved to "end", as before.
-                if Self.sampleAnchorAtOpen || positionId != nil { positionId = "end" } else { anchorOnEndAppear = true }
+                // kosmos#9212: the end's appearance names the anchor (sampleAnchorAtOpen's note), within the open's request window.
+                if Self.sampleAnchorAtOpen { positionId = "end" } else if positionId != "end" { anchorOnEndAppear = true }
             }
         }
     }
@@ -1629,7 +1631,7 @@ struct ChatView: View {
         if wrote { Self.trace("keyboard settled: past the end, put back at its end") }
         goNewest(proxy)
         // As recoverEmpty: a direct offset write may have made SwiftUI name a row in the binding; put the end back after it.
-        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !(anchorOnEndAppear && positionId == nil), !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
+        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !anchorOnEndAppear, !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
@@ -1696,7 +1698,7 @@ struct ChatView: View {
         // Only after a direct offset write: it may have made SwiftUI name a row in the binding, which goNewest's own put-back
         // (when it had one to make) leaves alone; this runs after it, in main-queue order, and helps only if SwiftUI wrote the
         // binding by then.
-        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !(anchorOnEndAppear && positionId == nil), !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
+        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !anchorOnEndAppear, !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
