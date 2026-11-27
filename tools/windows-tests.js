@@ -58,6 +58,7 @@ const cp = require('node:child_process');
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
+  'heavyjobs-9217.test.js',   // kosmos#9217: a heavy job's process is judged by signal 0 there, with no ps to read its start
   'loginexpiry-why-9107.test.js',   // kosmos#9107: the off-macOS refusal lines, on a real Windows runner
   'macrestart-8988.test.js',   // kosmos#8988: the Mac card's restart reader is plain file reading; only the arm that runs a bash function skips
   'storecheck-8863.test.js',   // kosmos#8863: the start check and last good copies, after a Windows crash report
@@ -194,6 +195,7 @@ const HOST_BRANCH_EXCLUDED = {
   'cli.community-vote-4884.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'cli.community-withdraw-5574.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'cli.file-notices-7989.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
+  'cli.heavy-9217.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the Windows CLI twin is tools.windows-kosmos-cli-heavy-9217.test.js',
   'cli.away-8548.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the Windows CLI twin is tools.windows-kosmos-cli-away-8548.test.js',
   'cli.gaps-4891.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'cli.heldq-7915.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',

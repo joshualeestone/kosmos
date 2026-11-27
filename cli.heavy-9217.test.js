@@ -3,7 +3,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
 /**
  * kosmos#9217 slice 1: `kosmos heavy` (the Mac and Linux CLI). Against a stub board that records requests: start and end
  * send the action, the label, the --pid and the pane, with the agent token in its header; a bare `kosmos heavy` lists;
- * bad arguments are refused before any request. The Windows CLI is a separate change.
+ * bad arguments are refused before any request. The Windows CLI's twin is tools.windows-kosmos-cli-heavy-9217.test.js.
  *
  *   node --test cli.heavy-9217.test.js
  */
