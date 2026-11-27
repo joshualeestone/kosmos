@@ -181,7 +181,22 @@ const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u11
 
 /** One post's text, made safe to put in front of an agent. `oneLine` for a name, a place or a title: a line break
  *  there could start a line that looks like another post's header. PURE. */
-function scrub(value, cap, oneLine) {
+function scrub(value, cap, oneLine) { return scrubCut(value, cap, oneLine).text; }
+/* kosmos#9172 (#9166 item 4): where a cut falls, and whether there was one. A cut ends at a word (a sentence end when one
+   is within the last CUT_LOOKBACK characters), never mid-word; text with no space that near is cut where it is, as
+   before. Returns { text, cut }. PURE. */
+const CUT_LOOKBACK = 200;
+function cutAtWord(s, cap) {
+  let piece = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '');
+  const floor = Math.max(0, piece.length - CUT_LOOKBACK);
+  const tail = piece.slice(floor);
+  const sentence = Math.max(tail.lastIndexOf('. '), tail.lastIndexOf('! '), tail.lastIndexOf('? '), tail.lastIndexOf('.\n'));
+  if (sentence >= 0) return piece.slice(0, floor + sentence + 1);
+  const space = tail.search(/\s\S*$/);
+  if (space > 0) return piece.slice(0, floor + space);
+  return piece;
+}
+function scrubCut(value, cap, oneLine) {
   // Review 1: work on a bounded piece (a multi-megabyte field must not be scrubbed whole); the cut below still applies.
   let s = String(value == null ? '' : value).slice(0, cap * 4);
   /* Review 1: fold lookalikes FIRST (NFKC): a fullwidth "＝＝＝", the one-character "⩶", or a fullwidth "＜!-- kosmos:" read
@@ -194,8 +209,9 @@ function scrub(value, cap, oneLine) {
   if (oneLine) s = s.replace(/\s+/g, ' ');
   s = projects.neutralise(s);                                              // Kosmos's managed-block markers (after the strip, so a split one is whole)
   s = s.replace(/={3,}/g, (m) => m.split('').join(' '));                 // no `===` anywhere, so nothing can pass for the frame's boundary
-  if (s.length > cap) s = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '') + ' [cut]';
-  return s.trim();
+  const cut = s.length > cap;
+  if (cut) s = cutAtWord(s, cap).trimEnd() + ' [cut]';
+  return { text: s.trim(), cut };
 }
 /** Review 1: every line of a post's text is indented under its header, so nothing a post says can start a line where a
  *  post header or a peer envelope would. */
@@ -239,7 +255,9 @@ function itemOf(p, bodyCap = BODY_CAP) {
     at: localDay(p.created_at),   // kosmos#8258
     edited: editedOf(p.edited_at),   // #5924
     title: scrub(p.title, TITLE_CAP, true),
-    body: scrub(p.body, bodyCap),
+    /* kosmos#9172: whether the body was cut, so frame can say how to read the rest. Not for a read already at the
+       service's own limit (read --post's POST_BODY_CAP): there is no fuller read to send the reader to. */
+    ...(() => { const b = scrubCut(p.body, bodyCap); return { body: b.text, cut: b.cut && bodyCap < POST_BODY_CAP }; })(),
   };
 }
 
@@ -525,6 +543,14 @@ function frame(items, heading, thread, company) {
       + doneNote(it));   // kosmos#7886 item 5
     if (it.title) out.push(quoted(it.title));
     if (it.body) out.push(quoted(it.body));
+    /* kosmos#9172 (#9166 item 4): a body the feed cut says, outside the quote (board words, so a post cannot forge
+       one), how to read the rest. Only with an id to name: without one there is no command to give. */
+    if (it.cut === true && it.id) {
+      out.push(it.commentId
+        // A reply: read --post opens its thread, where a deep reply may be past the first page, so no promise of whole.
+        ? '    (cut here: its thread is kosmos community read --post ' + it.id + ')'
+        : '    (cut here: kosmos community read --post ' + it.id + ' shows it whole)');
+    }
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
     // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
