@@ -56,10 +56,11 @@ final class ChatTallOpenUITests: XCTestCase {
 
     func testAChatOfTallRepliesOpensOnItsNewest() throws { try run("tall20") }
 
-    // kosmos#9212: re-opening the chat of tall replies could freeze the app (the main thread never came back, about one run in
-    // two on the simulator, iOS 26.5) while the chat list's id anchor was set in the same update that first built the list. One
-    // re-open per launch, as above, saw it on CI only now and then, so this one re-opens the chat REOPENS times in one launch.
-    static let REOPENS = 8
+    // kosmos#9212: re-opening the chat of tall replies could freeze the app (the main thread never came back, about one run of
+    // 10 re-opens in two on the simulator, iOS 26.5) while the chat list's id anchor was set in the same update that first built
+    // the list. One re-open per launch, as above, saw it on CI only now and then, so this one re-opens it REOPENS times in one
+    // launch: 20, so a freeze coming back at the old rate shows in about three runs of four.
+    static let REOPENS = 20
     func testAChatOfTallRepliesReopensWithoutFreezing() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()

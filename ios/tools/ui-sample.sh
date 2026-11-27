@@ -108,7 +108,7 @@ classes="$classes AIPoliciesUITests:1"
 #   coming back, with the one-liner chat as its control (2 checks; #9212's third is below). This lazy-arm run only: the lazy list is the one that
 #   opened above the newest (3 of 3 before the fix), the UIKit list already passed. 20 messages, so not the 260-message
 #   chat's query limit that keeps ChatOpensAtNewestUITests by hand. Its own line, as above.
-# kosmos#9212: plus one check that re-opens that chat 8 times in one launch (the app froze on a re-open about one run in two).
+# kosmos#9212: plus one check that re-opens that chat 20 times in one launch (the app froze on a re-open about one run in two).
 classes="$classes ChatTallOpenUITests:3"
 # kosmos#9002: DuoFoldUITests, two panes, a fold with a project's room open, its page opened folded, then an unfold and a chat three pages deep, and an
 #   upright phone keeping its tabs out of a project's room, page and task (2 checks).
