@@ -24443,6 +24443,8 @@ const server = http.createServer(async (req, res) => {
       scoped = scoped.filter((t) => onIds.has(t.projectId)
         && Array.isArray(t.whoNames) && t.whoNames.some((n) => heldByCaller(n, mineCaller)));
     }
+    /* kosmos#9177: and its groups are the caller's: a task another holder marked built is still open for it. */
+    const mineWho = mineCaller ? (n) => heldByCaller(n, mineCaller) : null;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list without the snapshot (kosmos#7151: the stale list adds one board
@@ -24462,7 +24464,7 @@ const server = http.createServer(async (req, res) => {
         if (!(days >= 1 && days <= 3650)) { sendJson(res, 400, { error: 'quietDays must be a whole number of days, 1 to 3650' }); return; }
         if (listOnly !== null && listOnly !== 'open') { sendJson(res, 400, { error: 'only open tasks are listed by how quiet they are' }); return; }
         const cutoff = Date.now() - days * 86400000;
-        const quiet = tasks.inListOrder(scoped, 'open')
+        const quiet = tasks.inListOrder(scoped, 'open', mineWho)
           .map((t) => ({ t, at: tasks.lastActivityOf(t.projectId, t) }))
           .map((x) => ({ ...x, ms: x.at ? Date.parse(x.at) : NaN }))
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
@@ -24480,7 +24482,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });
         return;
       }
-      const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly) : scoped;   // #5705
+      const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly, mineWho) : scoped;   // #5705
       /* #5705 review 1: say which group was kept, so a command can tell a filtered answer from an older board that
          ignored the filter and listed everything. kosmos#7057: and that every project was read (all). */
       /* kosmos#7875 item 3: on the built list only, when the person last viewed each task (engine/taskseen.js, #6947), so
@@ -24672,9 +24674,9 @@ const server = http.createServer(async (req, res) => {
       tasks.allTasks(everyProject).filter((t) =>
         myIds.has(t.projectId)
         && t.projectArchived !== true                 // an archived project's tasks are not live work (the Tasks view drops them too)
-        && tasks.listGroup(t) === 'open'
+        && tasks.listGroup(t, (n) => heldByCaller(n, caller)) === 'open'   // kosmos#9177: built for this caller
         && Array.isArray(t.whoNames) && t.whoNames.some((n) => heldByCaller(n, caller))),
-      'open');
+      'open', (n) => heldByCaller(n, caller));
     sendJson(res, 200, {
       tasks: open.map((t) => ({ project: t.projectName, projectId: t.projectId, number: t.number, title: String(t.sentence == null ? '' : t.sentence) })),
       count: open.length,

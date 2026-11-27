@@ -67,7 +67,7 @@ function openParts(session, projects) {
       if (tasks.isOnHold(t)) continue;
       if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
       const prog = tasks.progressOf(t);
-      if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
+      if (prog.closed || tasks.builtFor(t, session)) continue;
       if (require('./projects').isSwarmOff(p, session)) continue;
       for (const x of prog.parts) {
         if (x.who !== session || x.closedAt) continue;
