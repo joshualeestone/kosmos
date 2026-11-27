@@ -19,9 +19,9 @@ test('start, live and end: one agent\'s job is recorded, listed, and gone after 
   const s = hj.start({ root: r, agent: 'renet', label: '  deploy   shell tests ', now: T0 });
   assert.equal(s.ok, true);
   assert.deepEqual(hj.live({ root: r, now: T0 + 1000 }), [{ agent: 'renet', label: 'deploy shell tests', pid: null, since: T0 }]);
-  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 1 });
+  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 1, others: 0 });
   assert.deepEqual(hj.live({ root: r, now: T0 + 2000 }), []);
-  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 0 }, 'ending what is not there is not an error');
+  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 0, others: 0 }, 'ending what is not there is not an error');
 });
 
 test('a label is one line of words, at most MAX_LABEL characters, and cannot start with -', () => {
@@ -97,14 +97,14 @@ test('a repeated start for the same agent and process updates the job instead of
   hj.start({ root: r, agent: 'renet', label: 'second', now: T0 + 5 });
   const jobs = hj.live({ root: r, now: T0 + 10, startOf: alwaysStart('s') });
   assert.deepEqual(jobs.map((j) => [j.label, j.pid]).sort(), [['second', null], ['tied', 4242]]);
-  assert.deepEqual(hj.end({ root: r, agent: 'renet', pid: 4242 }), { ok: true, ended: 1 }, 'end names one job by its process');
+  assert.deepEqual(hj.end({ root: r, agent: 'renet', pid: 4242 }), { ok: true, ended: 1, others: 1 }, 'end names one job by its process; the other stays');
   assert.deepEqual(hj.live({ root: r, now: T0 + 11 }).map((j) => j.label), ['second']);
 });
 
 test('one agent cannot end another agent\'s job', () => {
   const r = root();
   hj.start({ root: r, agent: 'angel', label: 'y', now: T0 });
-  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 0 });
+  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 0, others: 0 });
   assert.equal(hj.live({ root: r, now: T0 + 1 }).length, 1);
 });
 
@@ -116,4 +116,46 @@ test('a file that is not a list, or not JSON, or holds malformed records, reads 
   assert.deepEqual(hj.live({ root: r }), []);
   fs.writeFileSync(path.join(r, hj.FILE), JSON.stringify([{ agent: 'x' }, { agent: 'renet', label: 'ok', pid: null, pidStart: null, since: Date.now() }]));
   assert.deepEqual(hj.live({ root: r }).map((j) => j.label), ['ok']);
+});
+
+test('one agent holds at most MAX_PER_AGENT records; another agent is not affected, and replacing one is not adding', () => {
+  const r = root();
+  for (let i = 0; i < hj.MAX_PER_AGENT; i++) {
+    assert.equal(hj.start({ root: r, agent: 'renet', label: 'job ' + i, pid: 1000 + i, now: T0, startOf: alwaysStart('s') }).ok, true, 'job ' + i);
+  }
+  const over = hj.start({ root: r, agent: 'renet', label: 'one more', pid: 2000, now: T0, startOf: alwaysStart('s') });
+  assert.deepEqual([over.ok, over.refused], [false, true]);
+  assert.match(over.because, /already have 4 heavy jobs/);
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'job 0 renamed', pid: 1000, now: T0, startOf: alwaysStart('s') }).ok, true, 'the same process again replaces its record');
+  assert.equal(hj.start({ root: r, agent: 'kitty', label: 'hers', now: T0 }).ok, true, 'another agent still records');
+  assert.equal(hj.readAll(r).filter((j) => j.agent === 'renet').length, hj.MAX_PER_AGENT);
+  assert.deepEqual(hj.end({ root: r, agent: 'renet' }), { ok: true, ended: 0, others: hj.MAX_PER_AGENT }, 'a bare end says how many are tied to a process');
+});
+
+test('a write that fails is said in Kosmos words, never thrown, and a reader is still told what is running', () => {
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'kept', now: T0 }).ok, true);
+  assert.equal(hj.start({ root: r, agent: 'kitty', label: 'gone soon', now: T0 }).ok, true);
+  // A folder where the write's temp file goes: the lock still works, only the write fails (EISDIR).
+  const blocker = path.join(r, hj.FILE) + '.tmp-' + process.pid;
+  fs.mkdirSync(blocker);
+  try {
+    const s = hj.start({ root: r, agent: 'renet', label: 'new', pid: 4242, now: T0, startOf: alwaysStart('s') });
+    assert.deepEqual([s.ok, s.because], [false, 'Kosmos could not save its heavy-job record just now']);
+    const e = hj.end({ root: r, agent: 'renet' });
+    assert.deepEqual([e.ok, e.because], [false, 'Kosmos could not save its heavy-job record just now']);
+    const seen = hj.live({ root: r, now: T0 + 1000, agentAlive: (n) => n === 'renet' });
+    assert.deepEqual(seen.map((j) => j.label), ['kept'], 'a removal that could not be saved still leaves the reader the live jobs');
+    assert.deepEqual(hj.readAll(r).map((j) => j.label), ['kept', 'gone soon'], 'nothing was written while the write failed');
+  } finally { fs.rmdirSync(blocker); }
+  assert.equal(hj.end({ root: r, agent: 'renet' }).ok, true, 'control: with the folder gone, the same write succeeds');
+});
+
+test('defaultStartOf: a gone process reads as none with no ps; a live one reads its start, the same twice', () => {
+  const child = require('child_process').spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+  assert.equal(hj.defaultStartOf(Number(child.stdout)), null);
+  const a = hj.defaultStartOf(process.pid, T0), b = hj.defaultStartOf(process.pid, T0 + 1);
+  if (process.platform === 'win32') { assert.equal(a, undefined); return; }
+  assert.equal(typeof a, 'string');
+  assert.equal(b, a, 'a second read inside the cache window gives the same start');
 });

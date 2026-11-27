@@ -684,4 +684,5 @@ module.exports = {
   setRecordMaxBytesForTests,
   isPrivateGroup,  // exported for its test only
   processStart,    // kosmos#9217: engine/heavyjobs.js tells a live process from a reused number the same way
+  pidAlive,        // kosmos#9217: and asks signal 0 first, which costs no process and works on Windows
 };

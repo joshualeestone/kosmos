@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, boardAuthState } = require('./server');
+const { start, server, boardAuthState, _heavyJobsNowForTest: heavyJobsNow } = require('./server');
 const store = require('./engine/store');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
@@ -57,17 +57,21 @@ test('kosmos#9217: an agent records its heavy job, the status lists it with its 
   assert.ok(ada, 'the fleet gave no cards');
   const tok = sendertoken.mint(ada).token;
   assert.deepEqual(await jobsInStatus(), [], 'control: nothing is listed before the call');
-  let r = await asAgent(tok, { action: 'start', label: '  full   test run ', name: 'someone-else' });
+  let r = await asAgent(tok, { action: 'start', label: '  full   test run ' });
   assert.equal(r.status, 200, await r.clone().text());
   const started = await r.json();
   assert.equal(started.ok, true);
   assert.equal(started.job.label, 'full test run');
-  const listed = await jobsInStatus();
-  assert.deepEqual(listed.map((j) => [j.agent, j.label, j.pid]), [[ada, 'full test run', null]], 'a name in the body is not read');
+  const status = await (await fetch(`${base}/api/status`)).json();
+  const listed = status.heavyJobs;
+  assert.deepEqual(listed.map((j) => [j.agent, j.label, j.pid]), [[ada, 'full test run', null]]);
+  const row = (status.agents || []).find((a) => a.sessionName === ada);
+  assert.ok(row && row.name, 'control: the status carries the agent row the name comes from');
+  assert.equal(listed[0].name, row.name, 'the job carries the name the board shows for that agent');
   const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tok } })).json();
   assert.deepEqual(got.jobs.map((j) => j.label), ['full test run'], 'GET /api/heavy lists the same');
   r = await asAgent(tok, { action: 'end' });
-  assert.deepEqual(await r.json(), { ok: true, ended: 1 });
+  assert.deepEqual(await r.json(), { ok: true, ended: 1, others: 0 });
   assert.deepEqual(await jobsInStatus(), []);
 });
 
@@ -75,7 +79,7 @@ test('kosmos#9217: one agent cannot end another agent\'s job', async () => {
   const { ada, bo } = twoAgents();
   const ta = sendertoken.mint(ada).token, tb = sendertoken.mint(bo).token;
   assert.equal((await asAgent(ta, { action: 'start', label: 'ada job' })).status, 200);
-  assert.deepEqual(await (await asAgent(tb, { action: 'end' })).json(), { ok: true, ended: 0 });
+  assert.deepEqual(await (await asAgent(tb, { action: 'end' })).json(), { ok: true, ended: 0, others: 0 });
   assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [ada]);
   await asAgent(ta, { action: 'end' });
 });
@@ -103,4 +107,69 @@ test('kosmos#9217: a page request, a bad action and a bad label are refused, and
   r = await asAgent(tok, { action: 'start', label: '-x' });
   assert.deepEqual([r.status, (await r.json()).error], [400, 'a job cannot start with -']);
   assert.deepEqual(await jobsInStatus(), []);
+});
+
+test('kosmos#9217: the token names the caller, not a pane given in the body', async () => {
+  const { board, ada, bo } = twoAgents();
+  const boCard = board.agents.find((c) => c.sessionName === bo);
+  assert.ok(boCard, 'control: the fleet has the second agent');
+  const pane = boCard.target;
+  // Control: that pane, alone, does name the second agent, so the arm below can fail.
+  const alone = await post({ action: 'start', label: 'by pane', from_pane: pane });
+  assert.equal(alone.status, 200, await alone.clone().text());
+  assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [bo], 'control: the pane names the second agent');
+  await post({ action: 'end', from_pane: pane });
+  const tok = sendertoken.mint(ada).token;
+  const r = await asAgent(tok, { action: 'start', label: 'whose', from_pane: pane });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [ada], 'the job went to the pane named in the body');
+  await asAgent(tok, { action: 'end' });
+});
+
+test('kosmos#9217: with no credential at all, nothing is recorded', async () => {
+  twoAgents();
+  const r = await post({ action: 'start', label: 'nobody' });
+  assert.ok(r.status === 403 || r.status === 503, 'status ' + r.status);
+  assert.deepEqual(await jobsInStatus(), []);
+});
+
+test('kosmos#9217: GET /api/heavy refuses a read from another website', async () => {
+  const r = await fetch(`${base}/api/heavy`, { headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(r.status, 403);
+  const ok = await fetch(`${base}/api/heavy`, { headers: { 'sec-fetch-site': 'same-origin' } });
+  assert.equal(ok.status, 200, 'control: the page on this computer reads it');
+});
+
+test('kosmos#9217: an agent missing from the running rows keeps its job through the grace, then loses it; a partial read judges nobody', async () => {
+  const { ada, bo } = twoAgents();
+  const tok = sendertoken.mint(ada).token;
+  assert.equal((await asAgent(tok, { action: 'start', label: 'graced' })).status, 200);
+  const t0 = Date.now() + 1000;
+  const others = [{ sessionName: bo, name: 'Bo' }];
+  const at = (dt, complete = true) => heavyJobsNow({ running: others, offline: [], complete }, t0 + dt).map((j) => j.label);
+  assert.deepEqual(at(0), ['graced'], 'missing on one read: kept');
+  assert.deepEqual(at(60 * 1000), ['graced'], 'still inside the grace: kept');
+  assert.deepEqual(at(60 * 1000 + 1, false), ['graced'], 'a partial read clears nothing new');
+  assert.deepEqual(at(5 * 60 * 1000), [], 'missing past the grace: gone');
+  // The same, but the agent comes back inside the grace: its clock starts again.
+  assert.equal((await asAgent(tok, { action: 'start', label: 'back' })).status, 200);
+  const t1 = t0 + 10 * 60 * 1000;
+  const back = [{ sessionName: ada, name: 'Ada' }, ...others];
+  assert.deepEqual(heavyJobsNow({ running: others, offline: [], complete: true }, t1).map((j) => j.label), ['back']);
+  assert.deepEqual(heavyJobsNow({ running: back, offline: [], complete: true }, t1 + 60 * 1000).map((j) => [j.label, j.name]), [['back', 'Ada']], 'back: kept, with its name');
+  assert.deepEqual(heavyJobsNow({ running: others, offline: [], complete: true }, t1 + 120 * 1000).map((j) => j.label), ['back'], 'missing again: a new grace, not the old one');
+  assert.deepEqual(heavyJobsNow(null, t1 + 400 * 1000).map((j) => j.label), [], 'GET (no roster) honours a grace run out on an earlier read');
+});
+
+test('kosmos#9217: partial reads never start an agent\'s grace; the first complete one does', async () => {
+  const { ada, bo } = twoAgents();
+  const tok = sendertoken.mint(bo).token;
+  assert.equal((await asAgent(tok, { action: 'start', label: 'partial' })).status, 200);   // and clears any old mark
+  const t2 = Date.now() + 60 * 60 * 1000;
+  const others = [{ sessionName: ada, name: 'Ada' }];
+  const read = (dt, complete) => heavyJobsNow({ running: others, offline: [], complete }, t2 + dt).map((j) => j.label);
+  assert.deepEqual(read(0, false), ['partial']);
+  assert.deepEqual(read(10 * 60 * 1000, false), ['partial'], 'ten minutes of partial reads: kept, the clock never started');
+  assert.deepEqual(read(10 * 60 * 1000 + 1, true), ['partial'], 'the first complete read starts the grace');
+  assert.deepEqual(read(20 * 60 * 1000, true), [], 'and it runs out from there');
 });

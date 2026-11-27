@@ -3941,10 +3941,14 @@ cmd_reply_channel() {
 #   kosmos heavy                          lists what is running here
 #   kosmos heavy start "<label>" [--pid N] records yours (with --pid, it clears when that process ends; else with you)
 #   kosmos heavy end [--pid N]            ends it
+# One copy of the usage, for the verb and for the global --help guard (bare `kosmos heavy` reads the board, so --help
+# cannot re-dispatch it bare the way the message verbs do).
+heavy_usage() {
+  say 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid)'
+}
 cmd_heavy() {
-  local usage='Usage: kosmos heavy [start "<what the job is>" [--pid N] | end [--pid N]]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone)'
   local sub="${1:-}" label="" pid="" _tok="" _bt _n body ans rc=0
-  case "$sub" in --help|-h) say "$usage"; exit 0 ;; esac
+  case "$sub" in --help|-h) heavy_usage; exit 0 ;; esac
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
   if [ -z "$sub" ]; then
     if ! healthy; then say_not_up "it cannot list heavy jobs"; exit 1; fi
@@ -3959,20 +3963,23 @@ cmd_heavy() {
         if (!j.jobs.length) { console.log("No heavy job is running on this computer."); return; }
         for (const x of j.jobs) {
           const t = new Date(x.since); const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0");
-          console.log(x.label + " (" + x.agent + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")");
+          console.log(x.label + " (" + (x.name || x.agent) + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")");
         }
       });' 2>/dev/null || exit 1
     exit 0
   fi
-  case "$sub" in start|end) shift ;; *) say "$usage"; exit 2 ;; esac
+  case "$sub" in
+    start|end) shift ;;
+    *) heavy_usage; exit 2 ;;
+  esac
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --pid) [ "$#" -ge 2 ] || { say "$usage"; exit 2; }; pid="$2"; shift 2 ;;
+      --pid) [ "$#" -ge 2 ] || { heavy_usage; exit 2; }; pid="$2"; shift 2 ;;
       --pid=*) pid="${1#--pid=}"; shift ;;
-      *) if [ "$sub" = start ] && [ -z "$label" ]; then label="$1"; shift; else say "$usage"; exit 2; fi ;;
+      *) if [ "$sub" = start ] && [ -z "$label" ]; then label="$1"; shift; else heavy_usage; exit 2; fi ;;
     esac
   done
-  [ "$sub" = end ] || [ -n "$label" ] || { say "$usage"; exit 2; }
+  [ "$sub" = end ] || [ -n "$label" ] || { heavy_usage; exit 2; }
   case "$pid" in ''|*[!0-9]*) [ -z "$pid" ] || { say "Kosmos did not record that: a process id is a whole number above 1."; exit 1; } ;; esac
   if ! healthy; then say_not_up "it cannot record that"; exit 1; fi
   _n="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to send this."; exit 1; }
@@ -3985,7 +3992,12 @@ cmd_heavy() {
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { j = null; }
       if (j && j.ok === true && j.job) { console.log("Recorded: " + j.job.label + ". It shows on the board as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy end when it is done."); return; }
-      if (j && j.ok === true && typeof j.ended === "number") { console.log(j.ended ? "Ended: it no longer shows on the board." : "Nothing of yours was recorded as running" + (process.argv[1] ? " for that process" : "") + "."); return; }
+      if (j && j.ok === true && typeof j.ended === "number") {
+        const left = typeof j.others === "number" ? j.others : 0;
+        if (j.ended) { console.log("Ended: it no longer shows on the board." + (left ? " You still have " + left + " running; kosmos heavy lists them." : "")); return; }
+        if (left && !process.argv[1]) { console.log("Nothing of yours was recorded without a process. Your " + left + " recorded " + (left === 1 ? "job is" : "jobs are") + " tied to a process: end " + (left === 1 ? "it" : "each") + " with kosmos heavy end --pid N (kosmos heavy lists them)."); return; }
+        console.log("Nothing of yours was recorded as running" + (process.argv[1] ? " for that process" : "") + "."); return;
+      }
       if (j && typeof j.error === "string") { console.log("Kosmos did not record that: " + j.error + "."); process.exit(1); }
       console.log("Kosmos gave an answer we could not read."); process.exit(1);
     });' "$pid" 2>/dev/null || { token_refused_hint "$_tok" "$ans"; exit 1; }
@@ -6472,6 +6484,7 @@ kosmos_command_list() {
   printf '  kosmos post          post in a project room (--how: what a room shows)\n'
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
+  printf '  kosmos heavy         say a heavy job (a long test run) is running on this computer, or list them\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
   printf '  kosmos away          what reached you while you were not running\n'
   printf '  kosmos file-notices  take the notices Kosmos kept for you when another agent was about to change a file of yours\n'
@@ -6496,7 +6509,7 @@ kosmos_command_list() {
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos whats-new     what changed in each version, and which fixes need your agents restarted\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, claim, report,\n'
+  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, heavy, inbox, react, claim, report,\n'
   printf '  room, feedback, community, task, project, records, agent, connect and whats-new show their usage).\n'
 }
 
@@ -6553,6 +6566,7 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( KOSMOS_HELP_REDISPATCH=1 "$SELF" "$1" ) || _hrc=$?   # kosmos#7967: help, so no failure line
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    heavy) heavy_usage; exit 0 ;;   # kosmos#9217: bare, it reads the board
     whats-new)
       # kosmos#7411: run bare it prints the newest notes (a local read); --help says only what it does.
       printf 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)\n'

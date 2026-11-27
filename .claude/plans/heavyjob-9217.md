@@ -13,12 +13,17 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
 - `engine/heavyjobs.js`: `start`, `end`, `live`. Records in `<data root>/heavy-jobs.json`, written under a file lock.
   A record names an agent, a label, a time, and optionally one exact process (pid plus its start time, read by the
   server through restoresink's `processStart`, so a reused pid is not mistaken for the job).
-  Every read drops a record whose process is gone or reused, whose agent is no longer on the roster, or that is older
-  than 12 hours (a ceiling against a stuck record).
+  Every read drops a record whose process is gone or reused, whose agent is gone, or that is older than 12 hours (a
+  ceiling against a stuck record). A process is first asked by signal 0 (no process spawned, works on Windows); only a
+  live one has its start time read, and that read is kept 10 s. One agent holds at most 4 records. A write that fails
+  is said in Kosmos words, never thrown.
 - `server.js`: `POST /api/heavy {action: start|end, label, pid}` and `GET /api/heavy`, agent-token routes. The caller
-  is named the way `/api/agent/reply-channel` names it (processCaller); a page is refused. `/api/status` gains
-  `heavyJobs`. An EMPTY roster means "could not tell", so it never clears records on it.
-- `install/kosmos`: `kosmos heavy` (list), `kosmos heavy start "<label>" [--pid N]`, `kosmos heavy end [--pid N]`.
+  is named the way `/api/agent/reply-channel` names it (processCaller); a page is refused. `GET` refuses a cross-site or
+  sibling read. `/api/status` gains `heavyJobs`, each with the agent's display name.
+  An agent missing from the running rows is judged gone only after 90 s of complete reads, so one poll caught mid-restart
+  keeps its record; a partial snapshot starts no clock, and a successful `start` clears the agent's mark.
+- `install/kosmos` and `tools/windows/kosmos-cli.js`: `kosmos heavy` (list), `kosmos heavy start "<label>" [--pid N]`,
+  `kosmos heavy end [--pid N]`, in both CLIs (tools.windows-kosmos-cli-verbs-parity.test.js requires it).
 - `web/index.html`: a `#heavy-slot` in the top notes, hidden when empty, painted by `paintHeavyJobs` from the status
   poll: "A heavy job is running on this computer: <label> (<agent>, since HH:MM)." Built from text nodes.
 
@@ -29,10 +34,12 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
   so a record tied to `$PPID` would clear itself at once. `--pid` is for a wrapper that outlives the call (the
   follow-up makes `queued-heavy.sh` pass its own `$$`). Rejected: walking up to the agent's long-lived process, which
   is runner-specific and is the pane-scraping this codebase is moving away from.
-- **A process whose start time cannot be read is KEPT.** This is a passive notice: showing a finished job a little
-  too long is a smaller harm than hiding a running one.
-- Not in this slice: the Windows CLI (`tools/windows/kosmos-cli.js`, Homer's lane), the `queued-heavy.sh` call
-  (a follow-up PR), and turns or reservations (slice 2).
+- **A process whose start time cannot be read is KEPT while signal 0 says it exists.** This is a passive notice:
+  showing a finished job a little too long is a smaller harm than hiding a running one. On Windows (no ps) that means a
+  reused process number is not told apart from the job.
+- **The Windows CLI is in this slice.** The design comment said it would go to Homer; the parity test and Splinter's
+  #4373 scope (a verb added to both CLIs is done Mac-side) say otherwise. Homer is asked for one real run on Windows.
+- Not in this slice: the `queued-heavy.sh` call (a follow-up PR), and turns or reservations (slice 2).
 
 ## Tests
 
