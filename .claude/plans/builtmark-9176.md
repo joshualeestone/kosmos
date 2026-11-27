@@ -43,3 +43,10 @@ filter matches whoOf against the same name).
   - WARNING: "waiting on a release or a check" is wrong for a task waiting on the person or a review. Fixed: neutral words.
   - WARNING: the weakest premise named the wrong axis. Rewritten above.
   - NITs: the listGroup test tested its own wiring (replaced by the two-holder test); the comment cited --mine (reworded).
+- Round 2 (sonnet): 0 BLOCKER, 1 WARNING, 1 CONVENTION (none found), 2 NIT.
+  - WARNING (SELF, prose): the comment called the gate "the Assigner's own rule", but hasOpenWork also frees a holder
+    whose own parts are all closed. Fixed by deleting the claim; the comment now says only what the code checks.
+    The case itself (a holder with all its parts closed on a task another part keeps open) is DEFERRED: it was listed
+    unmarked before this change too, and it needs different words from "built" (its part is done, not built).
+  - NITs not taken: repeating tasks waiting for their next run (setBuilt drops built on a recurring task, so not
+    reachable); no test for the closed-parts holder (deferred with it).

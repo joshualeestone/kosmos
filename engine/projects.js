@@ -4061,10 +4061,8 @@ function blockBody(projects, sessionName) {
       if (T.isOnHold(t) && t.onHoldForPerson === true) return ' [on hold' + waits + ', waiting on your person: do not start it until they answer and it is taken off hold. When you ask them, name task ' + Number(t.number) + ', so Kosmos shows them you asked]';
       return ' [on hold' + waits + ': do not start it until it is taken off hold]';
     };
-    /* kosmos#9176: a task that is built FOR THIS AGENT stays on the list, marked, so it is not taken for work to do. Built
-       for this agent is the Assigner's own rule (hasOpenWork, busyHold): the person's mark freed everyone
-       (builtFreesAll), or this agent's own mark is in builtWho. Another holder's mark does not cover this agent's open
-       part (review 1), so that task is listed unmarked. A hold or a paused project is named first (held, as #5864). */
+    /* kosmos#9176: a task marked built by the person (builtFreesAll) or by this agent (builtWho) is listed with a mark.
+       Another holder's mark alone leaves it unmarked. A hold or a paused project is named first (held, as #5864). */
     const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
       && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
       ? ' [built: done and waiting; nothing to do on it unless it is reopened]' : '');
