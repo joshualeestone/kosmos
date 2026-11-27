@@ -24,7 +24,10 @@
  * RESIDUAL, stated: lookalike LETTERS (a Cyrillic letter for the b, a dotless i) are not folded, so such a title prints
  * unquoted. The cost, accepted: an ordinary title that uses the word ("the site was built on Friday", "a built-in
  * helper") is printed quoted too; its words are unchanged.
- * Pure: no state, no I/O. #9188 (the task list CLIs and engine/tasklist.js) is meant to call the same two functions.
+ * Pure: no state, no I/O. #9188: the task list CLIs and engine/tasklist.js call quoteOwnWords and usesListMarkWord
+ * (below), the list's wider test; cli.task-listmarks-render-9203.test.js checks it against every mark the printers
+ * print today, and that its fixtures reach the fields the printers read (its header says which reads it can see; a new
+ * mark on a new VALUE of a known field it cannot).
  */
 
 const cp = (...codes) => codes.map((c) => String.fromCodePoint(c)).join('');
