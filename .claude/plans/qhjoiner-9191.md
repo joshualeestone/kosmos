@@ -23,11 +23,14 @@ whose arguments file is in its own $S.
   forked before any arm and would only ever see an empty variable. As a background job that arm's stdin is /dev/null,
   which it already redirected nowhere; its exit code (wait), output and 60 s alarm are unchanged.
 - `joiner_under` takes an optional command prefix, so its regression arm can use a fake script path.
-- Two regression arms (EXPECTED 175 -> 177): kill_waiters ends a stand-in whose arguments file is in $S and a listed
+- Three regression arms (EXPECTED 175 -> 178): kill_waiters ends a stand-in whose arguments file is in $S and a listed
   one, and leaves a LISTED pid that is not a waiter of this run alone (the reused-pid guard; CONTROL: with that guard
   removed the arm reads BAD, measured); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
-  with a CONTROL that `pgrep -o` picks the older. Stand-ins are named after a fake script, so no real queue scan on the
-  Mac matches them.
+  with a CONTROL that `pgrep -o` picks the older; and a source check that the three #5923 arms call joiner_under and that
+  no `pgrep -o -f "^/bin/bash $REAL_QH` pick is left (on origin/main's file the same greps read 0 and 3, so it would be
+  BAD there). Stand-ins are named after a fake script, so no real queue scan on the Mac matches them.
+- `own_waiter` / `unown_waiter`: an arm lists its waiter only while it runs and takes off only its own line when its
+  wait returns (kill_waiters also accepts a listed pid's pre-exec forms, which is safe only for a pid still its own).
 
 ## Verified
 - Defect 2 (the card's reproduction): a stray process whose ps line is `/bin/bash <REAL_QH> --queued-args /tmp/stray`,
@@ -40,10 +43,9 @@ whose arguments file is in its own $S.
   stale-TMPDIR arm's 60 s alarm, are both candidates). What is measured is that kill_waiters ends both kinds of
   stand-in (the new arm); that it ends the card's exact orphan is reasoned.
 - Two new arms alone, in a small harness: 2 OK (and again after rounds 2 and 3).
-- Not guarded: the three #5923 arms are not run with a stray beside them, so a call site reverted to pgrep -o would
-  still pass. That needs a real-path stand-in, which other agents' queue scans on the Mac would see. The helper itself
-  is guarded by its arm.
-- Whole file after round 2: 177/177.
+- The three #5923 arms are not run with a stray beside them (that needs a real-path stand-in, which other agents'
+  queue scans on the Mac would see); the source check above is what catches a call site reverted to pgrep -o.
+- Whole file after rounds 2 and 3: 177/177 each.
 - Whole file after round 1: 177/177.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
   `.../queued-heavy.sh --queued-args` command line, so other agents' lib-move scans could see it and say "another
