@@ -14936,6 +14936,30 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #8720: retiring idle agents (Settings > Agents). GET is the setting, the verdict on every agent (would retire,
+     kept and why, cannot tell) and the recent retirements; a read error is a 500, never a false position. PUT {on}
+     or {days}, screen-only as the Recommender's (advisory, per isViaScreen's note). */
+  if (pathname === '/api/idle-retire' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, require('./engine/idleretire').view(safeRoster())); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/idle-retire' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        if (body.on === undefined && body.days === undefined) { sendJson(res, 400, { error: 'nothing to set (want {on} or {days})' }); return; }
+        const idleretire = require('./engine/idleretire');
+        const saved = idleretire.writeSetting({ on: body.on, days: body.days });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, idleretire.view(safeRoster()));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   /* #2619: the Recommender automation setting (Settings > Automation). Read-only
      GET returns on + the three guards + their key order for the UI. Like
      /api/heartbeat-setting it is a STATUS control: a read error is a 500, never a
@@ -31088,6 +31112,23 @@ function start(port = PORT) {
       });
       const feedbacknudgeSweep = setInterval(feedbacknudgeTick, Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) : 10 * 60 * 1000); // the env is the test seam only
       if (feedbacknudgeSweep && typeof feedbacknudgeSweep.unref === 'function') feedbacknudgeSweep.unref();
+      /* #8720: when the person has turned it on in Settings (off by default), once a day every agent that has not run
+         in their chosen number of days is retired through the board's own Remove (engine/idleretire.js decides who and
+         keeps what it did; engine/remove.js does it, never forced, so it can be put back from Removed agents).
+         Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_IDLE_RETIRE_OFF=1, own hourly timer (the module itself runs once a day), unref'd, best-effort.
+         A dry-run REMOVED did nothing (engine/remove.js markDryRun), so it is recorded as refused, never as retired. */
+      const idleretireTick = require('./engine/idleretire').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1',
+        roster: () => safeRoster(),
+        remove: (name) => {
+          const done = removal.remove(name);
+          return done && done.dryRun ? { outcome: removal.OUTCOME.REFUSED, because: done.because } : done;
+        },
+        log: (line) => process.stdout.write(line + '\n'),
+      });
+      const idleretireSweep = setInterval(idleretireTick, Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) : 60 * 60 * 1000); // the env is the test seam only
+      if (idleretireSweep && typeof idleretireSweep.unref === 'function') idleretireSweep.unref();
       /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's freshness and
          rhythm; the work is the module's own workedSinceMs) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
