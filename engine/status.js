@@ -10991,6 +10991,10 @@ function channelCardFor(name, runner) {
     stateConfidence: CONFIDENCE.NONE,
     stateEvidence: null,
     because: 'the running agents could not be read, so what it is doing is not known',
+    /* kosmos#9090 review 1: the swarm field as snapshot builds it (it comes from the profile, not from the failing
+       read), so a PAUSED swarm lead is refused through the pipe as on a good read (chat.js typingGate). Without it a
+       handoff prompt, a pickup or a DM would be typed into a paused swarm during the outage. */
+    swarm: swarmField(store.readProfile(pane.name), pane.name, pane.session),
     /* The one field that says this card was not read off the roster. Test `=== true`. */
     outageCard: true,
   };
