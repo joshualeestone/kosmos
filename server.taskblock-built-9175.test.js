@@ -123,9 +123,9 @@ test('the person marking an agent\'s task built rewrites its section and owes it
   const back = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(sendertoken.mint('otto').token), body: { clear: true } });
   assert.equal(back.code, 200, back.text.slice(0, 300));
   clear();
-  const screen = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: withBoard(), body: {} });
+  const screen = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: withBoard({ 'sec-fetch-site': 'same-origin' }), body: {} });   // the page sends sec-fetch-site
   assert.equal(screen.code, 200, screen.text.slice(0, 300));
-  assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built/, 'the person\'s mark did not reach the section');
+  assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built: nothing to start/, 'the person\'s mark (which frees everyone) did not reach the section as covering otto');
   assert.deepEqual(owed(), ['projects'], 'a mark the person made was not owed to the holder');
 });
 
@@ -170,7 +170,7 @@ test('review 1: one holder\'s mark covers only that holder; the other is told it
   assert.equal(r.code, 200, r.text.slice(0, 300));
   assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built: nothing to start/, 'the marker was not told its part is built');
   const other = lineFor(files.mara, k.number, p.name) || '';
-  assert.match(other, /\[built by another agent on it; your own part is still yours to finish\]/, 'the other holder read the mark as covering it: ' + other);
+  assert.match(other, /\[marked built, but not by you; your own part is still yours to finish\]/, 'the other holder read the mark as covering it: ' + other);
 });
 
 test('review 1: making a built task repeat drops the mark, and the holder\'s section with it', async (t) => {
@@ -183,4 +183,46 @@ test('review 1: making a built task repeat drops the mark, and the holder\'s sec
   assert.equal(r.code, 200, r.text.slice(0, 300));
   assert.notEqual(tasksEngine.listGroup(projectsEngine.readAll().find((x) => x.id === p.id).tasks[0]), 'built', 'fixture: the repeat dropped the mark');
   assert.doesNotMatch(lineFor(files.otto, k.number, p.name) || '', /\[built/, 'the section kept a built mark the repeat dropped');
+});
+
+test('review 2: pausing a project with a built task still owes its holder a re-read (the hold mark ends the line)', async (t) => {
+  const { board, p, k, files } = setup('PauseOwed');
+  t.after(() => board.restore());
+  const otto = sendertoken.mint('otto').token;
+  assert.equal((await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(otto), body: {} })).code, 200);
+  try { fs.rmSync(ir.file()); } catch { /* none owed */ }
+  const r = await call('PUT', `/api/project/${p.id}`, { headers: withBoard(), body: { paused: true } });
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  const line = lineFor(files.otto, k.number, p.name) || '';
+  assert.match(line, /\[built: nothing to start[^\]]*\] \[on hold: [^\]]*\]$/, 'the built mark must come before the hold mark: ' + line);
+  assert.deepEqual((ir.readOwed().otto || {}).sections, ['projects'], 'a pause of a project with a built task owed its holder no re-read');
+});
+
+test('review 2: a co-holder whose own part is closed, or a mark nobody could name, reads truthfully', async (t) => {
+  const { board, p, k, files } = setup('Closedpart');
+  t.after(() => board.restore());
+  assert.equal(tasksEngine.addPart(p.id, k.number, { sentence: 'check the figures', who: 'mara', made: { via: 'screen' } }).ok, true);
+  assert.equal(tasksEngine.setPartClosed(p.id, k.number, 2, new Date().toISOString()).ok, true);
+  assert.equal(tasksEngine.setBuilt(p.id, k.number, { by: 'otto' }).ok, true);
+  projectsEngine.syncAgent('mara', board.roster);
+  const mara = lineFor(files.mara, k.number, p.name) || '';
+  assert.match(mara, /\[built: nothing to start/, 'a holder whose own part is closed was told it is still to finish: ' + mara);
+  // A mark by a caller nobody could name: builtWho is empty, and the only holder may have made it, so never "another agent".
+  assert.equal(tasksEngine.clearBuilt(p.id, k.number, { by: 'otto' }).ok, true);
+  assert.equal(tasksEngine.setBuilt(p.id, k.number, { by: null }).ok, true);
+  projectsEngine.syncAgent('otto', board.roster);
+  const otto = lineFor(files.otto, k.number, p.name) || '';
+  assert.match(otto, /\[marked built, but not by you; your own part is still yours to finish\]/, 'an unnamed mark: ' + otto);
+  assert.doesNotMatch(otto, /another agent/, 'an unnamed mark was attributed to another agent');
+});
+
+test('review 2: the person making an agent\'s built task repeat owes the holder a re-read, as the built route does', async (t) => {
+  const { board, p, k, files } = setup('RepeatOwed');
+  t.after(() => board.restore());
+  assert.equal((await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(sendertoken.mint('otto').token), body: {} })).code, 200);
+  try { fs.rmSync(ir.file()); } catch { /* none owed */ }
+  const r = await call('POST', `/api/project/${p.id}/task/${k.number}/repeat`, { headers: withBoard({ 'sec-fetch-site': 'same-origin' }), body: { every: 'hourly' } });
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  assert.doesNotMatch(lineFor(files.otto, k.number, p.name) || '', /\[built/, 'fixture: the section dropped the mark');
+  assert.deepEqual((ir.readOwed().otto || {}).sections, ['projects'], 'the person\'s repeat change owed the holder no re-read');
 });

@@ -4065,17 +4065,20 @@ function blockBody(projects, sessionName) {
        groups by) puts it in its built group, out of the open list. Listed here unmarked, it read as work still to do.
        It stays listed, as a held task does, because it is still this agent's until it is closed or reopened. A task on
        hold keeps only the hold's mark (the live list groups it as held); in a paused project both marks show, as the
-       live list prints [built] then [project paused]. Review 1: an agent's mark covers only that agent (builtWho, as
-       agentnudge and the Assigner read it), so a holder whose part is not covered is told its part is still to finish. */
+       live list prints [built] then [project paused]. ⚠️ BEFORE the hold mark (review 2): holdsOf reads the hold as the
+       line's LAST mark, and a pause seen nowhere owes no re-read. Review 1: an agent's mark covers only that agent
+       (builtWho), so a holder still to finish is told so, by whoIsLeft's rule: not marked, and holding an open part. */
     const built = (t) => {
       const T = require('./tasks');
       if (T.isOnHold(t) || !(typeof t.builtAt === 'string' && t.builtAt)) return '';
       const waits = { person: ', waiting on your person', review: ', waiting on a review', release: ', waiting on a release' }[t.builtWaitingOn] || '';
-      const mine = t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName));
-      return mine ? ' [built' + waits + ': nothing to start; it comes back as open work if it is reopened]'
-        : ' [built by another agent on it; your own part is still yours to finish]';
+      const covered = t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName))
+        || !T.partsOf(t).some((x) => x && x.who === sessionName && !x.closedAt);   // review 2: my own parts all closed
+      // Review 2: "not by you", never "another agent": a mark nobody could name (empty builtWho) may be its own.
+      return covered ? ' [built' + waits + ': nothing to start; it comes back as open work if it is reopened]'
+        : ' [marked built, but not by you; your own part is still yours to finish]';
     };
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}${built(t)}`)].join('\n');
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${built(t)}${held(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [

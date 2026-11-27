@@ -35,3 +35,11 @@ reverted alone.
 - [WARNING] done-when says "matches the live list"; built tasks stay listed, marked, while --mine omits them --> ACCEPTED as the decided call above (the per-project list shows them marked [built]); stated on the card.
 - [NIT] the reassignment test passes on main --> ACCEPTED: it locks #8989, which already fixed that half.
 Each new site perturbed alone turns exactly its own test red.
+
+## Review round 2 (opus, blind, whole branch)
+- [CRITICAL] the built mark after the hold mark broke holdsOf (it reads the hold as the line's LAST mark), so pausing a project with a built task owed no re-read --> FIXED: built mark first (also the live list's [built] [project paused] order). Route test: a pause owes the holder the re-read.
+- [WARNING] a co-holder whose own part is closed was told its part is still to finish --> FIXED: whoIsLeft's rule (not marked AND holds an open part). Test added.
+- [WARNING] an unnamed mark (empty builtWho) was called "built by another agent" --> FIXED: "marked built, but not by you". Test added. (This also showed my round-1 test's "screen" arm was an unnamed process call: no sec-fetch-site. Fixed to a real page call, and it now asserts the frees-everyone wording, which guards the builtFreesAll branch.)
+- [WARNING] the repeat route's sync passed no notice --> FIXED: notice { projectId, by } (null for the page), as the built route. Test added.
+- [NIT] repeat sync runs on no-op successes; both syncs are synchronous --> ACCEPTED: a section is written only when it changed; each holder is one file read, as every other task route does.
+Every round-2 site perturbed alone turns its own test red (order, closed part, builtFreesAll, repeat notice).
