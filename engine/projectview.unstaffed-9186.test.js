@@ -44,7 +44,7 @@ test('#9186 CONTROL: the same tasks with an agent on the project count 0, and a 
   assert.equal(act({ id: 'nofield', createdAt: made, tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'no agents field: nobody');
 });
 
-test('#9186: the line says nobody will move them, and that the person adds an agent (the + beside Members)', () => {
+test('#9186: the line says no agent is on the project to pick them up, and that the person adds one (the + beside Members)', () => {
   const line = v.activityLine(act({ id: 'empty', createdAt: made, agents: [], tasks: [{ number: 1, sentence: 'open' }, { number: 2, sentence: 'two' }] }), 'empty');
   assert.match(line, /^Last activity: /, line);
   assert.match(line, / No agent is on this project to pick up its 2 open or on-hold tasks\. Tell your person: they add an agent with the \+ beside Members on the project's page\.$/, line);

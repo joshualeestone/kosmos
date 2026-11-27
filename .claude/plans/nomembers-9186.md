@@ -80,3 +80,6 @@ screen, and the line says "tell your person" first.
     true); an unused `id` parameter; the unreachable starter guard; a member no longer on the computer counts as
     staffed (the card's "members" definition, already the Weakest premise).
   - After: the two files plus fixture-discipline 50/50.
+- Round 6 (sonnet): 0 BLOCKER, 1 WARNING (a duplicate of the deferred members-not-running point), 0 CONVENTION, 3 NIT.
+  NIT taken: a test title still quoted round 5's old words; renamed. NITs not taken: "Review 3" twice in one comment;
+  a filter run on every call (cheap).
