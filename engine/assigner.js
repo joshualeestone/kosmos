@@ -153,7 +153,7 @@ function hasOpenWork(session, projects) {
       if (tasks.isOnHold(t)) continue;
       if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
       const prog = tasks.progressOf(t);
-      if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
+      if (prog.closed || tasks.builtFor(t, session)) continue;
       if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
     }
   }
@@ -172,7 +172,7 @@ function busyHold(p, t, who) {
      hand counts the same) never takes the tree's other tasks, so it does not lock the tree away from builders, as a
      member switched off does not. The cost, accepted: a builder can then be on a tree beside it. */
   if (require('./projects').reviewOnlyHere(p, who)) return false;
-  if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
+  if (tasks.builtFor(t, who)) return false;
   return !isSwarmOff(p, who);
 }
 /* The task's own reasons it is never handed out, in ONE place (#5678 review 5: pick and willMove read the same set, so

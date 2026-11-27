@@ -2806,17 +2806,29 @@ function projectPathOf(p, byId) {
    2026-10-11): built work in a paused project is finished and waiting for review, so it groups as built and prints
    [built] [project paused] (both CLIs), not [on hold]: a paused project whose work is done reads as waiting, not stuck. */
 const LIST_GROUPS = ['open', 'built', 'held', 'done'];
-function listGroup(t) {
+/* kosmos#9177: is a task built FOR this agent? One agent's mark covers that agent only (builtWho); the person's mark
+   (builtFreesAll) covers every agent on it. `who` is a name, matched exactly, or a function given each marked name.
+   The one reading shared by the Assigner (hasOpenWork, busyHold) and an agent's own list (--mine). */
+function builtFor(t, who) {
+  if (!t || !t.builtAt) return false;
+  if (t.builtFreesAll === true) return true;
+  const match = typeof who === 'function' ? who : (n) => n === who;
+  return Array.isArray(t.builtWho) && t.builtWho.some((n) => typeof n === 'string' && match(n));
+}
+/* `who` (kosmos#9177): reading for one agent, a task another holder marked built stays in its group by its other
+   states (open, or held when its project is paused), since that agent's part is still open. Without it, any mark. */
+function listGroup(t, who = null) {
   if (!t) return 'open';
   if (t.isClosed === true || progressOf(t).closed) return 'done';
   if (isOnHold(t)) return 'held';
-  if (typeof t.builtAt === 'string' && t.builtAt) return 'built';
+  if (typeof t.builtAt === 'string' && t.builtAt && (who == null || builtFor(t, who))) return 'built';
   if (t.projectPaused === true) return 'held';
   return 'open';
 }
-/* Rows in group order (stable within a group); `only` keeps one group. An unknown `only` is the caller's to refuse. */
-function inListOrder(rows, only = null) {
-  const rank = (t) => LIST_GROUPS.indexOf(listGroup(t));
+/* Rows in group order (stable within a group); `only` keeps one group. An unknown `only` is the caller's to refuse.
+   `who`: as listGroup's. */
+function inListOrder(rows, only = null, who = null) {
+  const rank = (t) => LIST_GROUPS.indexOf(listGroup(t, who));
   return (rows || [])
     .map((t, i) => ({ t, i, g: rank(t) }))
     .filter((x) => !only || LIST_GROUPS[x.g] === only)
@@ -3458,6 +3470,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { WAITING_ON /* kosmos#8934 */, WAITING_NONE, ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
+  setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, builtFor, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, filesOf /* kosmos#9105 */, BUILT_FILES_MAX, withoutFilePaths, withoutLocalPaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setWake, saveWakeMet, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
