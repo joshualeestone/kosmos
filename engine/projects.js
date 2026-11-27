@@ -4072,7 +4072,17 @@ function blockBody(projects, sessionName) {
     const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
       && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
       ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t) || built(t)}`)].join('\n');
+    /* kosmos#9179: a task's own words cannot pass for a mark of the board's: a title that uses a mark word at all is
+       printed quoted, said to be the task's own words, so its words never end the line in a forged mark (the rule, its
+       folding and its stated residual are in engine/markwords.js, which the task list is meant to share, #9188). A
+       webhook task is already quoted by forAgent (#1307), so it is not quoted twice. */
+    const words = (t) => {
+      const w = oneLine(require('./tasks').forAgent(t));
+      if (t && t.addedVia === 'webhook') return w;
+      const mw = require('./markwords');
+      return mw.usesMarkWord(w) ? mw.quoteOwnWords(w) : w;
+    };
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${held(t) || built(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [
