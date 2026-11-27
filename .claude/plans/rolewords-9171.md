@@ -40,3 +40,6 @@ for others; #7429 left that as is).
   - "still hands you" said without conditions (a paused project hands out nothing): now "can still hand you".
   - NIT not taken: "QAs", "Q.A.", "code_review" are missed (a miss keeps today's silence).
   - After: the five files (with the CLI verbs parity test) 31/31; both CLIs print the same sentence (compared as printed).
+- Round 2 (sonnet): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT. Converged. NITs, all already accepted above: a role ruling
+  review out is flagged (conditional line); "QAs"/"Q.A."/"code_review" missed (today's silence); the Unix check is a
+  substring match on compact JSON (as the existing reviewOnly check).
