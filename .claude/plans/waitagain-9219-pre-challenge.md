@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: waitagain-9219
-diff_hash: 75f4c4a6eb685c18e621dfc0fd6dc3b87867225e2b2da751732506b2d5fd022f
+diff_hash: eab11deb27d82296079f5bef58a793b3c8987192df9e72aa80a95bfd6943146b
 validation: local; 153 report-related test files (tools/run-tests.sh --only, heavy queue turn) 2038 tests, 1 fail (server.away-8634's pin of the old reminder command, since updated), then the #9219 files and neighbours 54/54 on the rebased head 0bea27538f; the full suite runs on the PR's CI
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-27T15:39:33Z
@@ -23,6 +23,9 @@ converged: true
 - [NIT] `kosmos report needs_you Q --again` puts the flag after the note --> no change: refused as an unknown option, the same as --held
 - [STRENGTH] checked clean: another agent's wait, an automatic wait, an operator clear, a legacy unmarked row, a wait outside the window; masking and caps re-applied change nothing; the buzz takes the same path as retyping; history() default and lastWait unchanged; version skew in both directions refused safely
 - [WARNING] (found by the wider run, not the reviewer) server.away-8634.test.js pinned the old reminder command --> FIXED
+
+#### CI (after iteration 2)
+- [WARNING] engine/windows-tests-1777's guard: cli.waitagain-9219 branches on a win32 host (skipOnWin32) and was not listed --> FIXED: HOST_BRANCH_EXCLUDED with its reason, as cli.heldq-7915 (guard 24/24 locally)
 
 #### Iteration 2
 - [NIT] engine/awaydigest.js and engine/selfreport.js comments still said the reminder prints --held --> FIXED
