@@ -23,7 +23,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
-process.env.AGENT_WORKFORCE_TASK_MSG_CAP = '0';   // the heard line is not typed; only the sync is under test
+process.env.AGENT_WORKFORCE_TASK_MSG_CAP = '0';   // no task message; the heard line's delivery is stubbed per test (chat.deliver, chat.deliverAsync)
 
 const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
@@ -62,14 +62,16 @@ const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });   // an
 
 /* mara, otto and nia hold parts 1 to 3 of task 1 on p9178, which was built. A write adds part 4 for otto, or gives part
    2 (open) to otto. `dropped` is what tasks.droppedBuiltForWork answers for the written task (the real answer is pinned
-   by engine/builtnotice-9178.test.js). `heard` is what otto's heard line came to: 'placed' (it went out) or 'could_not'. */
+   by engine/builtnotice-9178.test.js). `heard` is what otto's heard line came to: 'placed', 'unconfirmed' (it may have
+   reached the pane: counted as went, so no second message) or 'could_not'. */
 function world(t, { dropped = true, heard = 'placed' } = {}) {
   const members = ['mara', 'otto', 'nia'];
   const board = fleet.install(members.map((m) => fleet.agent(m, { state: 'idle' })));
   const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, addPart: tasksEngine.addPart, assignPart: tasksEngine.assignPart, droppedBuiltForWork: tasksEngine.droppedBuiltForWork, deliver: chatEngine.deliver, deliverAsync: chatEngine.deliverAsync };
   const task = { number: 1, sentence: 'shared', parts: [{ id: 1, who: 'mara' }, { id: 2, who: 'otto' }, { id: 3, who: 'nia' }] };
   const after = { ...task, parts: [...task.parts, { id: 4, who: 'otto', sentence: 'more' }] };
-  const state = heard === 'placed' ? chatEngine.DELIVERY.PLACED : chatEngine.DELIVERY.COULD_NOT;
+  const state = { placed: chatEngine.DELIVERY.PLACED, unconfirmed: chatEngine.DELIVERY.UNCONFIRMED, could_not: chatEngine.DELIVERY.COULD_NOT }[heard];
+  assert.ok(state, 'fixture: unknown heard state ' + heard);
   chatEngine.deliver = () => ({ state });
   chatEngine.deliverAsync = async () => ({ state });
   const synced = [];
@@ -130,4 +132,15 @@ test('#9178 control: a give that dropped no mark owes nobody a re-read', async (
   const r = await call('POST', '/api/project/p9178/task/1/part/2/who', { headers: screen(), body: { who: 'otto' } });
   assert.equal(r.code, 200, r.text);
   assert.deepEqual(owed(w.synced), { mara: false, otto: false, nia: false });
+});
+
+test('#9178 review 2: an UNCONFIRMED heard line (it may have reached the pane) counts as told: no second message, at either site', async (t) => {
+  const add = world(t, { heard: 'unconfirmed' });
+  const r1 = await call('POST', '/api/project/p9178/task/1/parts', { headers: screen(), body: { sentence: 'more', who: 'otto' } });
+  assert.equal(r1.code, 200, r1.text);
+  assert.deepEqual(owed(add.synced), { mara: true, otto: false, nia: true }, 'part-add');
+  add.synced.length = 0;
+  const r2 = await call('POST', '/api/project/p9178/task/1/part/2/who', { headers: screen(), body: { who: 'otto' } });
+  assert.equal(r2.code, 200, r2.text);
+  assert.deepEqual(owed(add.synced), { mara: true, otto: false, nia: true }, 'give');
 });
