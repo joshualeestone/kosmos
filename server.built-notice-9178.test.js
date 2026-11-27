@@ -30,6 +30,7 @@ const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const projectsEngine = require('./engine/projects');
 const tasksEngine = require('./engine/tasks');
+const chatEngine = require('./engine/chat');
 
 const BOARD = 'BOARDTOKEN_test_9178_builtnotice_0123456789ab';
 let base;
@@ -59,22 +60,25 @@ const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const screen = () => ({ 'x-kosmos-board-token': BOARD, 'sec-fetch-site': 'same-origin' });
 const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });   // an agent's CLI call carries both (as server.reread-close-8989.test.js)
 
-/* mara and otto hold parts 1 and 2 of task 1 on p9178, which was built. A write adds part 3 for otto, or gives part 2
-   (open) to otto. `dropped` is what tasks.droppedBuiltForWork answers for the written task: the real one answers from
-   writeParts' own mark (engine/tasks.js), which these stubs do not run. */
-function world(t, { dropped = true } = {}) {
+/* mara, otto and nia hold parts 1 to 3 of task 1 on p9178, which was built. A write adds part 4 for otto, or gives part
+   2 (open) to otto. `dropped` is what tasks.droppedBuiltForWork answers for the written task (the real answer is pinned
+   by engine/builtnotice-9178.test.js). `heard` is what otto's heard line came to: 'placed' (it went out) or 'could_not'. */
+function world(t, { dropped = true, heard = 'placed' } = {}) {
   const members = ['mara', 'otto', 'nia'];
   const board = fleet.install(members.map((m) => fleet.agent(m, { state: 'idle' })));
-  const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, addPart: tasksEngine.addPart, assignPart: tasksEngine.assignPart, droppedBuiltForWork: tasksEngine.droppedBuiltForWork };
-  const task = { number: 1, sentence: 'shared', parts: [{ id: 1, who: 'mara' }, { id: 2, who: 'otto' }] };
-  const after = { ...task, parts: [...task.parts, { id: 3, who: 'otto', sentence: 'more' }] };
+  const real = { readAll: projectsEngine.readAll, syncAgent: projectsEngine.syncAgent, addPart: tasksEngine.addPart, assignPart: tasksEngine.assignPart, droppedBuiltForWork: tasksEngine.droppedBuiltForWork, deliver: chatEngine.deliver, deliverAsync: chatEngine.deliverAsync };
+  const task = { number: 1, sentence: 'shared', parts: [{ id: 1, who: 'mara' }, { id: 2, who: 'otto' }, { id: 3, who: 'nia' }] };
+  const after = { ...task, parts: [...task.parts, { id: 4, who: 'otto', sentence: 'more' }] };
+  const state = heard === 'placed' ? chatEngine.DELIVERY.PLACED : chatEngine.DELIVERY.COULD_NOT;
+  chatEngine.deliver = () => ({ state });
+  chatEngine.deliverAsync = async () => ({ state });
   const synced = [];
   projectsEngine.readAll = () => [{ id: 'p9178', name: 'p9178', agents: members, tasks: [task], made: { via: 'screen', by: null } }];
   projectsEngine.syncAgent = (who, roster, opts) => { synced.push([who, !!(opts && opts.byOther)]); return { state: projectsEngine.TOLD.TOLD, changed: true }; };
   tasksEngine.addPart = () => ({ ok: true, task: after });
-  tasksEngine.assignPart = () => ({ ok: true, task: { ...task, parts: [{ id: 1, who: 'mara' }, { id: 2, who: 'otto' }] }, changed: true, previous: null });
+  tasksEngine.assignPart = () => ({ ok: true, task, changed: true, previous: null });
   tasksEngine.droppedBuiltForWork = () => dropped;
-  t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { addPart: real.addPart, assignPart: real.assignPart, droppedBuiltForWork: real.droppedBuiltForWork }); board.restore(); });
+  t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { addPart: real.addPart, assignPart: real.assignPart, droppedBuiltForWork: real.droppedBuiltForWork }); Object.assign(chatEngine, { deliver: real.deliver, deliverAsync: real.deliverAsync }); board.restore(); });
   return { synced, mara: sendertoken.mint('mara').token };
 }
 const owed = (synced) => Object.fromEntries(synced.map(([who, byOther]) => [who, byOther]));
@@ -83,33 +87,47 @@ test('#9178: a part added from the screen drops the mark, so the other holder is
   const w = world(t);
   const r = await call('POST', '/api/project/p9178/task/1/parts', { headers: screen(), body: { sentence: 'more', who: 'otto' } });
   assert.equal(r.code, 200, r.text);
-  assert.deepEqual(owed(w.synced), { mara: true, otto: false });
+  assert.deepEqual(owed(w.synced), { mara: true, otto: false, nia: true });
+});
+
+test('#9178 review 1: a part added whose heard line did not go out leaves its new holder owed a re-read too', async (t) => {
+  const w = world(t, { heard: 'could_not' });
+  const r = await call('POST', '/api/project/p9178/task/1/parts', { headers: screen(), body: { sentence: 'more', who: 'otto' } });
+  assert.equal(r.code, 200, r.text);
+  assert.deepEqual(owed(w.synced), { mara: true, otto: true, nia: true });
 });
 
 test('#9178: a part added by an agent is not news to that agent, nor to the new holder', async (t) => {
   const w = world(t);
   const r = await call('POST', '/api/project/p9178/task/1/parts', { headers: withBoard(asAgent(w.mara)), body: { sentence: 'more', who: 'otto' } });
   assert.equal(r.code, 200, r.text);
-  assert.deepEqual(owed(w.synced), { mara: false, otto: false });
+  assert.deepEqual(owed(w.synced), { mara: false, otto: false, nia: true }, 'nia: the other holder, owed; mara made it; otto heard it');
 });
 
 test('#9178 control: a part added where no built mark was dropped owes nobody a re-read (#8989 as before)', async (t) => {
   const w = world(t, { dropped: false });
   const r = await call('POST', '/api/project/p9178/task/1/parts', { headers: screen(), body: { sentence: 'more', who: 'otto' } });
   assert.equal(r.code, 200, r.text);
-  assert.deepEqual(owed(w.synced), { mara: false, otto: false });
+  assert.deepEqual(owed(w.synced), { mara: false, otto: false, nia: false });
 });
 
 test('#9178: a part given open from the screen drops the mark: the other holder is owed a re-read, the assignee is not', async (t) => {
   const w = world(t);
   const r = await call('POST', '/api/project/p9178/task/1/part/2/who', { headers: screen(), body: { who: 'otto' } });
   assert.equal(r.code, 200, r.text);
-  assert.deepEqual(owed(w.synced), { mara: true, otto: false });
+  assert.deepEqual(owed(w.synced), { mara: true, otto: false, nia: true });
+});
+
+test('#9178 review 1: a give whose heard line did not go out leaves the assignee owed a re-read too', async (t) => {
+  const w = world(t, { heard: 'could_not' });
+  const r = await call('POST', '/api/project/p9178/task/1/part/2/who', { headers: screen(), body: { who: 'otto' } });
+  assert.equal(r.code, 200, r.text);
+  assert.deepEqual(owed(w.synced), { mara: true, otto: true, nia: true });
 });
 
 test('#9178 control: a give that dropped no mark owes nobody a re-read', async (t) => {
   const w = world(t, { dropped: false });
   const r = await call('POST', '/api/project/p9178/task/1/part/2/who', { headers: screen(), body: { who: 'otto' } });
   assert.equal(r.code, 200, r.text);
-  assert.deepEqual(owed(w.synced), { mara: false, otto: false });
+  assert.deepEqual(owed(w.synced), { mara: false, otto: false, nia: false });
 });
