@@ -711,6 +711,12 @@ function reviewOnlyHere(p, key) {
   const words = r.trim().replace(/[.!]+$/, '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
   return REVIEW_ONLY.test(words);
 }
+/* #9171: does a role NAME review or QA at all? With reviewOnlyHere false, such a role ("QA only on mobile", "reviews
+   the builders' work") keeps the member in the Assigner's hand-outs, and `kosmos project role` says so. */
+const NAMES_REVIEW = /\b(?:review\w*|qa)\b/i;
+function mentionsReview(role) {
+  return typeof role === 'string' && NAMES_REVIEW.test(role);
+}
 
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
 function profileReportsTo(card) {
@@ -4557,7 +4563,7 @@ module.exports = { heldOwnQuestion /* #7916 */, exactPathStat, windowsProjectFol
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isTestOnly, isStarter, isStarterGoal, STARTER_PROJECT_LINE, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
-  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
+  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere, mentionsReview,
   list, get, projectsFor, namesFor, create, edit, moveFolder, renameFolderToName, folderRenameTarget, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,

@@ -170,7 +170,13 @@ test('#7429: the answer says when a role reads as review only; a role that also 
     assert.equal(minted.ok, true, 'fixture: no token was minted');
     const r = await asAgent(p.id, minted.token, { role: 'Review only' });
     assert.deepEqual(await r.json(), { ok: true, role: 'Review only', reviewOnly: true });
+    // #9171: a role that names review but is not review only says the member still gets tasks.
     const c = await asAgent(p.id, minted.token, { role: 'builds and reviews' });
-    assert.deepEqual(await c.json(), { ok: true, role: 'builds and reviews' });
+    assert.deepEqual(await c.json(), { ok: true, role: 'builds and reviews', stillAssigned: true });
+    const q = await asAgent(p.id, minted.token, { role: 'QA only on mobile' });
+    assert.deepEqual(await q.json(), { ok: true, role: 'QA only on mobile', stillAssigned: true });
+    // CONTROL: a role that names neither carries no flag.
+    const b = await asAgent(p.id, minted.token, { role: 'Builder' });
+    assert.deepEqual(await b.json(), { ok: true, role: 'Builder' });
   } finally { board.restore(); }
 });
