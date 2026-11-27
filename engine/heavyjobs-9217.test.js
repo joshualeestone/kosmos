@@ -422,3 +422,46 @@ test('kosmos#9222: a gone process spends none of a read\'s ps budget', () => wit
   assert.deepEqual(shown, ['overnight'], 'nine gone processes spent the budget, and the live one was not read');
   assert.equal(seen.ps, 1);
 }));
+
+test('kosmos#9222: a hidden job is listed, marked unchecked, only when the reader asks for hidden ones', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 170 * H;
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99901, now: base }).ok, true);
+  seen.start = undefined;
+  assert.deepEqual(hj.live({ root: r, now: base + 13 * H }), [], 'the board does not show what it could not check');
+  assert.deepEqual(hj.live({ root: r, now: base + 13 * H, hidden: true }).map((j) => [j.label, j.pid, j.unchecked]), [['overnight', 99901, true]]);
+}));
+
+test('kosmos#9222: "not read" is not cached, so the next read asks ps again', () => withProcesses((seen) => {
+  const now = Date.now() + 190 * 60 * 60 * 1000;
+  seen.start = undefined;
+  assert.equal(hj.defaultStartOf(99950, now), undefined);
+  seen.start = 'A';
+  assert.equal(hj.defaultStartOf(99950, now + 1), 'A', 'a failed read was served from the cache');
+}));
+
+test('kosmos#9222: an aged record with no recorded start is dropped without asking about its process', () => {
+  const r = root();
+  hj.start({ root: r, agent: 'renet', label: 'unjudged', pid: 4243, now: T0, startOf: () => undefined });
+  let asked = 0;
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * 60 * 60 * 1000, startOf: () => { asked += 1; return 'x'; } }), []);
+  assert.equal(asked, 0, 'a read was spent on a record the ceiling had already settled');
+});
+
+test('kosmos#9222: start stops reading the agent\'s aged records once its time is spent', () => {
+  const rs = require('./restoresink');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  let ps = 0;
+  rs.pidAlive = () => true;
+  rs.processStart = () => { ps += 1; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300); return 'A'; };
+  try {
+    const H = 60 * 60 * 1000;
+    const base = Date.now() + 210 * H;
+    const r = root();
+    for (let i = 0; i < 3; i++) hj.start({ root: r, agent: 'renet', label: 's' + i, pid: 99960 + i, now: base, startOf: () => 'A' });
+    ps = 0;
+    assert.equal(hj.start({ root: r, agent: 'renet', label: 'new', now: base + 13 * H }).ok, true);
+    assert.ok(ps >= 1 && ps <= 2, 'ps ran ' + ps + ' times at 300 ms each inside one start');
+  } finally { Object.assign(rs, was); }
+});

@@ -3964,7 +3964,8 @@ cmd_heavy() {
         if (!j.jobs.length) { console.log("No heavy job is running on this computer."); return; }
         for (const x of j.jobs) {
           const t = new Date(x.since); const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0");
-          console.log(x.label + " (" + (x.name || x.agent) + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")");
+          console.log(x.label + " (" + (x.name || x.agent) + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")"
+            + (x.unchecked ? ": Kosmos could not check it, so the board does not show it; if it has finished, kosmos heavy end --pid " + x.pid : ""));
         }
       });' 2>/dev/null || { token_refused_hint "$_tok" "$ans"; exit 1; }
     exit 0
