@@ -25,6 +25,8 @@ const DAY = 86400000;
 const made = new Date(NOW - 3 * DAY).toISOString();
 const act = (p) => v.activityOf(p, { now: NOW, lastPostAt: () => null, lastActivityOf: () => null });
 const BUILT = { builtAt: '2026-11-23T12:00:00Z', builtBy: 'ada' };
+// A member as overviewOf receives it: made by projects.describe, never written by hand (fixture-discipline).
+const described = (name) => projects.describe({ id: 'm', name: 'm', folder: DIR, agents: [name], tasks: [] }, []).agents;
 
 test('#9186: open and on-hold tasks on a project with no agent are counted; built and closed ones are not', () => {
   const p = { id: 'empty', createdAt: made, agents: [], tasks: [
@@ -35,8 +37,9 @@ test('#9186: open and on-hold tasks on a project with no agent are counted; buil
 
 test('#9186 CONTROL: the same tasks with an agent on the project count 0, and a project with no task counts 0', () => {
   assert.equal(act({ id: 'staffed', createdAt: made, agents: ['ada'], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 0, 'a stored name');
-  assert.equal(act({ id: 'staffed2', createdAt: made, agents: [{ sessionName: 'ada' }], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 0, 'a described member');
-  assert.equal(act({ id: 'blank', createdAt: made, agents: ['', { sessionName: '' }, null], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'empty entries are nobody');
+  assert.equal(typeof described('ada')[0], 'object', 'fixture: describe makes member objects');
+  assert.equal(act({ id: 'staffed2', createdAt: made, agents: described('ada'), tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 0, 'a described member');
+  assert.equal(act({ id: 'blank', createdAt: made, agents: ['', null], tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'empty entries are nobody');
   assert.equal(act({ id: 'none', createdAt: made, agents: [], tasks: [] }).unstaffed, 0);
   assert.equal(act({ id: 'nofield', createdAt: made, tasks: [{ number: 1, sentence: 'open' }] }).unstaffed, 1, 'no agents field: nobody');
 });
@@ -54,7 +57,7 @@ test('#9186: the line says nobody will move them, and that the person adds an ag
 test('#9186: a paused project with no agent says its tasks wait on purpose; staffed or archived says nothing of it', () => {
   const paused = v.activityLine(act({ id: 'pz', createdAt: made, paused: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'pz');
   assert.match(paused, / No agent is on this paused project, so when your person resumes it, its 1 open or on-hold task still needs someone added\.$/, paused);
-  const staffed = v.activityLine(act({ id: 's', createdAt: made, agents: [{ sessionName: 'ada' }], tasks: [{ number: 1, sentence: 'open' }] }), 's');
+  const staffed = v.activityLine(act({ id: 's', createdAt: made, agents: described('ada'), tasks: [{ number: 1, sentence: 'open' }] }), 's');
   assert.doesNotMatch(staffed, /No agent is on/, 'CONTROL: a staffed project: ' + staffed);
   const archived = v.activityLine(act({ id: 'a', createdAt: made, archived: true, agents: [], tasks: [{ number: 1, sentence: 'open' }] }), 'a');
   assert.doesNotMatch(archived, /No agent is on/, 'an archived project: ' + archived);

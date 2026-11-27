@@ -67,3 +67,8 @@ screen, and the line says "tell your person" first.
     as staffed. That is the card's definition ("no agent members"), and the Weakest premise above already names the
     member list as what this reads; a running-agent check would be a different card.
   - NITs not taken: "review 3" twice in one comment; an unused `id` parameter; listGroup computed twice per task.
+- Final validation (6j) on e7f0902348: FAILED, 31647 tests, 1 fail: fixture-discipline.test.js "no test builds an agent
+  card or a roster row by hand". Four test lines (one in the #8996 file, three in mine) wrote member objects with a
+  `sessionName:` key, the round-1 fix's own fixtures. Fixed: members come from projects.describe (the real producer);
+  the blank-object case is dropped (empty string and null still cover "nobody"). The two files plus the lint: 49/49.
+  Rebased onto origin/main (brings #9184's pgrep fix). Back into the loop.

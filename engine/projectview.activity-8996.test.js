@@ -20,6 +20,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const v = require('./projectview');
+const projects = require('./projects');
 
 test.after(() => fs.rmSync(DIR, { recursive: true, force: true }));
 
@@ -34,8 +35,9 @@ const act = (p, o = {}) => v.activityOf(p, {
 });
 
 test('the newest of a room post, a task and the making wins, with what it was', () => {
-  // #9186: staffed, as overviewOf passes it (a described member object), so unstaffed 0
-  const p = { id: 'p', createdAt: made, agents: [{ sessionName: 'ada', name: 'Ada', present: true, tied: true }], tasks: [{ number: 1 }, { number: 2 }] };
+  // #9186: staffed, as overviewOf passes it (members as projects.describe makes them), so unstaffed 0
+  const members = projects.describe({ id: 'p', name: 'p', folder: DIR, agents: ['ada'], tasks: [] }, []).agents;
+  const p = { id: 'p', createdAt: made, agents: members, tasks: [{ number: 1 }, { number: 2 }] };
   assert.deepEqual(act(p, { room: NOW - 3 * DAY, tasks: { 1: iso(NOW - 9 * DAY), 2: iso(NOW - 5 * DAY) } }),
     { at: iso(NOW - 3 * DAY), kind: 'post', ageDays: 3, quietDays: 14, quiet: false, unknown: false, expected: null, unstaffed: 0 });
   assert.equal(act(p, { room: NOW - 9 * DAY, tasks: { 2: iso(NOW - 2 * DAY) } }).kind, 'task');
