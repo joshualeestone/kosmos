@@ -102,3 +102,8 @@ filter matches whoOf against the same name).
   - NITs taken: the test header claimed agreement with --mine; the plan's test counts. NITs not taken: the repeat
     route's sync sits after a later step that could throw (setReviewer, checked first under the same condition, so
     unreachable in practice); the route tests stub syncAgent (the block side is tested in the engine file).
+- Round 8 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT. Loop ends here (the 8-round cap; no BLOCKER).
+  - WARNING DEFERRED: the built route now syncs holders inside the request (unmeasured cost). The close, give and edit
+    routes already sync holders inside their requests the same way; nothing new in kind.
+  - NITs: the #5864 citation; the predicate copy (#9177); the repeat route syncs with setRepeat's result even if
+    setReviewer later changes `task` (holders are unchanged by a reviewer, so the sync is right).
