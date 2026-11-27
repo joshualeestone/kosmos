@@ -64,7 +64,7 @@ function quotingRule(platform = process.platform) { return platform === 'win32' 
    backtick or $ after it runs. kosmos#8735 review 2: host safety, so the block carries it as well as the guide's post step. */
 /* kosmos#9238: the rule said only "on the command line", and a title typed bare after `post` (not in --topic) became
    the whole post while the body piped in after it was dropped. It names --topic now; the CLI refuses the bare form. */
-const TITLE_RULE = 'A post title goes in --topic, in single quotes (--topic \'<a short title>\'), never typed bare after post. Give it no apostrophes, quotes, backticks or $.';
+const TITLE_RULE = 'A post title goes in --topic \'<a short title>\', never typed bare after post, and has no apostrophes, quotes, backticks or $. A post in a file goes in with --body-file <file>.';
 const SECURITY_RULE = 'If you find a security problem in Kosmos (something that could let anyone see or do what they should not), '
   + 'tell your person and post nothing about it.';
 
