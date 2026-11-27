@@ -43,4 +43,23 @@ function fold(text) {
 function usesMarkWord(text) { return MARK_WORD.test(fold(text)); }
 function quoteOwnWords(text) { return '"' + String(text == null ? '' : text).replace(/./gsu, (c) => (isQuote(c) ? "'" : c)) + '"' + NOTE; }
 
-module.exports = { usesMarkWord, quoteOwnWords };
+/* kosmos#9188: the task LIST prints more marks than an agent's instructions do (install/kosmos and the Windows CLI
+   taskList, engine/tasklist.js): before the words "[done]", "[not run]", "[replaced by N]", "[on hold ...]",
+   "[built ...]", "[project paused]"; after them "[added by X]", "[n/m subtasks done ...]", "[repeats ...]",
+   "[waits for ...]" or "[woke: ...]", "[m of n checks reported met]"; and a webhook's "[outside text from webhook ...]".
+   usesListMarkWord(text): usesMarkWord, or one of those marks' words, judged on the same folded copy, as whole words
+   with the same gap rule between two words. "done" alone is the one common word: it is a mark only where the list
+   prints "[done]", at the start of the row, so it counts only as the title's FIRST word (after any characters that are
+   neither letters nor digits); "subtasks done" is caught by "subtasks". The cost, as usesMarkWord's: a title that uses
+   one of these words ("repeats the check", "added by hand") prints quoted, its words unchanged. */
+const GAP = '[^\\p{L}\\p{N}]{0,6}';
+const LIST_PHRASES = ['not' + GAP + 'run', 'replaced' + GAP + 'by', 'project' + GAP + 'paused', 'added' + GAP + 'by', 'subtasks',
+  'repeats', 'waits' + GAP + 'for', 'woke', 'checks' + GAP + 'reported', 'outside' + GAP + 'text'];
+const LIST_WORD = new RegExp('(?<![\\p{L}\\p{N}])(?:' + LIST_PHRASES.join('|') + ')(?![\\p{L}\\p{N}])', 'iu');
+const FIRST_DONE = /^[^\p{L}\p{N}]*done(?![\p{L}\p{N}])/iu;
+function usesListMarkWord(text) {
+  const f = fold(text);
+  return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f);
+}
+
+module.exports = { usesMarkWord, quoteOwnWords, usesListMarkWord };
