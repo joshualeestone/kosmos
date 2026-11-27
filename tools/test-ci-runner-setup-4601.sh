@@ -1099,6 +1099,15 @@ vcase() {  # vcase <name> <want rc> <want text> <env...>
   [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'PROBLEM|UNCHECKED|clear' "$T/v-$name.out" | head -2)"
 }
 vcase clear 0 "verify: clear"
+# kosmos#9149: an installed cleanup hook from before its pgrep went under LC_ALL=C is the previous version, a note to
+# install again, not a rewrite; any OTHER difference is still a problem.
+cp "$VCI/.kosmos-ci/job-cleanup.sh" "$T/vci-cleanup.cur"
+LC_ALL=C sed 's/\$(LC_ALL=C pgrep -u /$(pgrep -u /' "$T/vci-cleanup.cur" > "$VCI/.kosmos-ci/job-cleanup.sh"
+! cmp -s "$T/vci-cleanup.cur" "$VCI/.kosmos-ci/job-cleanup.sh" && pass "fixture: the previous hook text differs from today's" || fail "fixture: the previous hook text is the same as today's"
+vcase prevhook 0 "is the version before kosmos#9149"
+printf '# edited\n' >> "$VCI/.kosmos-ci/job-cleanup.sh"
+vcase prevhook-edited 1 "job-cleanup.sh differs from what install writes"
+cp "$T/vci-cleanup.cur" "$VCI/.kosmos-ci/job-cleanup.sh"
 # kosmos#9149: a CI-user process whose argv is not valid UTF-8 (a job's leftover), in a UTF-8 locale: verify still reaches
 # its verdict (macOS awk used to exit 2 on it, and set -e ended verify silently). A line in a stand-in ps, no live process.
 # Two shapes, both measured to stop macOS awk: the byte in the FIRST word (its sub() rewrites the name), and a node line

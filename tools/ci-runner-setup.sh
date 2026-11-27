@@ -174,6 +174,11 @@ act() {
 put() { cat > "$1.new" && chmod "$2" "$1.new" && mv -f "$1.new" "$1" || { rm -f "$1.new"; return 1; }; }
 # hook_body <cleanup|completed|started>: the text of each job hook, in one place, so install writes it and verify
 # can compare the installed file byte for byte (a job could rewrite a hook to skip the guard; see the header).
+# kosmos#9149: the cleanup hook's pgrep runs under LC_ALL=C (the runner's .env sets a UTF-8 LANG, and there pgrep exits 3,
+# so the hook killed nothing, whenever any process's name is not valid UTF-8). The hook is its own file, so the pgrep
+# wrapper in this script does not reach it. hook_body_prev is the text before that change: verify reads an installed
+# copy of it as the previous version (a note: install again to update), not as a rewrite.
+hook_body_prev() { hook_body "$1" | LC_ALL=C sed 's/\$(LC_ALL=C pgrep -u /$(pgrep -u /'; }
 hook_body() {
   case "$1" in
     cleanup) cat <<'HOOK'
@@ -201,7 +206,7 @@ spared() {
   done
   return 1
 }
-victims() { local name p; for name in tmux node; do for p in $(pgrep -u "$(id -u)" -x "$name" 2>/dev/null); do spared "$p" || echo "$p"; done; done; }
+victims() { local name p; for name in tmux node; do for p in $(LC_ALL=C pgrep -u "$(id -u)" -x "$name" 2>/dev/null); do spared "$p" || echo "$p"; done; done; }
 if [ "${1:-}" = --list ]; then victims; exit 0; fi
 for p in $(victims); do kill "$p" 2>/dev/null || true; done
 HOOK
@@ -1448,6 +1453,8 @@ EOF
     for h in cleanup completed started; do
       if [ -r "$CI_DIR/job-$h.sh" ]; then
         if hook_body "$h" | cmp -s - "$CI_DIR/job-$h.sh"; then ok "job-$h.sh is what install writes"
+        elif hook_body_prev "$h" | cmp -s - "$CI_DIR/job-$h.sh"; then
+          echo "note:   job-$h.sh is the version before kosmos#9149 (its pgrep is not under LC_ALL=C): run install again to update it"
         else problem "$CI_DIR/job-$h.sh differs from what install writes: something rewrote it"; fi
       fi
     done
