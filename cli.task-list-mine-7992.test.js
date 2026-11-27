@@ -60,13 +60,13 @@ test.before(async () => {
   projects.mutate(B, (p) => ({ ...p, agents: ['mara'] }));
   projects.mutate(C, (p) => ({ ...p, agents: ['otto', 'mara'] }));   // mara is taken off Gamma below, keeping a task there
   projects.mutate(D, (p) => ({ ...p, agents: ['mara'] }));
-  for (const [pid, k, who] of [[A, 'a-mara', 'mara'], [A, 'a-otto', 'otto'], [A, 'a-mara-built', 'mara'], [B, 'b-mara', 'mara'], [B, 'b-nobody', null], [C, 'c-otto', 'otto'],
+  for (const [pid, k, who] of [[A, 'a-mara', 'mara'], [A, 'a-otto', 'otto'], [A, 'a-mara-ready', 'mara'], [B, 'b-mara', 'mara'], [B, 'b-nobody', null], [C, 'c-otto', 'otto'],
     [C, 'c-mara-not-on', 'mara'], [D, 'd-mara-archived', 'mara']]) {
     const t = tasks.create(pid, { sentence: 'Task ' + k, ...(who ? { who } : {}) });
     assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
     N[k] = t.number;
   }
-  assert.ok(tasks.setBuilt(A, N['a-mara-built'], { by: 'mara' }).ok);
+  assert.ok(tasks.setBuilt(A, N['a-mara-ready'], { by: 'mara' }).ok);
   projects.mutate(D, (p) => ({ ...p, archived: true }));
   projects.mutate(C, (p) => ({ ...p, agents: ['otto'] }));
   for (const who of ['mara', 'otto']) {
@@ -116,7 +116,7 @@ test('board: all=1&mine=1 keeps the calling agent\'s own tasks, in every project
   const otto = await get('all=1&order=state&state=open&mine=1', asAgent('otto'));
   assert.deepEqual(ids(otto), [A + '#' + N['a-otto'], C + '#' + N['c-otto']].sort(), 'one agent\'s token never returns another\'s tasks');
   const built = await get('all=1&order=state&state=built&mine=1', asAgent('mara'));
-  assert.deepEqual(ids(built), [A + '#' + N['a-mara-built']]);
+  assert.deepEqual(ids(built), [A + '#' + N['a-mara-ready']]);
   // Control: all=1 on the same token, without mine, lists everyone's tasks in mara's projects (otto's and nobody's too).
   const every = await get('all=1&order=state&state=open', asAgent('mara'));
   assert.ok(ids(every).includes(A + '#' + N['a-otto']) && ids(every).includes(B + '#' + N['b-nobody']), JSON.stringify(ids(every)));
@@ -265,7 +265,7 @@ test('Windows: --mine and --all --mine list only this agent\'s tasks; without an
   }
   const built = await win(['task', 'list', '--mine', '--built'], 'mara');
   assert.equal(built.code, 0, built.err);
-  assert.deepEqual(built.out, [A + '  #' + N['a-mara-built'] + '  built  mara  Task a-mara-built  (' + ACT() + '; waits on a review and close)  (not seen by the person since built)', '1 built task of yours across 1 project.']);
+  assert.deepEqual(built.out, [A + '  #' + N['a-mara-ready'] + '  built  mara  Task a-mara-ready  (' + ACT() + '; waits on a review and close)  (not seen by the person since built)', '1 built task of yours across 1 project.']);
   const none = await win(['task', 'list', '--mine'], null);
   assert.equal(none.code, 2);
   assert.match(none.err, /needs an agent's token/);

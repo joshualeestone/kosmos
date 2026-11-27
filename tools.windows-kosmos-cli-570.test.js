@@ -619,12 +619,12 @@ test('#7180 Windows task hold --until-task / --until send the condition; bad val
     assert.equal(r.calls.length, 0, args.join(' ') + ' was sent');
   }
   const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [
-    { number: 1, sentence: 'waits for a task', onHold: true, onHoldUntil: { task: 5 } },
-    { number: 2, sentence: 'waits for a time', onHold: true, onHoldUntil: { at: '2026-11-02T09:00:00.000Z' } },
+    { number: 1, sentence: 'held for a task', onHold: true, onHoldUntil: { task: 5 } },
+    { number: 2, sentence: 'held for a time', onHold: true, onHoldUntil: { at: '2026-11-02T09:00:00.000Z' } },
     { number: 3, sentence: 'a bare hold', onHold: true },
   ] } }));
-  assert.match(list.out, /\[1\] \[on hold until task 5 is closed\] waits for a task/);
-  assert.match(list.out, /\[2\] \[on hold until 2026-11-02T09:00:00\.000Z\] waits for a time/);
+  assert.match(list.out, /\[1\] \[on hold until task 5 is closed\] held for a task/);
+  assert.match(list.out, /\[2\] \[on hold until 2026-11-02T09:00:00\.000Z\] held for a time/);
   assert.match(list.out, /\[3\] \[on hold\] a bare hold/, 'CONTROL: a bare hold');
 });
 
