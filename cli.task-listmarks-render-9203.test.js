@@ -21,7 +21,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * helper's own parameter wherever x is passed to it (in any position, destructured or not), as destructuring
  * (`const { f } = x`), and one level
  * down for an object field (`x.subtasks.<name>`, or through a name for it: `const u = x && x.onHoldUntil; u.task`).
- * The row loops must call the task x (checked). A read written any other way (a computed `x[k]`, a second alias of an
+ * The row loops must call the task x (checked). A qualified call that passes the task (`mod.fn(x)`) is reported as a
+ * helper outside the source read, so a module helper that reads the task goes red until its source is read here too. A read written any other way (a computed `x[k]`, a second alias of an
  * alias, a helper reached only through another helper's renamed parameter) is not seen.
  * NOT COVERED, stated (review 1): a new mark on a new VALUE of a field the fixtures already set (builtWaitingOn ===
  * 'deploy'). No field scan can see a value; only a fixture with that value can. Lines without the title (done when,
@@ -239,10 +240,17 @@ const GET = '\\??\\.';   // . or ?.
 const splitTop = (str) => { const out = []; let d = 0; let cur = '';
   for (const c of str) { if ('{[('.includes(c)) d++; if ('}])'.includes(c)) d--; if (c === ',' && d === 0) { out.push(cur); cur = ''; } else cur += c; }
   if (cur.trim()) out.push(cur); return out.map((a) => a.trim()); };
-function callsWithX(src) {   // [name, argument index] for every call that passes x as a whole argument
+/* [name, argument index] for every call that passes x as a whole argument. Review 4: the argument list is read with
+   balanced brackets (so "zebraOf(x, Date.now())" counts), and a qualified call ("zebra.zebraOf(x)") is kept with its
+   whole dotted name, which is never defined in the source, so it is reported as a helper outside it. */
+function callsWithX(src) {
   const out = [];
-  for (const m of src.matchAll(new RegExp('(?<![\\w$.])(' + ID + ')\\(([^()]*)\\)', 'g'))) {
-    splitTop(m[2]).forEach((a, i) => { if (a === 'x') out.push([m[1], i]); });
+  for (const m of src.matchAll(new RegExp('(?<![\\w$])((?:' + ID + '\\s*\\.\\s*)*' + ID + ')\\s*\\(', 'g'))) {
+    let d = 1; let i = m.index + m[0].length; const from = i;
+    for (; i < src.length && d > 0; i++) { const c = src[i]; if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--; }
+    if (d !== 0) continue;
+    const name = m[1].replace(/\s+/g, '');
+    splitTop(src.slice(from, i - 1)).forEach((a, k) => { if (a === 'x') out.push([name, k]); });
   }
   return out;
 }
@@ -281,6 +289,8 @@ function fieldsRead(src) {
     }
   }
   for (const k of destructuredParams(src)) out.add(k);
+  // A field asked for by its name as a string: Object.prototype.hasOwnProperty.call(x, 'f'), Object.hasOwn(x, 'f').
+  for (const m of src.matchAll(/(?:hasOwnProperty\.call|Object\.hasOwn)\(\s*x\s*,\s*(['"])([^'"]+)\1/g)) out.add(m[2]);
   return out;
 }
 /* Review 1: a mark can also hang off a SUB-field of a field the fixtures already set ("x.subtasks.zebra"), read either
@@ -302,7 +312,9 @@ function subFieldsRead(src) {
 function helpersOutside(src) {
   const defined = new Set([...src.matchAll(new RegExp('(?:function\\s+|(?:const|let)\\s+)(' + ID + ')\\s*(?:\\(|=)', 'g'))].map((m) => m[1]));
   return [...new Set(callsWithX(src).map(([n]) => n))]
-    .filter((n) => !defined.has(n) && !['String', 'Number', 'Boolean', 'Array', 'Object'].includes(n));
+    // Built-ins that only test or convert the task (the two string-keyed field reads are counted by fieldsRead).
+    .filter((n) => !defined.has(n) && !['String', 'Number', 'Boolean', 'Array', 'Object', 'Array.isArray',
+      'Object.prototype.hasOwnProperty.call', 'Object.hasOwn'].includes(n));
 }
 function between(src, from, to) {
   const a = src.indexOf(from); const b = src.indexOf(to, a + 1);
