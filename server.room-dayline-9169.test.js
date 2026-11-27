@@ -31,16 +31,23 @@ const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const messages = require('./engine/messages');
 const store = require('./engine/store');
+const fleet = require('./test-support/fleet');
+const sendertoken = require('./engine/sendertoken');
 
 let base;
+let roster;
+const ME = 'readerseat';
+const POSTER = 'askerseat';
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
+  roster = fleet.install([ME, POSTER].map((n) => fleet.agent(n, { state: 'idle' }))).agents;
 });
 test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-async function roomText(id) {
-  const res = await fetch(base + '/api/project/' + encodeURIComponent(id) + '/room?as=text');
+async function roomText(id, query, who) {
+  const res = await fetch(base + '/api/project/' + encodeURIComponent(id) + '/room?as=text' + (query || ''),
+    { headers: who ? { 'x-kosmos-agent-token': sendertoken.mint(who).token } : {} });
   return { code: res.status, text: await res.text() };
 }
 function append(row) {
@@ -116,4 +123,54 @@ test('#9169: a row from the current year gets a date line with no year, in the o
   const expected = '-- ' + messages.roomDay(at, 'America/Chicago', Date.now()) + ' --';
   assert.equal(lines[row - 1], expected, text);
   assert.doesNotMatch(expected, / \d{4} --$/, 'a row from this year was given its year');
+});
+
+/* The filtered reads go through the same lines, so each gets its date line, and an unreadable time adds none. */
+function datedRoom(name) {
+  store.writeSettings({ timezone: 'America/Chicago' });
+  const p = madeIn2025(name);
+  for (const n of [ME, POSTER]) projects.addAgent(p.id, n, roster);
+  const ids = {};
+  const add = (key, at, text, extra) => {
+    ids[key] = 'm' + (++seq);
+    append(Object.assign({ kind: 'post', id: ids[key], from: POSTER, project: p.id, text, at, to: [ME], outcomes: {} }, extra || {}));
+  };
+  add('tue', '2025-11-26T03:27:00.000Z', '@' + ME + ' tuesday ask', { mentioned: [ME] });   // Tue 25 Nov 21:27 Chicago
+  add('wed1', '2025-11-26T15:00:00.000Z', 'wednesday one');                                // Wed 26 Nov 09:00
+  add('bad', 'not a time', 'unreadable time');
+  add('wed2', '2025-11-26T16:00:00.000Z', '@' + ME + ' wednesday ask', { mentioned: [ME] }); // Wed 26 Nov 10:00
+  return { p, ids };
+}
+const dayLines = (text) => text.split('\n').filter((l) => DAY.test(l));
+const above = (text, words) => {
+  const lines = text.split('\n').filter((l) => l.length);
+  const i = lines.findIndex((l) => l.includes(words));
+  assert.ok(i >= 0, 'CONTROL: "' + words + '" is not in the view: ' + text);
+  return lines[i - 1];
+};
+
+test('#9169: a stored row with an unreadable time never reaches the view, and the rows around it keep their days', async () => {
+  const { p } = datedRoom('Day Lines Bad Time');
+  const { text } = await roomText(p.id);
+  // The room's reader leaves it out before the text is built, so roomDay's null (unit test above) is the only guard there.
+  assert.doesNotMatch(text, /unreadable time/, text);
+  assert.equal(above(text, 'wednesday ask'), '09:00  [' + 'm' + (seq - 2) + '] askerseat -> readerseat: wednesday one', text);
+  assert.deepEqual(dayLines(text), ['-- Tue 25 Nov 2025 --', '-- Wed 26 Nov 2025 --'], text);
+});
+
+test('#9169: --post, --since and --unanswered each start with the date of their first row', async () => {
+  const { p, ids } = datedRoom('Day Lines Filtered');
+  const one = await roomText(p.id, '&post=' + ids.wed1);
+  assert.equal(one.code, 200, one.text);
+  assert.equal(above(one.text, 'wednesday one'), '-- Wed 26 Nov 2025 --', one.text);
+  const since = await roomText(p.id, '&since=' + ids.tue);
+  assert.equal(since.code, 200, since.text);
+  assert.doesNotMatch(since.text, /tuesday ask/, 'CONTROL: --since showed the post it starts after');
+  assert.deepEqual(dayLines(since.text), ['-- Wed 26 Nov 2025 --'], since.text);
+  assert.equal(above(since.text, 'wednesday one'), '-- Wed 26 Nov 2025 --', since.text);
+  const open = await roomText(p.id, '&unanswered=1&all=1', ME);
+  assert.equal(open.code, 200, open.text);
+  assert.doesNotMatch(open.text, /wednesday one/, 'CONTROL: --unanswered listed a post that asked nothing');
+  assert.equal(above(open.text, 'tuesday ask'), '-- Tue 25 Nov 2025 --', open.text);
+  assert.equal(above(open.text, 'wednesday ask'), '-- Wed 26 Nov 2025 --', open.text);
 });
