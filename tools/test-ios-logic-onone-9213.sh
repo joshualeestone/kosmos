@@ -38,6 +38,13 @@ expect "-O later on the line, after -o and its path"                    1 's|swi
 expect "-O at the end of the line"                                      1 's|\(swiftc -Onone -o "\$out/updates-logic-tests"\) \\$|\1 -O|'
 expect "a comment that names swiftc -O is not a compile"                0 '1a\
 # do not use swiftc -O here (kosmos#9213)'
+expect "-O alone on a continuation line of the swiftc command"        1 '/swiftc -Onone -o/a\
+  -O \\
+'
+expect "no optimizer flag at all (nothing says -Onone)"                 1 's|swiftc -Onone -o|swiftc -o|'
+expect "a quoted \"-O\" in place of -Onone"                              1 's|swiftc -Onone -o|swiftc "-O" -o|'
+expect "the flag passed through a variable"                             1 's|swiftc -Onone -o|swiftc $OPT -o|'
+expect "a trailing comment that names -O on a -Onone command"           0 's|\(swiftc -Onone -o "\$out/updates-logic-tests"\) \\$|\1 \\ # was -O|'
 
 fresh; rm -rf "${T:?}/r/ios/tools"
 got="$(check)"; if [ "$got" = 2 ]; then pass "a missing folder is exit 2, not a pass"; else fail "a missing folder: exit $got, want 2"; fi
@@ -47,8 +54,8 @@ got="$(check)"; if [ "$got" = 2 ]; then pass "no swiftc line at all is exit 2, n
 # The count it reports is the real count (presence, not only absence).
 fresh; bash "$REPO/ios/tools/check-logic-onone.sh" "$T/r" > "$T/out" 2>&1
 want="$(grep -rE --include='*.sh' --exclude='check-logic-onone.sh' 'swiftc' "$T/r/ios/LogicTests" "$T/r/ios/tools" | grep -vcE '^[^:]+:[[:space:]]*#')"
-if grep -q "check-logic-onone: $want swiftc lines, all -Onone" "$T/out" && [ "$want" -gt 20 ]; then
-  pass "it reports the $want swiftc lines it read"
+if grep -q "check-logic-onone: $want swiftc commands, all -Onone" "$T/out" && [ "$want" -gt 20 ]; then
+  pass "it reports the $want swiftc commands it read (one per line holding swiftc, counted here by grep)"
 else
   fail "reported count: $(cat "$T/out"), want $want (more than 20)"
 fi
