@@ -53,3 +53,7 @@ Design decided on the card (comment 7225269552).
 - **The guide is marked with isSetupGuide** (review 2): safeRoster rows carry no isGuide; markGuide marks only
   /api/status's copies. Covered by a route test through a real roster row, perturbed red.
 - **At most 3 removals per hourly tick**, each name tried once a day (review 1): remove() is synchronous.
+- **No re-read of the row between judging and removing** (review 4, deferred): the tick is synchronous and liveness
+  is written only by this process (server.js, on a report), so no report can land mid-tick; the pane could change,
+  but an agent silent for N running days waking in those seconds is negligible and Restore undoes it.
+- **A refused or partial removal is retried after a week**, not daily (review 4); a damaged log is renamed aside.
