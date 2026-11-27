@@ -378,20 +378,6 @@ async function pull(dir, opts) {
     if (had && isSavedName(had) && fs.existsSync(path.join(target, had))) { index[key] = had; alreadyHere += 1; continue; }
     toFetch.push(b);
   }
-  /* Review 1: with nothing to fetch, no read would happen at all, so a token that can no longer READ the store would
-     pass as a success. One report is read back as a check, and a refused read fails the pull as before. */
-  if (!toFetch.length && listed.length) {
-    const probe = listed.find((b) => b && typeof b.url === 'string');
-    if (probe) {
-      try { await tp.get(probe.url, tok); }
-      catch (e) {
-        const why = String((e && e.message) || e);
-        return { ok: false, written: 0, alreadyHere, skipped: 0, dir: target,
-          because: 'every listed report is already in ' + target + ', but reading one back to check the token failed: ' + why
-            + (REFUSED_STATUS.test(why) ? '. The token may no longer have read access to the store.' : '.') };
-      }
-    }
-  }
   /* A few at a time, each result kept in its list place, then written IN LIST ORDER below, so two same-day blobs of one
      install (the collect route's brief write-then-delete window) resolve exactly as the one-at-a-time loop did. */
   const progress = typeof o.onProgress === 'function' ? o.onProgress : null;
@@ -416,6 +402,8 @@ async function pull(dir, opts) {
     }
   };
   await Promise.all(Array.from({ length: Math.min(FETCH_AT_ONCE, toFetch.length) }, worker));
+  // Pass 1: what each fetched report is, and the file it goes to (in list order).
+  const items = [];
   for (let i = 0; i < toFetch.length; i++) {
     const b = toFetch[i];
     const got = fetched[i];
@@ -425,12 +413,24 @@ async function pull(dir, opts) {
       if (REFUSED_STATUS.test(lastGetError) && !/token withheld/.test(lastGetError)) denied += 1;
       continue;
     }
-    const text = got.text;
     let rec;
-    try { rec = JSON.parse(text); }
+    try { rec = JSON.parse(got.text); }
     catch { skipped += 1; continue; }
     if (!rec || typeof rec !== 'object' || typeof rec.body !== 'string') { skipped += 1; continue; }
-    const dest = path.join(target, fileName(rec));
+    items.push({ b, rec, dest: path.join(target, fileName(rec)) });
+  }
+  /* Review 1 and 2: a file about to be written will hold one of THESE reports, so no other store object may stay indexed
+     as saved in it (two same-day objects of one install write one file: the one written first stayed indexed, and once
+     the other was deleted from the store it was skipped for ever with the wrong content). The index is saved with those
+     entries gone BEFORE any file is written, so a pull killed mid-write, or a second pull racing it, leaves a re-fetch,
+     never a wrong skip. */
+  const goingTo = new Set(items.map((x) => path.basename(x.dest)));
+  if (goingTo.size) {
+    for (const k of Object.keys(index)) if (goingTo.has(index[k])) delete index[k];
+    writeIndex(target, index);
+  }
+  // Pass 2: write, in list order; each write indexes its report and un-indexes any earlier one in the same file.
+  for (const { b, rec, dest } of items) {
     try {
       /* #5434 slice 24: flushed before the rename (a crash cannot leave a pulled report zero-filled, #5431). The temp
          is securewrite's own unique `wx` name, removed on failure, so a concurrent pull's temp is never touched (what
@@ -438,9 +438,6 @@ async function pull(dir, opts) {
          so only this report's own dead temps are reaped there; the mode is the umask default, as before. */
       require('./securewrite').writeSecret(dest, toMarkdown(rec), null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
       written += 1;
-      /* Review 1: the file now holds THIS report, so no other store object may stay indexed as saved in it. Two same-day
-         objects of one install write one file; without this the one written FIRST stayed indexed, and once the other was
-         deleted from the store it was skipped for ever with the wrong content in the file. */
       const name = path.basename(dest);
       for (const k of Object.keys(index)) if (index[k] === name) delete index[k];
       const key = indexKey(b);
@@ -450,9 +447,33 @@ async function pull(dir, opts) {
       skipped += 1; unwritten += 1; lastWriteError = ((e && e.code) || 'error') + ' saving ' + path.basename(dest);
     }
   }
-  const total = listed.length;
+  /* Review 1 and 2: when this pull READ nothing at all (every report already here, or the only new ones had no url), a
+     token that can no longer read would pass as a success. Up to three held reports are read back: the first that reads
+     settles it; a REFUSED read (401/403) fails the pull; any other error (a report deleted since the listing, a blip)
+     tries the next, and if none reads the pull still succeeds, saying the check could not be made. */
+  let checkNote = '';
+  const triedReads = toFetch.some((b) => b && typeof b.url === 'string');
+  if (!triedReads && alreadyHere) {
+    const held = listed.filter((b) => b && typeof b.url === 'string' && !toFetch.includes(b)).slice(0, 3);
+    let lastErr = '';
+    let read = false;
+    for (const b of held) {
+      try { await tp.get(b.url, tok); read = true; break; }
+      catch (e) {
+        lastErr = String((e && e.message) || e);
+        if (REFUSED_STATUS.test(lastErr) && !/token withheld/.test(lastErr)) {
+          writeIndex(target, index);
+          return { ok: false, written, alreadyHere, skipped, dir: target,
+            because: 'every listed report is already in ' + target + ', but reading one back to check the token was refused: '
+              + lastErr + '. The token may no longer have read access to the store.' };
+        }
+      }
+    }
+    if (!read && held.length) checkNote = 'could not read a report back to check the token (' + lastErr + '); the reports already here were kept.';
+  }
   // Only what the store still lists is kept, so the index never outgrows the store. A failed save costs a re-fetch next time.
   writeIndex(target, index);
+  const total = listed.length;
   /* Whether the listing came from a PUBLIC blob store (<store>.public.<BLOB_HOST>, the
      shape @vercel/blob builds). Before kosmos#3878's migration that is correct; after
      it, it means the token filed as FEEDBACK_TOKEN_TARGET is still the old public
@@ -466,7 +487,7 @@ async function pull(dir, opts) {
   // Every skip took exactly one branch above, so what is left is the malformed ones
   // (no url, not JSON, the wrong shape). Counted ONCE, here, for both results.
   const malformed = skipped - unreadable - unwritten;
-  const counts = { written, alreadyHere, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
+  const counts = { written, alreadyHere, checkNote, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
     unwritten, lastWriteError: unwritten ? lastWriteError : '', malformed, fromPublicStore, total, dir: target };
   /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
      be read (#3878), were malformed, or failed to save here. Any of those is a failure
@@ -475,7 +496,8 @@ async function pull(dir, opts) {
      beside ones already here do not fail it (those are the store's, not this pull's, fault). */
   if (written === 0 && skipped > 0 && (alreadyHere === 0 || unreadable > 0 || unwritten > 0)) {
     return { ok: false, ...counts,
-      because: 'the store listed ' + reports(total) + ' and none was pulled' + (alreadyHere ? ' (' + alreadyHere + ' already here)' : '') + ': ' + reasonClauses(counts).join('; ')
+      because: 'the store listed ' + reports(total) + (alreadyHere ? ': ' + alreadyHere + ' already here, and none of the new ones (' + (total - alreadyHere) + ') could be pulled: ' : ' and none was pulled: ')
+        + '' + reasonClauses(counts).join('; ')
         + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.
@@ -564,6 +586,7 @@ function summaryLines(r) {
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
   out.push(...reasonClauses(r));
+  if (r.checkNote) out.push('note: ' + r.checkNote);   // kosmos#9180 review 2
   if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }

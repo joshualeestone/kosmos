@@ -39,3 +39,10 @@ module's own `runCli`.
 - [WARNING] the index was 0644 --> FIXED: 0600 file, 0700 folder (it lists store paths and install ids). My first try passed no mode, writeSecret threw, writeIndex swallowed it, and every skip test went red: the tests caught a silent no-index.
 - [WARNING] the CLI test could not prove the seam's token reached the store --> FIXED: the stand-in store answers 401 to any other token (control: a different seam token fails the test), and NODE_PRESERVE_SYMLINKS is cleared in the child.
 - [NIT] runCli usage line lacked [--all] --> FIXED. [NIT] a hand-edited report file is now kept --> ACCEPTED: --all is the documented way to fetch it again.
+
+## Review round 2 (sonnet, blind, whole branch): no critical
+- [WARNING] the read-back check failed a healthy pull on ANY error (a report deleted since the listing: 404) --> FIXED: it runs after the fetches, only when this pull read nothing at all; up to three held reports; a REFUSED read (401/403) fails the pull, any other error tries the next, and none reading is still a success with a "note:" line. Tests: next-on-404, all-blip note.
+- [WARNING] two tests passed on the check's own read (an untrusted index name; the same-day pair), and no test covered a failed save beside held reports --> FIXED: the index test asserts the file came back and which read happened; a failed-save-beside-held test; a url-less-new-only test (the check must still run). isSavedName off now turns its test red (it stayed green before: the plan's earlier "every site red" claim was wrong for it).
+- [WARNING] "none was pulled (2 already here)" overstated a complete folder --> FIXED: "N already here, and none of the new ones (M) could be pulled".
+- [NIT] a pull killed between a report write and its index save could leave a wrong entry --> FIXED: records are parsed first, the files about to be written are un-indexed and the index SAVED before any write. Test simulates the stop (every later index save fails).
+- [NIT] an existing index folder keeps its mode --> ACCEPTED: the file itself is 0600.

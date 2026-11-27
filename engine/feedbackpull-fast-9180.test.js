@@ -98,7 +98,8 @@ test('an index pointing outside the folder, or unreadable, is not trusted', asyn
   fs.writeFileSync(fp.indexPath(dir), JSON.stringify({ [key]: '../elsewhere.md' }));
   st.gets.length = 0;
   await fp.pull(dir, { token: TOKEN });
-  assert.equal(st.gets.length, 1, 'an index naming a file outside the folder skipped the fetch');
+  assert.deepEqual(st.gets.map((u) => u.replace(/^.*\//, '')), ['x0.json'], 'an index naming a file outside the folder skipped the fetch: ' + st.gets.join(', '));
+  assert.ok(fs.existsSync(path.join(dir, '2026-11-25__a.md')), 'the report was not fetched back into the folder');   // review 2: not the token check's read
   fs.writeFileSync(fp.indexPath(dir), '{not json');
   st.gets.length = 0;
   const r = await fp.pull(dir, { token: TOKEN });
@@ -202,14 +203,14 @@ test('review 1: a token that can no longer read fails the pull, even when every 
   st.transport.get = async () => { throw new Error('blob get HTTP 403'); };
   const r = await fp.pull(dir, { token: TOKEN });
   assert.equal(r.ok, false, 'a pull that could read nothing passed as a success');
-  assert.match(r.because, /already in .*reading one back to check the token failed: blob get HTTP 403\. The token may no longer have read access/, r.because);
+  assert.match(r.because, /already in .*reading one back to check the token was refused: blob get HTTP 403\. The token may no longer have read access/, r.because);
   // Some new, every new one refused, others already here: still a failure.
   st.transport.get = realGet;
   st.put('feedback/x7.json', REC('c', '2026-11-26', 'three'), '2026-11-26T07:00:00.000Z');
   st.transport.get = async () => { throw new Error('blob get HTTP 403'); };
   const p = await fp.pull(dir, { token: TOKEN });
   assert.equal(p.ok, false, 'reports already here hid a pull whose every read was refused');
-  assert.match(p.because, /none was pulled \(2 already here\)/, p.because);
+  assert.match(p.because, /2 already here, and none of the new ones \(1\) could be pulled: /, p.because);
   // CONTROL: the same folder with a working read is fine, and a malformed new report beside held ones does not fail it.
   st.transport.get = realGet;
   st.byUrl[st.blobs.find((b) => b.pathname === 'feedback/x7.json').url] = 'not json';
@@ -222,4 +223,67 @@ test('review 1: the index is private to this user', async () => {
   fp.setTransport(makeStore([REC('a', '2026-11-25', 'one')]).transport);
   await fp.pull(dir, { token: TOKEN });
   assert.equal(fs.statSync(fp.indexPath(dir)).mode & 0o077, 0, 'the index can be read by others: ' + (fs.statSync(fp.indexPath(dir)).mode & 0o777).toString(8));
+});
+
+test('review 2: the token check tries the next held report on a non-refused error, and never fails a healthy pull', async () => {
+  const dir = path.join(SB, 'checknext');
+  const st = makeStore([REC('a', '2026-11-25', 'one'), REC('b', '2026-11-25', 'two')]);
+  fp.setTransport(st.transport);
+  await fp.pull(dir, { token: TOKEN });
+  const realGet = st.transport.get;
+  // The first held report was deleted from the store since the listing (the collect route's re-send): a 404.
+  st.transport.get = async (u) => { st.gets.push(u); if (u.endsWith('/x0.json')) throw new Error('blob GET HTTP 404'); return realGet(u); };
+  st.gets.length = 0;
+  const r = await fp.pull(dir, { token: TOKEN });
+  assert.equal(r.ok, true, 'one deleted report failed a healthy pull: ' + r.because);
+  assert.equal(r.checkNote, '', 'a check that read the next report still left a note');
+  // Every held report errors, but none is a refusal: still a success, saying the check could not be made.
+  st.transport.get = async () => { throw new Error('socket hang up'); };
+  const n = await fp.pull(dir, { token: TOKEN });
+  assert.equal(n.ok, true, 'a blip failed the pull: ' + n.because);
+  assert.ok(fp.summaryLines(n).some((l) => /^note: could not read a report back to check the token \(socket hang up\)/.test(l)), fp.summaryLines(n).join(' | '));
+});
+
+test('review 2: only url-less new reports beside held ones still runs the token check; a save that fails beside held ones fails', async () => {
+  const dir = path.join(SB, 'nourl');
+  const st = makeStore([REC('a', '2026-11-25', 'one')]);
+  fp.setTransport(st.transport);
+  await fp.pull(dir, { token: TOKEN });
+  st.blobs.push({ pathname: 'feedback/nourl.json', uploadedAt: '2026-11-26T05:00:00.000Z', size: 3 });   // no url
+  st.transport.get = async () => { throw new Error('blob get HTTP 401'); };
+  const r = await fp.pull(dir, { token: TOKEN });
+  assert.equal(r.ok, false, 'a pull that read nothing passed although its token was refused');
+  assert.match(r.because, /was refused: blob get HTTP 401/, r.because);
+  // A new report that reads but cannot be SAVED here, beside one already here: a failure, naming the save.
+  const d2 = path.join(SB, 'nosave');
+  const s2 = makeStore([REC('a', '2026-11-25', 'one')]);
+  fp.setTransport(s2.transport);
+  await fp.pull(d2, { token: TOKEN });
+  s2.put('feedback/x5.json', REC('b', '2026-11-26', 'two'), '2026-11-26T05:00:00.000Z');
+  fs.mkdirSync(path.join(d2, '2026-11-26__b.md'));   // a folder where the report must go: the save fails
+  const w = await fp.pull(d2, { token: TOKEN });
+  assert.equal(w.ok, false, 'a failed save beside a report already here passed as success');
+  assert.match(w.because, /1 already here, and none of the new ones \(1\) could be pulled: /, w.because);
+});
+
+test('review 2: a pull stopped after writing a report but before its last index save leaves a re-fetch, never a wrong skip', async () => {
+  const dir = path.join(SB, 'crash');
+  const st = makeStore([]);
+  st.put('feedback/b-old.json', REC('dup', '2026-11-26', 'the older report'), '2026-11-26T09:00:00.000Z');
+  fp.setTransport(st.transport);
+  await fp.pull(dir, { token: TOKEN });   // the folder holds the older report, indexed
+  st.put('feedback/a-new.json', REC('dup', '2026-11-26', 'the newer report'), '2026-11-26T10:00:00.000Z');
+  // Every index save after the first one in this pull fails, as a pull killed between the report write and its last
+  // index save would leave things (the report written, the index as it was saved before the write).
+  const sw = require('./securewrite');
+  const real = sw.writeSecret;
+  let indexWrites = 0;
+  sw.writeSecret = (file, ...rest) => {
+    if (file === fp.indexPath(dir) && ++indexWrites > 1) throw Object.assign(new Error('killed'), { code: 'EKILLED' });
+    return real.call(sw, file, ...rest);
+  };
+  try { await fp.pull(dir, { token: TOKEN }); } finally { sw.writeSecret = real; }
+  assert.match(fs.readFileSync(path.join(dir, '2026-11-26__dup.md'), 'utf8'), /the newer report/, 'fixture: the new report was written over the held one');
+  const saved = JSON.parse(fs.readFileSync(fp.indexPath(dir), 'utf8'));
+  assert.deepEqual(Object.keys(saved).filter((k) => saved[k] === '2026-11-26__dup.md'), [], 'the index still names an object as saved in a file that was rewritten: ' + JSON.stringify(saved));
 });
