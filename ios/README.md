@@ -274,15 +274,17 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.
-- **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
+- **No flash:** until the first page paints, the WebView shows the board's own ground (`UIColor.boardGround`, #faf9f7
+  light and #0c0d0f dark, the board's `--k-bg`; navy until kosmos#9101). Safe areas behave as in
   Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch
   itself, and WebKit keeps any other page (the board today) clear of it. Since the tab bar
-  (kosmos#6838) the web view ends above it, with navy behind the bar.
+  (kosmos#6838) the web view ends above it, with the board's ground behind the bar.
 - **Launch screen:** the app's ground with the Sweep ring's first frame, from the asset catalog (see
   "App icon and launch screen" above), so launch hands off to the native sign-in or Agents screen
   with no change of colour (kosmos#7945), and on the Agents tab's wait to connect, to the same ring
-  in the same place starting to move. The board pages opened over the tabs keep their navy, so a launch from a
-  notification tap, which opens on a board page, still changes to navy.
+  in the same place starting to move. A launch from a notification tap opens on a board page, whose ground is the
+  same two colours (kosmos#9101), so it does not change colour either, unless the board's Appearance is set by hand
+  against the phone's (the page then follows the board, the ground the phone).
 
 ### Tests that run without a simulator
 

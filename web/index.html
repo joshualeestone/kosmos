@@ -1671,11 +1671,11 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .kplus-bar-menu svg { display: block; }
   html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
-  /* kosmos#6721: the phone header row is meant to be empty under the navy bar; Reconnecting would add a line there. The
+  /* kosmos#6721: the phone header row is meant to be empty under the Kosmos+ bar; Reconnecting would add a line there. The
      phone still gets the rule that matters: the full card only after two unanswered polls. */
   html.kremote .apphead .hdr-reconnect { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
-     so the navy bar is the whole header (the mock). */
+     so the Kosmos+ bar (navy in a browser; the page's ground in the app, kosmos#9101) is the whole header. */
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
@@ -1683,11 +1683,15 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
      (html.kapptabs, set by the app) the bar is the app's own header: 44px, no Kosmos+ mark (the app is Kosmos) and no
      two lines (the native bar does their job); this computer's name left when there is another computer to switch to,
      the person's face right, both opening the phone menu. */
-  html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }
+  /* kosmos#9101 (Josh 11-25 16:49: no blue background anywhere in the app): inside the app the bar stands on the board's
+     own ground and ink, with a hairline under it (a shadow, so the 44px of content are kept); Kosmos+ in a browser keeps
+     its navy bar. */
+  html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; background: var(--k-bg); color: var(--k-ink);
+    box-shadow: inset 0 -1px 0 var(--k-rule); }
   html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }
   html.kremote.kapptabs .kplus-bar-end { margin-left: auto; }
   html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; height: 44px;
-    padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    padding: 0; border: 0; background: none; color: var(--k-ink); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
     -webkit-tap-highlight-color: transparent; }
   html.kremote.kapptabs .kapp-comp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   html.kremote.kapptabs .kapp-comp-chev { flex: none; opacity: .8; }
@@ -1696,9 +1700,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
     border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   html.kremote.kapptabs .kapp-me > img, html.kremote.kapptabs .kapp-me > .youtint { width: 32px; height: 32px; border-radius: 50%; overflow: hidden; }
   html.kremote.kapptabs .kapp-me > img { object-fit: cover; display: block; }
-  html.kremote.kapptabs .kapp-me > .youtint { display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff;
+  html.kremote.kapptabs .kapp-me > .youtint { display: grid; place-items: center; background: var(--k-rule); color: var(--k-ink);
     font-size: 14px; font-weight: 600; }
-  html.kremote.kapptabs .kapp-comp:focus-visible, html.kremote.kapptabs .kapp-me:focus-visible { outline: 2px solid #fff; outline-offset: -2px; border-radius: 8px; }
+  html.kremote.kapptabs .kapp-comp:focus-visible, html.kremote.kapptabs .kapp-me:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; border-radius: 8px; }
 }
 /* Off the app's header (a browser, an older app, the Mac itself, a wide window) the two controls are never drawn. */
 .kapp-comp, .kapp-me { display: none; }
@@ -1758,6 +1762,18 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 .pnav-state { display: block; font-size: 15px; color: rgba(255,255,255,.62); margin-top: 2px; }
 .pnav-item.pnav-comp { flex-direction: column; align-items: flex-start; justify-content: center; padding-top: 6px; padding-bottom: 6px; }
 .pnav-item.pnav-off { color: rgba(255,255,255,.55); cursor: default; }
+/* kosmos#9103 (Josh 11-25 16:49: "we are not going to have the blue background anywhere in the app"): inside the app the
+   menu stands on the board's own ground and ink, as #9101 does for the bar above it. The mock's layout and words stay; only
+   the colours change. Kosmos+ in a browser keeps its navy menu. The red badge and dot are meaning, so they stay red. */
+html.kapptabs .pnav, html.kapptabs .pnav-top { background: var(--k-bg); }
+html.kapptabs .pnav, html.kapptabs .pnav-x, html.kapptabs .pnav-back, html.kapptabs .pnav-item { color: var(--k-ink); }
+html.kapptabs :is(.pnav-small, .pnav-stamp, .pnav-theme-l, .pnav-state, .pnav-item.pnav-off) { color: var(--k-ink-2); }
+/* After the :is() rule on purpose (review, navyweb-9101): both are (0,3,1), so the later wins, and the checked Light or
+   Dark option must be ink, not ink-2 like the unchecked ones. */
+html.kapptabs .pnav-themeopt[aria-checked="true"] { color: var(--k-ink); }
+html.kapptabs .pnav-msg { color: var(--danger); }
+html.kapptabs :is(.pnav-x, .pnav-back, .pnav-item, .pnav-small):focus-visible { outline-color: var(--k-ink); }
+html.kapptabs .pnav-level:focus-visible { outline-color: var(--k-rule); }
 @keyframes pnav-fwd-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-8px); } }
 @keyframes pnav-fwd-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes pnav-back-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(8px); } }
@@ -12300,6 +12316,80 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus #plus-devmsg:empty { min-height: 0; margin-top: 0; }
 /* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
+/* kosmos#9103: the starfield belongs to the navy skin, which the app does not use. */
+html.kapptabs #plus-stars { display: none; }
+/* kosmos#9103: the section's own colours were written for its navy ground (white text, white-tinted fills and borders,
+   light status colours, navy fields). Inside the app it stands on the board's ground, so each one takes the board's
+   token: ink and secondary ink for words, rule and sunk for lines and fills, the meaning colours for state. */
+html.kapptabs #s-sec-plus .plus-pill { background: var(--k-sunk); color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus .plus-pill[data-state="up"] { background: color-mix(in srgb, var(--ok) 8%, transparent); color: var(--ok); }   /* 8%: 4.5:1 at its size (review 1) */
+html.kapptabs #s-sec-plus .plus-pill[data-state="connecting"] { background: var(--k-sunk); color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus .plus-pill[data-state="down"] { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+html.kapptabs #s-sec-plus .plus-chip { background: var(--k-sunk); border-color: var(--k-rule);
+  /* Without the skin the section takes the board's own box (the new look's .dbox rules apply once plus-active is off),
+     so the chip's -12px bleed, sized for the navy box, ran 12px past the panel: it sits inside the box instead. */
+  margin-left: 0; margin-right: 0; }
+html.kapptabs #s-sec-plus .plus-cx-art { color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus :is(.plus-cx-row, .plus-foot), html.kapptabs #s-sec-plus #plus-org { border-top-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .plus-qr-box { border: 1px solid var(--k-rule); }
+html.kapptabs #s-sec-plus :is(.plus-qr figcaption, .plus-chip-say, .plus-chip-say b) { color: var(--k-ink); }
+html.kapptabs #s-sec-plus .plus-apps-say { color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus .plus-store { border-color: var(--k-rule); background: var(--k-sunk); color: var(--k-ink-2); }
+html.kapptabs #s-sec-plus a.plus-store { color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .plus-sash { background: var(--k-ink); color: var(--k-bg); }
+html.kapptabs #s-sec-plus .plus-chip .btn { color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus .devrow .btn { border-color: var(--k-rule); }
+html.kapptabs #s-sec-plus :is(.plus-remove-link, .plus-remove-link:hover, #pb-restore-msg, #pb-job) { color: var(--danger); }
+html.kapptabs #plus-join .plus-join-done::before { background: var(--ok); }
+html.kapptabs #plus-state2 :is(#plus-si-computer-hint, #plus-si-computer-says) { color: var(--k-ink-2); }
+html.kapptabs #plus-state2 :is(#plus-si-computer-says b, .plus-si-lead b) { color: var(--k-ink); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:not(select) { --danger: inherit; background: var(--k-surface, var(--k-bg));
+  color: var(--k-ink); -webkit-text-fill-color: var(--k-ink); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp::placeholder, html.kapptabs #plus-state2 .plus-si-otp::placeholder { color: var(--k-ink-2); -webkit-text-fill-color: var(--k-ink-2); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--k-bg) inset; }
+/* Focus and the current code box in the board's --gold-edge, not --gold (review, navyweb-9101): --gold is about 2.2:1
+   on the light ground, under WCAG 1.4.11's 3:1 for a control's state; --gold-edge is #8a6614 light, #d6a62e dark. */
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:focus { outline-color: var(--gold-edge); border-color: var(--gold-edge); }
+html.kapptabs #plus-state2 .otp-cell { background: var(--k-surface, var(--k-bg)); border-color: var(--k-rule); }
+html.kapptabs #plus-state2 .otp-boxes:focus-within .otp-cell { border-color: var(--k-ink-2); }
+html.kapptabs #plus-state2 .otp-cell.on { border-color: var(--gold-edge); box-shadow: 0 0 0 2px var(--gold-edge) inset; }
+/* The section's blue primary button is a blue fill, so inside the app it is the board's own primary (.dbox .btn.uprime):
+   bright gold with dark ink. Its other buttons are outlined in the board's ink and rule. */
+html.kapptabs #plus-state2 .btn.uprime, html.kapptabs #plus-state2 .btn.uprime:hover { background: var(--gold-bright);
+  border-color: var(--gold-bright); color: #14161a; }
+html.kapptabs #plus-state2 .btn:not(.uprime) { color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #plus-state2 .btn:not(.uprime):hover { border-color: var(--k-ink-2); background: var(--k-sunk); }
+/* kosmos#9103 review 1: the rest of the navy-era colours these screens can show in the app. */
+html.kapptabs #plus-state2 :is(.plus-si-addr b, .plus-si-key code) { color: var(--k-ink); }
+html.kapptabs #plus-state2 .plus-si-key { background: var(--k-sunk); border-color: var(--k-rule); }
+html.kapptabs .plus-signin-link { color: var(--k-ink); text-decoration: underline; text-underline-offset: 3px; }
+html.kapptabs :is(.plus-signin-link, .plus-si-childbox > summary.fhint):focus-visible { outline-color: var(--k-ink); }
+html.kapptabs :is(#plus-state2, #plus-org) .tk-inp:not(select) { caret-color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-text-fill-color: var(--k-ink); }
+html.kapptabs #pb .tk-inp:not(select) { --danger: inherit; background: var(--k-surface, var(--k-bg)); color: var(--k-ink);
+  -webkit-text-fill-color: var(--k-ink); caret-color: var(--k-ink); border-color: var(--k-rule); }
+html.kapptabs #pb .tk-inp::placeholder { color: var(--k-ink-2); -webkit-text-fill-color: var(--k-ink-2); }
+html.kapptabs #pb .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--k-bg) inset; }
+html.kapptabs #pb .tk-inp:focus { outline-color: var(--gold-edge); border-color: var(--gold-edge); }
+/* The request sheets (a computer asking in, a code to type) were a navy gradient with a blue Allow: the board's own
+   card and its gold primary in the app. */
+html.kapptabs :is(.askreq, .askcard) { background: var(--k-sunk); border-color: var(--k-rule); color: var(--k-ink); }
+html.kapptabs .askreq :is(.asksay, .askcodetype label) { color: var(--k-ink); }
+html.kapptabs .askreq :is(.askwho span, .askwait, .waitmeta) { color: var(--k-ink-2); }
+html.kapptabs .askreq .askdev { background: var(--k-surface, var(--k-bg)); }
+html.kapptabs .askreq .askdev svg { stroke: var(--k-ink-2); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein) { border-color: var(--k-rule); background: var(--k-surface, var(--k-bg)); color: var(--k-ink); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein)::placeholder { color: var(--k-ink-2); }
+html.kapptabs .askreq :is(.askcodein, .waitcodein):focus-visible { outline-color: var(--gold-edge); }
+html.kapptabs :is(.askreq, .askcard) .btn.uprime, html.kapptabs :is(.askreq, .askcard) .btn.uprime:hover,
+  html.kapptabs .askreq .acts .btn.uprime[aria-disabled="true"] { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+html.kapptabs .askreq .btn.quiet { color: var(--k-ink-2); }
+/* kosmos#9103 review 2: the sheet's own white text, written for its navy, on the board's card in the app. The ID-scoped
+   code keeps its IDs so the override outranks #plus-asks/#askcard .askreq .askcodebig. */
+html.kapptabs :is(.askreq .askwho b, .askreq.waitreq .waitmeta .waitsaid, .askrow.done .askok, .askcard h3) { color: var(--k-ink); }
+html.kapptabs #plus-asks .askreq .askcodebig, html.kapptabs #askcard .askreq .askcodebig { color: var(--k-ink); }
+html.kapptabs .askbrand { color: var(--k-ink-2); }
+html.kapptabs #plus-state2 #plus-si-bought-recheck { border-color: var(--k-rule); }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
@@ -13066,8 +13156,18 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
   try {
     var t = localStorage.getItem('kosmos-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    tellAppTheme(t === 'dark' || t === 'light' ? t : 'system');
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
 })();
+/* kosmos#9101 review: inside the iPhone app, the board's theme choice is told to the app (its kosmosTheme handler,
+   ContentView BoardThemeProxy), so the app's own ground round the page follows a forced Light or Dark rather than the
+   phone's setting. Only the three words; in a browser there is no handler and nothing happens. */
+function tellAppTheme(which) {
+  try {
+    var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosTheme;
+    if (h && (which === 'dark' || which === 'light' || which === 'system')) h.postMessage(which);
+  } catch (e) { /* the app is older than the handler, or this is a browser: nothing to tell */ }
+}
 /* #4470: the new look, behind a hidden switch in Settings > Advanced. Here for the same
    no-flash reason as the theme above. No stored value means no attribute, and with no
    attribute nothing in the new look's rules can match, so the app is today's app. */
@@ -23052,7 +23152,11 @@ function plusOnScreen() {
 function syncPlusChrome() {
   if (typeof document === 'undefined' || !document.body) return;
   var active = plusOnScreen();
-  document.body.classList.toggle('plus-active', active);
+  /* kosmos#9103 (Josh 11-25 16:49: no blue background anywhere in the app): inside the iPhone app the section is shown
+     without its navy skin, on the board's own ground; Kosmos+ in a browser keeps it. The section still mounts (its
+     wordmark); its decorative stars are hidden in the app by CSS. */
+  var inApp = document.documentElement.classList.contains('kapptabs');
+  document.body.classList.toggle('plus-active', active && !inApp);
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
   /* #3829 addendum: where the requests paint depends on whether Kosmos Plus is on screen. */
@@ -23113,6 +23217,7 @@ function setTheme(which) {
     document.documentElement.setAttribute('data-theme', which);
     try { localStorage.setItem(THEME_KEY, which); } catch { /* the choice holds for this window */ }
   }
+  tellAppTheme(which);   // kosmos#9101 review: the app's ground follows the choice at once
   paintThemePicker();
 }
 document.addEventListener('click', (e) => {

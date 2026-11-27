@@ -654,14 +654,14 @@ struct ContentView: View {
                         .padding(.horizontal, 16).frame(minHeight: 44)
                         .contentShape(Rectangle())   // the whole 44pt row is the target, not only the words
                 }
-                .foregroundColor(.white)
+                .foregroundColor(Palette.primary)   // kosmos#9101: on the board's ground, light or dark (was white on navy)
                 .accessibilityLabel("Close this page")
                 Spacer()
             }
-            .background(Color(UIColor.kosmosNavy).ignoresSafeArea(edges: .top))
+            .background(Color(UIColor.boardGround).ignoresSafeArea(edges: .top))
             webBoard(.today, active: true)
         }
-        .background(Color(UIColor.kosmosNavy).ignoresSafeArea())
+        .background(Color(UIColor.boardGround).ignoresSafeArea())
         // Review 1: VoiceOver stays on the page, not the tabs drawn underneath it.
         .accessibilityAddTraits(.isModal)
     }
@@ -795,8 +795,8 @@ struct ContentView: View {
 
     private func webBoard(_ which: Tab, active: Bool? = nil) -> some View {
         ZStack {
-            // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
-            Color(UIColor.kosmosNavy).ignoresSafeArea()
+            // The board's ground behind the tab bar too, so the space below the page is the page's own colour, not a band.
+            Color(UIColor.boardGround).ignoresSafeArea()
             // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
             // of the notch is set in makeWebView (safe areas). The keyboard is left to the web view, as before.
             WebView(
@@ -1142,13 +1142,13 @@ struct WebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         let host = UIView()
-        host.backgroundColor = .kosmosNavy
+        host.backgroundColor = .boardGround
         if web.webView == nil { web.adopt(makeWebView()) }
         if active, let webView = web.webView { show(webView, in: host) }
         return host
     }
 
-    // The web view moves into the tab showing; the tab it left keeps an empty navy host.
+    // The web view moves into the tab showing; the tab it left keeps an empty host on the board's ground.
     private func show(_ webView: WKWebView, in host: UIView) {
         guard webView.superview !== host else { return }
         webView.removeFromSuperview()
@@ -1168,13 +1168,17 @@ struct WebView: UIViewRepresentable {
         // Every page knows it is inside the app's tab bar, so the board hides its own (#6846 part c). kosmos#7042: and the
         // sign-in page starts with the app's session (BoardWeb.userScripts).
         BoardWeb.userScripts(session: SessionKeychain.live.load(), forget: web.forgotten).forEach(config.userContentController.addUserScript)
+        // kosmos#9101 review: the board's Light / Dark / System choice sets the app's appearance, so the ground round the
+        // page is the page's colour. The last choice is applied now, before the first page, so a relaunch has no flash.
+        config.userContentController.add(BoardThemeProxy(), name: Shell.boardThemeHandler)
+        BoardThemeProxy.apply(BoardThemeProxy.stored())
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = web.coordinator
         webView.uiDelegate = web.coordinator
-        // Navy until the first page paints, instead of a white flash.
+        // The board's ground until the first page paints, so there is no flash of another colour.
         webView.isOpaque = false
-        webView.backgroundColor = .kosmosNavy
+        webView.backgroundColor = .boardGround
         // Safe areas: the scroll view keeps WebKit's default inset behaviour, as in
         // Safari. A page that opts in with viewport-fit=cover (sign-in, the gate)
         // runs under the notch and pads itself with env(safe-area-inset-*); a page
@@ -1754,6 +1758,27 @@ struct WebView: UIViewRepresentable {
 
     // A tab's host going says nothing about the shared web view: BoardWeb.drop() ends it on lock.
     static func dismantleUIView(_ host: UIView, coordinator: Coordinator) {}
+}
+
+// kosmos#9101 review: the board posts its theme choice ("system", "light" or "dark", Shell.boardTheme) whenever it is
+// applied. The app keeps it and follows it: every window's appearance is the board's, so UIColor.boardGround, the tab bar
+// and the native screens match the page. "system" hands the choice back to the phone. Main frame only; anything else is
+// ignored. Nothing is sent anywhere.
+final class BoardThemeProxy: NSObject, WKScriptMessageHandler {
+    static func stored(_ defaults: UserDefaults = .standard) -> Shell.BoardTheme {
+        Shell.boardTheme(defaults.string(forKey: Shell.boardThemeKey)) ?? .system
+    }
+    static func apply(_ theme: Shell.BoardTheme) {
+        let style: UIUserInterfaceStyle = theme == .dark ? .dark : (theme == .light ? .light : .unspecified)
+        for scene in UIApplication.shared.connectedScenes {
+            (scene as? UIWindowScene)?.windows.forEach { $0.overrideUserInterfaceStyle = style }
+        }
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let theme = Shell.boardTheme(message.body) else { return }
+        UserDefaults.standard.set(theme.rawValue, forKey: Shell.boardThemeKey)
+        Self.apply(theme)
+    }
 }
 
 // Forwards kosmosSession posts with the sender's frame facts. The body is never

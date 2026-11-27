@@ -3,8 +3,9 @@
 
 /**
  * kosmos#6846 part c (Mona Lisa's frames, ios-design-2026-10-19/tabbar-6846): inside the iPhone app with its native tab
- * bar, the app adds `kapptabs` to <html> and the board's navy bar becomes the app's own header: 44px, no Kosmos+ mark,
- * no two lines; this computer's name on the left only when there is another computer to switch to (Josh #6396), the
+ * bar, the app adds `kapptabs` to <html> and the board's Kosmos+ bar becomes the app's own header (on the page's own
+ * ground since kosmos#9101, navy before): 44px, no Kosmos+ mark, no two lines; this computer's name on the left only
+ * when there is another computer to switch to (Josh #6396), the
  * person's face on the right; the name opens the phone menu at Switch Computers, the face at Settings, and closing
  * gives focus back to the one that opened it.
  *
@@ -67,11 +68,11 @@ const look = (page) => page.evaluate(() => {
   const face = q('#kapp-me > img, #kapp-me > .youtint');
   return {
     pageW: Math.round(document.body.getBoundingClientRect().right),
-    bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null,
+    bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null, pageBg: getComputedStyle(document.body).backgroundColor,
     mark: vis(q('#kplus-bar canvas')), twoLines: vis(q('#kplus-menu')),
     tabs: vis(q('#tabs')), burger: vis(q('#burger')), klink: vis(q('#klink')),
     comp: vis(q('#kapp-comp')) ? rect(q('#kapp-comp')) : null, compName: q('#kapp-comp-name') ? q('#kapp-comp-name').textContent : null,
-    compColor: q('#kapp-comp') ? getComputedStyle(q('#kapp-comp')).color : null,
+    compColor: q('#kapp-comp') ? getComputedStyle(q('#kapp-comp')).color : null, barColor: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).color : null,
     compFont: q('#kapp-comp') ? getComputedStyle(q('#kapp-comp')).fontSize + ' ' + getComputedStyle(q('#kapp-comp')).fontWeight : null,
     compLabel: q('#kapp-comp') && q('#kapp-comp').getAttribute('aria-label'),
     me: vis(q('#kapp-me')) ? rect(q('#kapp-me')) : null, face: vis(face) ? rect(face) : null, meLabel: q('#kapp-me') && q('#kapp-me').getAttribute('aria-label'),
@@ -191,8 +192,8 @@ const teardownFails = [];
         {
           const { ctx, page } = await open('remote.test', theme, { computers: ONE });
           const l = await look(page);
-          chk(l.bar && l.bar.t === 0 && l.bar.h === 44 && l.bar.l === 0 && l.bar.r === l.pageW && l.barBg === NAVY,
-            T + 'H1 the app header is the navy bar, 44px, edge to edge at the top', JSON.stringify({ bar: l.bar, bg: l.barBg, pageW: l.pageW }));
+          chk(l.bar && l.bar.t === 0 && l.bar.h === 44 && l.bar.l === 0 && l.bar.r === l.pageW && l.barBg === l.pageBg && l.barBg !== NAVY,
+            T + 'H1 the app header is a 44px bar on the page\'s own ground (kosmos#9101: never navy), edge to edge at the top', JSON.stringify({ bar: l.bar, bg: l.barBg, page: l.pageBg, pageW: l.pageW }));
           chk(!l.mark && !l.twoLines && !l.tabs && !l.burger && !l.klink,
             T + 'H2 no Kosmos+ mark, no two lines, no tab strip, no menu button, no K mark', JSON.stringify({ mark: l.mark, two: l.twoLines, tabs: l.tabs, burger: l.burger, klink: l.klink }));
           chk(!l.comp && l.compName === 'studio-laptop', T + 'H3 one computer: nothing on the left (Josh #6396), though the header knows its name', JSON.stringify({ comp: l.comp, name: l.compName }));
@@ -243,9 +244,9 @@ const teardownFails = [];
           const l = await look(page);
           const barLabel = await page.evaluate(() => document.getElementById('kplus-bar').getAttribute('aria-label'));
           chk(barLabel === 'Kosmos', T + 'S0 in the app the bar is named Kosmos, not a remote session', String(barLabel));
-          chk(l.comp && l.comp.l === 16 && l.comp.h === 44 && l.comp.w >= 44 && l.compName === 'studio-laptop' && l.compColor === WHITE && l.compFont === '15px 600'
+          chk(l.comp && l.comp.l === 16 && l.comp.h === 44 && l.comp.w >= 44 && l.compName === 'studio-laptop' && l.compColor === l.barColor && l.compColor !== WHITE && l.compFont === '15px 600'
             && l.compLabel === 'Your computers. This computer: studio-laptop' && l.me,
-            T + 'S1 two computers: this computer\'s name left (16px in, 15px semibold, white), the face right', JSON.stringify({ comp: l.comp, name: l.compName, color: l.compColor, font: l.compFont, label: l.compLabel }));
+            T + 'S1 two computers: this computer\'s name left (16px in, 15px semibold, in the bar\'s ink: kosmos#9101), the face right', JSON.stringify({ comp: l.comp, name: l.compName, color: l.compColor, ink: l.barColor, font: l.compFont, label: l.compLabel }));
           await page.click('#kapp-comp');
           await settled(page);
           let m = await look(page);
