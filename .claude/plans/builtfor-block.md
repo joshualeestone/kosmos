@@ -18,3 +18,7 @@ this agent in builtWho. #9177 (Angel, PR #9190) added tasks.builtFor(t, who), th
 - builtmark-9176, built-sync-9176 and onhold-4771: 30/30.
 
 ## Reviews
+- Round 1 (sonnet): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 4 NIT. Converged. The reviewer checked case by case that
+  behaviour is unchanged for every input the block sees. NITs not taken: a non-string sessionName (does not occur); the
+  require inside the closure (cached, as the next line's); the agreement test is partly circular (the other tests pin
+  the rule itself); no fixture for a truthy non-string builtAt (the kept guard; not a shape the store writes).
