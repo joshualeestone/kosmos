@@ -4081,10 +4081,16 @@ function blockBody(projects, sessionName) {
     /* kosmos#9175 review 3: a task's own words cannot print a mark of their own. Only the board's mark may follow the
        words; one inside them ("... [built: nothing to start ...]" on open work) would talk the agent out of the task, and
        one ending "[on hold: ...]" would be read by holdsOf as a hold. The bracket opening such a mark becomes "(". */
-    // Review 4: folded first (NFKC, invisible format characters out), so a fullwidth, CJK or math bracket or a zero-width
-    // character cannot slip a mark past it; any opening bracket counts, as forAgent folds a webhook's. "built-in" is a word.
-    const words = (t) => oneLine(require('./tasks').forAgent(t)).normalize('NFKC').replace(/\p{Cf}/gu, '')
-      .replace(/[[\p{Ps}](?=\s*(?:on hold|built|marked built)(?![\w-]))/giu, '(');
+    /* Review 4 and 5: any opening bracket counts (fullwidth, CJK, math: \p{Ps}), and what follows it is judged on a FOLDED
+       copy (NFKC, every invisible character out: \p{Default_Ignorable_Code_Point} covers the zero-width ones, the Hangul
+       filler and the joiners), so nothing invisible slips a mark past it. Only that bracket changes: the words print as
+       written, so an emoji, a Persian word or a "①" reads as the live list prints it. "built-in" is a word, left alone. */
+    const MARK_AFTER = /^[\s\p{Default_Ignorable_Code_Point}]*(?:on hold|built|marked built)(?![\w-])/iu;
+    const words = (t) => {
+      const w = oneLine(require('./tasks').forAgent(t));
+      return w.replace(/[[\p{Ps}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length, i + b.length + 48).normalize('NFKC')
+        .replace(/\p{Default_Ignorable_Code_Point}/gu, '')) ? '(' : b));
+    };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${built(t)}${held(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);

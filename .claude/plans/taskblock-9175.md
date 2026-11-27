@@ -55,3 +55,9 @@ Neighbours re-run on this commit: engine/projects.test.js, the pause and re-read
 - [NIT] "fix the [built-in] helper" was bent --> FIXED: the mark word must not be followed by a word character or "-". Test added.
 - [WARNING] "mark absent" assertions could pass on a vanished line --> FIXED: each now asserts the line exists first.
 - Upgrade path, re-read debt, and remaining unsynced paths: clean (reviewer measured and reasoned).
+
+## Review round 5 (sonnet, blind, whole branch)
+- [WARNING] round 4 folded EVERY task's words (NFKC, \p{Cf} out): a joined emoji split, a Persian ZWNJ dropped, "①" became "1", so the block no longer printed what the live list prints --> FIXED: the words print as written; only a bracket that opens a mark changes, judged on a folded copy of what follows it. Test: an emoji, a Persian word and a circled digit survive byte for byte (folding the whole line turns it red).
+- [WARNING] \p{Cf} missed invisible characters that are not format characters (Hangul filler, combining grapheme joiner) --> FIXED: \p{Default_Ignorable_Code_Point}, as feedpublish.js does. Tests for both (Cf-only turns them red).
+- [NIT] "[Built 3 of 5]" becomes "(Built 3 of 5]", unbalanced --> ACCEPTED: cosmetic, and the agent still reads the words.
+- Nothing matches an agent's reply against the block's words (reviewer searched): agents name tasks by number.
