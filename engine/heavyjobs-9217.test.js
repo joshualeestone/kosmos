@@ -272,3 +272,25 @@ test('one read stops running ps once its time is spent', () => {
     assert.ok(ps >= 1 && ps <= 4, 'ps ran ' + ps + ' times at 200 ms each in one read');
   } finally { Object.assign(rs, was); }
 });
+
+test('announcing again renews the age ceiling, and the board still shows when it first started', () => {
+  const r = root();
+  const H = 60 * 60 * 1000;
+  hj.start({ root: r, agent: 'renet', label: 'long', now: T0 });
+  hj.start({ root: r, agent: 'renet', label: 'long', now: T0 + 11 * H });
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H }).map((j) => [j.label, j.since]), [['long', T0]], 'a renewed job hit the first ceiling');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 23 * H + 1 }), [], 'and the ceiling still holds from the last announcement');
+});
+
+test('a ps read for a heavy job is given a short timeout, not the 5 s default', () => {
+  const rs = require('./restoresink');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  const asked = [];
+  rs.pidAlive = () => true;
+  rs.processStart = (pid, opts) => { asked.push(opts && opts.timeoutMs); return 'A'; };
+  try { hj.defaultStartOf(94001, Date.now() + 3 * 60 * 60 * 1000, 'fresh'); } finally { Object.assign(rs, was); }
+  assert.deepEqual(asked, [750]);
+  if (process.platform === 'win32') return;
+  assert.equal(rs.processStart(process.pid, { timeoutMs: 1 }), undefined, 'a 1 ms timeout should stop ps (it cannot start and answer that fast): the option is not read');
+  assert.equal(typeof rs.processStart(process.pid, { timeoutMs: 5000 }), 'string', 'control: a normal read still answers');
+});

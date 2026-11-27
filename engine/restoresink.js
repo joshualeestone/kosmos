@@ -314,7 +314,7 @@ const LOCK_BUSY = 'a restore of this folder is already running; wait for it to f
    undefined when it cannot be asked. review 7: a pid alone is reused. review 8: it must read the same from any
    process: on Linux the start ticks since boot and the boot's id (/proc), which no clock step or locale moves; elsewhere
    ps with a fixed locale and time zone (residual, stated: a large wall-clock step on macOS moves it). */
-function processStart(pid) {
+function processStart(pid, { timeoutMs = 5000 } = {}) {   // kosmos#9217: a caller on a hot path passes less
   if (process.platform === 'linux') {
     let stat;
     try { stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch (e) { return e.code === 'ENOENT' ? null : undefined; }
@@ -327,7 +327,7 @@ function processStart(pid) {
   }
   for (const ps of ['/bin/ps', '/usr/bin/ps']) {
     if (!fs.existsSync(ps)) continue;
-    const r = spawnSync(ps, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000, env: { LC_ALL: 'C', LANG: 'C', TZ: 'UTC0', PATH: '/bin:/usr/bin' } });
+    const r = spawnSync(ps, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: timeoutMs, env: { LC_ALL: 'C', LANG: 'C', TZ: 'UTC0', PATH: '/bin:/usr/bin' } });
     if (r.error) return undefined;
     const out = String(r.stdout || '').trim();
     return r.status === 0 && out ? out : null;

@@ -28382,7 +28382,8 @@ const server = http.createServer(async (req, res) => {
 
   /* kosmos#9217 slice 1: `kosmos heavy start "<label>" [--pid N]` / `kosmos heavy end [--pid N]` (POST, {action, label,
      pid, from_pane}) and `kosmos heavy` (GET). Only an agent records a job, and only its own: processCaller names the
-     caller as for the reply channel above; a page request is refused. engine/heavyjobs.js says what clears a record. */
+     caller as for the reply channel above; a page request to POST is refused (GET refuses another website or computer).
+     engine/heavyjobs.js says what clears a record. */
   if (pathname === '/api/heavy' && req.method === 'GET') {
     // Labels are an agent's own words and can name its folders: this computer's agents and person only (#4973).
     const refusedRead = crossSiteRead(req) || (isSiblingRead(req) ? 'only an agent or the person on this computer can list its heavy jobs' : null);
