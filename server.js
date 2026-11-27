@@ -31148,7 +31148,7 @@ function start(port = PORT) {
         remove: (name) => removal.remove(name),
         log: (line) => process.stdout.write(line + '\n'),
       });
-      const idleretireSweep = setInterval(idleretireTick, Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) : 60 * 60 * 1000); // the env is the test seam only
+      const idleretireSweep = setInterval(idleretireTick, 60 * 60 * 1000);
       if (idleretireSweep && typeof idleretireSweep.unref === 'function') idleretireSweep.unref();
       // A first tick a minute after start, so a board restarted more often than hourly still records its running day.
       const idleretireFirst = setTimeout(idleretireTick, 60 * 1000);

@@ -20,7 +20,7 @@
  *
  * Protected, listed with the reason and never retired, because there "idle" may be the person's own wait:
  *  - an agent the board shows as anything but idle or stopped right now (its pane is a second sign it is running);
- *  - a card the board does not run (row.isNamedOurs false), which Remove refuses anyway;
+ *  - a card the board does not run (row.isNamedOurs not true), which Remove refuses anyway;
  *  - the setup guide (row.isGuide);
  *  - an agent whose latest report is needs_you or blocked (it is waiting on the person);
  *  - an agent named on an open task;
@@ -153,7 +153,7 @@ function assess(rows, readers, { days, now = Date.now(), upDays } = {}) {
     let why = null;
     if (ran < limit) why = 'Kosmos was running on only ' + plural(ran) + ' since it last ran';
     else if (!RETIRABLE_STATES.includes(a.state)) why = 'the board shows it as ' + (typeof a.state === 'string' && a.state ? a.state.replace(/_/g, ' ') : 'unknown') + ' right now';
-    else if (a.isNamedOurs === false) why = 'it is not an agent Kosmos runs';
+    else if (a.isNamedOurs !== true) why = 'it is not an agent Kosmos runs';
     else if (a.isGuide === true) why = 'it is the setup guide';
     else if (a.isGuide === null) why = 'Kosmos could not tell whether it is the setup guide';
     if (!why) {

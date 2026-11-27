@@ -84,14 +84,15 @@ test('assess: each protection keeps an idle agent and says why; the same agent w
     ['no-state', { at: idle }, { state: undefined }, /shows it as unknown right now/],
     ['restarting', { at: idle }, { state: 'restarting' }, /shows it as restarting right now/],
     ['foreign', { at: idle }, { isNamedOurs: false }, /not an agent Kosmos runs/],
+    ['untold', { at: idle }, { isNamedOurs: undefined }, /not an agent Kosmos runs/],
     ['guide-unreadable', { at: idle }, { isGuide: null }, /could not tell whether it is the setup guide/],
   ];
   for (const [name, rec, extra, why] of cases) {
-    const kept = verdictOf(ir.assess([{ sessionName: name, state: 'idle', ...extra }], readersOf({ [name]: rec }), { days: 30, now: NOW, upDays: UP }), name);
+    const kept = verdictOf(ir.assess([{ sessionName: name, state: 'idle', isNamedOurs: true, ...extra }], readersOf({ [name]: rec }), { days: 30, now: NOW, upDays: UP }), name);
     assert.equal(kept.verdict, 'keep', name);
     assert.match(kept.why, why, name);
     for (const state of ['idle', 'stopped']) {
-      const bare = verdictOf(ir.assess([{ sessionName: name, state }], readersOf({ [name]: { at: idle, state: 'idle' } }), { days: 30, now: NOW, upDays: UP }), name);
+      const bare = verdictOf(ir.assess([{ sessionName: name, state, isNamedOurs: true }], readersOf({ [name]: { at: idle, state: 'idle' } }), { days: 30, now: NOW, upDays: UP }), name);
       assert.equal(bare.verdict, 'retire', name + ' control: without the protection it is retired, ' + state);
     }
   }
