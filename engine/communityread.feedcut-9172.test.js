@@ -129,3 +129,11 @@ test('#9172 review 5: text past the scrubbed piece is a cut, even when the piece
   // CONTROL: only space past it is not a cut.
   assert.equal(cr.itemOf(post({ body: 'a'.repeat(cr.BODY_CAP - 10) + ' '.repeat(cr.BODY_CAP * 5) })).cut, false);
 });
+
+test('#9172 review 6: invisible padding past the piece is not a cut; a short text that lost only what came after keeps every word', () => {
+  const pad = ' '.repeat(cr.BODY_CAP * 4);
+  assert.equal(cr.itemOf(post({ body: 'A short sentence.' + pad + '\u200b\u200b' })).cut, false, 'invisible characters past the piece counted as lost text');
+  const kept = cr.itemOf(post({ body: 'A short post that says everything it means to say' + pad + 'and more' }));
+  assert.equal(kept.cut, true, 'CONTROL: visible text past the piece is a cut');
+  assert.equal(kept.body, 'A short post that says everything it means to say [cut]', 'words under the cap were cut back: ' + JSON.stringify(kept.body));
+});

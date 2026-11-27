@@ -204,7 +204,8 @@ function scrubCut(value, cap, oneLine) {
   const raw = String(value == null ? '' : value);
   let s = raw.slice(0, cap * 4);
   // Review 5: text past that piece (not only space) is lost too, however the piece itself reads after cleaning.
-  const beyond = raw.length > cap * 4 && /\S/.test(raw.slice(cap * 4));
+  // Review 6: a visible character, so padding of invisible characters past it is not a cut either.
+  const beyond = raw.length > cap * 4 && /\S/.test(raw.slice(cap * 4).replace(INVISIBLE, ''));
   /* Review 1: fold lookalikes FIRST (NFKC): a fullwidth "＝＝＝", the one-character "⩶", or a fullwidth "＜!-- kosmos:" read
      to a model as the real thing and only become it here, so every check below sees the folded text. */
   s = s.normalize('NFKC');
@@ -216,7 +217,9 @@ function scrubCut(value, cap, oneLine) {
   s = projects.neutralise(s);                                              // Kosmos's managed-block markers (after the strip, so a split one is whole)
   s = s.replace(/={3,}/g, (m) => m.split('').join(' '));                 // no `===` anywhere, so nothing can pass for the frame's boundary
   const cut = s.trimEnd().length > cap || beyond;   // review 3: only trailing space past the cap is not a cut (nothing is lost)
-  if (cut) s = cutAtWord(s, cap).trimEnd() + ' [cut]';
+  // Review 6: only text over the cap is cut back to a word; text under it that lost only what came after the piece keeps
+  // every word and is marked.
+  if (cut) s = (s.trimEnd().length > cap ? cutAtWord(s, cap) : s).trimEnd() + ' [cut]';
   return { text: s.trim(), cut };
 }
 /** Review 1: every line of a post's text is indented under its header, so nothing a post says can start a line where a
