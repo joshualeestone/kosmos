@@ -278,9 +278,20 @@ function whoMayGet(p, t) {
   return (Array.isArray(p.agents) ? p.agents : []).filter((s) => !isSwarmOff(p, s) && candidateIn(p, tree, holdersOf, t, s, new Set()) !== null);
 }
 
+/* #9168: a task nobody is on is not handed out until it is 60 seconds old by its createdAt, so a hold put on it within
+   a minute of the add wins. Only pick waits (willMove and the unhold answer do not), and a person can give it at once. */
+const NEW_TASK_GRACE_MS = 60 * 1000;
+function tooNewToGive(t, now) {
+  const at = Date.parse(t && t.createdAt);
+  if (!Number.isFinite(at) || !Number.isFinite(now)) return false;
+  const age = now - at;
+  return age >= 0 && age < NEW_TASK_GRACE_MS;   // a createdAt ahead of this clock waits for nothing (it may never come)
+}
+
 /* The next task nobody is on, in a live project this agent belongs to, and the part to give:
-   the first open one. `taken` holds "project#number" already chosen this step. */
-function pick(session, projects, taken) {
+   the first open one. `taken` holds "project#number" already chosen this step. `now` (ms) enables #9168's wait;
+   `held`, when given, gets held.young = true if a task this agent could have had was held back by it. */
+function pick(session, projects, taken, now, held) {
   const candidates = [];
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
@@ -294,6 +305,7 @@ function pick(session, projects, taken) {
     const holdersOf = tasks.treeHolders(p, tree, (t, who) => busyHold(p, t, who));
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       const c = candidateIn(p, tree, holdersOf, t, session, taken);
+      if (c && tooNewToGive(t, now)) { if (held) held.young = true; continue; }
       if (c) candidates.push(c);
     }
   }
@@ -619,10 +631,11 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     try { held = require('./agyquota').heldForAgy(session, roster, now); } catch { held = null; }   // #4588 ask 3: the cap too
     if (held !== null) continue;
     /* #5382: work stalled on a rate-limited agent comes before the backlog: it was already started for somebody. */
+    const heldBack = { young: false };   // #9168
     const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || null, stalled, projects, movedParts, taken) : null;
     const choice = moved
       ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from, treeKey: moved.treeKey }
-      : pick(session, projects, taken);
+      : pick(session, projects, taken, now, heldBack);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
       if (log.length >= MAX_PER_HOUR) continue;
@@ -637,6 +650,9 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     }
     // Phase 3: nothing to hand out. Ask this agent to draft tasks toward a goal, if one of its
     // projects has no open task and a goal, within the ask caps.
+    /* #9168 review 1: not while a new task it could have had waits out its 60 s: asked now, it would spend another
+       project's ask and go busy drafting, and miss the task it was about to be given. */
+    if (heldBack.young) continue;
     if (askLog.length >= MAX_ASKS_PER_HOUR) continue;
     if (askLog.filter((e) => e.session === session).length >= MAX_ASKS_PER_AGENT_PER_HOUR) continue;
     const g = goalProject(session, projects, goals, asked, now, askedSig);
@@ -782,6 +798,6 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
-module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
+module.exports = { NEW_TASK_GRACE_MS, step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
   IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, treeHeldBy, subtasksFirst, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
