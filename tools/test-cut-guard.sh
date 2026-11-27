@@ -1550,9 +1550,33 @@ nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 # Taking the pid inside $( ) named the substitution's own subshell, gone at once, so the next writer broke a held lock
 # (measured: 299 of 300). Run in a ( ) subshell, as the writers are, where $$ is not the holder either.
 rm -rf "$MB/own.lock"; own9139="$( ( _kosmos_beside_lock "$MB/own.lock" || exit 1; h="$(cat "$MB/own.lock/pid")"
-  kill -0 "$h" 2>/dev/null && [ "$h" = "$_KOSMOS_BESIDE_OWN" ] && ! _kosmos_beside_stale "$MB/own.lock" && echo live ) 2>/dev/null )"
+  kill -0 "$h" 2>/dev/null && [ "$h" = "$_KOSMOS_BESIDE_OWN" ] && [ "$h" != "$$" ] && ! _kosmos_beside_stale "$MB/own.lock" && echo live ) 2>/dev/null )"
 rm -rf "$MB/own.lock"
 [ "$own9139" = live ] && pass "#9139 a lock just taken names its live holder and is not stale" || fail "#9139 a fresh lock names a gone or other pid (got '$own9139')"
+# Review 6 (besidefix): the reviewer's interleaving, driven by hooks on cat and kill in a subshell. A breaker judges
+# holder X; X releases and Z takes the lock (no pid yet) just as the breaker reads it empty; Z writes its pid, releases,
+# and Y takes it (no pid yet). Comparing the two EMPTY reads broke Y's live lock: two holders. It must not get the lock.
+rm -rf "$MB/aba.lock"; aba9139="$( (
+  d="$MB/aba.lock"; sleep 300 & X=$!; sleep 300 & Z=$!; mkdir "$d"; echo "$X" > "$d/pid"; nk=0; : > "$MB/aba.nc"
+  # The lib reads the pid inside $( ), a subshell, so the read count is kept in a file: a variable would stay at 1.
+  cat() { echo x >> "$MB/aba.nc"; [ "$(wc -l < "$MB/aba.nc" | tr -d ' ')" = 3 ] && echo "$Z" > "$d/pid"; command cat "$@"; }
+  kill() {
+    if [ "$1" = -0 ]; then nk=$((nk + 1))
+      [ "$nk" = 1 ] && { rm -f "$d/pid"; rmdir "$d"; command kill "$X"; wait "$X" 2>/dev/null; mkdir "$d"; }
+      [ "$nk" = 2 ] && { rm -f "$d/pid"; rmdir "$d"; command kill "$Z"; wait "$Z" 2>/dev/null; mkdir "$d"; }
+    fi
+    command kill "$@"
+  }
+  if KOSMOS_BESIDE_LOCK_TRIES=5 _kosmos_beside_lock "$d"; then echo two-holders; else echo refused; fi
+  unset -f cat kill; command kill "$X" "$Z" 2>/dev/null; true ) 2>/dev/null )"
+rm -rf "$MB/aba.lock" "$MB/aba.nc"
+[ "$aba9139" = refused ] && pass "#9139 a breaker does not break a lock that changed hands between two empty reads" || fail "#9139 two holders through two empty pid reads (got '$aba9139')"
+# Review 6: the release removes the lock only while it carries this writer's pid (a ceiling break may have handed it on).
+rm -rf "$MB/rel.lock"; rel9139="$( ( _KOSMOS_BESIDE_OWN=424242; mkdir "$MB/rel.lock"; echo 999999 > "$MB/rel.lock/pid"
+  _kosmos_beside_unlock "$MB/rel.lock"; [ -d "$MB/rel.lock" ] && printf kept; echo 424242 > "$MB/rel.lock/pid"
+  _kosmos_beside_unlock "$MB/rel.lock"; [ -e "$MB/rel.lock" ] || printf '+gone' ) 2>/dev/null )"
+rm -rf "$MB/rel.lock"
+[ "$rel9139" = kept+gone ] && pass "#9139 the release removes only a lock that carries its own pid" || fail "#9139 the release (got '$rel9139')"
 # Review 1 (besidefix): the reader's first stage cannot fail (cat of an unmatched pending glob exits 1, which under the
 # caller's errexit and pipefail ended the caller). Pinned in the SOURCE, not run: this file may not turn pipefail on
 # (the #8195 ratchet would then count every pipeline in it as new).

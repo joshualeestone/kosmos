@@ -1827,7 +1827,11 @@ _kosmos_beside_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(sta
 # stated: the pid is written just after mkdir, so for those milliseconds the lock has no pid; only a clock step past
 # 10 s could make a breaker call it stale then.
 _kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be broken
-  local h age; h="$(cat "$1/pid" 2>/dev/null)"; age=$(( $(date +%s) - $(_kosmos_beside_mtime "$1") ))
+  _kosmos_beside_stale_h "$1" "$(cat "$1/pid" 2>/dev/null)"
+}
+# Review 6: the same judgement of a pid value read ONCE by the caller, so the value judged is the value compared.
+_kosmos_beside_stale_h() {   # _kosmos_beside_stale_h <lock dir> <pid as read>
+  local h="$2" age; age=$(( $(date +%s) - $(_kosmos_beside_mtime "$1") ))
   case "$h" in
     ''|*[!0-9]*) [ "$age" -gt 10 ] ;;
     0|1) return 0 ;;
@@ -1837,7 +1841,13 @@ _kosmos_beside_stale() {   # _kosmos_beside_stale <lock dir>: 0 when it may be b
 # Review (two holders): breakers are SERIALIZED by a small "$d.break" lock, and under it the lock is judged again and
 # removed IN PLACE only if it still names the same dead holder. Before, a breaker judged holder A, A released, B took
 # the lock, and B's live lock was moved aside and deleted: two holders. A break lock left by a killed breaker goes after
-# 10 s. The pid written here is kept in _KOSMOS_BESIDE_OWN for the release's own check.
+# 60 s. The pid written here is kept in _KOSMOS_BESIDE_OWN for the release's own check.
+# Review 6 (two holders again): the pid is read ONCE under the break lock, that value is judged, and the lock is broken
+# only if a second read still gives it. An EMPTY value names no lock (every lock just made has none yet): it is broken
+# only if the dir is still over 10 s old when judged again AFTER the second read. Before, an empty first read, a lock
+# that changed hands twice, and an empty second read broke a live holder's lock (reviewer's interleaving, reproduced).
+# A dead holder cannot release, so after the second read only another breaker could change the lock, and breakers are
+# serialized. The break lock is taken over only past 60 s; a breaker stopped longer than that is the stated limit.
 _kosmos_beside_lock() {
   local d="$1" i=0 h1
   [ -w "${d%/*}" ] || return 1
@@ -1846,13 +1856,16 @@ _kosmos_beside_lock() {
     if _kosmos_beside_stale "$d"; then
       if mkdir "$d.break" 2>/dev/null; then
         h1="$(cat "$d/pid" 2>/dev/null)"
-        if _kosmos_beside_stale "$d" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ]; then
+        if _kosmos_beside_stale_h "$d" "$h1" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ] \
+          && { [ -n "$h1" ] || _kosmos_beside_stale_h "$d" ""; }; then
           rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true
+          rmdir "$d.break" 2>/dev/null || true
+          continue
         fi
-        rmdir "$d.break" 2>/dev/null || true
-        continue
+        rmdir "$d.break" 2>/dev/null || true   # declined: fall through to the sleep, so a try still costs 0.1 s
+      else
+        [ $(( $(date +%s) - $(_kosmos_beside_mtime "$d.break") )) -gt 60 ] && { rmdir "$d.break" 2>/dev/null || true; }
       fi
-      [ $(( $(date +%s) - $(_kosmos_beside_mtime "$d.break") )) -gt 10 ] && { rmdir "$d.break" 2>/dev/null || true; }
     fi
     sleep 0.1
   done
@@ -1860,6 +1873,12 @@ _kosmos_beside_lock() {
   # lock named a pid that was already gone and the next writer broke a live lock (measured: a lost line). Write, then read back.
   { sh -c 'echo $PPID' > "$d/pid"; } 2>/dev/null || true
   _KOSMOS_BESIDE_OWN="$(cat "$d/pid" 2>/dev/null)"
+  return 0
+}
+_kosmos_beside_unlock() {   # _kosmos_beside_unlock <lock dir>: removes it only while it carries this writer's pid
+  if [ -n "${_KOSMOS_BESIDE_OWN:-}" ] && [ "$(cat "$1/pid" 2>/dev/null)" = "$_KOSMOS_BESIDE_OWN" ]; then
+    rm -f "$1/pid" 2>/dev/null || true; rmdir "$1" 2>/dev/null || true
+  fi
   return 0
 }
 kosmos_note_beside_run() {
@@ -1927,7 +1946,7 @@ kosmos_note_beside_run() {
     rm -f "$tf" 2>/dev/null || true
   fi
   # Review: only a lock that still carries this writer's own pid (a ceiling break may have given it to another).
-  if [ "$got" = 1 ] && [ "$(cat "$l/pid" 2>/dev/null)" = "${_KOSMOS_BESIDE_OWN:-}" ]; then rm -f "$l/pid" 2>/dev/null || true; rmdir "$l" 2>/dev/null || true; fi
+  [ "$got" = 1 ] && _kosmos_beside_unlock "$l"
   return 0
 }
 # kosmos_beside_runs_since <epoch>: one line for each run noted above whose window overlaps <epoch> to now, as
