@@ -19,7 +19,8 @@ check on the fix only).
 - ChatView: the open scrolls to "end" without naming the anchor and sets a one-shot flag (anchorOnEndAppear); the end
   marker's onAppear uses it up and names positionId "end" if nothing else named one and no person is scrolling (personScrolling,
   or UIKit's own under-a-finger reading, since iOS 17 sets no personScrolling). A person's scroll (iOS 18+) and a fresh chat
-  clear the flag, as does a rebuild of the list. A chat whose end appeared before the open ran (short enough to fit) is anchored
+  clear the flag, as does a rebuild of the list, and it lapses 0.3 s after the open's last look (1.9 s), so a request the
+  end never met cannot outlive the open. A chat whose end appeared before the open ran (short enough to fit) is anchored
   at once. While the flag is set, goNewest (an arrival, a read that follows the newest) scrolls instead of naming the anchor.
   The end's appearance names "end" over whatever SwiftUI may have written into the binding meanwhile, unless a person is
   scrolling or search is open. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
@@ -38,6 +39,10 @@ check on the fix only).
   the same treatment applies.
 - The new check asks that each re-open draws the chat and its newest message, not that the newest is wholly on screen: the
   landing is the other two checks' job, and a freeze draws nothing at all.
+
+- Until the end appears (or the request lapses at 1.9 s) no id anchor holds the list, so an earlier page landing above in
+  that window is not held by it. A tall chat's top is far from its end, so its page is not asked for then; a short chat's end
+  shows at once and is anchored.
 
 ## Weakest premise
 The simulator, not a phone. And between the open and the end's appearance (a frame or two) no anchor holds the list;

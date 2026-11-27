@@ -970,10 +970,18 @@ struct ChatView: View {
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     // kosmos#9212: to the end by a scroll, the anchor named only once the end has appeared (sampleAnchorAtOpen's note).
-                    // A chat short enough that its end appeared before this ran is anchored at once: its rows are already drawn.
+                    // An end already seen when this runs is anchored at once.
                     if Self.idAnchor, !Self.sampleAnchorAtOpen {
                         appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom)
-                        if endSeen { positionId = "end" } else { anchorOnEndAppear = true }
+                        if endSeen { positionId = "end" } else {
+                            anchorOnEndAppear = true
+                            // Asked for this open only: dropped a little after its last look, so a request the end never met
+                            // cannot hold goNewest to scrolls, or name "end" under a later fling (iOS 17 sets no personScrolling).
+                            let chatAt = epoch, listAt = listEpoch
+                            DispatchQueue.main.asyncAfter(deadline: .now() + (Self.openLandLooks.last ?? 1.6) + 0.3) {
+                                if epoch == chatAt, listEpoch == listAt { anchorOnEndAppear = false }
+                            }
+                        }
                     }
                     else { goNewest(proxy) }
                     landOnNewest(proxy)   // kosmos#9089
