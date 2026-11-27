@@ -53,6 +53,16 @@ test('#5300 Windows: a refusal says the board\'s reason; bad calls are refused b
   assert.match(opt.err, /--clear is not an option of kosmos project role, so nothing was done\.\nUsage: kosmos project role <project-id> "<what you do here>"/, opt.err);
 });
 
+test('#9171 Windows: a role that names review but still gets tasks says so; without the flag nothing (control)', async () => {
+  const r = await run(['project', 'role', 'p1', 'QA only on mobile'], () => ({ body: JSON.stringify({ ok: true, role: 'QA only on mobile', stillAssigned: true }) }));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /It names review or QA, but not as your whole role, so the automatic Assigner can still hand you this project's tasks\. If you only review here, make the whole role \"review only\" or \"QA only\"\./);
+  assert.doesNotMatch(r.out, /only review, so/, 'not the review-only line');
+  const c = await run(['project', 'role', 'p1', 'Builder'], () => ({ body: JSON.stringify({ ok: true, role: 'Builder' }) }));
+  assert.equal(c.code, 0, c.err);
+  assert.doesNotMatch(c.out, /can still hand you/, 'a builder was told about review words');
+});
+
 test('#7429 Windows: a role the board reads as review only says what that does; without the flag nothing more (control)', async () => {
   const r = await run(['project', 'role', 'p1', 'QA only'], () => ({ body: JSON.stringify({ ok: true, role: 'QA only', reviewOnly: true }) }));
   assert.equal(r.code, 0, r.err);

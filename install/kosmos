@@ -8711,7 +8711,9 @@ cmd_project() {
         '{"ok":true'*)
           say "Set your role on $1. kosmos project show $1 prints it beside your name."
           # #7429: the role reads as review only, so the automatic Assigner hands this agent none of the project's tasks.
-          case "$body" in *'"reviewOnly":true'*) say "It says you only review, so the automatic Assigner hands you none of this project's tasks (your person still can)." ;; esac ;;
+          case "$body" in *'"reviewOnly":true'*) say "It says you only review, so the automatic Assigner hands you none of this project's tasks (your person still can)." ;; esac
+          # #9171: the role names review or QA but is not read as review only.
+          case "$body" in *'"stillAssigned":true'*) say "It names review or QA, but not as your whole role, so the automatic Assigner can still hand you this project's tasks. If you only review here, make the whole role \"review only\" or \"QA only\"." ;; esac ;;
         '{"error":'*)
           because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos did not set that role: ${because:-it did not say why}."; exit 1 ;;
