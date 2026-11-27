@@ -43,8 +43,14 @@ expect "-O alone on a continuation line of the swiftc command"        1 '/swiftc
 '
 expect "no optimizer flag at all (nothing says -Onone)"                 1 's|swiftc -Onone -o|swiftc -o|'
 expect "a quoted \"-O\" in place of -Onone"                              1 's|swiftc -Onone -o|swiftc "-O" -o|'
-expect "the flag passed through a variable"                             1 's|swiftc -Onone -o|swiftc $OPT -o|'
-expect "a trailing comment that names -O on a -Onone command"           0 's|\(swiftc -Onone -o "\$out/updates-logic-tests"\) \\$|\1 \\ # was -O|'
+expect "the flag passed through a variable in place of -Onone"          1 's|swiftc -Onone -o|swiftc $OPT -o|'
+expect "a quoted \"-O\" beside -Onone (swiftc takes the later flag)"     1 's|swiftc -Onone -o|swiftc -Onone "-O" -o|'
+expect "swiftc called by its path"                                      1 's|xcrun swiftc -Onone -o|/usr/bin/swiftc -O -o|'
+expect "a comment ending in a backslash does not hide the next line"    1 '/swiftc -Onone -o/i\
+# a note that ends in a backslash \\\
+xcrun swiftc -O -o "$out/x" "$here/x.swift"
+'
+expect "a trailing comment that names -O, on the command's last line"   0 's|"\$here/updates/main.swift"$|"$here/updates/main.swift" # was -O|'
 
 fresh; rm -rf "${T:?}/r/ios/tools"
 got="$(check)"; if [ "$got" = 2 ]; then pass "a missing folder is exit 2, not a pass"; else fail "a missing folder: exit $got, want 2"; fi

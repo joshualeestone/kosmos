@@ -389,7 +389,9 @@ jobs:
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"
 
       # kosmos#9213: the logic suites compile with -Onone. A branch started before that change can land a script with -O
-      # after it, so this fails on any optimizer flag. Last in the job, so a stray flag never hides the suites above.
+      # after it, so this fails on a swiftc command in ios/LogicTests or ios/tools without a plain -Onone (the script
+      # says what it can and cannot see). Last in the job, so a stray flag never hides the suites' own results; the cost
+      # is that it reports only after the build, and not at all when an earlier step is already red.
       - name: Logic tests compile without the optimizer
         run: ios/tools/check-logic-onone.sh
 
