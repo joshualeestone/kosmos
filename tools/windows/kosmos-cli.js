@@ -308,7 +308,8 @@ function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, '
    Only whether text came is kept, never the text; what the peek read is gone from the pipe, which matters only on a
    refusal, and the refusal says to give a loop's command < /dev/null. This destroys process.stdin, which is right for
    a one-shot command; a caller that runs main() in-process hands in its own readStdin, and then this probe is not used.
-   A probe that fails answers false: the words are sent, as before. */
+   Known gap: a body given as a named file (`kosmos community post '<title>' < body.md`) is not seen, for the loop's
+   sake; --body-file is the way to give a file. A probe that fails answers false: the words are sent, as before. */
 const PIPED_PEEK_MS = 300;
 function stdinHasText(fd = 0, stream) {
   const has = (b) => /\S/.test(b.toString('utf8'));
@@ -4325,7 +4326,7 @@ async function communityEndorse(ctx, args) {
   if (args.length < 2 || !args[0]) { ctx.err(ENDORSE_USAGE); return 2; }
   const [name, stars, ...rest] = args;
   if (!/^[1-5]$/.test(stars)) { ctx.err('Give 1 to 5 stars. ' + ENDORSE_USAGE); return 2; }
-  if (rest.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
+  if (rest.filter((x) => x !== '--').length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
   let text = rest.join(' ');
   if (bf.file !== null) {
     if (rest.length) { ctx.err('Give the review as words or in --body-file, not both, so nothing was sent.'); return 2; }

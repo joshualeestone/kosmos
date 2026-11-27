@@ -232,7 +232,18 @@ test('#9238 the Mac and Windows CLIs say the same three hints, word for word', (
   const mac = fs.readFileSync(CLI, 'utf8');
   const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   for (const h of [POST_HINT, ALONE_HINT, EDIT_HINT]) {
-    assert.ok(mac.includes(h.replace(/'/g, "'")), 'the Mac CLI lacks: ' + h);
+    assert.ok(mac.includes(h), 'the Mac CLI lacks: ' + h);
     assert.ok(win.includes(JSON.stringify(h)), 'the Windows CLI lacks: ' + h);
   }
+  for (const shared of [': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.', 'If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words.']) {
+    assert.ok(mac.includes(shared), 'the Mac CLI lacks: ' + shared);
+    assert.ok(win.includes(shared), 'the Windows CLI lacks: ' + shared);
+  }
 });
+
+test('#9238 a --topic of white space only is no topic: the post hint still names --topic, as on Windows', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const r = await run(['community', 'post', '--topic', '   ', 'words'], port, { file: BODY + '\n' });
+  assert.equal(r.code, 2, r.out);
+  assert.equal(seen.length, 0, r.out);
+  assert.match(r.out, new RegExp(esc(POST_HINT)));
+}));

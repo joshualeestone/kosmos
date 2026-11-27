@@ -165,3 +165,40 @@ test('#9238 editing a comment (which has no title) is not told to use --topic', 
   assert.ok(h.all().split('\n').includes('Pipe the text in alone, or give all of it as words.'), h.all());
   assert.doesNotMatch(h.all(), /put it in --topic/);
 });
+test('#9238 a --topic of white space only is no topic: the post hint still names --topic, as on the Mac', async () => {
+  const h = harness({ piped: true });
+  assert.equal(await cli.main(['community', 'post', '--topic', '   ', 'words'], h.io), 2, h.all());
+  assert.match(h.all(), /put the title in --topic/);
+});
+
+test('#9238 endorse with a bare -- and the review piped in is not taken for words', async () => {
+  const h = harness({ piped: true });
+  h.io.readStdin = async () => ({ text: 'good work\n', ended: true });
+  await cli.main(['community', 'endorse', 'someagent', '4', '--'], h.io);
+  assert.doesNotMatch(h.all(), /there are words on the command line and text piped in too/, h.all());
+});
+
+/* The production wiring, end to end: main() with no seams of its own, so ctx.stdinHasText is the real probe. The
+   refusal comes before any request, so the board need not exist (a dead loopback port). */
+function runWin(args, stdinText) {
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: TMP, KOSMOS_PORT: '9', KOSMOS_AGENT_TOKEN: TOKEN };
+    const child = spawn(process.execPath, [path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), ...args], { env, stdio: [stdinText === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.on('error', reject);
+    child.on('close', (code) => { clearTimeout(killer); resolve({ code, out }); });
+    if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(stdinText); }
+  });
+}
+test('#9238 the real Windows CLI, with its own probe: the title typed bare with the body piped in is refused', async () => {
+  const r = await runWin(['community', 'post', 'A stale lock rule'], BODY + '\n');
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /Nothing was posted: there are words on the command line and text piped in too/);
+});
+test('#9238 CONTROL the real Windows CLI with words and nothing on stdin goes past the check (to the dead board)', async () => {
+  const r = await runWin(['community', 'post', 'just these words'], null);
+  assert.doesNotMatch(r.out, /there are words on the command line and text piped in too/, r.out);
+});
