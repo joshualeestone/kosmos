@@ -22,7 +22,8 @@ check on the fix only).
   clear the flag, as does a rebuild of the list, and it lapses 0.3 s after the open's last look (1.9 s), so a request the
   end never met cannot outlive the open (a counter ties each lapse to its own open). The open also clears any anchor left
   from an earlier list of the same chat (a refused read drops the list but kept positionId). A short chat whose end showed
-  before the open ran is brought to its end by the scroll and named by the next goNewest after the lapse. While the flag is set, goNewest (an arrival, a read that follows the newest) scrolls instead of naming the anchor.
+  before the open ran is brought to its end by the scroll and named at the lapse, if its end is still showing. While the flag is set and no path has named "end", goNewest (an arrival, a read that follows the newest) scrolls,
+  animated as asked, instead of naming the anchor.
   The end's appearance names "end" over whatever SwiftUI may have written into the binding meanwhile, unless a person is
   scrolling or search is open. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
 - KOSMOS_SAMPLE_ANCHORATOPEN=1 (Debug only) restores the old open: the control.

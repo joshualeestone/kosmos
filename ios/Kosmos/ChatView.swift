@@ -976,10 +976,13 @@ struct ChatView: View {
                         appMoves &+= 1; positionId = nil; proxy.scrollTo("end", anchor: .bottom)
                         anchorOnEndAppear = true; anchorAsks &+= 1
                         // Dropped a little after the last look, so a request the end never met cannot hold goNewest to scrolls,
-                        // or name "end" under a later fling (iOS 17 sets no personScrolling). Only this open's request.
+                        // or name "end" under a later fling (iOS 17 sets no personScrolling). Only this open's request. An end
+                        // already showing then (a short chat's appears before this runs) is named, its rows long drawn.
                         let ask = anchorAsks
                         DispatchQueue.main.asyncAfter(deadline: .now() + (Self.openLandLooks.last ?? 1.6) + 0.3) {
-                            if anchorAsks == ask { anchorOnEndAppear = false }
+                            guard anchorAsks == ask, anchorOnEndAppear else { return }
+                            anchorOnEndAppear = false
+                            if endSeen, endVisible, positionId != "end", !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" }
                         }
                     }
                     else { goNewest(proxy) }
@@ -1270,7 +1273,10 @@ struct ChatView: View {
         if Self.idAnchor {
             // kosmos#9212: while the open waits for the end to appear, an arrival or a read goes there by a scroll too; the end's
             // appearance names the anchor.
-            if anchorOnEndAppear { proxy.scrollTo("end", anchor: .bottom); return }
+            if anchorOnEndAppear, positionId != "end" {
+                if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
+                return
+            }
             // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
             if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
             return
@@ -1304,6 +1310,7 @@ struct ChatView: View {
                 appMoves &+= 1
                 proxy.scrollTo("end", anchor: .bottom)
                 // kosmos#9212: the anchor is named when the end appears, never while its rows are estimates (sampleAnchorAtOpen's note).
+                // Re-armed within the open's request window: its lapse (0.3 s after the last look) drops this too.
                 if Self.sampleAnchorAtOpen { positionId = "end" } else if positionId != "end" { anchorOnEndAppear = true }
             }
         }
