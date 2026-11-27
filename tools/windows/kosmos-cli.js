@@ -325,8 +325,9 @@ function stdinHasText(fd = 0, stream) {
       if (has(buf.subarray(0, n))) return Promise.resolve(true);
     }
   }
+  if (st.isCharacterDevice()) return Promise.resolve(false);   // NUL, a console: never touch the stream
   const input = stream || process.stdin;
-  if (st.isCharacterDevice() || input.isTTY) return Promise.resolve(false);
+  if (input.isTTY) return Promise.resolve(false);
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => {
