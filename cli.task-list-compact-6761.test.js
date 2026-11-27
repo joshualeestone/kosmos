@@ -47,12 +47,12 @@ test.before(async () => {
   await start(0);
   projectId = projects.create({ name: 'Compact' }).id;
   projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'] }));
-  for (const [k, who] of [['done', 'mara'], ['held', 'otto'], ['open1', 'mara'], ['built', 'mara'], ['open2', null]]) {
+  for (const [k, who] of [['done', 'mara'], ['held', 'otto'], ['open1', 'mara'], ['ready', 'mara'], ['open2', null]]   /* kosmos#9188: 'ready', a title with no list mark word */) {
     const t = tasks.create(projectId, { sentence: 'Task ' + k + (k === 'open1' ? '\nwith a second line' : ''), ...(who ? { who } : {}) });
     assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
     N[k] = t.number;
   }
-  assert.ok(tasks.setBuilt(projectId, N.built, { by: 'mara' }).ok);
+  assert.ok(tasks.setBuilt(projectId, N.ready, { by: 'mara' }).ok);
   tasks.setOnHold(projectId, N.held, true);
   tasks.close(projectId, N.done);
 });
@@ -64,7 +64,7 @@ test.after(() => {
 const WANT = {
   open: () => ['#' + N.open2 + '  open  nobody  Task open2', '#' + N.open1 + '  open  mara  Task open1 with a second line', '2 open tasks in ' + projectId + '.'],
   blocked: () => ['#' + N.held + '  blocked  otto  Task held', '1 blocked task in ' + projectId + '.'],
-  built: () => ['#' + N.built + '  built  mara  Task built  (not seen by the person since built)', '1 built task in ' + projectId + '.'],
+  built: () => ['#' + N.ready + '  built  mara  Task ready  (not seen by the person since built)', '1 built task in ' + projectId + '.'],
 };
 
 // ── the renderer, on its own ────────────────────────────────────────────────

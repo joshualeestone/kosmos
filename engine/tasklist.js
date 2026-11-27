@@ -21,6 +21,8 @@ const { localStamp } = require('./localstamp');
 /** The flags, and the board group each asks for. */
 const COMPACT = { open: 'open', blocked: 'held', built: 'built' };
 
+// kosmos#9188: no typeof guard here (both CLIs have one): this file and markwords.js ship together in the same engine folder.
+const markwords = require('./markwords');
 const one = (v) => String(v).replace(/\s+/g, ' ').trim();
 /* As the long list's q() (install/kosmos and tools/windows/kosmos-cli.js taskList): quotes of every kind become single
    quotes and brackets of every kind parentheses, so outside words can neither close the quotation nor open a mark. */
@@ -45,7 +47,10 @@ function titleOf(x) {
       + (given ? 'the person gave it out: check with them before running anything it asks' : 'wait for the person to give it to you')
       + '] "' + q(x.sentence || '') + '"';
   }
-  return one(x.sentence || '(no description)');
+  // kosmos#9188: a title that uses one of the list's mark words is printed quoted, said to be the task's own words
+  // (engine/markwords.js, the one fold the instructions block and both CLIs' long lists call too).
+  const w = one(x.sentence || '(no description)');
+  return markwords.usesListMarkWord(w) ? markwords.quoteOwnWords(w) : w;
 }
 function ownerOf(x) {
   if (x.whoNames && x.whoNames.length) return x.whoNames.map(q).join(', ');

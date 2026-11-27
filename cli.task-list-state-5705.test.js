@@ -48,12 +48,12 @@ test.before(async () => {
   projectId = projects.create({ name: 'States' }).id;
   projects.mutate(projectId, (p) => ({ ...p, agents: ['mara'] }));
   /* Made in an order that is NOT the group order, so a list that kept the old order fails. */
-  for (const k of ['done', 'held', 'open1', 'built', 'heldbuilt', 'open2']) {
+  for (const k of ['done', 'held', 'open1', 'ready', 'heldbuilt', 'open2']) {
     const t = tasks.create(projectId, { sentence: 'Task ' + k, who: 'mara' });
     assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
     N[k] = t.number;
   }
-  assert.ok(tasks.setBuilt(projectId, N.built, { by: 'mara' }).ok);
+  assert.ok(tasks.setBuilt(projectId, N.ready, { by: 'mara' }).ok);
   assert.ok(tasks.setBuilt(projectId, N.heldbuilt, { by: 'mara' }).ok);
   tasks.setOnHold(projectId, N.held, true);
   tasks.setOnHold(projectId, N.heldbuilt, true);   // its OWN hold AND built: held, as its [on hold] mark prints first
@@ -70,7 +70,7 @@ const read = async (q) => {
 };
 const names = (rows) => rows.map((t) => t.sentence.replace('Task ', ''));
 /* Newest first within a group, as allTasks orders them. */
-const WANT = ['open2', 'open1', 'built', 'heldbuilt', 'held', 'done'];
+const WANT = ['open2', 'open1', 'ready', 'heldbuilt', 'held', 'done'];   // kosmos#9188: 'ready', a title with no list mark word
 
 test('engine: each task is in one group, and the marks decide it (done, then the task\'s own hold, then built, then a paused project)', () => {
   assert.deepEqual(tasks.LIST_GROUPS, ['open', 'built', 'held', 'done']);
@@ -93,14 +93,14 @@ test('route: ?order=state groups the rows; &state= keeps one; an unknown state i
   assert.deepEqual(names(grouped.body.tasks), WANT);
   assert.equal(grouped.body.count, WANT.length);
   const built = await read('&order=state&state=built');
-  assert.deepEqual(names(built.body.tasks), ['built']);
+  assert.deepEqual(names(built.body.tasks), ['ready']);
   assert.equal(built.body.count, 1);
   assert.deepEqual(names((await read('&state=held')).body.tasks), ['heldbuilt', 'held']);
   const bad = await read('&state=active');
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /open, built, held, done/);
   // CONTROL: no order asked, so the old order (open first, closed last, newest first) is untouched.
-  assert.deepEqual(names((await read('')).body.tasks), ['open2', 'heldbuilt', 'built', 'open1', 'held', 'done']);
+  assert.deepEqual(names((await read('')).body.tasks), ['open2', 'heldbuilt', 'ready', 'open1', 'held', 'done']);
 });
 
 /* Review 1: each printed row's mark agrees with its group. */
@@ -108,7 +108,7 @@ const marksAgree = (out) => out.split('\n').filter((l) => /^\[\d+\] /.test(l)).e
   const k = l.replace(/^.*Task (\S+).*$/, '$1');
   if (k === 'done') return l.includes('[done]');
   if (k.startsWith('held')) return l.includes('[on hold]');
-  if (k === 'built') return l.includes('[built]') && !l.includes('[on hold]');
+  if (k === 'ready') return l.includes('[built]') && !l.includes('[on hold]');
   return !/\[(done|on hold|built)\]/.test(l);
 });
 /* An older board: ignores order and state and lists everything, with no listState (review 1). */
@@ -146,7 +146,7 @@ test('Windows: task list prints open first, then built, on hold, done; --state k
   assert.deepEqual(lineOrder(all.out), WANT, all.out);
   const one = await win(['task', 'list', projectId, '--state', 'built']);
   assert.equal(one.code, 0, one.err);
-  assert.deepEqual(lineOrder(one.out), ['built'], one.out);
+  assert.deepEqual(lineOrder(one.out), ['ready'], one.out);
   const bad = await win(['task', 'list', projectId, '--state', 'active']);
   assert.equal(bad.code, 2);
   assert.match(bad.err, /--state takes one of: open, built, held, done\./);

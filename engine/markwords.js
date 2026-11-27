@@ -43,4 +43,48 @@ function fold(text) {
 function usesMarkWord(text) { return MARK_WORD.test(fold(text)); }
 function quoteOwnWords(text) { return '"' + String(text == null ? '' : text).replace(/./gsu, (c) => (isQuote(c) ? "'" : c)) + '"' + NOTE; }
 
-module.exports = { usesMarkWord, quoteOwnWords };
+/* kosmos#9188: the task LIST prints more marks than an agent's instructions do (install/kosmos and the Windows CLI
+   taskList, engine/tasklist.js): before the words "[done]", "[not run]", "[replaced by N]", "[on hold ...]",
+   "[built ...]", "[project paused]"; after them "[added by X]", "[n/m subtasks done ...]", "[repeats ...]",
+   "[waits for ...]", "[waits until ...]" or "[woke: ...]", "[m of n checks reported met]"; and a webhook's
+   "[outside text from webhook ...]"; and the marks in parentheses listed at LIST_PHRASES.
+   usesListMarkWord(text): usesMarkWord, or one of those marks' words, judged on the same folded copy, as whole words
+   with the same gap rule between two words. "done" alone is the one common word: it is a mark only where the list
+   prints "[done]", at the start of the row, so it counts only as the title's FIRST word (after anything that is not a
+   letter); "subtasks done" is caught by "subtasks". The cost, as usesMarkWord's: a title that uses
+   one of these words ("repeats the check", "added by hand") prints quoted, its words unchanged. */
+const GAP = '[^\\p{L}\\p{N}]{0,6}';
+/* Review 1: "waits" alone (a wake prints "waits for ..." OR "waits until ...", and the compact list "(waits on ...)"), and
+   the compact, across and long lists' marks in parentheses whose words are fixed: "(through #N)", "(under task N)",
+   "(owner: ...)", "(reported finished: ...)", "(still to finish: ...)", "(last activity ...)", "(quiet N days",
+   ", left under closed task #N"; review 2: "(no activity on record)", "(next run ...)", "(its project is paused)",
+   "(held by the person)", "(only the person can lift it)", "(its hold's condition is met)". ("(... since built)" and
+   "(marked built ...)" are caught by "built".) Review 2 narrowed three to the printers' exact words ("subtasks done",
+   "woke:", "left under closed"), so "fix subtasks rendering" or "woke up bug" stay plain. An owner's bare
+   name in parentheses, "(otto)", has no fixed word to test: kosmos#9188 review 1 left it to a card of its own. */
+const phrase = (...words) => words.join(GAP);
+const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('project', 'paused'), phrase('project', 'is', 'paused'),
+  phrase('added', 'by'), phrase('subtasks', 'done'), 'repeats', 'waits', 'woke\\s*:', phrase('checks', 'reported'), phrase('outside', 'text'),
+  // Review 3: "through task N" too (the long list's "(owner: X, through task N)").
+  'through\\s*(?:#|task)\\s*#?\\s*\\d+', phrase('under', 'task'), 'owner\\s*:', phrase('reported', 'finished'), phrase('still', 'to', 'finish'),
+  phrase('last', 'activity'), 'quiet\\s*\\d+', phrase('left', 'under', 'closed'),
+  // Review 2: the compact and across lists' other words in parentheses.
+  phrase('no', 'activity', 'on', 'record'), phrase('next', 'run'), phrase('held', 'by', 'the', 'person'),
+  phrase('only', 'the', 'person', 'can', 'lift'), phrase('condition', 'is', 'met'),
+  // Review 3: the built mark's words ("[built, waiting on a review]", "the person", "a release"), "(seen by the person",
+  // and a hold's "until task N is closed".
+  phrase('waiting', 'on', '(?:a|the)', '(?:review|person|release)'), phrase('seen', 'by', 'the', 'person'),
+  phrase('until', 'task') + '\\s*#?\\s*\\d+'];
+// Review 3: "done" in brackets or parentheses ANYWHERE ("release notes [done]", "fix login (done)"), as the list prints it;
+// a bare "done" still counts only as the first word.
+const BRACKET_DONE = /[[(]\s*done\s*[\])]/iu;
+const LIST_WORD = new RegExp('(?<![\\p{L}\\p{N}])(?:' + LIST_PHRASES.join('|') + ')(?![\\p{L}\\p{N}])', 'iu');
+// Review 1: also after a number written as a row's own label, "[7] [done] x" or "#3 [done] x" (a bracket or # before the
+// digits, so "3 done items" stays plain).
+const FIRST_DONE = /^[^\p{L}\p{N}]*(?:[[(#]\s*\d+\s*[\])]?[^\p{L}\p{N}]*)?done(?![\p{L}\p{N}])/iu;
+function usesListMarkWord(text) {
+  const f = fold(text);
+  return MARK_WORD.test(f) || LIST_WORD.test(f) || FIRST_DONE.test(f) || BRACKET_DONE.test(f);
+}
+
+module.exports = { usesMarkWord, quoteOwnWords, usesListMarkWord };

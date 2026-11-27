@@ -55,13 +55,13 @@ test.before(async () => {
   B = projects.create({ name: 'Beta' }).id;
   projects.mutate(A, (p) => ({ ...p, agents: ['mara'] }));
   projects.mutate(B, (p) => ({ ...p, agents: ['otto'] }));
-  for (const [pid, k, who] of [[A, 'a-open', 'mara'], [A, 'a-done', 'mara'], [A, 'a-built', 'mara'], [B, 'b-open', null], [B, 'b-held', 'otto']]) {
+  for (const [pid, k, who] of [[A, 'a-open', 'mara'], [A, 'a-done', 'mara'], [A, 'a-ready', 'mara'], [B, 'b-open', null], [B, 'b-held', 'otto']]) {
     const t = tasks.create(pid, { sentence: 'Task ' + k, ...(who ? { who } : {}) });
     assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
     N[k] = t.number;
   }
   tasks.close(A, N['a-done']);
-  assert.ok(tasks.setBuilt(A, N['a-built'], { by: 'mara' }).ok);
+  assert.ok(tasks.setBuilt(A, N['a-ready'], { by: 'mara' }).ok);
   tasks.setOnHold(B, N['b-held'], true);
 });
 test.after(() => {
@@ -74,7 +74,7 @@ const WANT = {
   // kosmos#8576: a board this new sends lastActivityAt on every all=1 row, so each row says when it last moved.
   open: () => [A + '  #' + N['a-open'] + '  open  mara  Task a-open  (' + ACT() + ')', B + '  #' + N['b-open'] + '  open  nobody  Task b-open  (' + ACT() + ')', '2 open tasks across 2 projects.'],
   blocked: () => [B + '  #' + N['b-held'] + '  blocked  otto  Task b-held  (' + ACT() + ')', '1 blocked task across 1 project.'],
-  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built  (' + ACT() + '; waits on a review and close)  (not seen by the person since built)', '1 built task across 1 project.'],
+  built: () => [A + '  #' + N['a-ready'] + '  built  mara  Task a-ready  (' + ACT() + '; waits on a review and close)  (not seen by the person since built)', '1 built task across 1 project.'],
 };
 
 // ── the renderer, on its own ────────────────────────────────────────────────
