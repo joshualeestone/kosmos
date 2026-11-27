@@ -6,5 +6,5 @@ here=$(cd "$(dirname "$0")" && pwd)
 ios=$(cd "$here/.." && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -O -o "$out/render" "$ios/Kosmos/SweepLogic.swift" "$here/launch-sweep/main.swift"
+xcrun swiftc -Onone -o "$out/render" "$ios/Kosmos/SweepLogic.swift" "$here/launch-sweep/main.swift"
 "$out/render" "$ios/Kosmos/Assets.xcassets/LaunchSweep.imageset" 20

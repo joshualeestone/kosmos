@@ -20,5 +20,5 @@ Logic tests gain nothing from the optimizer. An optimizer-only behaviour differe
 ## Verification
 - Every run*.sh before (origin/main, -O) and after (-Onone): same verdicts, times recorded in the PR.
 - CI on the PR: the job's duration and the push bridge step time.
-- The local saving (80 s to 52 s) is from this Mac only. Where a slow runner's 520-810 s goes is not measured. Read the "Push bridge logic tests" step on the PR's CI runs and after merge: if on a slow runner (one whose build steps take about twice as long) the step does not drop from its 520-810 s range, the -Onone half did not help there, so revert it and keep the 55 limit.
+- The local saving (80 s to 52 s) is from this Mac only. Where a slow runner's 520-810 s goes is not measured. Read the "Push bridge logic tests" step on the PR's CI runs and after merge: if on a slow runner (its "Simulator SDK build" step takes about 185 s, against about 83 s on a fast one) the step does not drop from its 520-810 s range, the -Onone half did not help there, so revert it and keep the 55 limit.
 - The PR body records the before/after verdicts and local times for every run*.sh.
