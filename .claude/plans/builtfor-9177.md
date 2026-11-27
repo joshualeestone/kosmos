@@ -12,22 +12,25 @@ where none of its own parts is open, is built for it. The board's task-level vie
 - engine/tasks.js: `builtFor(t, who)` (who = a name, exact, or a function given each marked name): built for that agent
   when the person marked it (builtFreesAll) or it is in builtWho. `listGroup(t, who)` and `inListOrder(rows, only, who)`
   take an optional reader; without one they read any mark as built, as before. With one, a marked task is built for the
-  reader when builtFor says so or the reader holds no open part (`holdsOpenPart`, hasOpenWork's reading).
+  reader when `builtForReader` says so: builtFor, or no open part of its own (`holdsOpenPart`, hasOpenWork's reading),
+  or an old mark with no builtWho list.
 - engine/assigner.js (hasOpenWork, busyHold) and engine/agentnudge.js:70: the inline copy of the predicate replaced by
   tasks.builtFor (same rule, exact name match as before). agentnudge.js:103 is a different question (which OTHER holders
   marked) and runs after :70 has skipped a person-marked task, so it is unchanged.
 - server.js: GET /api/tasks with mine=1 passes the caller (heldByCaller, the same matcher that picks the caller's tasks)
   to inListOrder, in the state and the quietDays paths; GET /api/tasks/mine does the same. On mine answers a marked row
-  the caller's list keeps open carries `builtForCaller: false`.
+  that does not cover the caller (builtForReader false), and is not closed, carries `builtForCaller: false`: an open
+  or held row, never the caller's own mark.
 - engine/tasklist.js (both CLIs): such a row's words are "another holder marked it built; your part is still open", not
   "waits on a review and close". An older board sends no flag and reads as before.
-- server.tasks-mine-built-9177.test.js (7 tests): builtFor and listGroup units (closed own part, paused, old mark,
+- server.tasks-mine-built-9177.test.js (8 tests): builtFor and listGroup units (closed own part, paused, old mark,
   unnamed caller); --mine open and built for both holders (mirror image, and a reader whose part is closed); one
   project with --mine; /api/tasks/mine; the flag and the CLI words (acrossLines on the real answer); --mine --stale
-  (quietDays); CONTROL: without mine=1 any mark is built and no row is flagged.
+  (quietDays); held rows (flagged only for another holder's mark) and an old mark through the route; CONTROL: without
+  mine=1 any mark is built and no row is flagged.
 
 ## Verified
-- New test file 7/7.
+- New test file 8/8.
 - 36 test files (every one that greps for listGroup, inListOrder, hasOpenWork, busyHold, builtWho, tasks/mine, mine=1,
   engine/tasklist, acrossLines or waitsWords, plus fixture-discipline, engine.reachable, tmpscope-first): 500 pass,
   0 fail, 7 skipped.

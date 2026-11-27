@@ -24445,10 +24445,11 @@ const server = http.createServer(async (req, res) => {
     }
     /* kosmos#9177: and its groups are the caller's: a task another holder marked built is still open for it. */
     const mineWho = mineCaller ? (n) => heldByCaller(n, mineCaller) : null;
-    /* kosmos#9177: a row the caller's list keeps open although it carries another holder's mark says so, so the list does
-       not print it as waiting on a review (engine/tasklist.js waitsWords). Absent on other rows and on older boards. */
-    const mineMark = (t) => (mineWho && typeof t.builtAt === 'string' && t.builtAt && tasks.listGroup(t, mineWho) !== 'built'
-      ? Object.assign({}, t, { builtForCaller: false }) : t);
+    /* kosmos#9177: a row that carries a mark which does not cover the caller (another holder's, while the caller's own
+       part is open) says so, so the list does not print it as waiting on a review (engine/tasklist.js waitsWords). Not a
+       closed row. Absent on every other row and on older boards. */
+    const mineMark = (t) => (mineWho && typeof t.builtAt === 'string' && t.builtAt && t.isClosed !== true
+      && !tasks.progressOf(t).closed && !tasks.builtForReader(t, mineWho) ? Object.assign({}, t, { builtForCaller: false }) : t);
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list without the snapshot (kosmos#7151: the stale list adds one board
