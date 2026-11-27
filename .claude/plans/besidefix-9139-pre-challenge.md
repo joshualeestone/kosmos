@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: besidefix-9139
-diff_hash: 1aebe459c542ed2b75c270450b7e7e4d33f2a3f1560982dbc163ed3451a80461
+diff_hash: d8e29b3176c03d9c2a53d87513d2909fdf5303f6f715cc6906f44defe6fadf14
 validation: full suite through queued-heavy on the commit carrying this proof (its parent e223a6a02c holds all code); the result is posted on PR #9163 before the push
 subdir_audit: not run (no CLAUDE.md in the diff)
-timestamp: 2026-11-27T01:05:00Z
+timestamp: 2026-11-27T02:03:00Z
 iterations: 8
 converged: true
 ---
@@ -85,3 +85,4 @@ converged: true
 - [SHOULD-FIX] no positive arm for the takeover of an old break lock --> FIXED (eeb34afeac): arm
 - [NIT] failglob in a caller ends it on an empty glob --> DEFERRED: older code does the same in the pending loops
 - [NIT] pid 1 reads as no holder --> DEFERRED: older code, not this diff
+- (After the cap, found by the first validation: the sleep-control guard #6710 refused bare `sleep 300 &` stand-ins in three arms --> FIXED: perl select, as the file already does. No logic change.)
