@@ -5426,9 +5426,20 @@ function idleRetireRows({ fresh = true } = {}) {
   });
 }
 
-/* #8720: whether the idle-retire sweep acts on this board now (live execution, and no operator brake). */
-function idleRetireActive() {
-  return liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1';
+/* #8720: whether the idle-retire sweep acts on this board now (live execution, and no operator brake). The arguments are
+   for its test (#9228), which must not turn live execution on in a test process. */
+function idleRetireActive(allowed = liveExecution.liveExecutionAllowed(), env = process.env) {
+  return allowed === true && env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1';
+}
+
+/* #9228: the idle-retire sweep's wiring, one place for start() and its test. */
+function idleRetireSweepDeps() {
+  return {
+    allowed: () => idleRetireActive(),
+    roster: () => idleRetireRows({ fresh: true }),
+    remove: (name) => removal.remove(name),
+    log: (line) => process.stdout.write(line + '\n'),
+  };
 }
 
 /* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
@@ -31241,12 +31252,7 @@ function start(port = PORT) {
          did; engine/remove.js does it, never forced, so it can be put back from Removed agents).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_IDLE_RETIRE_OFF=1, own hourly timer, unref'd, best-effort. */
-      const idleretireTick = require('./engine/idleretire').makeTick({
-        allowed: () => idleRetireActive(),
-        roster: () => idleRetireRows({ fresh: true }),
-        remove: (name) => removal.remove(name),
-        log: (line) => process.stdout.write(line + '\n'),
-      });
+      const idleretireTick = require('./engine/idleretire').makeTick(idleRetireSweepDeps());
       const idleretireSweep = setInterval(idleretireTick, 60 * 60 * 1000);
       if (idleretireSweep && typeof idleretireSweep.unref === 'function') idleretireSweep.unref();
       // A first tick a minute after start, so a board restarted more often than hourly still records its running day.
@@ -32794,7 +32800,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _clearSweepRosterForTest: () => { sweepRosterKept = null; } /* kosmos#8720 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _clearSweepRosterForTest: () => { sweepRosterKept = null; } /* kosmos#8720 */, _idleRetireSweepDepsForTest: idleRetireSweepDeps, _idleRetireActiveForTest: idleRetireActive /* kosmos#9228 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
