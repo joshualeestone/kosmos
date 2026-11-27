@@ -421,6 +421,7 @@ const SITE_COUNTS = {
   'render-gutter-return-4506.js': [2, 0],
   'render-handoff-restart-3492.js': [1, 1],
   'render-head-row.js': [1, 0],
+  'render-heavy-9217.js': [1, 0],
   'render-home-discovery-removed-3048.js': [2, 2],
   'render-home-phone-718.js': [1, 0],
   'render-import-add-inplace-2419.js': [1, 0],

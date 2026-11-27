@@ -1787,10 +1787,12 @@ if boot_board_rich "$sbr" "$P11"; then
   # the relay's wording, an outage that clears it, focus moves, and the link to the steps. Stubs its own routes.
   run_one "render-detail-signedout-8662" env HEADED=0 node docs/browser-checks/render-detail-signedout-8662.js "http://127.0.0.1:$P11"
   run_one "render-update-abort-2055" env HEADED=0 node docs/browser-checks/render-update-abort-2055.js "http://127.0.0.1:$P11"
+  # kosmos#9217: the heavy-job line in the top notes, injected into the real /api/status; control: none running shows nothing.
+  run_one "render-heavy-9217" env HEADED=0 node docs/browser-checks/render-heavy-9217.js "http://127.0.0.1:$P11"
   seed_survival_rich "$sbr"   # #6714: last on this board, so nothing above sees these agents
   run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
 else
-  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-board-signin-403-2023 render-device-signed-out-401-718 render-detail-signedout-8662 render-update-abort-2055 render-survival (rich board did not boot)")
+  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-board-signin-403-2023 render-device-signed-out-401-718 render-detail-signedout-8662 render-update-abort-2055 render-heavy-9217 render-survival (rich board did not boot)")
 fi
 
 # --- the dense org board (#1870): its OWN board, because it needs a static
