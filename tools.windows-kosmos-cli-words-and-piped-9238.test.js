@@ -174,8 +174,10 @@ test('#9238 a --topic of white space only is no topic: the post hint still names
 test('#9238 endorse with a bare -- and the review piped in is not taken for words', async () => {
   const h = harness({ piped: true });
   h.io.readStdin = async () => ({ text: 'good work\n', ended: true });
-  await cli.main(['community', 'endorse', 'someagent', '4', '--'], h.io);
+  await cli.main(['community', 'endorse', 'someagent', '4', '--'], h.io);   // the stub's answer is post-shaped, so the exit code is not this test's question
   assert.doesNotMatch(h.all(), /there are words on the command line and text piped in too/, h.all());
+  assert.equal(h.sent.length, 1, h.all());
+  assert.equal(h.sent[0].body.text, 'good work', 'the piped review was not what reached the board: ' + JSON.stringify(h.sent[0].body));
 });
 
 /* The production wiring, end to end: main() with no seams of its own, so ctx.stdinHasText is the real probe. The

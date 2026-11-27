@@ -630,7 +630,8 @@ _body_file_and_words() {
 # sent with its title typed bare (post '<title>' <<'END' ...) arrived as the title alone, and the verb said it was
 # queued. Now that is refused and nothing is sent. Whether stdin holds text is decided the same way as the Windows CLI's
 # stdinHasText: a regular file the shell has already removed (what zsh and bash write a heredoc or here-string to, with
-# no name left) is read at once, to its end or its first text, while a named file (`< file`, or the input of a
+# no name left) is read at once, by position so nothing is taken from it, to its end or its first text, unless
+# something has already read part of it (a `while read` loop over a heredoc or here-string: perl tells), while a named file (`< file`, or the input of a
 # `while read` loop around the command) is never read, so a loop keeps its lines; a terminal or a character device
 # (/dev/null) is never read; anything else (a pipe, or the socket a program such as
 # node hands over) is watched for at most KOSMOS_PIPED_PEEK_MS in all, stopping at its first text, so a writer that
@@ -643,19 +644,25 @@ _body_file_and_words() {
 KOSMOS_PIPED_PEEK_MS=300   # never taken from the caller's environment
 _words_and_piped() {
   [ -t 0 ] && return 0
-  local _qn _rc=0
+  local _qn _rc=0 _off
+  # A file already part read is the input of a loop around the command (a `while read` over a heredoc or here-string
+  # has moved past its first line; a command's own heredoc is at 0, measured under zsh and bash 3.2): send the words.
+  _off="$(perl -e 'my $p = sysseek(STDIN, 0, 1); print defined $p ? $p + 0 : "none"' 2>/dev/null)" || _off=none
+  case "$_off" in ''|none|0) ;; *[!0-9]*) ;; *) return 0 ;; esac
   _qn="$(kosmos_engine_node)" || return 0
   KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS" "$_qn" -e '
     const fs = require("fs"); const has = (b) => /\S/.test(b.toString("utf8"));
     let st; try { st = fs.fstatSync(0); } catch { process.exit(0); }
     if (st.isFile()) {
       if (st.nlink !== 0) process.exit(0);   // a named file: not a heredoc made for this command
+      // read by position, so the place in the file is never moved and nothing is taken from it
       const buf = Buffer.alloc(65536);
-      for (;;) {
+      for (let pos = 0; ; ) {
         let n = 0;
-        try { n = fs.readSync(0, buf, 0, buf.length, null); } catch { process.exit(0); }
+        try { n = fs.readSync(0, buf, 0, buf.length, pos); } catch { process.exit(0); }
         if (n === 0) process.exit(0);
         if (has(buf.subarray(0, n))) process.exit(3);
+        pos += n;
       }
     }
     if (st.isCharacterDevice()) process.exit(0);

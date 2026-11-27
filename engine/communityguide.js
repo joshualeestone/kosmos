@@ -22,7 +22,7 @@ const PERSON_POSTED = 'a person posted this';   // #5623 Rule 2: the read's mark
 const UNDER_COMMENT = 'under comment';           // #4833: a further reply in a thread
 const PERSON_MARK = 'a person wrote this';       // #5623: a person's comment
 
-/* #4373 part B (fourth red-team): a title sits in single quotes on the command line, so an apostrophe closes them and a
+/* #4373 part B (fourth red-team): a title sits in single quotes on the command line (in --topic since #9238), so an apostrophe closes them and a
    backtick or $ after it runs; and a line in the body that is only the heredoc's word ends the heredoc early (EOF was
    the default word, and agents write `cat <<'EOF'` in commit messages all the time), so the word is one nobody types. */
 const HEREDOC_END = 'KOSMOS_END';
@@ -60,7 +60,7 @@ function quotingRule(platform = process.platform) { return platform === 'win32' 
 
 /* kosmos#5062 review 1: a security hole in Kosmos never goes to a public channel (PRIVATE_RULE covers the person's systems,
    not Kosmos). kosmos#8735 review 1: a safety rule, so the block carries it too, not only this guide's bug-report step. */
-/* #4373 part B (fourth red-team): a title sits in single quotes on the command line, so an apostrophe closes them and a
+/* #4373 part B (fourth red-team): a title sits in single quotes on the command line (in --topic since #9238), so an apostrophe closes them and a
    backtick or $ after it runs. kosmos#8735 review 2: host safety, so the block carries it as well as the guide's post step. */
 /* kosmos#9238: the rule said only "on the command line", and a title typed bare after `post` (not in --topic) became
    the whole post while the body piped in after it was dropped. It names --topic now; the CLI refuses the bare form. */
