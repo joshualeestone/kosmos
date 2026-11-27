@@ -124,9 +124,15 @@ test('#9228: the operator brake stops the sweep; live execution off stops it; wi
   assert.equal(_idleRetireActiveForTest(true, { AGENT_WORKFORCE_IDLE_RETIRE_OFF: '0' }), true, 'a brake set to 0 stopped it');
   assert.equal(_idleRetireActiveForTest(false, {}), false, 'it acts with live execution off');
   assert.equal(_idleRetireSweepDepsForTest().allowed(), false, 'the real wiring acts in a test process, where live execution is off');
+  /* The sweep's own allowed, with live execution read as on: it acts, and the brake stops it. */
+  assert.equal(_idleRetireSweepDepsForTest({ liveAllowed: () => true, env: {} }).allowed(), true, 'CONTROL: the sweep did not act with live execution on');
+  assert.equal(_idleRetireSweepDepsForTest({ liveAllowed: () => true, env: { AGENT_WORKFORCE_IDLE_RETIRE_OFF: '1' } }).allowed(), false, 'the brake did not stop the sweep itself');
+  /* And start() hands makeTick exactly these deps, so the tests above are about the sweep that runs. */
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /const idleretireTick = require\('\.\/engine\/idleretire'\)\.makeTick\(idleRetireSweepDeps\(\)\);/, 'start() no longer hands the sweep idleRetireSweepDeps()');
 });
 
-test('#9228: the sweep start() runs is wired to the real roster and the real Remove (dry run, so it is refused, never retired)', () => {
+test('#9228: the sweep deps are wired to the real roster and the real Remove (dry run, so it is refused, never retired)', () => {
   const fleet = require('./test-support/fleet');
   const liveness = require('./engine/liveness');
   const ir = require('./engine/idleretire');
@@ -140,7 +146,7 @@ test('#9228: the sweep start() runs is wired to the real roster and the real Rem
     fs.writeFileSync(path.join(store.ROOT, 'idleretire-log.json'), JSON.stringify({ up }));
     assert.equal(ir.writeSetting({ on: true, days: 30 }).ok, true);
     const deps = _idleRetireSweepDepsForTest();
-    /* Everything but `allowed` is the real wiring; allowed is opened here because a test process never has live
+    /* Everything but `allowed` and `log` is the real wiring; log is collected, and allowed is opened here because a test process never has live
        execution, and the remove below runs under AGENT_WORKFORCE_DRY_RUN=1 (set at the top of this file). */
     r = ir.makeTick({ ...deps, allowed: () => true, log: (l) => lines.push(l) })();
     assert.equal(r.act, 'ran', JSON.stringify(r));
@@ -153,5 +159,7 @@ test('#9228: the sweep start() runs is wired to the real roster and the real Rem
   } finally {
     board.restore();
     ir.writeSetting({ on: false });
+    fs.rmSync(path.join(store.ROOT, 'idleretire-log.json'), { force: true });
+    try { liveness.forget(board.card('wired').sessionName); } catch { /* the card read can fail after restore; the sandbox goes at exit */ }
   }
 });

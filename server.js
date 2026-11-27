@@ -5432,10 +5432,11 @@ function idleRetireActive(allowed = liveExecution.liveExecutionAllowed(), env = 
   return allowed === true && env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1';
 }
 
-/* #9228: the idle-retire sweep's wiring, one place for start() and its test. */
-function idleRetireSweepDeps() {
+/* #9228: the idle-retire sweep's wiring, one place for start() and its test. The arguments are for that test; start()
+   passes none. */
+function idleRetireSweepDeps({ liveAllowed = () => liveExecution.liveExecutionAllowed(), env = process.env } = {}) {
   return {
-    allowed: () => idleRetireActive(),
+    allowed: () => idleRetireActive(liveAllowed(), env),
     roster: () => idleRetireRows({ fresh: true }),
     remove: (name) => removal.remove(name),
     log: (line) => process.stdout.write(line + '\n'),
