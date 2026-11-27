@@ -26,3 +26,8 @@ for hand-run simulator shots (#9101, 11-27). This is the durable guard.
 - [WARNING] a fixed 1 s settle could catch the question's fade --> FIXED: wait for the question to be gone, then 0.5 s.
 - [NIT] control format pinned to standard sRGB; raw colours attached on a pass; the five-places claim and the dark run's
   dependence on the board's own appearance stated in the header --> FIXED.
+
+## Measured (02:21 to 02:31 CST 11-27, one queued-heavy turn, a fresh iPhone 17 simulator, xcodebuild test as ui-sample.sh runs it)
+- light: 2 tests, 0 failures; the board-page test PASSED (not skipped), read #faf9f7 at all 4 points, scale 3.0.
+- dark (simctl appearance dark first): 2 tests, 0 failures; read #0c0d0f at all 4 points. So the sample board follows the phone, and the weakest premise held: XCUIScreenshot returns the exact ground.
+- CONTROL: the app built with navy painted behind the Close bar (the bar background line only): the board-page test FAILED, "NAVY at (390.0, 84.0) ... read #17233d x4". ContentView.swift restored (checked by git diff).
