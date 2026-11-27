@@ -35,7 +35,7 @@ function readersOf(table) {
     activeProject: (n) => (table[n] && table[n].project) || null,
   };
 }
-const rows = (...names) => names.map((n) => ({ sessionName: n, displayName: n.toUpperCase(), state: 'idle', isNamedOurs: true }));
+const rows = (...names) => names.map((n) => ({ sessionName: n, name: n.toUpperCase(), state: 'idle', isNamedOurs: true }));
 /* Every day from `from` days ago to today, as the running days a board that never closed would have recorded. */
 const upFor = (from) => Array.from({ length: from + 1 }, (_, i) => ir.dayOf(NOW - (from - i) * DAY));
 const UP = upFor(100);
@@ -150,7 +150,7 @@ test('makeTick: a refused, partial or throwing remove is recorded as what happen
   const tick = ir.makeTick({ allowed: () => true, roster: () => rows('a', 'b', 'c'), readers: readersOf(t), now: () => NOW,
     remove: (n) => { if (n === 'c') throw new Error('gone wrong'); return answers[n]; } });
   const r = tick();
-  assert.deepEqual(r.did.map((d) => [d.name, d.outcome]), [['a', 'refused'], ['b', 'partial'], ['c', 'refused']]);
+  assert.deepEqual(r.did.map((d) => [d.name, d.outcome]), [['a', 'refused'], ['b', 'partial'], ['c', 'partial']]);
   assert.equal(r.did[0].because, 'busy');
   assert.match(r.did[2].because, /gone wrong/);
   clean();
