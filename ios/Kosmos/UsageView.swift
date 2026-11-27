@@ -148,28 +148,42 @@ struct UsageView: View {
                             chartFigures(c)
                         }
                     }
-                    Chart {
-                        ForEach(Array(c.values.enumerated()), id: \.offset) { i, v in
-                            AreaMark(x: .value("Day", i), y: .value(c.name, v))
-                                .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                            LineMark(x: .value("Day", i), y: .value(c.name, v))
-                                .foregroundStyle(color)
-                                .lineStyle(StrokeStyle(lineWidth: 1.8, lineJoin: .round))
-                            // One day draws no line or area: a point, so the box is not empty.
-                            if c.values.count == 1 { PointMark(x: .value("Day", i), y: .value(c.name, v)).foregroundStyle(color) }
-                        }
-                    }
-                    .chartXAxis(.hidden)
-                    .chartYAxis(.hidden)
-                    .chartYScale(domain: 0...max(1, c.values.max() ?? 1))
-                    .frame(height: 64)
-                    .accessibilityHidden(true)
+                    classChart(c, color: color)
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(c.label + ". " + c.name + ", " + c.tag + ": " + c.total + ", " + c.share + " of all tokens.")
+                .accessibilityLabel(chartLabel(c))
                 .accessibilityIdentifier("usage-chart-" + c.kind.rawValue)
             }
         }
+    }
+
+    /* The chart itself, apart from chartsSection's ForEach body: as one expression the CI compiler could not type-check
+       it in time ("unable to type-check this expression in reasonable time", UsageView.swift:138, PR #9223). */
+    private func classChart(_ c: Usage.ClassChart, color: Color) -> some View {
+        let top: Double = max(1, c.values.max() ?? 1)
+        let fill = LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom)
+        return Chart {
+            ForEach(Array(c.values.enumerated()), id: \.offset) { i, v in
+                AreaMark(x: .value("Day", i), y: .value(c.name, v))
+                    .foregroundStyle(fill)
+                LineMark(x: .value("Day", i), y: .value(c.name, v))
+                    .foregroundStyle(color)
+                    .lineStyle(StrokeStyle(lineWidth: 1.8, lineJoin: .round))
+                // One day draws no line or area: a point, so the box is not empty.
+                if c.values.count == 1 { PointMark(x: .value("Day", i), y: .value(c.name, v)).foregroundStyle(color) }
+            }
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartYScale(domain: 0...top)
+        .frame(height: 64)
+        .accessibilityHidden(true)
+    }
+    // The same words as before, built in typed steps rather than one long concatenation.
+    private func chartLabel(_ c: Usage.ClassChart) -> String {
+        let head: String = c.label + ". " + c.name
+        let body: String = ", " + c.tag + ": " + c.total
+        return head + body + ", " + c.share + " of all tokens."
     }
 
     @ViewBuilder private func chartName(_ c: Usage.ClassChart) -> some View {
