@@ -25339,6 +25339,33 @@ let SERVED_VERSION = null;
    code. Null until a poll says otherwise. */
 let ENGINE_STALE = null;
 
+/* kosmos#9217: one line naming each heavy job an agent said is running here (engine/heavyjobs.js clears a record whose
+ * process or agent is gone). Built from text nodes, so a label can never become markup; repainted only on a change. */
+function paintHeavyJobs(jobs) {
+  const slot = document.getElementById('heavy-slot');
+  if (!slot) return;
+  const list = Array.isArray(jobs) ? jobs.filter((j) => j && typeof j.label === 'string' && typeof j.agent === 'string' && Number.isFinite(j.since)) : [];
+  const key = JSON.stringify(list.map((j) => [j.agent, j.label, j.since]));
+  if (slot.dataset.k === key) return;
+  slot.dataset.k = key;
+  slot.textContent = '';
+  if (!list.length) return;
+  const two = (n) => String(n).padStart(2, '0');
+  const parts = list.map((j) => { const t = new Date(j.since); return j.label + ' (' + j.agent + ', since ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ')'; });
+  const box = document.createElement('div');
+  box.className = 'utoast';
+  box.setAttribute('role', 'status');
+  const dot = document.createElement('span');
+  dot.className = 'udot';
+  dot.setAttribute('aria-hidden', 'true');
+  const txt = document.createElement('div');
+  txt.className = 'utxt';
+  txt.textContent = (list.length === 1 ? 'A heavy job is running on this computer: ' : 'Heavy jobs are running on this computer: ') + parts.join('; ') + '.';
+  box.appendChild(dot);
+  box.appendChild(txt);
+  slot.appendChild(box);
+}
+
 /**
  * The update notices in the header's #utoast-slot (#3955, Mona Lisa's mock A and B). One small chip,
  * one line and one gold action, in two states:
@@ -25379,33 +25406,6 @@ let ENGINE_STALE = null;
  * blocking board on a DIFFERENT macOS account, #2051). Wording stays Mona Lisa's
  * to refine; the structure and the honest action are what this pins.
  */
-/* kosmos#9217: one line naming each heavy job an agent said is running here (engine/heavyjobs.js clears a record whose
- * process or agent is gone). Built from text nodes, so a label can never become markup; repainted only on a change. */
-function paintHeavyJobs(jobs) {
-  const slot = document.getElementById('heavy-slot');
-  if (!slot) return;
-  const list = Array.isArray(jobs) ? jobs.filter((j) => j && typeof j.label === 'string' && typeof j.agent === 'string' && Number.isFinite(j.since)) : [];
-  const key = JSON.stringify(list.map((j) => [j.agent, j.label, j.since]));
-  if (slot.dataset.k === key) return;
-  slot.dataset.k = key;
-  slot.textContent = '';
-  if (!list.length) return;
-  const two = (n) => String(n).padStart(2, '0');
-  const parts = list.map((j) => { const t = new Date(j.since); return j.label + ' (' + j.agent + ', since ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ')'; });
-  const box = document.createElement('div');
-  box.className = 'utoast';
-  box.setAttribute('role', 'status');
-  const dot = document.createElement('span');
-  dot.className = 'udot';
-  dot.setAttribute('aria-hidden', 'true');
-  const txt = document.createElement('div');
-  txt.className = 'utxt';
-  txt.textContent = (list.length === 1 ? 'A heavy job is running on this computer: ' : 'Heavy jobs are running on this computer: ') + parts.join('; ') + '.';
-  box.appendChild(dot);
-  box.appendChild(txt);
-  slot.appendChild(box);
-}
-
 function paintUpdateAbort(ab) {
   const slot = document.getElementById('uabort-slot');
   if (!slot) return;
