@@ -312,8 +312,10 @@ test('kosmos#9222: a job whose process is confirmed by its start time outlives t
   hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 4242, now: T0, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') });
   assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') }).map((j) => j.label), ['overnight'],
     'a running, confirmed process was dropped at the ceiling');
-  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: () => undefined }).map((j) => j.label), ['overnight'],
-    'one read that could not read the start deleted a recorded, running job');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: () => undefined }), [], 'past the ceiling, an unread start is not shown');
+  assert.deepEqual(hj.readAll(r).map((j) => j.label), ['overnight'], 'one read that could not read the start deleted a recorded, running job');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: alwaysStart('Fri Nov 27 09:00:00 2026') }).map((j) => j.label), ['overnight'],
+    'the next read that confirms it shows it again');
   assert.deepEqual(hj.live({ root: r, now: T0 + 13 * H, startOf: alwaysStart('Sat Nov 28 01:00:00 2026') }), [], 'a different start: a reused number, gone');
   const w = root();   // a record with no start recorded (Windows: no ps)
   hj.start({ root: w, agent: 'renet', label: 'unjudged', pid: 4243, now: T0, startOf: () => undefined });
@@ -334,16 +336,55 @@ test('kosmos#9222: with the real reader, a later start by the same agent keeps t
   assert.deepEqual(hj.readAll(r).map((j) => j.label).sort(), ['later', 'overnight'], 'a second start dropped the overnight job');
 }));
 
-test('kosmos#9222: a read whose ps budget is spent before it reaches the overnight job keeps it', () => withProcesses((seen) => {
+test('kosmos#9222: aged records are read first, so an overnight job behind eight fresh ones is still confirmed and shown', () => withProcesses((seen) => {
   const H = 60 * 60 * 1000;
   const base = Date.now() + 30 * H;   // past every cache entry an earlier test made
   const r = root();
-  // Nine records first, so they are read first (oldest first) and spend the read's eight ps reads.
-  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'a' + i, label: 'x' + i, pid: 97100 + i, now: base, startOf: () => 'A' });
-  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 97001, now: base }).ok, true);   // its start cached at base
+  // Nine fresh records first in the file (started 13 h after the overnight one), so by file order they would spend the
+  // read's budget before it; the overnight one is written last.
+  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'a' + i, label: 'x' + i, pid: 97100 + i, now: base + 13 * H, startOf: () => 'A' });
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 97001, now: base }).ok, true);
+  assert.equal(hj.readAll(r).at(-1).label, 'overnight', 'control: the overnight job is last in the file');
   seen.ps = 0;
   const shown = hj.live({ root: r, now: base + 14 * H }).map((j) => j.label);
-  assert.equal(seen.ps, 8, 'control: the read spent its whole ps budget on the records before the overnight one');
-  assert.ok(shown.includes('overnight'), 'a read whose ps budget ran out deleted the overnight job: ' + shown.join(','));
-  assert.equal(hj.readAll(r).filter((j) => j.label === 'overnight').length, 1, 'and it is still in the file');
+  assert.equal(seen.ps, 8, 'control: the read spent its whole ps budget');
+  assert.ok(shown.includes('overnight'), 'the aged job did not get one of the ps reads: ' + shown.join(','));
+}));
+
+test('kosmos#9222: when other aged jobs spend the budget, the overnight job is hidden for that read but kept in the file', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 50 * H;
+  const r = root();
+  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'a' + i, label: 'x' + i, pid: 98100 + i, now: base, startOf: () => 'A' });
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 98001, now: base }).ok, true);
+  seen.ps = 0;
+  const shown = hj.live({ root: r, now: base + 14 * H }).map((j) => j.label);
+  assert.equal(seen.ps, 8, 'control: eight ps reads, so two aged records were judged without one');
+  assert.ok(!shown.includes('overnight'), 'an unread aged job was shown without being confirmed');
+  assert.equal(hj.readAll(r).length, 10, 'a record judged without a read was deleted');
+}));
+
+
+test('kosmos#9222: a fresh cache hit costs no ps read, so it does not starve the aged job behind it', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 70 * H;
+  const r = root();
+  for (let i = 0; i < 9; i++) hj.start({ root: r, agent: 'c' + i, label: 'c' + i, pid: 99100 + i, now: base, startOf: () => 'A' });
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99001, now: base }).ok, true);
+  const at = base + 14 * H;
+  for (let i = 0; i < 9; i++) hj.defaultStartOf(99100 + i, at);   // nine fresh cache entries at the read's time
+  seen.ps = 0;
+  const shown = hj.live({ root: r, now: at }).map((j) => j.label);
+  assert.equal(seen.ps, 1, 'control: only the overnight job needed a ps read');
+  assert.ok(shown.includes('overnight'), 'cache hits spent the budget, and the overnight job was not read: ' + shown.join(','));
+}));
+
+test('kosmos#9222: a later start by the same agent while ps cannot answer keeps the overnight job in the file', () => withProcesses((seen) => {
+  const H = 60 * 60 * 1000;
+  const base = Date.now() + 90 * H;
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'overnight', pid: 99501, now: base }).ok, true);
+  seen.start = undefined;   // ps cannot answer now (timed out, or failing)
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'later', now: base + 13 * H }).ok, true);
+  assert.deepEqual(hj.readAll(r).map((j) => j.label).sort(), ['later', 'overnight'], 'a start that could not read ps deleted the overnight job');
 }));

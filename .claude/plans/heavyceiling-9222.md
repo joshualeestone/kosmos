@@ -10,27 +10,37 @@ longer than 12 hours left the board while it ran, which is when the line matters
 
 ## Change
 
-In `isLive`, a `--pid` record that recorded its process's start time is judged by it, with no ceiling: a different start
-is a reused number and it goes; an unread start this time (undefined: the process answers signal 0, but ps was over
-budget, timed out, or not asked, as in `start()` for the agent's other records) keeps it, so one read that could not
-ask never deletes what the next would confirm. The ceiling still applies to a record with no process, and to one that
-recorded no start (Windows, no ps): a start read later cannot confirm one that recorded none.
-A hung wrapper that never exits is kept on purpose: it is still running, and still holding what it holds.
+`isLive` becomes `judge`, which says what one read does with a record: show it, hide it (not shown, not counted toward
+the per-agent cap, but left in the file), or drop it.
+- A `--pid` record that recorded its process's start time is judged by that start, with no ceiling: the same start is
+  the same process, shown while it runs (an overnight run stays); a different one is a reused number, dropped.
+- When the start is unread on a read (undefined: signal 0 answers, but ps was over the read's budget, timed out, or
+  not asked): shown inside the ceiling; past it, HIDDEN but kept, so a read that could not ask neither deletes what the
+  next one confirms nor shows what it cannot vouch for.
+- So that aged records get their reads: a read judges aged records first, and only a ps run spends its budget (a
+  fresh cache hit costs none). In `start()`, the agent's aged records get a real read (at most four).
+- The ceiling still drops a record with no process, and one that recorded no start (Windows, no ps).
+- A hung wrapper that never exits is kept on purpose: it is still running, and still holding what it holds. It is
+  ended with `kosmos heavy end --pid N`.
 
 ## Rejected
 
 - Raising the ceiling: it would still drop a long run, and keep records nothing can judge longer.
 - Renewing `at` on each confirmed read: a write per poll, for the same result.
+- Keeping an unread aged record SHOWN (round 1's fix): a record whose start goes unread on every read (ps failing,
+  an unreadable /proc) would then stay on the board for ever, even after its number went to another process.
 
 ## Weakest premise
 
 That a matching start time is proof of the same process. A reused number given the same start second is the only way
-it lies, which ps's lstart (to the second) makes very unlikely. A process past the ps budget of one read is judged by
-the cache or not at all; an uncached one in that case meets the ceiling like any unjudged record.
+it lies, which ps's lstart (to the second) makes very unlikely. And: a record that ps can never read again stays in
+the file, hidden, until signal 0 says its process is gone; it is invisible and bounded by the file's 50 records.
 
 ## Tests
 
-engine/heavyjobs-9217.test.js: a confirmed process at 13 h stays; an unread start at 13 h stays; a different start
-goes; no recorded start at 13 h goes; a job with no process at 13 h goes (control). With the real defaultStartOf: a
-second start() by the same agent at 13 h keeps the overnight record, and so does a live() that spends its eight ps reads
-on older records first (a control asserts the eight were spent before it).
+engine/heavyjobs-9217.test.js: a confirmed process at 13 h stays; a different start goes; no recorded start at 13 h
+goes; a job with no process at 13 h goes (control); an unread start at 13 h is hidden but kept, and shown again on the
+next read that confirms it. With the real defaultStartOf: a later start by the same agent keeps the overnight record,
+also while ps cannot answer; aged records are read first (an overnight job written after nine fresh ones is
+confirmed); a fresh cache hit costs no ps read; and when other aged records spend the budget, the overnight job is
+hidden for that read but kept. Every one of those arms was mutated to red.
