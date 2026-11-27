@@ -291,6 +291,10 @@ struct ChatView: View {
     private var widthShare: CGFloat { typeSize.isAccessibilitySize ? 0.85 : 0.78 }
 
     var body: some View {
+        #if DEBUG
+        let _ = print("BODY ChatView \(Date().timeIntervalSince1970)")
+        let _ = Self._printChanges()   // kosmos#9212 probe: which state redraws the chat
+        #endif
         // Read here so the end of an arm window or an answered lock redraws the buttons (redraw(after:)).
         let _ = tick
         VStack(spacing: 0) {
@@ -829,7 +833,7 @@ struct ChatView: View {
                         // kosmos#8283: kept on this list. Without the row, a long chat did not open at its newest message on
                         // iOS 26.5 (CI's runner and this Mac, 3 of 10; main 0 of 10; the row's room put back, 0 of 5).
                         ZStack {
-                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
+                            if working && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOWORKINGROW"] != "1" { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
                         }
                         .padding(.top, 12).id("working")
                         Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
@@ -3465,13 +3469,16 @@ struct WorkingLine: View {
     var animated = true
 
     var body: some View {
+        #if DEBUG
+        let _ = print("BODY WorkingLine animated=\(animated) \(Date().timeIntervalSince1970)")
+        #endif
         // kosmos#7427: the board's wave (LayerWaveDots), not three dots pulsing together.
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             #if DEBUG
             // kosmos#7427 review 2 debug: KOSMOS_SAMPLE_CLOCKDOTS=1 draws the clock-drawn dots here, as the control.
             // kosmos#7427 build 16: KOSMOS_SAMPLE_SWIFTDOTS=1 draws build 15's WaveDots, the control for the layer-drawn ones.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CLOCKDOTS"] == "1" { WorkingDots() }
-            else if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWIFTDOTS"] == "1" { WaveDots() } else { LayerWaveDots(still: !animated) }
+            else if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWIFTDOTS"] == "1" { WaveDots() } else { LayerWaveDots(still: !animated || ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STILLDOTS"] == "1") }
             #else
             LayerWaveDots(still: !animated)   // review 2: inside the thread, never the clock-drawn WorkingDots; build 16: layer-drawn
             #endif

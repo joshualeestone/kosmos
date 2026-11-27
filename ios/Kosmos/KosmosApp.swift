@@ -14,7 +14,13 @@ struct KosmosApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     // kosmos#7684: once, before any view reads it, a sort saved before this build is forgotten (Board.resetOldAgentSort).
-    init() { Board.resetOldAgentSort(UserDefaults.standard) }   // kosmos#8058: no orb to warm since the dots replaced it
+    init() {
+        Board.resetOldAgentSort(UserDefaults.standard)
+        #if DEBUG
+        // kosmos#9212 probe: the app's stdout to a file the test run names, so _printChanges can be read.
+        if let path = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STDOUT"] { freopen(path, "a", stdout); setvbuf(stdout, nil, _IOLBF, 0) }
+        #endif
+    }   // kosmos#8058: no orb to warm since the dots replaced it
 
     var body: some Scene {
         WindowGroup {

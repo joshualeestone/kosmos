@@ -12,7 +12,7 @@ final class ChatTallReopenProbeUITests: XCTestCase {
     private func composer(_ app: XCUIApplication) -> XCUIElement {
         app.textFields.matching(NSPredicate(format: "placeholderValue BEGINSWITH %@", "Message ")).firstMatch
     }
-    private func probe(_ arm: String, noLooks: Bool, danaIdle: Bool = false) throws {
+    private func probe(_ arm: String, noLooks: Bool, danaIdle: Bool = false, stillDots: Bool = false, noRow: Bool = false, noPosId: Bool = false) throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "tall20"]
@@ -20,6 +20,10 @@ final class ChatTallReopenProbeUITests: XCTestCase {
         // Arm "looks-idle": Dana shown idle (BoardClient.sampleWithDanaAsSet), so the chat draws no always-on "is working"
         // wave (LayerWaveDots): one variable changed against arm "looks".
         if danaIdle { app.launchEnvironment["KOSMOS_SAMPLE_SEND_WORKS"] = "1"; app.launchEnvironment["KOSMOS_SAMPLE_SEND_SLOW"] = "0.5" }
+        if noPosId { app.launchEnvironment["KOSMOS_SAMPLE_NOPOSID"] = "1" }
+        if noRow { app.launchEnvironment["KOSMOS_SAMPLE_NOWORKINGROW"] = "1" }
+        if stillDots { app.launchEnvironment["KOSMOS_SAMPLE_STILLDOTS"] = "1" }
+        if let out = ProcessInfo.processInfo.environment["KOSMOS_PROBE_OUT"] { app.launchEnvironment["KOSMOS_SAMPLE_STDOUT"] = out + "/stdout-\(arm)-\(Int(Date().timeIntervalSince1970)).txt" }
         app.launch()
         XCTAssertTrue(composer(app).waitForExistence(timeout: 30), "\(arm): the chat did not open at launch")
         Thread.sleep(forTimeInterval: 2.0)   // past the last look (1.6 s), as ChatTallOpenUITests waits
@@ -32,6 +36,7 @@ final class ChatTallReopenProbeUITests: XCTestCase {
             guard dana.waitForExistence(timeout: 15) else { print("UI-NOTE kosmos#9212 \(arm) reopen \(i): Dana's row did not show"); stalled += 1; continue }
             let t0 = Date()
             dana.tap()
+            print("UI-NOTE kosmos#9212 \(arm) reopen \(i) tap at \(t0.timeIntervalSince1970)")
             let opened = composer(app).waitForExistence(timeout: 30)
             let secs = Date().timeIntervalSince(t0)
             if !opened { stalled += 1 }
@@ -44,5 +49,8 @@ final class ChatTallReopenProbeUITests: XCTestCase {
 
     func testReopenWithTheLooks() throws { try probe("looks", noLooks: false) }
     func testReopenWithoutTheLooks() throws { try probe("nolooks", noLooks: true) }
+    func testReopenWithTheLooksStillDots() throws { try probe("looks-stilldots", noLooks: false, stillDots: true) }
+    func testReopenWithTheLooksNoWorkingRow() throws { try probe("looks-norow", noLooks: false, noRow: true) }
+    func testReopenWithNoIdAnchor() throws { try probe("noposid", noLooks: false, noPosId: true) }
     func testReopenWithTheLooksDanaIdle() throws { try probe("looks-idle", noLooks: false, danaIdle: true) }
 }
