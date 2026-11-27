@@ -2997,8 +2997,8 @@
       "shownIn": "0.8.27"
     },
     {
-      "title": "kosmos project show names an empty project",
-      "line": "kosmos project show now says when a project's open tasks wait with no agent on it.",
+      "title": "kosmos project show says when no agent is on a project",
+      "line": "kosmos project show now says when a project's open tasks wait with no agent on the project.",
       "icon": "tasks",
       "rank": 156,
       "since": "0.8.28",
