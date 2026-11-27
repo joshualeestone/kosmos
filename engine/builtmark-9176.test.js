@@ -29,9 +29,15 @@ const lineOf = (body, proj, n) => body.split('\n').find((l) => l.includes(`task 
 
 test('#9176: a built task is listed, marked built; an open task beside it is not marked (control)', () => {
   const body = projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: [task(1, BUILT), task(2)] }], 'ada');
-  assert.match(lineOf(body, 'Live', 1), /\[built: done and waiting; nothing to do on it unless it is reopened\]$/, body);
+  assert.match(lineOf(body, 'Live', 1), /\[built: done and waiting; its note says what is left\]$/, body);
   assert.ok(lineOf(body, 'Live', 2), 'control: the open task is missing: ' + body);
   assert.doesNotMatch(lineOf(body, 'Live', 2), /\[built|\[on hold/, 'control: an open task was marked');
+});
+
+test('#9176: a mark by an unnamed caller (no builtWho, not the person\'s) frees nobody, so the task is listed unmarked', () => {
+  const body = projects.blockBody([{ id: 'live', name: 'Live', folder: '/tmp/live', tasks: [task(1, { builtAt: '2026-11-26T12:00:00Z', builtWho: [] })] }], 'ada');
+  assert.ok(lineOf(body, 'Live', 1), body);
+  assert.doesNotMatch(lineOf(body, 'Live', 1), /\[built:/, body);
 });
 
 test('#9176: a built task on hold reads on hold, not built (the hold is what stops it)', () => {

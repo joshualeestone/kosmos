@@ -11,7 +11,7 @@ Split from #9166 item 5 (feedback triage 11-26).
   the previous holder is synced when a part moves. Not in this card.
 
 ## Change
-- A task that is built FOR THIS AGENT gets " [built: done and waiting; nothing to do on it unless it is reopened]". Built
+- A task that is built FOR THIS AGENT gets " [built: done and waiting; its note says what is left]" (worded in review 3). Built
   for this agent is the Assigner's rule (hasOpenWork, busyHold): builtAt, and either the person's mark freed everyone
   (builtFreesAll) or this agent's own mark is in builtWho. It stays on the list: the agent uses its number to follow up.
 - Another holder's mark does not cover this agent's open part, so such a task is listed unmarked (review 1).
@@ -24,12 +24,15 @@ Split from #9166 item 5 (feedback triage 11-26).
   part that there was nothing to do (review 1's BLOCKER).
 - Naming the wait ("a release or a check"): a built task can wait on the person or a review; the words stay neutral.
 
+- Making the block agree with `--mine` everywhere: `--mine` groups per task, so it hides another holder's built shared
+  task from a holder still on it. The block is right there and `--mine` is not; filed as #9177 (one shared helper).
+
 ## Weakest premise
 That builtWho holds the same session names the block is built for (the Assigner reads it the same way, and the `mine`
 filter matches whoOf against the same name).
 
-## Tests: engine/builtmark-9176.test.js (4)
-- built (by this agent) marked, open not (CONTROL); built + on hold reads on hold only; two holders, built by ada: ada
+## Tests: engine/builtmark-9176.test.js (5)
+- built (by this agent) marked, open not (CONTROL); an unnamed caller's mark (builtWho empty) leaves it unmarked; built + on hold reads on hold only; two holders, built by ada: ada
   marked, bo not, and after the person's mark both are; built in a paused project reads on hold only.
 - Controls: any builtAt marks (1 fail, the two-holder case); the mark removed (2 fail); hold not first (2 fail).
 - Existing: the 50 files that render the block or sync agents, 1793 tests, 0 fail.
@@ -50,3 +53,11 @@ filter matches whoOf against the same name).
     unmarked before this change too, and it needs different words from "built" (its part is done, not built).
   - NITs not taken: repeating tasks waiting for their next run (setBuilt drops built on a recurring task, so not
     reachable); no test for the closed-parts holder (deferred with it).
+- Round 3 (opus): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 2 NIT.
+  - WARNING: with the per-holder rule the block and `--mine` disagree for a second holder of a shared built task (the
+    standing line says the live list is right). `--mine` is the wrong one there (pre-existing); filed as #9177 and named
+    under Rejected.
+  - WARNING: "nothing to do on it unless it is reopened": a built task is not reopened (new work drops the mark), and its
+    note can name the agent's own follow-ups. Fixed: "done and waiting; its note says what is left".
+  - NIT taken: a test that an unnamed caller's mark frees nobody. NIT not taken here: one shared builtFor helper (in
+    #9177, where --mine needs it too).
