@@ -649,7 +649,7 @@ kosmos_refuse_if_suite_live() {
 # wrapper's copy did: that only errs toward busy.
 # Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
 # 0 shards live, 1 none, 2 or more pgrep failed (review 2: busy too; review 6: said as "could not tell").
-_kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; return "$rc"; }
+_kosmos_shell_shards_live() { local rc=0; LC_ALL=C pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; return "$rc"; }   # C: kosmos#9149
 kosmos_cut_quiet_box_busy() {
   local probe="${KOSMOS_SUITE_PROBE:-}" self="${KOSMOS_SUITE_SELF_PID:-$$}" out rc sc
   if kosmos_prepush_build_live; then echo "relay pre-push build"; return 0; fi

@@ -32,7 +32,7 @@ settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmo
 # Mac the real pgrep did, the helper rightly answered 2, and the whole validation was red for it. Only a pgrep that exited 2 or
 # more, or could not be started, is looked at again: a wrong 0 or 1, or a 2 the helper gave on its own, is red at once. A pgrep that keeps failing stays
 # 2, and each failure prints what pgrep said, which the helper throws away. rc 9: pgrep is not known to have answered.
-live_pgrep() { command pgrep "$@"; }
+live_pgrep() { LC_ALL=C command pgrep "$@"; }   # C, as the helper runs it (kosmos#9149)
 LOOK_PAUSE=0.5
 look() { # sets out and rc
   local i pr
@@ -86,7 +86,7 @@ start bash -c "$WAIT30; :" "mentions-$SCRIPT"; MENTION=$!   # compound, so bash 
 start bash -c "$WAIT30; : $SCRIPT"; CSTRING=$!                  # a -c command string that names the script
 settle $WAITER $PARENT $MENTION $CSTRING
 # CONTROL: the unanchored pattern a hand-written wait used really does match them (else this proves nothing).
-loose="$(pgrep -f "${NAME//./\\.}" | tr '\n' ' ')"
+loose="$(LC_ALL=C pgrep -f "${NAME//./\\.}" | tr '\n' ' ')"
 cmiss=0; for p in $WAITER $PARENT $MENTION $CSTRING; do case " $loose " in *" $p "*) : ;; *) cmiss=1; bad "control: unanchored pgrep did not match pid $p, so the test cannot show the bug" ;; esac; done
 [ "$cmiss" = 0 ] && ok "CONTROL: an unanchored pgrep -f matches the waiter, its sh -c parent, the mention and the -c string"
 
@@ -156,11 +156,11 @@ printf '#!/bin/bash\nsleep 30\n' > "$T/tools/$ANC-sib.sh"
 {
   printf '%s\n' '#!/bin/bash' '. "$1/tools/lib/cut-guard.sh"'
   printf 'out="$( ( _kosmos_pgrep_cmdlines "%s" ) )"\n' "$ANC"
-  printf 'case "${OSTYPE:-}" in darwin*) raw=skip ;; *) raw="$( ( pgrep -fa "%s" | grep -c -- -self\\.sh ) )" ;; esac\n' "$ANC"
+  printf 'case "${OSTYPE:-}" in darwin*) raw=skip ;; *) raw="$( ( LC_ALL=C pgrep -fa "%s" | grep -c -- -self\\.sh ) )" ;; esac\n' "$ANC"
   printf '%s\n' 'echo "raw $raw"' 'printf "%s\n" "$out"'
 } > "$T/tools/$ANC-self.sh"
 start bash "$T/tools/$ANC-sib.sh"; sib="${PIDS##* }"
-for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$ANC-sib\.sh" | grep -qx "$sib" && break; sleep 0.5; done
+for i in 1 2 3 4 5 6 7 8 9 10; do LC_ALL=C pgrep -f "$ANC-sib\.sh" | grep -qx "$sib" && break; sleep 0.5; done
 got="$(bash "$T/tools/$ANC-self.sh" "$PWD")"
 printf '%s\n' "$got" | grep -qE "^$sib " && ok "_kosmos_pgrep_cmdlines lists a separate matching process (control)" \
   || bad "the separate matching process $sib was not listed: [$got]"
@@ -196,8 +196,11 @@ bash -c 'exec -a "$(printf "zz\377probe-%s" "$1")" perl -e "select(undef, undef,
 n=0; while [ "$n" -lt 50 ] && ! LC_ALL=C command pgrep -f "probe-$$" >/dev/null; do perl -e 'select(undef, undef, undef, 0.1)'; n=$((n + 1)); done
 cr=0; LC_ALL="$U8" command pgrep -f "no-such-process-$$" >/dev/null 2>&1 || cr=$?; echo "note  control: plain pgrep under $U8 with that process alive exits $cr (3 shows the defect)"
 got="$(LC_ALL="$U8" LANG="$U8" bash -c '. tools/lib/cut-guard.sh; kosmos_running_lines tools/no-such-script-9149.sh; echo "rc=$?"' 2>&1)"
-kill "$BB" 2>/dev/null; wait "$BB" 2>/dev/null
 [ "$got" = "rc=1" ] && ok "a non-UTF-8 command line elsewhere does not make the guards read could-not-tell" || bad "with a non-UTF-8 command line alive: [$got]"
+# The cut's quiet-box shard check, the same way: 0 or 1 (a colleague's shard run may be live), never 2 or more.
+got="$(LC_ALL="$U8" LANG="$U8" bash -c '. tools/lib/cut-guard.sh; _kosmos_shell_shards_live; echo "rc=$?"' 2>&1)"
+kill "$BB" 2>/dev/null; wait "$BB" 2>/dev/null
+case "$got" in rc=0|rc=1) ok "a non-UTF-8 command line elsewhere does not make the shard check read could-not-tell" ;; *) bad "the shard check with a non-UTF-8 command line alive: [$got]" ;; esac
 
 echo "test-running-anchor-5470: $FAILS failure(s)"
 [ "$FAILS" = 0 ]
