@@ -90,6 +90,10 @@ QH=$S/qh
 # real suite (a stray one joined the real queue once, from an unquoted heredoc that built the harness).
 mkdir -p $S/bin; for t in yarn npm pnpm bun deno npm-run-all run-s run-p node npx; do printf '#!/bin/sh\necho "FAKE-%s $*"\n' "$t" > $S/bin/$t; chmod +x $S/bin/$t; done
 export PATH="$S/bin:$PATH"
+# kosmos#9217: no case here may announce to a real board; the one arm that tests the announcement turns it on, with a
+# stand-in `kosmos` in $S/bin that only records its arguments.
+export QUEUED_HEAVY_ANNOUNCE=0
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/kosmos-calls"\n' "$S" > $S/bin/kosmos; chmod +x $S/bin/kosmos
 # The cases also spell real scripts by relative path (`bash tools/test-install.sh`): run from an empty dir, where no such
 # path exists, so a refusal that ever lapsed could not start the real install harness.
 mkdir -p $S/cwd && cd $S/cwd || { echo "FAIL  tools/test-queued-heavy-4977.sh: cannot enter $S/cwd"; exit 1; }
@@ -1065,7 +1069,22 @@ cap_hold $S/mcap4 "queued run (not a cut): fake heavy"
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap4 QUEUED_HEAVY_CAP_S=15m KOSMOS_WAIT_QUEUE_CEIL_S=2 perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "badcap" touch $S/badcap-ran 2>&1); r=$?
 ok "#9139: a cap that is not a number is no cap (refused, nothing run beside)" '[ "$r" = 4 ] && [ ! -e $S/badcap-ran ] && [[ "$o" != *"waits at most"* ]]'
 
-EXPECTED=202   # three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+# kosmos#9217: a main turn tells the board (kosmos heavy start) with this script's own pid, so the line clears itself
+# when the script exits; off (this file's default, and run-tests.sh's) it says nothing; a light run does not; a long
+# name is cut to the 80 characters a label may have. $S/bin/kosmos is a stand-in that only records its arguments.
+rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "ann job" sh -c 'echo "RAN"' 2>&1)
+ok "#9217: a main turn announces its run with --pid, and the run still goes" '[[ "$o" == *RAN* && "$o" == *"END rc=0"* ]] && grep -qE "^heavy start ann job --pid [0-9]+$" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mann0 /bin/bash $QH "quiet job" true 2>&1)
+ok "#9217: with QUEUED_HEAVY_ANNOUNCE=0 nothing is announced" '[[ "$o" == *"END rc=0"* ]] && [ ! -e $S/kosmos-calls ]'
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannside QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH --light "side job" true 2>&1)
+ok "#9217: a --light run, given an ordinary turn on a free machine, announces nothing" '[[ "$o" == *"END rc=0"* ]] && [ ! -e $S/kosmos-calls ]'
+long=$(printf 'L%.0s' $(seq 1 100))
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannlong QUEUED_HEAVY_ANNOUNCE=1 /bin/bash $QH "$long" true 2>&1)
+ok "#9217: a long run name is announced cut to 80 characters" '[ "$(sed -n "s/^heavy start \(L*\) --pid [0-9]*$/\1/p" $S/kosmos-calls | tr -d "\n" | wc -c | tr -d " ")" = 80 ]'
+
+EXPECTED=206   # four #9217 announce arms (a main turn, off, a side turn, a long name); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

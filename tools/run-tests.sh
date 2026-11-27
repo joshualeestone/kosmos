@@ -510,6 +510,7 @@ export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 export KOSMOS_UPDATE_PAUSE_URL=http://127.0.0.1:9/v1/meta   # kosmos#6620: the update pause asks a dead port, never the coordinator
+export QUEUED_HEAVY_ANNOUNCE=0   # kosmos#9217: a queued-heavy.sh a test starts never tells a real board about its stand-in job
 export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.

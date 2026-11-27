@@ -1026,6 +1026,16 @@ elif [ -n "$QH_BESIDE" ]; then
 else
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') TURN: running $WHAT (machine claimed, renewed every ${RENEW_SEC}s while it runs)"
 fi
+# kosmos#9217: say on the board that a heavy job runs on this computer (`kosmos heavy start`), tied to this script's own
+# process, so the board's line clears itself when this script exits, however it exits (no end call in _qh_end). A
+# heavy run only: a --light run is not announced, whichever lane it gets, unless it was made an ordinary turn because it
+# runs a suite, a page layer, an install harness or a cut (QH_RUNS_BC). Best-effort: with no kosmos command, with QUEUED_HEAVY_ANNOUNCE=0
+# (tools/run-tests.sh sets it, so a test's queued-heavy never writes to a real board), or on any refusal, nothing is
+# said and the run goes on. The label is the run's own name, cut to the 80 characters a label may have.
+if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$QH_RUNS_BC" = 1 ]; } \
+  && [ "${QUEUED_HEAVY_ANNOUNCE:-1}" != 0 ] && command -v kosmos >/dev/null 2>&1; then
+  kosmos heavy start "${WHAT:0:80}" --pid "$$" </dev/null >/dev/null 2>&1 || true
+fi
 if [ "$LANE" != side ] && [ -z "$QH_BESIDE" ]; then
 (
   # The renewer (a main turn only: a side turn is capped, above). $$ here is still the main script's pid, so the claim keeps naming the main script as its holder.
