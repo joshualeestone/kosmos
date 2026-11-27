@@ -160,6 +160,10 @@ RUNNER_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.lo
 CI_DIR="$CI_HOME/.kosmos-ci"
 
 say() { printf '== %s\n' "$*"; }
+# kosmos#9149: every pgrep here runs under LC_ALL=C. In a UTF-8 locale pgrep exits 3 ("illegal byte sequence") whenever
+# ANY process on the Mac has a command line that is not valid UTF-8, and each check below then refuses with "could not
+# list processes". `command` still finds whatever pgrep is first on PATH (the tests' stand-in too).
+pgrep() { LC_ALL=C command pgrep "$@"; }
 # act <command...>: runs it with --apply, else prints it.
 act() {
   if [ "$APPLY" = 1 ]; then "$@"; else printf 'WOULD:'; printf ' %q' "$@"; printf '\n'; fi

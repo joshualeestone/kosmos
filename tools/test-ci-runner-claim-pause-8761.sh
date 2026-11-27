@@ -40,6 +40,7 @@ cat > "$T/bin/pgrep" <<EOF
 #!/bin/bash
 echo "\$*" >> "$T/pgrepcalls"
 [ -f "$T/pgrepbroken" ] && exit 3
+[ -f "$T/needc" ] && [ "\${LC_ALL:-}" != C ] && { echo "pgrep: Regular expression evaluation error (illegal byte sequence)" >&2; exit 3; }   # kosmos#9149
 case "\$*" in *" -f "*) [ -f "$T/nolistener" ] && exit 1; exit 0 ;; esac
 [ -f "$T/busy" ] && exit 0
 exit 1
@@ -93,6 +94,10 @@ if [ "$(rc)" = 0 ] && ! called kickstart; then pass "stopped by hand, no claim: 
 reset; : > "$T/busy"; echo "c1 1 $((NOW + 3600)) mortals cut" > "$CLAIM"; tick
 if [ "$(rc)" = 0 ] && ! called kill && [ -f "$T/running" ] && [ ! -f "$T/state/paused-by-claim" ]; then pass "job running: not stopped, no marker written"; else fail "busy: $(tr '\n' ';' < "$T/calls")"; fi
 rm -f "$T/busy"; tick; called "kill SIGTERM" && pass "job finished: stopped on the next tick" || fail "after the job: $(tr '\n' ';' < "$T/calls")"
+# kosmos#9149: a pgrep that refuses a stray byte elsewhere on the Mac unless it runs under LC_ALL=C: still stopped.
+reset; : > "$T/needc"; echo "c1 1 $((NOW + 3600)) mortals cut" > "$CLAIM"; tick
+called "kill SIGTERM" && pass "a byte-refusing pgrep (outside LC_ALL=C) does not stop the pause" || fail "with a byte-refusing pgrep: rc $(rc) $(tr '\n' ';' < "$T/calls") $(cat "$T/out")"
+rm -f "$T/needc"
 
 # 6. Claims that must read as NO claim (fail open): each leaves a running runner running.
 for c in "expired:c1 1 $((NOW - 1)) mortals cut" "dead holder:c1 $DEAD $((NOW + 3600)) mortals cut" \

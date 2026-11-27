@@ -151,10 +151,11 @@ if live="$(claim_live)"; then
   # none runs). A SIGTERM now could end the updater half way (ci-runner-setup.sh's keepalive refuses the same state).
   # Matched as setup's own_listener_re: this runner dir's bin*/Runner.Listener by its argv start, not the relay's.
   lre="^$(printf '%s' "$RUNNER_DIR" | sed 's/[.]/[.]/g')/bin[^/]*/Runner[.]Listener( |\$)"
-  lrc=0; "$PGREP" -u "$uid" -f "$lre" >/dev/null 2>&1 || lrc=$?
+  # kosmos#9149: under C, or a command line that is not valid UTF-8 anywhere on the Mac makes pgrep exit 3.
+  lrc=0; LC_ALL=C "$PGREP" -u "$uid" -f "$lre" >/dev/null 2>&1 || lrc=$?
   [ "$lrc" -lt 2 ] || { say "$why, but pgrep failed (exit $lrc), so the Listener cannot be checked: not stopping"; exit 1; }
   [ "$lrc" = 0 ] || { say "$why; $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating): waiting for the next tick"; exit 0; }
-  wrc=0; "$PGREP" -u "$uid" -x Runner.Worker >/dev/null 2>&1 || wrc=$?
+  wrc=0; LC_ALL=C "$PGREP" -u "$uid" -x Runner.Worker >/dev/null 2>&1 || wrc=$?
   [ "$wrc" -lt 2 ] || { say "$why, but pgrep failed (exit $wrc), so a job cannot be ruled out: not stopping"; exit 1; }
   [ "$wrc" = 1 ] || { say "$why; a job is running, so the runner is left to finish it"; exit 0; }
   mkdir -p "$STATE" 2>/dev/null && printf '%s\n' "$rpid" > "$MARK" || { say "$why, but the marker $MARK cannot be written: not stopping (it could not be restarted)"; exit 1; }
