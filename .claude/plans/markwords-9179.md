@@ -38,3 +38,10 @@ alone turns its test red (no neutraliser, ASCII-only, no fold, window-first, \b)
 - [NIT] the comment described the old pipeline order, and named \p{Ps} but not \p{Pi} --> rewritten as one comment stating the pipeline in its real order.
 - Ordinary titles changed: "[Built: v2 notes]", "a[built]=1", "[on hold]" get a "(" --> ACCEPTED: they read as marks, only one bracket changes.
 - Also: my shell and Edit-tool edits had turned the test's \u escapes into literal characters (an invisible combining accent among them); the file is back to ASCII with escapes.
+
+## Review round 3 (opus, blind, whole branch): no critical
+- [WARNING] a list of allowed endings kept missing one (";", ".", a spaced dash, an ellipsis) --> FIXED by inverting the rule: a mark word counts unless it runs straight on into a word (a letter or digit after it, after a dash, or after spaces, except "until"). Lookalike colons are then marks too.
+- [WARNING] only the ASCII hyphen between "on" and "hold" --> FIXED: any \p{Pd}.
+- [NIT] the blank braille cell U+2800 and "<" as an opener --> FIXED.
+- [NIT] absence-only assertions could pass on lost words --> FIXED: every forged and lookalike line also asserts its words survived (only the opener changed).
+- Not marks, kept byte for byte (tested): "[builté]", "[on-hold list]", "[built in 2024]", "[built-in]", "[builtin]", "[on hold list 2]", "<builder>", "[the on hold list]". Each new part perturbed alone turns its test red (the braille one through a script file: zsh turns a \u in a shell argument into the literal character).

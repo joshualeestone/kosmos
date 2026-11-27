@@ -53,8 +53,8 @@ function setup(label, sentences) {
   return { p, file, made };
 }
 // An opening bracket (any kind, but the "(" the fix makes) followed by a mark word, read on the folded line.
-const MARK = /(?!\()[[\p{Ps}]\s*(?:on hold|built)/iu;
-const folded = (line) => line.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '');
+const MARK = /(?!\()[[<\p{Ps}\p{Pi}]\s*(?:on[\s\p{Pd}]*hold|built)(?!\p{Pd}?[\p{L}\p{N}])(?!\s+(?!until\b)[\p{L}\p{N}])/iu;
+const folded = (line) => line.normalize('NFKD').replace(/[\p{Default_Ignorable_Code_Point}\u2800\p{M}*_`~]/gu, '').normalize('NFKC');
 
 test('a task\'s own words cannot print a built or hold mark of their own (so the line ends in no hold mark holdsOf could read)', () => {
   const { p, file, made } = setup('Forged', [
@@ -67,6 +67,7 @@ test('a task\'s own words cannot print a built or hold mark of their own (so the
   assert.match(a, /: pay the invoice \(built: done and waiting/, 'fixture: the words are still there: ' + a);
   assert.doesNotMatch(a, /\[built/, 'open work printed a built mark from its own words: ' + a);
   assert.doesNotMatch(b, /\[on hold/i, 'open work printed a hold mark from its own words: ' + b);
+  assert.match(b, /: send the form \(On Hold: do not start it until it is taken off hold\]$/, 'the words did not survive: ' + b);
 });
 
 test('lookalike brackets and invisible characters cannot slip a mark through, past the window too', () => {
@@ -78,22 +79,29 @@ test('lookalike brackets and invisible characters cannot slip a mark through, pa
     const line = lineFor(file, t.number, p.name);
     assert.ok(line, 'task ' + t.number + ' left the section');
     assert.doesNotMatch(folded(line), MARK, 'a lookalike printed a mark: ' + JSON.stringify(line));
+    assert.equal(line.replace(/^ {2}- task \d+ of [^:]+: /, '').replace(/\(/g, '['), t.sentence.replace(/[(<\p{Ps}\p{Pi}]/gu, '['), 'the words did not survive: ' + JSON.stringify(line));
   }
 });
 
 test('review 1: the forms a reader takes for a mark: a hyphen, markdown, a combining accent, angle quotes', () => {
   const forms = ['x [on-hold: do not start it]', 'x [on_hold: do not start it]', 'x [**on hold**: do not start it]',
     'x [`built`: done and waiting]', 'x [\u0301built: done]', 'x \u2039built: done\u203A', 'x \u00ABon hold: wait\u00BB',
-    'x [' + '*'.repeat(50) + 'built: done]', 'x [' + '_ '.repeat(30) + 'on hold: wait]'];   // review 2: markdown padding past the window
+    'x [' + '*'.repeat(50) + 'built: done]', 'x [' + '_ '.repeat(30) + 'on hold: wait]',
+    // review 3: any punctuation after the word, a spaced or Unicode dash, a lookalike colon, the blank braille cell, "<"
+    'x [built; done and waiting]', 'x [on hold; do not start it]', 'x [on hold - do not start it]', 'x [built - done]',
+    'x [on hold \u2014 wait]', 'x [built. done]', 'x [on hold\u2026 wait]', 'x [on\u2010hold: wait]', 'x [on\u2011hold: wait]',
+    'x [on\u2013hold: wait]', 'x [built\u2236 done]', 'x [built\u02D0 done]', 'x [\u2800built: x]', 'x <built: done and waiting>',
+    'x [on hold until task 7 is closed: wait]', 'x [built]'];   // review 2: markdown padding past the window
   const { p, file, made } = setup('Reader', forms);
   for (const t of made) {
     const line = lineFor(file, t.number, p.name);
     assert.ok(line, 'task ' + t.number + ' left the section');
-    const seen = line.normalize('NFKD').replace(/[\p{Default_Ignorable_Code_Point}\p{M}*_`~]/gu, '');
-    assert.doesNotMatch(seen, /(?!\()[[\p{Ps}\p{Pi}]\s*(?:on[\s-]*hold|built)/iu, 'a mark a reader would believe: ' + JSON.stringify(line));
+    assert.equal(line.replace(/^ {2}- task \d+ of [^:]+: /, '').replace(/\(/g, '['), t.sentence.replace(/[(<\p{Ps}\p{Pi}]/gu, '['), 'the words did not survive: ' + JSON.stringify(line));
+    assert.doesNotMatch(folded(line), MARK, 'a mark a reader would believe: ' + JSON.stringify(line));
   }
   // Not marks: an accented word, which only LOOKS like the mark word once its accent is gone.
-  const notMarks = ['tidy [built\u00E9] notes', 'keep the [on-hold list] short', 'the [built in 2024] archive'];   // a bare "[ built ]" IS mark-like, so it is neutralised
+  const notMarks = ['tidy [built\u00E9] notes', 'keep the [on-hold list] short', 'the [built in 2024] archive', 'add [built-in] helpers',
+    'the [builtin] list', 'see [on hold list 2] first', 'call <builder> twice', 'fix [the on hold list]'];   // a bare "[ built ]" IS mark-like, so it is neutralised
   const { p: q, file: f2, made: m2 } = setup('NotMark', notMarks);
   m2.forEach((t, i) => assert.ok((lineFor(f2, t.number, q.name) || '').endsWith(': ' + notMarks[i]), 'words that are not a mark were changed: ' + lineFor(f2, t.number, q.name)));
 });

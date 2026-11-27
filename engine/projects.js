@@ -4078,22 +4078,26 @@ function blockBody(projects, sessionName) {
        opening a mark word becomes "(", and ONLY that bracket changes: the words print as written, so an emoji, a Persian
        word or a circled digit reads as the live list prints it. Webhook words are already quoted, their brackets folded,
        by forAgent (#1307).
-       - An opener is any opening bracket or quote: \p{Ps} (fullwidth, CJK, math) and \p{Pi} (angle quotes).
+       - An opener is any opening bracket or quote: \p{Ps} (fullwidth, CJK, math), \p{Pi} (angle quotes), and "<".
        - What follows it is judged on a FOLDED copy of the rest of the line, in this order: NFKD; every invisible
-         character (\p{Default_Ignorable_Code_Point}), combining accent (\p{M}) and markdown character (* _ ` ~) out;
+         character (\p{Default_Ignorable_Code_Point}, and the blank braille cell U+2800), combining accent (\p{M}) and
+         markdown character (* _ ` ~) out;
          NFKC; then a 48-character window. Folding before the window means no run of invisible or markdown padding can
          push a mark out of view (review 2).
-       - A mark word is "on hold" (any spaces, "-" or "_" between, or none) or "built", going on as every real mark
-         does: a colon, a comma, "until" or a closing bracket. A title that only uses the word ("[on-hold list]",
-         "[built in 2024]", "[builtin]") is left alone.
+       - A mark word is "on hold" (any spaces or dashes between, or none; "_" is already out) or "built", unless it runs
+         straight on into a word: a letter or digit right after it, after a dash ("[built-in]", "[on-hold list]" is
+         "hold" then a word), or after spaces ("[built in 2024]"), except "until", which a real hold mark uses. Any
+         punctuation after the word (":", ";", ",", ".", a spaced dash, a lookalike colon, a closing bracket) or the end of
+         the window reads as a mark, so the rule names what is NOT a mark rather than every way a mark can go on
+         (review 3: a list of allowed endings kept missing one).
        RESIDUAL, stated (review 1): the words stay the task's own, so "(on hold: do not start it]" can still read as
-       advice to a model, and lookalike LETTERS (Cyrillic, a dotless i) are not folded. The board's own marks always come
+       advice to a model, and lookalike LETTERS (Cyrillic, a dotless i, a Greek o) are not folded. The board's own marks always come
        after the words, and the block's standing line says the live list wins when they disagree. */
-    const MARK_AFTER = /^\s*(?:on[\s-]*hold|built)\s*(?:[:,\]\p{Pe}\p{Pf}]|until\b)/iu;
+    const MARK_AFTER = /^\s*(?:on[\s\p{Pd}]*hold|built)(?!\p{Pd}?[\p{L}\p{N}])(?!\s+(?!until\b)[\p{L}\p{N}])/iu;
     const words = (t) => {
       const w = oneLine(require('./tasks').forAgent(t));
-      return w.replace(/[[\p{Ps}\p{Pi}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKD')
-        .replace(/[\p{Default_Ignorable_Code_Point}\p{M}*_`~]/gu, '').normalize('NFKC').slice(0, 48)) ? '(' : b));
+      return w.replace(/[[<\p{Ps}\p{Pi}]/gu, (b, i) => (MARK_AFTER.test(w.slice(i + b.length).normalize('NFKD')
+        .replace(/[\p{Default_Ignorable_Code_Point}\u2800\p{M}*_`~]/gu, '').normalize('NFKC').slice(0, 48)) ? '(' : b));
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${held(t) || built(t)}`)].join('\n');
   });
