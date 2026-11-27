@@ -132,14 +132,6 @@ jobs:
           xcrun swiftc --version
           xcrun simctl list runtimes
 
-      # kosmos#9213: the logic suites compile with -Onone (the optimizer was most of their time on a slow runner).
-      # A new run*.sh copied from an older one can bring -O back, so this fails on any.
-      - name: Logic tests compile without the optimizer
-        run: |
-          if grep -rnE "swiftc +-O( |\$)" ios/LogicTests ios/tools; then
-            echo "Compile logic tests with -Onone, not -O (kosmos#9213)."; exit 1
-          fi
-
       # The suite prints one VERDICT line last. Assert that line, not only the exit
       # code, so a run cut off before it cannot read as green.
       - name: Push bridge logic tests
@@ -395,6 +387,11 @@ jobs:
           set -o pipefail
           ios/tools/test-archive-config.sh | tee "$RUNNER_TEMP/archive-config.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"
+
+      # kosmos#9213: the logic suites compile with -Onone. A branch started before that change can land a script with -O
+      # after it, so this fails on any optimizer flag. Last in the job, so a stray flag never hides the suites above.
+      - name: Logic tests compile without the optimizer
+        run: ios/tools/check-logic-onone.sh
 
   # kosmos#8993: the app the three UI jobs test, built once per run. Each of them built the same Debug app itself, about 12
   # of a 40 minute job (measured on run 45384659475: 28.4 min of tests in a 40.5 min test action), on a macOS queue that
