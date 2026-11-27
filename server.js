@@ -14936,12 +14936,15 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
-  /* #8720: retiring idle agents (Settings > Agents). GET is the setting, the verdict on every agent (would retire,
-     kept and why, cannot tell) and the recent retirements; a read error is a 500, never a false position. PUT {on}
-     or {days}, screen-only as the Recommender's (advisory, per isViaScreen's note). */
+  /* #8720: retiring idle agents (Settings > Automation > Idle agents). GET is the setting, the verdict on every agent
+     and the recent retirements; a read error, or an agent list that could not be read, is a 500, never an empty list
+     that reads as "nobody would be retired". PUT {on} or {days}, screen-only as the Recommender's. */
   if (pathname === '/api/idle-retire' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, require('./engine/idleretire').view(safeRoster())); }
-    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    try {
+      const rows = safeRoster();
+      if (!Array.isArray(rows)) { sendJson(res, 500, { error: 'the agent list could not be read' }); return; }
+      sendJson(res, 200, require('./engine/idleretire').view(rows));
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
   if (pathname === '/api/idle-retire' && req.method === 'PUT') {
@@ -14955,7 +14958,9 @@ const server = http.createServer(async (req, res) => {
         const idleretire = require('./engine/idleretire');
         const saved = idleretire.writeSetting({ on: body.on, days: body.days });
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        sendJson(res, 200, idleretire.view(safeRoster()));
+        const rows = safeRoster();
+        // Saved either way; without the agent list the screen re-reads, and that read says what failed.
+        sendJson(res, 200, Array.isArray(rows) ? idleretire.view(rows) : { setting: idleretire.readSetting(), choices: idleretire.DAY_CHOICES, verdicts: null, recent: null });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -31112,19 +31117,15 @@ function start(port = PORT) {
       });
       const feedbacknudgeSweep = setInterval(feedbacknudgeTick, Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) : 10 * 60 * 1000); // the env is the test seam only
       if (feedbacknudgeSweep && typeof feedbacknudgeSweep.unref === 'function') feedbacknudgeSweep.unref();
-      /* #8720: when the person has turned it on in Settings (off by default), once a day every agent that has not run
-         in their chosen number of days is retired through the board's own Remove (engine/idleretire.js decides who and
-         keeps what it did; engine/remove.js does it, never forced, so it can be put back from Removed agents).
+      /* #8720: when the person has turned it on in Settings (off by default), agents that have not run in their chosen
+         number of days are retired through the board's own Remove (engine/idleretire.js decides who and keeps what it
+         did; engine/remove.js does it, never forced, so it can be put back from Removed agents).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
-         AGENT_WORKFORCE_IDLE_RETIRE_OFF=1, own hourly timer (the module itself runs once a day), unref'd, best-effort.
-         A dry-run REMOVED did nothing (engine/remove.js markDryRun), so it is recorded as refused, never as retired. */
+         AGENT_WORKFORCE_IDLE_RETIRE_OFF=1, own hourly timer, unref'd, best-effort. */
       const idleretireTick = require('./engine/idleretire').makeTick({
         allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_IDLE_RETIRE_OFF !== '1',
         roster: () => safeRoster(),
-        remove: (name) => {
-          const done = removal.remove(name);
-          return done && done.dryRun ? { outcome: removal.OUTCOME.REFUSED, because: done.because } : done;
-        },
+        remove: (name) => removal.remove(name),
         log: (line) => process.stdout.write(line + '\n'),
       });
       const idleretireSweep = setInterval(idleretireTick, Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_IDLE_RETIRE_MS) : 60 * 60 * 1000); // the env is the test seam only

@@ -175,7 +175,7 @@ function chk(ok, label, extra) {
       // #5080 added "Language" directly below Community (the third time this sibling was missed: web.settings-nav.test.js
       // now asserts the two lists match).
       chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agents on one account at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner', 'Idle agents']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini subscription agents at once, Agents on one account at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner (#2619, #4288, #4588, #5080, #7406)`, JSON.stringify(sec.headings));
+        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini subscription agents at once, Agents on one account at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner, Idle agents (#2619, #4288, #4588, #5080, #7406, #8720)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
       // an undeliverable nudge -- both the visible <b> label and the slider's aria-label

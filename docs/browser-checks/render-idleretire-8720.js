@@ -6,12 +6,13 @@
  * Drives the real paintIdleRetire() against a stubbed /api/idle-retire (no board), in Chromium and WebKit, at desktop
  * and phone width, inside the real Settings panel. The claims, each able to fail:
  *  - an unreadable setting hides the switch with no on or off on it and says so (never a false Off);
- *  - off: the switch reads off, and the days and the lists are hidden;
+ *  - off: the switch reads off, and the days and the lists still show, as a preview ("if you turn this on");
  *  - on: the days read the stored number; "would be retired" names each agent as the list shows it, with why, and a
  *    name with markup in it is shown as text; "kept" lists only agents idle long enough and protected (an agent that
  *    ran two days ago is not in it, a control); "cannot tell" and "recently retired" are drawn, and an empty group
  *    draws no heading;
  *  - pressing the switch sends { on: false } once; picking 90 days sends { days: 90 } once;
+ *  - a save the board took but could not list agents for re-reads, and that read failing hides the switch and says so;
  *  - at 390 px nothing scrolls sideways.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-idleretire-8720.js
@@ -34,7 +35,8 @@ const ON = { setting: { on: true, days: 60, ok: true }, choices: CHOICES, recent
     { name: 's-p', shownAs: 'Pia', verdict: 'keep', days: 65, why: 'it is on the project Atlas' },
     { name: 's-r', shownAs: 'Rex', verdict: 'keep', days: 2, why: 'it ran 2 days ago' },
     { name: 's-u', shownAs: 'Uma', verdict: 'unknown', days: null, why: 'Kosmos has no record of it running yet' }] };
-const OFF = { setting: { on: false, days: 30, ok: true }, choices: CHOICES, verdicts: [], recent: [] };
+const OFF = { setting: { on: false, days: 30, ok: true }, choices: CHOICES, recent: [],
+  verdicts: [{ name: 's-a', shownAs: 'Ada', verdict: 'retire', days: 70, why: 'it has not run in 70 days' }] };
 const EMPTY_ON = { setting: { on: true, days: 30, ok: true }, choices: CHOICES, verdicts: [], recent: [] };
 
 const fails = [];
@@ -58,7 +60,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         window.fetch = (u, opts) => {
           const url = String(u);
           if (url.indexOf('/api/idle-retire') !== -1) {
-            if (opts && opts.method === 'PUT') { puts.push(JSON.parse(opts.body)); return Promise.resolve({ ok: true, json: async () => current }); }
+            if (opts && opts.method === 'PUT') {
+              puts.push(JSON.parse(opts.body));
+              if (current === 'saved-no-list') { current = 'fail'; return Promise.resolve({ ok: true, json: async () => ({ setting: { on: true, days: 30, ok: true }, choices: [14, 30, 60, 90], verdicts: null, recent: null }) }); }
+              return Promise.resolve({ ok: true, json: async () => current });
+            }
             return current === 'fail' ? Promise.resolve({ ok: false, status: 500, json: async () => ({}) }) : Promise.resolve({ ok: true, json: async () => current });
           }
           return realFetch(u, opts);
@@ -81,6 +87,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             lists: shown('idr-lists'),
             retire: items('idr-retire'), keep: items('idr-keep'), unknown: items('idr-unknown'), recent: items('idr-recent'),
             heads: ['idr-retire-h', 'idr-keep-h', 'idr-unknown-h', 'idr-recent-h'].filter(shown),
+            retireHead: document.getElementById('idr-retire-h').textContent,
             markup: !!document.querySelector('#idr-retire b'),
             msg: document.getElementById('idr-msg').textContent.trim(),
             sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -103,18 +110,26 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         for (let i = 0; i < 50 && puts.length === 0; i += 1) await new Promise((res) => setTimeout(res, 20));
         await new Promise((res) => setTimeout(res, 100));
         out.afterDays = { ...look(), puts: puts.slice() };
+        current = off; await paintIdleRetire();
+        current = 'saved-no-list';
+        document.getElementById('idr-toggle').click();
+        for (let i = 0; i < 50 && look().checked !== null; i += 1) await new Promise((res) => setTimeout(res, 20));
+        out.savedNoList = look();
         return out;
       }, { on: ON, off: OFF, emptyOn: EMPTY_ON });
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
       say(r.fail.togHidden && r.fail.checked === null && !r.fail.lists && /could not read/.test(r.fail.msg), tag + ' an unreadable setting hides the switch with no position and says so', JSON.stringify(r.fail));
-      say(!r.off.togHidden && r.off.checked === 'false' && r.off.days === null && !r.off.lists, tag + ' off: the switch reads off, the days and lists are hidden', JSON.stringify(r.off));
+      say(!r.off.togHidden && r.off.checked === 'false' && r.off.days === '30' && r.off.lists
+        && JSON.stringify(r.off.retire) === JSON.stringify(['Ada: it has not run in 70 days'])
+        && /if you turn this on/.test(r.off.retireHead), tag + ' off: the switch reads off, and the days and a preview of who would go still show', JSON.stringify(r.off));
       say(r.emptyOn.checked === 'true' && r.emptyOn.heads.length === 0, tag + ' on with nothing to list draws no group heading', JSON.stringify(r.emptyOn.heads));
       say(r.on.checked === 'true' && r.on.days === '60' && r.on.lists, tag + ' on: the switch reads on and the days read the stored 60', JSON.stringify({ c: r.on.checked, d: r.on.days }));
       say(JSON.stringify(r.on.retire) === JSON.stringify(['<b>Ada</b>: it has not run in 70 days']) && !r.on.markup, tag + ' would-retire names the agent as shown, with why, markup as text', JSON.stringify(r.on.retire));
       say(JSON.stringify(r.on.keep) === JSON.stringify(['Pia: it is on the project Atlas']), tag + ' kept lists only the idle-and-protected agent (Rex, who ran 2 days ago, is not in it)', JSON.stringify(r.on.keep));
       say(JSON.stringify(r.on.unknown) === JSON.stringify(['Uma']), tag + ' cannot-tell lists the agent with no record', JSON.stringify(r.on.unknown));
       say(r.on.recent.length === 2 && /^Olga, 2026-11-20: retired, /.test(r.on.recent[0]) && /^Ref, 2026-11-20: not retired, it is held$/.test(r.on.recent[1]), tag + ' recently retired says retired or not, with the day and why', JSON.stringify(r.on.recent));
-      say(JSON.stringify(r.afterClick.puts) === JSON.stringify([{ on: false }]) && r.afterClick.checked === 'false' && !r.afterClick.lists, tag + ' pressing the switch sends { on: false } once and draws off', JSON.stringify(r.afterClick.puts));
+      say(JSON.stringify(r.afterClick.puts) === JSON.stringify([{ on: false }]) && r.afterClick.checked === 'false' && /if you turn this on/.test(r.afterClick.retireHead), tag + ' pressing the switch sends { on: false } once and draws off', JSON.stringify(r.afterClick.puts));
+      say(r.savedNoList.checked === null && r.savedNoList.togHidden && /could not read/.test(r.savedNoList.msg), tag + ' a save with no agent list re-reads, and a failed read hides the switch and says so', JSON.stringify(r.savedNoList));
       say(JSON.stringify(r.afterDays.puts) === JSON.stringify([{ days: 90 }]) && r.afterDays.days === '90', tag + ' picking 90 days sends { days: 90 } once', JSON.stringify(r.afterDays.puts));
       say(!r.on.sideways, tag + ' nothing scrolls sideways');
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
