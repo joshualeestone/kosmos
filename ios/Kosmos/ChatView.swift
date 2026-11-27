@@ -838,7 +838,7 @@ struct ChatView: View {
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
-                                if anchorOnEndAppear { anchorOnEndAppear = false; if positionId == nil, !personScrolling, !scrollBox.underFinger { positionId = "end" } }   // kosmos#9212
+                                if anchorOnEndAppear { anchorOnEndAppear = false; if positionId != "end", !personScrolling, !scrollBox.underFinger, !searchMode { positionId = "end" } }   // kosmos#9212
                                 endVisible = true
                                 rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -1261,6 +1261,9 @@ struct ChatView: View {
     private func goNewest(_ proxy: ScrollViewProxy, animated: Bool = false) {
         appMoves &+= 1
         if Self.idAnchor {
+            // kosmos#9212: while the open waits for the end to appear, an arrival or a read goes there by a scroll too; the end's
+            // appearance names the anchor.
+            if anchorOnEndAppear { proxy.scrollTo("end", anchor: .bottom); return }
             // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
             if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
             return
@@ -1640,7 +1643,7 @@ struct ChatView: View {
             // rows it had only estimated and stayed empty. Asked again after its first layout, unless the person has started
             // scrolling or another chat opened. Nothing of the new list is drawn yet: no row counted, the end not shown (so a
             // new list that also stays empty is checked again), and no earlier page asked for by its top (settledAtEnd).
-            anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; topVisible = false; onScreen = []; settledAtEnd = false
+            anchorLetGo = false; anchorOnEndAppear = false; rowTops.reset(); endSeen = false; endVisible = false; topVisible = false; onScreen = []; settledAtEnd = false
             earlierLanding = false; topDuringHold = nil; earlierLandings += 1   // kosmos#8221 slice 16: the rebuilt list has not drawn a landing
             positionId = nil
             // TestFlight 37 review 1: the new list is sent to its newest, so the reader is at the newest from here; a rebuilt

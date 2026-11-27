@@ -19,7 +19,10 @@ check on the fix only).
 - ChatView: the open scrolls to "end" without naming the anchor and sets a one-shot flag (anchorOnEndAppear); the end
   marker's onAppear uses it up and names positionId "end" if nothing else named one and no person is scrolling (personScrolling,
   or UIKit's own under-a-finger reading, since iOS 17 sets no personScrolling). A person's scroll (iOS 18+) and a fresh chat
-  clear the flag. A chat whose end appeared before the open ran (short enough to fit) is anchored at once. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
+  clear the flag, as does a rebuild of the list. A chat whose end appeared before the open ran (short enough to fit) is anchored
+  at once. While the flag is set, goNewest (an arrival, a read that follows the newest) scrolls instead of naming the anchor.
+  The end's appearance names "end" over whatever SwiftUI may have written into the binding meanwhile, unless a person is
+  scrolling or search is open. #9089's looks (landOnNewest) scroll the same way and re-arm the flag.
 - KOSMOS_SAMPLE_ANCHORATOPEN=1 (Debug only) restores the old open: the control.
 - ChatTallOpenUITests: a third check re-opens the chat 8 times in one launch; TEST_RUNNER_KOSMOS_ANCHORATOPEN=1 runs it
   against the old open. ios/tools/ui-sample.sh: the class count is 3.
@@ -38,4 +41,6 @@ check on the fix only).
 
 ## Weakest premise
 The simulator, not a phone. And between the open and the end's appearance (a frame or two) no anchor holds the list;
-a message arriving in that window is followed by the arrival paths that name "end" themselves.
+an arrival in that window is followed by goNewest's scroll. The box and keyboard paths that write "end" directly are not
+routed through the flag (the keyboard is not up in the first second of an open). The sample board's re-reads bring nothing
+new, so the measurements never exercised an arrival during the open.
