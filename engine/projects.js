@@ -4081,7 +4081,10 @@ function blockBody(projects, sessionName) {
     /* kosmos#9175 review 3: a task's own words cannot print a mark of their own. Only the board's mark may follow the
        words; one inside them ("... [built: nothing to start ...]" on open work) would talk the agent out of the task, and
        one ending "[on hold: ...]" would be read by holdsOf as a hold. The bracket opening such a mark becomes "(". */
-    const words = (t) => oneLine(require('./tasks').forAgent(t)).replace(/\[(?=\s*(?:on hold|built|marked built)\b)/gi, '(');
+    // Review 4: folded first (NFKC, invisible format characters out), so a fullwidth, CJK or math bracket or a zero-width
+    // character cannot slip a mark past it; any opening bracket counts, as forAgent folds a webhook's. "built-in" is a word.
+    const words = (t) => oneLine(require('./tasks').forAgent(t)).normalize('NFKC').replace(/\p{Cf}/gu, '')
+      .replace(/[[\p{Ps}](?=\s*(?:on hold|built|marked built)(?![\w-]))/giu, '(');
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${built(t)}${held(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);

@@ -49,3 +49,9 @@ Every round-2 site perturbed alone turns its own test red (order, closed part, b
 - [NIT] tests share agent names and the owed file; every test that asserts the owed file clears it first --> ACCEPTED.
 - Readers of the task line (holdsOf, rulesChangedIn): only holdsOf reads the line's end, and the hold mark stays last. Confirmed.
 Neighbours re-run on this commit: engine/projects.test.js, the pause and re-read tests (190/190), and the webhook-text tests (74/74).
+
+## Review round 4 (opus, blind, whole branch): no critical
+- [WARNING] the neutraliser caught only an ASCII "[": fullwidth, CJK and math brackets and a zero-width character after the bracket slipped a mark through --> FIXED: the words are NFKC-folded with format characters removed, and any opening bracket (\p{Ps}) counts, as forAgent folds a webhook's. Tests for each; ascii-only, no-fold and \b perturbations each turn the test red (my first two perturbations did not apply and read green; redone with an exact replace that refuses).
+- [NIT] "fix the [built-in] helper" was bent --> FIXED: the mark word must not be followed by a word character or "-". Test added.
+- [WARNING] "mark absent" assertions could pass on a vanished line --> FIXED: each now asserts the line exists first.
+- Upgrade path, re-read debt, and remaining unsynced paths: clean (reviewer measured and reasoned).
