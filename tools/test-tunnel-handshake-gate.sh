@@ -262,18 +262,12 @@ mkdir -p "$W/pgbad"; printf '%s\n' '#!/bin/sh' 'echo "pgrep: invalid regex" >&2;
 PATH="$W/pgbad:$PATH" run "a pgrep that refuses the pattern (exit 2) -> CANNOT TELL, named as a gate defect" 2 "this is a gate defect" "up" "up"
 left=$(find "$GT" \( -name 'pgrep-err.*' -o -name 'tunnel-gate-pgrep.*' \) 2>/dev/null | grep -c .); [ "$left" = 0 ] && { pass=$((pass + 1)); echo "  ok    no pgrep temp file is left in the gate's temp root"; } || { fail=$((fail + 1)); echo "  FAIL  $left pgrep temp file(s) left in $GT"; }
 # kosmos#9149 (Mortals 11-26 20:28): ANY live process whose command line is not valid UTF-8 made pgrep exit 3 under a
-# UTF-8 locale ("illegal byte sequence"), so the gate could not tell. With one running, the gate still finds a connector
-# on its state, and still passes without one. The locale is set here, so the arm does not depend on the caller's.
-bash -c 'exec -a "$(printf "zz\377probe-%s" "$1")" perl -e "select(undef, undef, undef, 120)"' _ "$TAG" < /dev/null > /dev/null 2>&1 & BADB=$!
-until_bad=0; while [ "$until_bad" -lt 50 ] && ! LC_ALL=C pgrep -f "probe-$TAG" >/dev/null; do perl -e 'select(undef, undef, undef, 0.1)'; until_bad=$((until_bad + 1)); done
-U8="$(locale -a 2>/dev/null | grep -i -m1 -E '^(en_US|C)\.utf-?8$')"; U8="${U8:-en_US.UTF-8}"
-# The control, said but not counted (a box whose pgrep does not refuse such bytes cannot show the defect): a plain pgrep
-# in that locale, with the process alive. On this Mac and on Mortals it exits 3.
-cr=0; LC_ALL="$U8" pgrep -f "no-such-process-$TAG" >/dev/null 2>&1 || cr=$?; echo "  note  control: plain pgrep under $U8 with that process alive exits $cr (3 shows the defect)"
+# UTF-8 locale ("illegal byte sequence"), so the gate could not tell. Played by a pgrep that fails that way unless it
+# runs under LC_ALL=C: a real such process on this shared Mac would red other agents' runs of older code (one did).
+mkdir -p "$W/pglocale"; printf '%s\n' '#!/bin/sh' '[ "${LC_ALL:-}" = C ] || { echo "pgrep: Regular expression evaluation error (illegal byte sequence)" >&2; exit 3; }' "exec '$REAL_PGREP' \"\$@\"" > "$W/pglocale/pgrep"; chmod +x "$W/pglocale/pgrep"
 standin "$W/state"
-LC_ALL="$U8" LANG="$U8" run "a process with a non-UTF-8 command line is running: the connector is still seen -> CANNOT TELL" 2 "gate's identity is still running" "up" "up"; unstand
-LC_ALL="$U8" LANG="$U8" run "a process with a non-UTF-8 command line is running, no connector -> PASS" 0 "tunnel-gate: PASS" "up" "up"
-kill "$BADB" 2>/dev/null; wait "$BADB" 2>/dev/null
+PATH="$W/pglocale:$PATH" run "a pgrep that refuses a stray byte outside LC_ALL=C: the connector is still seen -> CANNOT TELL" 2 "gate's identity is still running" "up" "up"; unstand
+PATH="$W/pglocale:$PATH" run "a pgrep that refuses a stray byte outside LC_ALL=C, no connector -> PASS" 0 "tunnel-gate: PASS" "up" "up"
 # ...but a LIVE one whose command line cannot be read still counts (fail closed). Played by a ps
 # that prints nothing while the stand-in runs.
 mkdir -p "$W/psbin"; printf '%s\n' '#!/bin/sh' 'exit 1' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
