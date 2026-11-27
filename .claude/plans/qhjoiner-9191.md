@@ -14,10 +14,13 @@ whose arguments file is in its own $S.
   card names, and the live-holder arm, which had the same shape.
 - `kill_waiters`: KILLs this run's waiters, called in the EXIT trap before $S is removed and in the watchdog's KILL
   stage. Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
-  whose TMPDIR is under $S; and a pid an arm recorded in OWN_WAITERS, KILLed only while it still runs --queued-args.
-  The stale-TMPDIR arm (#5467) is the one that needs the second kind: its TMPDIR does not exist, so the wrapper falls
-  back to /tmp and the arguments file is outside $S. That arm now runs as `( ... exec perl ... ) &` and records its pid,
-  which stays the waiter's pid through perl's exec and the wrapper's re-exec.
+  whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters, KILLed only if it still runs this tree's
+  wrapper (`/bin/bash $REAL_QH --queued-args`) or a script in $S. The stale-TMPDIR arm (#5467) needs the second kind:
+  its TMPDIR does not exist, so the wrapper falls back to /tmp and the arguments file is outside $S. That arm now runs
+  as `( ... exec perl ... ) &` and lists its pid (the waiter's, through perl's exec and the wrapper's re-exec) only
+  while it runs, so a pid reused after it is never in the list. A file rather than a variable, because the watchdog is
+  forked before any arm and would only ever see an empty variable. As a background job that arm's stdin is /dev/null,
+  which it already redirected nowhere; its exit code (wait), output and 60 s alarm are unchanged.
 - `joiner_under` takes an optional command prefix, so its regression arm can use a fake script path.
 - Two regression arms (EXPECTED 175 -> 177): kill_waiters ends a stand-in whose arguments file is in $S and a recorded
   one, and leaves another alone; joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
@@ -34,7 +37,8 @@ whose arguments file is in its own $S.
   left no waiter in either. Where the card's orphan came from is not known (the watchdog's KILL stage, or the
   stale-TMPDIR arm's 60 s alarm, are both candidates). What is measured is that kill_waiters ends both kinds of
   stand-in (the new arm); that it ends the card's exact orphan is reasoned.
-- Two new arms alone, in a small harness: 2 OK.
+- Two new arms alone, in a small harness: 2 OK (and again after round 2).
+- Whole file after round 1: 177/177.
 - Disclosed: the planted stray for the reproduction ran about 25 minutes (22:15-22:40 CST) with a real
   `.../queued-heavy.sh --queued-args` command line, so other agents' lib-move scans could see it and say "another
   queued-heavy.sh is live" (they then join on the old lib and run; nothing is held). The regression arm avoids that.

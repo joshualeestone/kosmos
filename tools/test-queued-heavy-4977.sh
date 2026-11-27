@@ -30,11 +30,11 @@ ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
 # kosmos#9191: this run's --queued-args waiters, wherever they were reparented: a wrapper killed mid-arm leaves its
 # re-exec'd waiter alive with ppid 1, where BG and ours() cannot see it. Two kinds: one whose arguments file is in this
 # run's $S (TMPDIR is $S/tmp, and the arms that set their own TMPDIR keep it under $S), matched byte-wise (LC_ALL=C);
-# and one an arm recorded in OWN_WAITERS because its arguments file is outside $S (the stale-TMPDIR arm, whose wrapper
-# falls back to /tmp), KILLed only while that pid still runs --queued-args (a pid reused since is left alone).
-OWN_WAITERS=""
+# and one an arm lists in $S/own-waiters while it runs, because its arguments file is outside $S (the stale-TMPDIR arm,
+# whose wrapper falls back to /tmp). A listed pid is KILLed only if it still runs this tree's wrapper or a script in $S.
+# The list is a file so the watchdog, forked before any arm, reads it as it is now.
 kill_waiters() { local p; for p in $(LC_ALL=C pgrep -f -- "--queued-args $S/" 2>/dev/null); do kill -KILL $p 2>/dev/null; done
-  for p in $OWN_WAITERS; do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in *" --queued-args "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
+  for p in $(cat "$S/own-waiters" 2>/dev/null); do case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in "/bin/bash $REAL_QH --queued-args "*|"/bin/bash $S/"*" --queued-args "*) kill -KILL "$p" 2>/dev/null;; esac; done; }
 trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; kill_waiters; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
 # #5331: a whole-file deadline that outlives anything this file runs: past it the file stops itself and FAILS, so a hang
 # in here can never hold the canary, a full validation or CI that runs it (one held Agent1s 1 h 43 min on 10-05).
@@ -43,8 +43,7 @@ trap 'exit 124' TERM
 # It checks every 5 s that this file is still running (its pid, its own command line) and ends with it, so it never
 # signals a pid reused after the file was killed from outside. A TERM reaches the file only between foreground commands;
 # when one is hung, the KILL 15 s later stops the file's children, this run's sleeps and waiters (kill_waiters), and then
-# the file (its EXIT trap does
-# not run then, so $S can be left behind: the limit).
+# the file (its EXIT trap does not run then, so $S can be left behind: the limit).
 ( trap - EXIT TERM; me=$$; t0=$(date +%s)
   alive() { case "$(ps -o command= -p "$me" 2>/dev/null)" in *test-queued-heavy-4977*) return 0;; *) return 1;; esac; }
   while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
@@ -583,7 +582,7 @@ ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "$
 # the $QH shim: the shim execs its own alarm($QH_DEADLINE), and an alarm set after exec REPLACES the pending one, so
 # through the shim the 60 s became 240 s (measured). A child the wrapper leaves behind after a trip is not reaped here,
 # and may still write to the file after it is read; the arm has already failed by then.
-mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir exec perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ) & ST5467=$!; OWN_WAITERS="$OWN_WAITERS $ST5467"; wait $ST5467; stale5467_rc=$?   # kosmos#9191: its waiter's arguments file is in /tmp, outside $S, so its pid (the same one through both execs) is recorded   # its own marker dir: the fake holder above holds $S/m
+mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir exec perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ) & ST5467=$!; echo $ST5467 >> $S/own-waiters; wait $ST5467; stale5467_rc=$?; : > $S/own-waiters   # kosmos#9191: listed while it runs (its arguments file is in /tmp; the pid is the waiter's through both execs, and a background job's stdin is /dev/null, as it was for this arm). Its own marker dir: the fake holder above holds $S/m
 o=$(cat $S/stale5467.out); [ "$stale5467_rc" -eq 142 ] && o="$o
 TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"; [ "$stale5467_rc" -ne 0 ] && o="$o
 (the stale-TMPDIR run exited $stale5467_rc)"
@@ -846,13 +845,13 @@ sleep 0 & DT=$!; wait $DT; echo x > $S/mtwin/qh-label.$DT.tmp
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mtwin /bin/bash $QH --withdraw "nothing-9118" 2>&1); rw=$?
 ok "#9118: a dead run's leftover label .tmp file is removed" '[ "$rw" = 1 ] && [ ! -e $S/mtwin/qh-label.$DT.tmp ]'
 
-# kosmos#9191: kill_waiters ends this run's waiters (an arguments file in $S, or a pid recorded in OWN_WAITERS) and leaves
+# kosmos#9191: kill_waiters ends this run's waiters (an arguments file in $S, or a pid listed in $S/own-waiters) and leaves
 # another --queued-args process alone. Stand-ins named after a fake path, so no real queue scan matches them.
 bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args $1/tmp/queued-heavy-args.in9191" sleep 60' _ "$S" & KA9191=$!
 bash -c 'exec -a "/bin/bash $1/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.own9191-$2" sleep 60' _ "$S" "$$" & KB9191=$!
 bash -c 'exec -a "/bin/bash /nowhere/fakeqh9191.sh --queued-args /tmp/queued-heavy-args.other9191-$1" sleep 60' _ "$$" & KC9191=$!
 until_true 10 'ps -ww -o command= -p $KA9191 | grep -q -- "--queued-args" && ps -ww -o command= -p $KB9191 | grep -q -- "--queued-args" && ps -ww -o command= -p $KC9191 | grep -q -- "--queued-args"'; k9191_up=$?
-OWN_WAITERS="$OWN_WAITERS $KB9191"; kill_waiters
+echo $KB9191 >> $S/own-waiters; kill_waiters; : > $S/own-waiters
 dead9191() { local st; st="$(ps -o stat= -p "$1" 2>/dev/null)"; st="${st// /}"; [ -z "$st" ] || [ "${st#Z}" != "$st" ]; }   # gone, or a zombie not yet reaped (kill -0 succeeds on those)
 until_true 10 'dead9191 $KA9191 && dead9191 $KB9191'
 ok "#9191: kill_waiters ends a waiter whose arguments file is in this run's dir and one this run recorded, and leaves another alone" '[ "$k9191_up" = 0 ] && dead9191 $KA9191 && dead9191 $KB9191 && ! dead9191 $KC9191'
@@ -861,7 +860,7 @@ kill -KILL $KC9191 2>/dev/null; wait $KA9191 $KB9191 $KC9191 2>/dev/null
 # (the stray a killed earlier run left behind, which `pgrep -o` picked).
 JW9191="/bin/bash $S/fakeqh9191.sh --queued-args "
 bash -c 'exec -a "$1$2/tmp/queued-heavy-args.stray9191" sleep 60' _ "$JW9191" "$S" & JD9191=$!
-until_true 10 'ps -ww -o command= -p $JD9191 | grep -q -- "--queued-args"'
+until_true 10 'ps -ww -o command= -p $JD9191 | grep -q -- "--queued-args"'; sleep 1.2   # pgrep -o orders by start time, to the second
 ( bash -c 'exec -a "$1$2/tmp/queued-heavy-args.mine9191" sleep 60' _ "$JW9191" "$S"; true ) & JP9191=$!
 until_true 10 'jw9191="$(joiner_under $JP9191 "$JW9191")"'; j9191=$?
 jo9191="$(LC_ALL=C pgrep -o -f -- "^$JW9191")"   # the old pick, as a CONTROL: it must name the stray
