@@ -13,22 +13,27 @@ whose arguments file is in its own $S.
   waiter. Replaces the three `pgrep -o -f "^/bin/bash $REAL_QH --queued-args"` picks: the gitlive and idxlock arms the
   card names, and the live-holder arm, which had the same shape.
 - `kill_waiters`: KILLs this run's waiters, called in the EXIT trap before $S is removed and in the watchdog's KILL
-  stage. Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
+  stage, before the sleep sweep (so a waiter cannot start a sleep after it) and in the watchdog before `pkill -P`
+  (procps pkill on Linux does not leave out its caller, so the watchdog could kill itself first). Two kinds: a process whose command line has `--queued-args $S/` (byte-wise, LC_ALL=C), which covers every arm
   whose TMPDIR is under $S; and a pid listed in the file $S/own-waiters. Both are KILLed only when the command line has
   a waiter's shape (a bash running a script with --queued-args; for a listed pid also its forms before the re-exec,
   perl or this tree's wrapper with its first arguments, since it is listed only while its own arm runs). The stale-TMPDIR arm (#5467) needs the second kind:
   its TMPDIR does not exist, so the wrapper falls back to /tmp and the arguments file is outside $S. That arm now runs
   as `( ... exec perl ... ) &` and lists its pid (the waiter's, through perl's exec and the wrapper's re-exec) only
-  while it runs, so a pid reused after it is never in the list. A file rather than a variable, because the watchdog is
+  while it runs (between the fork and its listing, and between the wait and its unlisting, a stop would miss or keep it;
+  both windows are a few instructions). A file rather than a variable, because the watchdog is
   forked before any arm and would only ever see an empty variable. As a background job that arm's stdin is /dev/null,
   which it already redirected nowhere; its exit code (wait), output and 60 s alarm are unchanged.
 - `joiner_under` takes an optional command prefix, so its regression arm can use a fake script path.
 - Three regression arms (EXPECTED 175 -> 178): kill_waiters ends a stand-in whose arguments file is in $S and a listed
-  one, and leaves a LISTED pid that is not a waiter of this run alone (the reused-pid guard; CONTROL: with that guard
-  removed the arm reads BAD, measured); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
+  one in each form the real stale-TMPDIR waiter has (re-exec'd, before it with REAL_QH pointed at the fake path for
+  that one call, and perl), and leaves a LISTED pid that is not a waiter of this run alone (CONTROLS, measured: with the
+  reused-pid guard removed, the REAL_QH branch removed, or the perl branch removed, the arm reads BAD); joiner_under picks the arm's own stand-in over an OLDER one with the same command line,
   with a CONTROL that `pgrep -o` picks the older; and a source check that the three #5923 arms call joiner_under and that
   no `pgrep -o -f "^/bin/bash $REAL_QH` pick is left (on origin/main's file the same greps read 0 and 3, so it would be
-  BAD there). Stand-ins are named after a fake script, so no real queue scan on the Mac matches them.
+  BAD there). It reads the file by an absolute path ($SELF): $0 is relative when the file is run the way package.json
+  and CI run it, and the file cds away, so a "$0" version read nothing and was BAD in place (measured at round 4:
+  177 OK, 1 BAD; round 5's reviewer found it). Stand-ins are named after a fake script, so no real queue scan on the Mac matches them.
 - `own_waiter` / `unown_waiter`: an arm lists its waiter only while it runs and takes off only its own line when its
   wait returns (kill_waiters also accepts a listed pid's pre-exec forms, which is safe only for a pid still its own).
 
