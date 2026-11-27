@@ -28387,7 +28387,9 @@ const server = http.createServer(async (req, res) => {
     // Labels are an agent's own words and can name its folders: this computer's agents and person only (#4973).
     const refusedRead = crossSiteRead(req) || (isSiblingRead(req) ? 'only an agent or the person on this computer can list its heavy jobs' : null);
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
-    sendJson(res, 200, { ok: true, jobs: heavyJobsNow(null) });
+    // The roster only names the agents here (complete: false judges nobody missing; a status read does that).
+    const roster = safeRoster();
+    sendJson(res, 200, { ok: true, jobs: heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null) });
     return;
   }
   if (pathname === '/api/heavy' && req.method === 'POST') {

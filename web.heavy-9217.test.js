@@ -39,6 +39,7 @@ test('one job reads as one sentence naming the job, whose it is and since when, 
   assert.equal(b.slot.textContent, 'A heavy job is running on this computer: cargo test (kosmos-relay) (Angel, since 09:05).');
   const box = b.slot.children[0];
   assert.equal(box.getAttribute('role'), 'status');
+  assert.equal(box.className, 'utoast heavy', 'the note should carry its neutral tone, not the bare attention red');
   assert.ok(!/this Mac/.test(b.slot.textContent), 'the copy says "this Mac"; it must say "this computer"');
 });
 
@@ -101,6 +102,7 @@ test('the page wires it: a #heavy-slot hidden when empty, and tick() paints it f
   const html = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(html, /<div id="heavy-slot"><\/div>/);
   assert.match(html, /#heavy-slot:empty[^{]*\{ display: none; \}/);
+  assert.match(html, /^\.utoast\.heavy \{ --utone: var\(--label-2\); \}/m, 'the heavy note has no neutral tone rule');
   const tick = page.lift(SCRIPT, 'tick');
   assert.match(tick, /paintHeavyJobs\(data\.heavyJobs\)/);
 });
