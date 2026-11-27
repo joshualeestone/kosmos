@@ -1045,11 +1045,14 @@ if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$Q
   && [ "$qh_announce" != 0 ]; then
   # The label goes into the argv of the detached call (and its node child), where #5467 took the run's name OUT of argv:
   # a check that matches a script path in argv (heavy-gate.sh's script_of, a cut wrapper's pgrep) must never read a
-  # name like "cut tools/release.sh" as a live run. So no word of it can be a script path: / and .sh are broken up.
+  # name like "cut tools/release.sh" as a live run. So no word of it can be a script path: / and .sh are broken up. (An
+  # unanchored match on a bare word, such as pgrep -f run-tests, still sees the label words for those few seconds.)
   qh_label="${WHAT//\// }"; qh_label="${qh_label//.sh/ sh}"; qh_label="${qh_label:0:80}"
   qh_lead="${qh_label#"${qh_label%%[![:space:]]*}"}"
   if [ "${qh_lead#-}" != "$qh_lead" ]; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: a name starting with - cannot be a label"
+  elif [ -z "${KOSMOS_AGENT_TOKEN:-}" ] && [ -z "${TMUX_PANE:-}" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the board was not told about this run: nothing here names the agent (no agent token or tmux pane)"
   elif command -v kosmos >/dev/null 2>&1; then
     ( KOSMOS_BUSY_WAIT=2 kosmos heavy start "$qh_label" --pid "$$" </dev/null >/dev/null 2>&1 & )
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') asked the board to show this run as a heavy job (kosmos heavy start, kosmos#9217; best-effort: it can still refuse, and nothing here waits to hear)"

@@ -17,7 +17,8 @@ Slice 1 (#9225, merged) added `kosmos heavy start "<label>" [--pid N]`. Splinter
   it or it is run on its own. `QUEUED_HEAVY_ANNOUNCE=1` or `0` decides outright. As a second guard, `tools/run-tests.sh` exports `0`
   (tools/test-queued-heavy-4977.sh runs the whole script, and its stand-in jobs would otherwise show on the person's
   board). The outer queued-heavy that runs a validation is above run-tests.sh, so it still announces. The 4977 test sets
-  it too, and its ten new arms use a stand-in `kosmos` that records its arguments.
+  it too, and its fourteen new arms use a stand-in `kosmos` that records its arguments, including the fleet's default
+  (real markers: it announces) and a run with nothing to name the agent (it says so and asks nothing).
 
 ## Weakest premise
 That the run's environment can name the agent (an agent token, or a tmux pane) and has `kosmos` on its PATH. A job
