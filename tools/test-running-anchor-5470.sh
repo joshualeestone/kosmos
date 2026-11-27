@@ -188,5 +188,16 @@ got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Linux;
 got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Darwin; }; pgrep(){ echo "flags $1"; }; _kosmos_pgrep_cmdlines x' 2>&1)"
 [ "$got" = "flags -fl" ] && ok "a Mac with a non-darwin OSTYPE still uses pgrep -fl" || bad "a Mac with OSTYPE=linux-gnu: [$got]"
 
+# kosmos#9149 (Mortals 11-26 20:28): under a UTF-8 locale pgrep exits 3 ("illegal byte sequence") whenever ANY process
+# has a command line that is not valid UTF-8, so every guard read "could not tell". The real pgrep, with such a process
+# alive: a script that is not running reads as not running (1), not as could-not-tell (2).
+U8="$(locale -a 2>/dev/null | grep -i -m1 -E '^(en_US|C)\.utf-?8$')"; U8="${U8:-en_US.UTF-8}"
+bash -c 'exec -a "$(printf "zz\377probe-%s" "$1")" perl -e "select(undef, undef, undef, 60)"' _ "$$" < /dev/null > /dev/null 2>&1 & BB=$!
+n=0; while [ "$n" -lt 50 ] && ! LC_ALL=C command pgrep -f "probe-$$" >/dev/null; do perl -e 'select(undef, undef, undef, 0.1)'; n=$((n + 1)); done
+cr=0; LC_ALL="$U8" command pgrep -f "no-such-process-$$" >/dev/null 2>&1 || cr=$?; echo "note  control: plain pgrep under $U8 with that process alive exits $cr (3 shows the defect)"
+got="$(LC_ALL="$U8" LANG="$U8" bash -c '. tools/lib/cut-guard.sh; kosmos_running_lines tools/no-such-script-9149.sh; echo "rc=$?"' 2>&1)"
+kill "$BB" 2>/dev/null; wait "$BB" 2>/dev/null
+[ "$got" = "rc=1" ] && ok "a non-UTF-8 command line elsewhere does not make the guards read could-not-tell" || bad "with a non-UTF-8 command line alive: [$got]"
+
 echo "test-running-anchor-5470: $FAILS failure(s)"
 [ "$FAILS" = 0 ]
