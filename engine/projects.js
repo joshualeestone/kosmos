@@ -4065,7 +4065,7 @@ function blockBody(projects, sessionName) {
        Another holder's mark alone leaves it unmarked. A hold or a paused project is named first (held, as #5864). */
     const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
       && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
-      ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : '');
+      ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t) || built(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);

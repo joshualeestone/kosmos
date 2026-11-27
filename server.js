@@ -28378,10 +28378,9 @@ const server = http.createServer(async (req, res) => {
             if (problem) throw new Error(problem);
           }
           if (rule === null || body.every !== undefined) {
-            let prior = null;
-            try { const pr = projects.readAll().find((x) => x && x.id === id); prior = pr ? tasks.byNumber(pr, taskRepeat[2]) : null; } catch { prior = null; }
-            task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
-            if (prior && prior.builtAt && task && !task.builtAt) builtDropped = task;
+            const said = {};   // setRepeat says, from inside its write, whether it dropped a built mark
+            task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen, out: said });
+            if (said.droppedBuilt === true && task) builtDropped = task;
           }
           // Review 3: a time or day with no frequency would be dropped without a word (both CLIs refuse it too).
           if (rule !== null && body.every === undefined && (body.at !== undefined || body.on !== undefined || body.minute !== undefined)) throw new Error('a time or a day goes with how often: hourly, daily or weekly');

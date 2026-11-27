@@ -20,7 +20,8 @@ Split from #9166 item 5 (feedback triage 11-26).
   project "on hold". One mark per task.
 
 - The instruction blocks follow the mark (review 4, 5): the task built route (set and clear) and the repeat route (a
-  repeat rule drops a built mark) re-sync every holder through tellEveryoneOn, owing re-reads per owesNotice.
+  repeat rule drops a built mark) re-sync every holder through tellEveryoneOn, owing re-reads per owesNotice. The repeat
+  route learns of the drop from setRepeat itself (`opts.out.droppedBuilt`, set inside its write; review 6).
 
 ## Rejected
 - Dropping built tasks from the block: the agent would lose the number it reports against.
@@ -85,3 +86,11 @@ filter matches whoOf against the same name).
   - NITs taken: the built route now calls tellEveryoneOn (it fetches a roster if none), not a hand copy, and its comment
     says owesNotice decides; the route test's agent case now runs the real new-mark path (waitsOnly off).
   - After: new files 5/5 and 5/5; every repeat, built, block and sync file (67): 2186 tests, 0 fail.
+- Round 6 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 4 NIT.
+  - WARNING (SELF, code): the repeat route read the task before setRepeat, so a mark set in between was missed.
+    Fixed: setRepeat reports `out.droppedBuilt` from inside its write (setOnHold's `out` pattern); the earlier read is
+    gone. A test of the real setRepeat (built: true; CONTROL not built: false). Perturbations: the report removed (1
+    fail), the route ignoring it (1 fail).
+  - NIT taken: the mark guards a missing project id. NITs not taken: the predicate copies (#9177); the route test's stub
+    (the real setRepeat is now pinned at engine level); the #5864 citation.
+  - After: the 76 repeat, built, block and sync files: 2259 tests, 0 fail.

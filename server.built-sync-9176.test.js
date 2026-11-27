@@ -69,7 +69,11 @@ function world(t, { changed = true, built = false } = {}) {
   // A new mark (waitsOnly false), so the route's whole new-mark path runs; the task message cap is 0, so nothing is typed.
   tasksEngine.setBuilt = () => ({ ok: true, changed, task: { ...task, builtAt: '2026-11-26T12:00:00Z', builtWho: ['mara'] } });
   // A repeat rule on a built task drops the mark (as tasks.setRepeat does).
-  tasksEngine.setRepeat = () => { const { builtAt: _b, builtWho: _w, ...rest } = task; return { ...rest, repeat: { every: 'day' } }; };
+  tasksEngine.setRepeat = (id, n, rule, opts = {}) => {
+    const { builtAt: _b, builtWho: _w, ...rest } = task;
+    if (opts.out) opts.out.droppedBuilt = !!task.builtAt;   // as the real one reports it (engine/builtmark-9176.test.js pins that)
+    return { ...rest, repeat: { every: 'day' } };
+  };
   tasksEngine.clearBuilt = () => ({ ok: true, changed, task });
   t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll, syncAgent: real.syncAgent }); Object.assign(tasksEngine, { setBuilt: real.setBuilt, clearBuilt: real.clearBuilt, setRepeat: real.setRepeat }); board.restore(); });
   return { synced, mara: sendertoken.mint('mara').token };

@@ -66,3 +66,17 @@ test('#9176: a built task in a paused project reads on hold only, not also built
   assert.match(line, /\[on hold:[^\]]*do not start it/, body);
   assert.doesNotMatch(line, /\[built/, 'two marks on one task: ' + line);
 });
+
+test('#9176 review 6: setRepeat reports, from inside its write, that it dropped a built mark (and not when there was none)', () => {
+  const proj = projects.create({ name: 'Repeat drop 9176' });
+  const built = tasks.create(proj.id, { sentence: 'built one', made: { via: 'screen' } });
+  tasks.setBuilt(proj.id, built.number, { person: true, note: 'done' });
+  const said = {};
+  const after = tasks.setRepeat(proj.id, built.number, require('./taskrepeat').fromWords('day', { at: '09:00' }), { person: true, out: said });
+  assert.equal(said.droppedBuilt, true, 'a built task given a repeat rule: ' + JSON.stringify(said));
+  assert.ok(after && !after.builtAt, 'the mark is gone');
+  const plain = tasks.create(proj.id, { sentence: 'plain one', made: { via: 'screen' } });
+  const said2 = {};
+  tasks.setRepeat(proj.id, plain.number, require('./taskrepeat').fromWords('day', { at: '09:00' }), { person: true, out: said2 });
+  assert.equal(said2.droppedBuilt, false, 'CONTROL: nothing was built');
+});
