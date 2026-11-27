@@ -4072,29 +4072,15 @@ function blockBody(projects, sessionName) {
     const built = (t) => (typeof t.builtAt === 'string' && t.builtAt
       && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(sessionName)))
       ? (p.id ? ` [built: done and waiting; \`${cliShown} task show ${oneLine(String(p.id))} ${Number(t.number)}\` has the rest]` : ' [built: done and waiting]') : '');
-    /* kosmos#9179: a task's own words cannot pass for a mark of the board's. A title such as "pay it [built: done and
-       waiting]" on open work would talk the agent out of the task, and one ending "[on hold: ...]" would be read by
-       holdsOf (which reads a hold as the line's LAST mark) as a hold. So a title that uses a mark word at all is printed
-       QUOTED, and said to be the task's own words: `"pay it [built: done and waiting]" (the task's own words, not a
-       mark)`. Its words are kept, except that every quote mark becomes ' (forAgent's own set, so no quote inside can close it), and
-       the line then ends in that note, never in a hold. Webhook words are already quoted the same way by forAgent (#1307).
-       - The test is a mark word ANYWHERE in the title, judged on a folded copy: NFKD; invisible characters
-         (\p{Default_Ignorable_Code_Point}, \p{Cf}, the blank braille cell U+2800), control characters (\p{Cc}),
-         combining accents (\p{M}) and markdown characters (* _ ` ~) removed; NFKC. A mark word is "on hold" (any spaces
-         or dashes between, or none) or "built", as a whole word: "[builtin]", "[builder]", "rebuilt" and "built-in"
-         (a hyphen and a letter) are not one.
-       - Why not neutralise just the bracket, as this first did: five review rounds each found another way to open a
-         mark (lookalike brackets, an emoji or a dash before the word, a closing quote used as an opener). A test on the
-         word itself needs no list of openers.
-       RESIDUAL, stated: lookalike LETTERS (Cyrillic, a dotless i) are not folded, so "built" spelled with a Cyrillic letter for its b prints unquoted. The
-       cost, accepted: an ordinary title that uses the word ("the site was built on Friday") is printed quoted too. */
-    const MARK_WORD = /(?<![\p{L}\p{N}])(?:on[\s\p{Pd}]*hold(?![\p{L}\p{N}])|built(?![\p{L}\p{N}]|-[\p{L}\p{N}]))/iu;
+    /* kosmos#9179: a task's own words cannot pass for a mark of the board's: a title that uses a mark word at all is
+       printed quoted, said to be the task's own words, so its line ends in that note and never in a hold (the rule, its
+       folding and its stated residual are in engine/markwords.js, which the task list is meant to share, #9188). A
+       webhook task is already quoted by forAgent (#1307), so it is not quoted twice. */
     const words = (t) => {
       const w = oneLine(require('./tasks').forAgent(t));
-      if (t && t.addedVia === 'webhook') return w;   // already quoted and marked as outside text (#1307)
-      const folded = w.normalize('NFKD').replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\u2800\p{Cc}\p{M}*_`~]/gu, '').normalize('NFKC');
-      return MARK_WORD.test(folded)
-        ? '"' + w.replace(/["\u02BA\u02EE\u2032\u2035\u05F4\u3003\u275D\u275E\p{Pi}\p{Pf}]/gu, "'") + '" (the task\'s own words, not a mark)' : w;
+      if (t && t.addedVia === 'webhook') return w;
+      const mw = require('./markwords');
+      return mw.usesMarkWord(w) ? mw.quoteOwnWords(w) : w;
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${words(t)}${held(t) || built(t)}`)].join('\n');
   });

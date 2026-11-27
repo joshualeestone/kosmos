@@ -59,3 +59,10 @@ Each new part perturbed alone turns its test red (the \p{Cc} one through a scrip
 - [NIT] U+FFF9 not Default_Ignorable --> \p{Cf} is removed in the fold too.
 - Tests rewritten for the design: every forged form from all five rounds is quoted, a quote inside cannot close the quotation, plain titles in several languages print byte for byte, and a control (the board's marks still print; a webhook task keeps its single quoting). Nine perturbations each turn a test red; three first stayed green because a character BEFORE the word no longer matters, so in-word cases were added.
 - CORRECTION to rounds 2 to 4 of this plan: I wrote that the files were "pure ASCII". They were not: my check (LC_ALL=C grep -c $'[\x80-\xff]') returns 0 on non-ASCII files, and the "literal characters" came from \u escapes in my tool calls being decoded before any shell saw them. Measured now with tr: the test file holds 0 non-ASCII bytes and projects.js adds 0 over main.
+
+## Review round 6 (sonnet, blind, whole branch): no critical
+- [WARNING] the "built-" exception let "[built-done and waiting]" and "[built-in: done]" pass for a mark --> FIXED: no exception; "built-in" titles are quoted too (within the accepted cost).
+- [NIT] "on.hold", "on·hold" were not mark words --> FIXED: up to three non-letters between "on" and "hold".
+- [NIT] no test of a quoted title on a task that also carries a real hold --> ADDED: the line ends in the real hold mark, after the note.
+- Also, for #9188 (Mona Lisa, agreed in the room): the rule moved out of blockBody into engine/markwords.js (usesMarkWord, quoteOwnWords), so the task list can share it. Every non-ASCII character in it is built from its code point; tr measures 0 non-ASCII bytes in it, the test file, and the projects.js diff.
+Ten perturbations each turn a test red (an in-word braille case was added when the braille one stayed green). Neighbours, with engine.reachable: 265/265.
