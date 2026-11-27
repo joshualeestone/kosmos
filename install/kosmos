@@ -3975,8 +3975,8 @@ cmd_heavy() {
   esac
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --pid) [ "$#" -ge 2 ] || { heavy_usage; exit 2; }; pid="$2"; shift 2 ;;
-      --pid=*) pid="${1#--pid=}"; shift ;;
+      --pid) [ "$#" -ge 2 ] && [ -n "$2" ] || { heavy_usage; exit 2; }; pid="$2"; shift 2 ;;
+      --pid=*) pid="${1#--pid=}"; [ -n "$pid" ] || { heavy_usage; exit 2; }; shift ;;
       *) if [ "$sub" = start ] && [ -z "$label" ]; then label="$1"; shift; else heavy_usage; exit 2; fi ;;
     esac
   done

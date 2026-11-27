@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 /* kosmos#9217 slice 1: engine/heavyjobs.js records "a heavy job is running here" and clears it when its process or its
    agent goes, or at the age ceiling. Every test uses its own temporary root; nothing reaches the real data root. */
@@ -235,4 +236,39 @@ test('a process id past what signal 0 accepts is refused at start', () => {
     assert.deepEqual([s.ok, s.because], [false, 'a process id is a whole number above 1'], String(pid));
   }
   assert.equal(hj.normalizePid(2147483647), 2147483647, 'control: the largest one is a process id');
+});
+
+test('a job tied to a live process stays while its agent is away; a job with no process goes with its agent', () => {
+  const r = root();
+  hj.start({ root: r, agent: 'renet', label: 'suite', pid: 4242, now: T0, startOf: alwaysStart('s') });
+  hj.start({ root: r, agent: 'renet', label: 'plain', now: T0, startOf: alwaysStart('s') });
+  const away = hj.live({ root: r, now: T0 + 1000, startOf: alwaysStart('s'), agentAlive: () => false });
+  assert.deepEqual(away.map((j) => j.label), ['suite'], 'the running process should keep its job through its agent being away');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 2000, startOf: () => null, agentAlive: () => false }), [], 'control: once the process is gone too, so is the job');
+});
+
+test('invisible marks are refused too, and the joiners some scripts need are kept', () => {
+  const r = root();
+  for (const mark of ['\u061c', '\u200b', '\ufeff']) {
+    assert.equal(hj.start({ root: r, agent: 'renet', label: 'tests' + mark + 'x', now: T0 }).ok, false, JSON.stringify(mark));
+  }
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'm\u200cx', now: T0 }).ok, true, 'a ZWNJ (Persian, among others) is kept');
+});
+
+test('one read stops running ps once its time is spent', () => {
+  const rs = require('./restoresink');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  let ps = 0;
+  rs.pidAlive = () => true;
+  rs.processStart = () => { ps += 1; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200); return 'A'; };
+  try {
+    const r = root();
+    const now = Date.now() + 2 * 60 * 60 * 1000;
+    for (let a = 0; a < 2; a++) for (let i = 0; i < hj.MAX_PER_AGENT; i++) {
+      hj.start({ root: r, agent: 'slow' + a, label: 'j' + i, pid: 93000 + a * 10 + i, now, startOf: () => 'A' });
+    }
+    ps = 0;
+    assert.equal(hj.live({ root: r, now: now + 60 * 1000 }).length, 8);
+    assert.ok(ps >= 1 && ps <= 4, 'ps ran ' + ps + ' times at 200 ms each in one read');
+  } finally { Object.assign(rs, was); }
 });

@@ -2827,8 +2827,8 @@ function heavyArgs(sub, args) {
   let label = '', pid = '';
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--pid') { if (i + 1 >= args.length) return null; pid = args[i + 1]; i += 1; }
-    else if (a.startsWith('--pid=')) pid = a.slice('--pid='.length);
+    if (a === '--pid') { if (i + 1 >= args.length || !args[i + 1]) return null; pid = args[i + 1]; i += 1; }
+    else if (a.startsWith('--pid=')) { pid = a.slice('--pid='.length); if (!pid) return null; }
     else if (sub === 'start' && !label) label = a;
     else return null;
   }

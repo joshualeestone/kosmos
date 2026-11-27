@@ -131,3 +131,12 @@ test('a refused list says what the board refused', { skip: SKIP_POSIX_SHELL }, (
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /Kosmos could not list heavy jobs: only an agent or the person on this computer can list its heavy jobs\./);
   }));
+
+test('an empty --pid is refused, not read as no pid', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(answerOk, async (port, hits) => {
+    for (const args of [['heavy', 'end', '--pid', ''], ['heavy', 'end', '--pid='], ['heavy', 'start', 'x', '--pid', '']]) {
+      const r = await runCli(args, envFor(port));
+      assert.equal(r.code, 2, JSON.stringify(args) + ': ' + r.out);
+    }
+    assert.deepEqual(hits.filter((h) => h.url === '/api/heavy'), []);
+  }));

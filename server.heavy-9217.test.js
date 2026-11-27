@@ -47,7 +47,7 @@ const asScreen = (body) => post(body, { 'sec-fetch-site': 'same-origin' });
 const jobsInStatus = async () => (await (await fetch(`${base}/api/status`)).json()).heavyJobs;
 
 function twoAgents() {
-  const board = fleet.install([fleet.agent('hv-ada', { state: 'idle' }), fleet.agent('hv-bo', { state: 'idle' })]);
+  const board = fleet.install([fleet.agent('hv-ada', { state: 'idle', displayName: 'Ada Heavy' }), fleet.agent('hv-bo', { state: 'idle', displayName: 'Bo Heavy' })]);
   const name = (p) => (board.agents.find((c) => (c.sessionName || '').startsWith(p)) || {}).sessionName;
   return { board, ada: name('hv-ada'), bo: name('hv-bo') };
 }
@@ -66,7 +66,7 @@ test('kosmos#9217: an agent records its heavy job, the status lists it with its 
   const listed = status.heavyJobs;
   assert.deepEqual(listed.map((j) => [j.agent, j.label, j.pid]), [[ada, 'full test run', null]]);
   const row = (status.agents || []).find((a) => a.sessionName === ada);
-  assert.ok(row && row.name, 'control: the status carries the agent row the name comes from');
+  assert.ok(row && row.name && row.name !== ada, 'control: the agent has a name other than its session name');
   assert.equal(listed[0].name, row.name, 'the job carries the name the board shows for that agent');
   const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tok } })).json();
   assert.deepEqual(got.jobs.map((j) => j.label), ['full test run'], 'GET /api/heavy lists the same');
@@ -125,7 +125,7 @@ test('kosmos#9217: the token names the caller, not a pane given in the body', as
   const tok = sendertoken.mint(ada).token;
   const r = await asAgent(tok, { action: 'start', label: 'whose', from_pane: pane });
   assert.equal(r.status, 200, await r.clone().text());
-  assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [ada], 'the job went to the pane named in the body');
+  assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [ada], 'the token should name the caller, but the pane in the body did');
   await asAgent(tok, { action: 'end' });
 });
 
@@ -221,4 +221,16 @@ test('kosmos#9217: a missing mark does not outlive the job it was about', async 
   assert.equal(hj.start({ root: store.ROOT, agent: ada, label: 'second', now: t4 + 5 * 60 * 1000 }).ok, true);
   assert.deepEqual(heavyJobsNow(others, t4 + 5 * 60 * 1000).map((j) => j.label), ['second'], 'a fresh grace: the old mark would have cleared it at once');
   assert.equal(hj.end({ root: store.ROOT, agent: ada }).ended, 1);
+});
+
+test('kosmos#9217: GET /api/heavy names each job by the name the board shows', async () => {
+  const { ada } = twoAgents();
+  const tok = sendertoken.mint(ada).token;
+  assert.equal((await asAgent(tok, { action: 'start', label: 'named' })).status, 200);
+  const status = await (await fetch(`${base}/api/status`)).json();
+  const row = (status.agents || []).find((a) => a.sessionName === ada);
+  assert.ok(row && row.name && row.name !== ada, 'control: this fleet gives the agent a name other than its session name');
+  const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tok } })).json();
+  assert.deepEqual(got.jobs.map((j) => [j.label, j.name]), [['named', row.name]]);
+  await asAgent(tok, { action: 'end' });
 });

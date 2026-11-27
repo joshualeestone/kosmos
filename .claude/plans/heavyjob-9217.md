@@ -13,8 +13,8 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
 - `engine/heavyjobs.js`: `start`, `end`, `live`. Records in `<data root>/heavy-jobs.json`, written under a file lock.
   A record names an agent, a label, a time, and optionally one exact process (pid plus its start time, read by the
   server through restoresink's `processStart`, so a reused pid is not mistaken for the job).
-  Every read drops a record whose process is gone or reused, whose agent is gone, or that is older than 12 hours (a
-  ceiling against a stuck record). A process is first asked by signal 0 (no process spawned, works on Windows); only a
+  Every read drops a record whose process is gone or reused, one with no process whose agent is gone, or one older
+  than 12 hours (a ceiling against a stuck record). A record tied to a live process stays while its agent restarts. A process is first asked by signal 0 (no process spawned, works on Windows); only a
   live one has its start time read, and that read is kept 10 s. One agent holds at most 4 live records (a start drops its dead ones). A write that fails
   is said in Kosmos words, never thrown. A label is stored with brackets as parentheses (another agent reads it in
   `kosmos heavy`, and every Kosmos marker starts with `[`) and refused with direction marks. One read runs ps for at
@@ -29,7 +29,8 @@ to be in the product, not in this fleet's queue scripts: ordinary users do not h
 - `install/kosmos` and `tools/windows/kosmos-cli.js`: `kosmos heavy` (list), `kosmos heavy start "<label>" [--pid N]`,
   `kosmos heavy end [--pid N]`, in both CLIs (tools.windows-kosmos-cli-verbs-parity.test.js requires it).
 - `web/index.html`: a `#heavy-slot` in the top notes, hidden when empty, painted by `paintHeavyJobs` from the status
-  poll: "A heavy job is running on this computer: <label> (<agent>, since HH:MM)." Built from text nodes.
+  poll: "A heavy job is running on this computer: <label> (<agent>, since HH:MM)." Built from text nodes, in the
+  neutral note tone (`.utoast.heavy`), since it can stand for hours and is not an alarm.
 
 ## Decisions
 

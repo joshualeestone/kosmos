@@ -99,3 +99,11 @@ test('bad arguments are refused before any request', async () => {
   assert.match(bad.err, /a process id is a whole number above 1/);
   assert.deepEqual(bad.calls, []);
 });
+
+test('an empty --pid is refused, not read as no pid', async () => {
+  for (const argv of [['heavy', 'end', '--pid', ''], ['heavy', 'end', '--pid='], ['heavy', 'start', 'x', '--pid', '']]) {
+    const r = await run(argv, ok);
+    assert.equal(r.code, 2, JSON.stringify(argv));
+    assert.deepEqual(r.calls, []);
+  }
+});

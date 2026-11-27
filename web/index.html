@@ -1386,6 +1386,8 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
 .utoast.dmg .dmgput[aria-disabled="true"] { opacity: .5; cursor: default; }
 @media (pointer: coarse) { .utoast.dmg .dmgput { min-height: 44px; } }
 .utoast.rline { --utone: var(--label-2); align-items: flex-start; flex-wrap: wrap; }   /* kosmos#7411: a choice, not an alarm */
+.utoast.heavy { --utone: var(--label-2); }   /* kosmos#9217: a fact that can stand for hours, not an alarm */
+.utoast.heavy .utxt { min-width: 0; overflow-wrap: anywhere; }
 .utoast.rline .utxt { flex: 1 1 260px; min-width: 0; }
 .utoast.rline .utxt b { color: var(--label); }
 .utoast.rline .utxt small.rlfix { display: block; margin-top: 2px; }
@@ -25354,7 +25356,7 @@ function paintHeavyJobs(jobs) {
   const two = (n) => String(n).padStart(2, '0');
   const parts = list.map((j) => { const t = new Date(j.since); return j.label + ' (' + who(j) + ', since ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ')'; });
   const box = document.createElement('div');
-  box.className = 'utoast';
+  box.className = 'utoast heavy';
   box.setAttribute('role', 'status');
   const dot = document.createElement('span');
   dot.className = 'udot';

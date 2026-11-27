@@ -11,7 +11,8 @@
  * Records live in <data root>/heavy-jobs.json. A record CLEARS ITSELF, on every read, when:
  *   - it names a process (--pid) and that process is gone, or the number now belongs to another process (its start time,
  *     read by the server when the job started, no longer matches);
- *   - its agent is gone (not on the roster, when the roster could be read);
+ *   - it names no process and its agent is gone (judged by the caller: server.js heavyJobsNow); a job tied to a
+ *     process lives as long as that process, whatever the roster says;
  *   - it is older than MAX_AGE_MS (a ceiling, so a record nothing can judge cannot stay for ever).
  * Without --pid a record is tied to its agent only: it ends with `kosmos heavy end`, with the agent, or at the ceiling.
  * Where a start time cannot be read (Windows has no ps), a --pid record still clears when its process is gone (signal 0),
@@ -30,17 +31,18 @@ const MAX_LABEL = 80;
 const MAX_JOBS = 50;   // a bound on the file (the oldest go past it), not a policy: no computer runs fifty heavy jobs
 const MAX_PER_AGENT = 4;   // and on what one agent's records can cost every status poll (one start-time read each)
 const START_CACHE_MS = 10 * 1000;
-const PS_PER_READ = 8;   // at most this many ps runs in one live(); the rest are judged by signal 0 and the cache
+const PS_PER_READ = 8;   // at most this many ps runs in one live(), and none once PS_MS_PER_READ is spent;
+const PS_MS_PER_READ = 500;   // the rest are judged by signal 0 and the cache
 
 function fileOf(root) { return path.join(root, FILE); }
 
 /* The label to store, or throws an Error with a sentence for the agent. Another agent reads it in `kosmos heavy`, so it
    is stored as server.js othersWordsOneLine shapes someone else's words (#3311): no bracket to spell a marker with
-   (every marker starts with `[`), and no character that reorders the text around it. */
+   (every marker starts with `[`), and no direction mark or invisible space (the joiners some scripts need stay). */
 function normalizeLabel(value) {
   if (typeof value !== 'string') throw new Error('say what the job is, in words');
   if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value)) throw new Error('say what the job is on one line');
-  if (/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(value)) throw new Error('say what the job is in plain text, without direction marks');
+  if (/[\u061c\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(value)) throw new Error('say what the job is in plain text, without direction marks');
   const v = value.replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ').trim();
   if (!v) throw new Error('say what the job is, in words');
   if (v.length > MAX_LABEL) throw new Error('keep the job to ' + MAX_LABEL + ' characters');
@@ -100,14 +102,15 @@ function locked(root, fn) {
    such process, or undefined when it cannot be asked; agentAlive(name) gives true, false, or null for "could not tell". */
 function isLive(j, { now, startOf, agentAlive }) {
   if (now - j.since > MAX_AGE_MS) return false;
-  if (agentAlive && agentAlive(j.agent) === false) return false;
   if (j.pid !== null) {
+    // A job tied to a process lives as long as that process, whatever the roster says: --pid is for a wrapper that
+    // outlives its agent's call, and an agent restarting while its suite runs is when the line matters most.
     const s = startOf(j.pid);
     if (s === null) return false;                                  // no such process
     if (typeof s === 'string' && j.pidStart && s !== j.pidStart) return false;   // the number was reused
-    // undefined (could not ask): kept, the safe side for a passive notice
+    return true;   // the same process, or undefined (could not ask): kept, the safe side for a passive notice
   }
-  return true;
+  return !(agentAlive && agentAlive(j.agent) === false);
 }
 
 /* Signal 0 first: a gone process costs nothing to recognise (another user's process answers EPERM, and is kept as alive). A live one's start time is read with ps, and kept for
@@ -183,7 +186,8 @@ function end({ root, agent, pid }) {
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null }) {
   if (startOf === defaultStartOf) {
     let budget = PS_PER_READ;
-    startOf = (pid) => defaultStartOf(pid, now, budget-- > 0 ? 'cached' : 'alive');
+    const until = Date.now() + PS_MS_PER_READ;
+    startOf = (pid) => defaultStartOf(pid, now, budget-- > 0 && Date.now() < until ? 'cached' : 'alive');
   }
   const all = readAll(root);
   const keep = all.filter((j) => isLive(j, { now, startOf, agentAlive }));
