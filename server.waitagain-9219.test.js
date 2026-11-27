@@ -76,7 +76,8 @@ test('#9219 after a restart, --again brings back the agent\'s own held wait exac
 
 test('#9219 --again is refused when the agent has reported something else since, or names another state', async () => {
   await withAgent('wa-refused', async () => {
-    await post({ state: 'blocked', text: 'waiting on the deploy key', on: 'the deploy', owner: 'Splinter' });
+    const projectId = require('./engine/projects').create({ name: 'Deploy' }).id;
+    await post({ state: 'blocked', text: 'waiting on the deploy key', on: 'the deploy', owner: 'Splinter', project: projectId });
     await restart();
 
     const wrong = await post({ state: 'needs_you', again: true });
@@ -86,6 +87,7 @@ test('#9219 --again is refused when the agent has reported something else since,
     // CONTROL for the refusal below: the matching state brings it back.
     assert.equal((await post({ state: 'blocked', again: true })).recorded, true);
     assert.equal(selfreport.read('wa-refused').on, 'the deploy');
+    assert.equal(selfreport.read('wa-refused').project, projectId, 'the project the wait was about comes back too (review 1)');
 
     // The agent's own report ends the wait, so there is nothing to bring back after it.
     await post({ state: 'working', text: 'the key arrived' });

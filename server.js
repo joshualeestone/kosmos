@@ -20624,10 +20624,13 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        /* kosmos#9219: the wait to bring back is the one the restart reminder names (awaydigest.lastWaitRow, the same rule
-           as lastWait): the agent's own needs_you or blocked, newer than the reminder's window, with no report of its own
-           since. Its stored words and fields are used as they were kept (already masked when first recorded); nothing of
-           them is said back, so no words reach a session that did not type them. */
+        /* kosmos#9219: the wait to bring back is found by the restart reminder's own rule (awaydigest.lastWaitRow, as
+           lastWait): the agent's own needs_you or blocked, newer than the reminder's window, with no report of its own
+           since. It does NOT also apply the reminder's session limit (sessionsSinceWait, kosmos#9058), so a wait the
+           reminder has stopped naming can still be brought back: the agent asks for it in so many words, and only its own
+           wait comes back, as it would by retyping it. Its stored words and fields are used as they were kept (already
+           masked when first recorded); nothing of them is said back, so no words reach a session that did not type them.
+           What follows (the buzz, the record) is the same path as the agent retyping the same report by hand. */
         if (body.again === true) {
           let row = null;
           try {
