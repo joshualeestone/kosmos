@@ -153,6 +153,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/idleretire-8720.test.js': 'its win32 branch skips the one arm that locks the idle-retire log with chmod 000: Windows does not enforce POSIX file modes, so an unreadable file cannot be made there; the engine is plain Node and its other arms read and write only the sandbox',
   'server.builtfiles-9105.test.js': 'its only win32 branch skips the Mac CLI arms: they run install/kosmos (the Mac and Linux CLI, a bash script) against the board, which Windows cannot run; its route arms are platform-neutral and run on the Mac',
   'supervisor.macrestart-8988.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs the supervisor (bin/agent-supervisor.sh) and a real tmux through /bin/bash',
   'tools.pwsh-cache-9024.test.js': 'its win32 branches only skip the pwshEnv and pwshState unit arms (on Windows pwsh keeps its startup profile under LOCALAPPDATA, which this does not change, and its stand-in pwsh is a shell script); its sweep arms read files and run the same on the Mac; the converted pwsh tests themselves still run on Windows (kosmos#9024)',

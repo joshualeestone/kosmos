@@ -151,6 +151,7 @@ render-help-tips-3574
 render-holduntil-7184
 render-home-discovery-removed-3048
 render-home-phone-718
+render-idleretire-8720
 render-import-add-inplace-2419
 render-import-name-4962
 render-imports-recovery-8039
