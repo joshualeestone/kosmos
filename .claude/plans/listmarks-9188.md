@@ -7,8 +7,8 @@ markwords-9179 (PR #9198, converged and validated, held only by the 0.8.27 cut) 
 
 In all three list printers (Mac install/kosmos `task list`, Windows tools/windows/kosmos-cli.js taskList, and
 engine/tasklist.js for the compact and across lists), an ordinary task's title that uses one of the list's mark words
-prints QUOTED, said to be the task's own words, so it can never read as the board's mark; a title with no mark word
-is unchanged; an install without engine/markwords.js prints as before. One test per surface, red without the change.
+prints QUOTED, said to be the task's own words, so it cannot pass for any mark whose words are in the list (review 3:
+"never" overclaimed; the list is hand-built, see Weakest premise); a title with no mark word is unchanged; an install without engine/markwords.js prints as before. One test per surface, red without the change.
 
 ## Measured on the base first (the card is live)
 
@@ -18,9 +18,14 @@ On markwords-9179 (= main for these files), an open task titled "[on hold] ship 
 ## The change
 
 - engine/markwords.js (PigeonPete's, his two functions untouched): adds `usesListMarkWord(text)`: usesMarkWord, or
-  one of the list's mark phrases on the same folded copy, as whole words with the same gap rule: "not run",
-  "replaced by", "project paused", "added by", "subtasks", "repeats", "waits for", "woke", "checks reported",
-  "outside text"; and "done" only as the title's FIRST word (where the list prints "[done]").
+  one of the list's marks on the same folded copy, as whole words with the same gap rule. The marks, as of round 3
+  (the code's LIST_PHRASES comment is the authority): bracketed "not run", "replaced by", "project paused" and
+  "project is paused", "added by", "subtasks done", "repeats", "waits" (for, until, on), "woke:", "checks reported",
+  "outside text", "waiting on a review / the person / a release", "until task N"; parenthesised "through #N" and
+  "through task N", "under task", "owner:", "reported finished", "still to finish", "last activity", "quiet N",
+  "left under closed", "no activity on record", "next run", "held by the person", "only the person can lift",
+  "condition is met", "seen by the person"; and "done" as the first word (after a row label too) or in brackets or
+  parentheses anywhere.
 - engine/tasklist.js titleOf: a non-webhook title goes through usesListMarkWord / quoteOwnWords.
 - install/kosmos `task list` (inline node): loads the module from `kosmos_engine_module markwords` through
   KOSMOS_MARKWORDS; a missing module leaves the title as before.
@@ -40,8 +45,10 @@ On markwords-9179 (= main for these files), an open task titled "[on hold] ship 
 
 ## Weakest premise
 
-That the word list is complete for today's list output. It was read from install/kosmos's printer (every "[" mark) and
-the wake words (engine/taskwake.js waitWords: "waits for ..."); a new mark added later needs its word added here.
+That the word list is complete for today's list output. It is HAND-BUILT from the three printers and the wake words,
+and every review round so far (1, 2 and 3) found marks it missed; a new mark added to any printer later needs its
+words added to LIST_PHRASES too, and nothing enforces that. If a further round finds more, the fix may be a test that
+renders every mark state through the printers and checks each mark's text is caught, instead of more hand-added words.
 
 ## Verified (round 0)
 
@@ -83,4 +90,22 @@ invisible-character titles run in under 40 ms.
   "Under:" parent title that uses a mark word (as titleOf does everywhere); no test drives acrossLines, showLines, a
   closed task, or the Windows missing-module path; the remaining common words ("repeats", "waits", "replaced by",
   "not run", "owner:") quote some ordinary titles, the same cost #9179 accepted.
+cli.task-listmarks-9188 4 of 4 and the neighbouring set (533: 512 pass, 0 fail).
+
+#### Iteration 3 (blind review of the whole branch, opus)
+
+No BLOCKER. Ran about 110 titles; the Mac half under bash 3.2; every printer wired the same way with the same
+fallback; empty and "(no description)" titles as before; the five renamed fixtures check what they did.
+- [SHOULD-FIX] taken: "[done]" anywhere but the first word printed plain ("Release notes [done]" read as closed).
+  BRACKET_DONE: "done" in brackets or parentheses anywhere; a bare "done" still only as the first word.
+- [SHOULD-FIX] taken: the built mark's "waiting on a review / the person / a release" was not covered.
+- [SHOULD-FIX] taken: the long list's "(owner: X, through task N)": "through task N" now, beside "through #N".
+- [NIT] taken: "(seen by the person" and a hold's "[until task N is closed]".
+- Found while building it: my inline `//` comment on the "through" line swallowed the rest of that line, silently
+  dropping "owner:", "reported finished" and "still to finish"; the round-1 test caught it (missed: reported finished),
+  the comment is on its own line now. Each new rule has a mutation that fails exactly its case.
+- [NIT] recorded, not built: "[dropped]" and "7. done x" lookalikes; "not run" is the most common needless quote ("do
+  not run the migration"); a relative KOSMOS_HOME would make the module unfindable (titles print as before, no
+  warning); titleOf also reaches `task show`'s header, its "Under:" field and the built-files list (untested here);
+  no test of the Windows missing-module path, the across list or a closed row.
 cli.task-listmarks-9188 4 of 4 and the neighbouring set (533: 512 pass, 0 fail).
