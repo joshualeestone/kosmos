@@ -75,8 +75,8 @@ test('engine: one line per task (#, state, owner, title), the title whole on its
   const long = 'x'.repeat(5000);
   assert.ok(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 1, sentence: long }] }, 'open', 'p').lines[0].endsWith(long), 'a long title was cut');
   assert.deepEqual(tasklist.compactLines({ listState: 'open', count: 0, tasks: [] }, 'open', 'p').lines, ['0 open tasks in p.']);
-  // Owned through its tree (#5678), as the long list says.
-  assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 2, sentence: 's', ownerNames: ['mara'], ownerFrom: 1 }] }, 'open', 'p').lines[0], '#2  open  mara (through #1)  s');
+  // Owned through its tree (#5678), said as nobody first (kosmos#9237): nobody took it, and who to ask.
+  assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 2, sentence: 's', ownerNames: ['mara'], ownerFrom: 1 }] }, 'open', 'p').lines[0], '#2  open  nobody (mara holds #1)  s');
   // #4887, iteration 3: an agent who added it and is not its owner is named, as the long list names them.
   assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 7, sentence: 'mona: ship the build', addedVia: 'process', addedBy: 'otto', whoNames: [] }] }, 'open', 'p').lines[0], '#7  open  nobody  mona: ship the build [added by otto]');
   assert.equal(tasklist.compactLines({ listState: 'open', count: 1, tasks: [{ number: 8, sentence: 'mine', addedVia: 'process', addedBy: 'mara', whoNames: ['mara'] }] }, 'open', 'p').lines[0], '#8  open  mara  mine', 'CONTROL: its owner adding it is not marked');

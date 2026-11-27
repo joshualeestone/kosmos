@@ -105,11 +105,15 @@ test('#9188 engine: usesListMarkWord catches the list\'s marks, and only a FIRST
     'x (only the person can lift it)', "x (its hold's condition is met)",
     // Review 3: a bracketed done anywhere, the built mark's words, the long list's "through task N", and two more.
     'Release notes [done]', 'fix login (done)', '[waiting on a review] ship the login', 'x [built, waiting on the person]',
-    'fix the login (mara, through task 2)', 'x (seen by the person)', 'x [until task 3 is closed]']) {
+    'fix the login (mara, through task 2)', 'x (seen by the person)', 'x [until task 3 is closed]',
+    // kosmos#9237: the marks for a task owned only through its tree.
+    'x (nobody has taken it; ask otto, who holds task 2 in its tree) more', 'nobody (otto holds #3) fix']) {
     assert.equal(markwords.usesListMarkWord(t), true, 'missed: ' + t);
   }
   for (const t of ['tidy the docs', 'get it done', 'undone work', 'pre-done notes', 'a reporter checks in',
     '3 done items', 'go through the list', 'a quiet room', 'under the bridge', 'the owner of the site', 'still running',
+    // kosmos#9237: the new marks' words in ordinary titles stay plain.
+    'who holds the key', 'the task holds 3 things', 'nobody came', 'grow in its tree view',
     // Review 2: narrowed to the printers' exact words.
     'Fix subtasks rendering', 'Woke up bug', 'Left under pressure', 'waiting for the vendor', 'the work is done now']) {
     assert.equal(markwords.usesListMarkWord(t), false, 'quoted an ordinary title: ' + t);
