@@ -18,9 +18,11 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  * The second test keeps the first honest: every field a printer reads must be set by some fixture, and every helper a
  * printer calls with the task must be inside the source read. A read is found as `x.<field>` or `x?.<field>`, as a
- * helper's own parameter when the helper is called with x first, as destructuring (`const { f } = x`), and one level
+ * helper's own parameter wherever x is passed to it (in any position, destructured or not), as destructuring
+ * (`const { f } = x`), and one level
  * down for an object field (`x.subtasks.<name>`, or through a name for it: `const u = x && x.onHoldUntil; u.task`).
- * A read written any other way (a computed `x[k]`, a second alias of an alias) is not seen.
+ * The row loops must call the task x (checked). A read written any other way (a computed `x[k]`, a second alias of an
+ * alias, a helper reached only through another helper's renamed parameter) is not seen.
  * NOT COVERED, stated (review 1): a new mark on a new VALUE of a field the fixtures already set (builtWaitingOn ===
  * 'deploy'). No field scan can see a value; only a fixture with that value can. Lines without the title (done when,
  * still to finish, the fingerprint) are not checked: a title is folded onto one line, so it can never start one.
@@ -231,17 +233,42 @@ test('#9203 the groups test can fail: an unknown mark, and the owner name outsid
 const ID = '[A-Za-z_$][\\w$]*';
 const esc = (n) => n.replace(/\$/g, '\\$');
 const GET = '\\??\\.';   // . or ?.
-/* The names the task goes by in a piece of source: x, and (review 2) the first parameter of every helper defined there
-   that is called with x first ("function zebraOf(t)" called as zebraOf(x) reads the task as t). */
+/* The names the task goes by in a piece of source: x (the row loop's name, pinned by the test below), and (reviews 2
+   and 3) a helper's own parameter wherever x is passed to it, in ANY argument position: "function zebraOf(now, t)"
+   called as zebraOf(now, x) reads the task as t. A destructured parameter ("({ zebra })") gives its fields directly. */
+const splitTop = (str) => { const out = []; let d = 0; let cur = '';
+  for (const c of str) { if ('{[('.includes(c)) d++; if ('}])'.includes(c)) d--; if (c === ',' && d === 0) { out.push(cur); cur = ''; } else cur += c; }
+  if (cur.trim()) out.push(cur); return out.map((a) => a.trim()); };
+function callsWithX(src) {   // [name, argument index] for every call that passes x as a whole argument
+  const out = [];
+  for (const m of src.matchAll(new RegExp('(?<![\\w$.])(' + ID + ')\\(([^()]*)\\)', 'g'))) {
+    splitTop(m[2]).forEach((a, i) => { if (a === 'x') out.push([m[1], i]); });
+  }
+  return out;
+}
+function paramsOf(src, n) {
+  const d = src.match(new RegExp('function\\s+' + esc(n) + '\\s*\\(([^)]*)\\)'))
+    || src.match(new RegExp('(?:const|let)\\s+' + esc(n) + '\\s*=\\s*(?:function\\s*)?\\(([^)]*)\\)\\s*(?:=>|\\{)'))
+    || src.match(new RegExp('(?:const|let)\\s+' + esc(n) + '\\s*=\\s*(' + ID + ')\\s*=>'));
+  return d ? splitTop(d[1]) : null;
+}
 function taskNames(src) {
   const names = new Set(['x']);
-  const called = new Set([...src.matchAll(new RegExp('(?<![\\w$.])(' + ID + ')\\(\\s*x\\s*[,)]', 'g'))].map((m) => m[1]));
-  for (const n of called) {
-    const d = src.match(new RegExp('function\\s+' + esc(n) + '\\s*\\(\\s*(' + ID + ')'))
-      || src.match(new RegExp('(?:const|let)\\s+' + esc(n) + '\\s*=\\s*(?:function\\s*)?\\(?\\s*(' + ID + ')'));
-    if (d) names.add(d[1]);
+  for (const [n, i] of callsWithX(src)) {
+    const ps = paramsOf(src, n);
+    const p = ps && ps[i] ? ps[i].replace(/=.*$/s, '').trim() : '';
+    if (/^[A-Za-z_$][\w$]*$/.test(p)) names.add(p);
   }
   return [...names];
+}
+function destructuredParams(src) {
+  const out = new Set();
+  for (const [n, i] of callsWithX(src)) {
+    const ps = paramsOf(src, n);
+    const p = ps && ps[i] ? ps[i] : '';
+    if (p.startsWith('{')) for (const part of splitTop(p.replace(/^\{|\}\s*(=.*)?$/gs, ''))) { const k = part.split(/[:=]/)[0].trim(); if (k) out.add(k); }
+  }
+  return out;
 }
 // <name>.<field> reads in a piece of source, for each name the task goes by: not part of a longer name (ctx.x.y does
 // not count), with ?. too, and (review 2) destructuring: const { a, b: c } = x.
@@ -253,6 +280,7 @@ function fieldsRead(src) {
       for (const part of m[1].split(',')) { const k = part.split(':')[0].trim(); if (k) out.add(k); }
     }
   }
+  for (const k of destructuredParams(src)) out.add(k);
   return out;
 }
 /* Review 1: a mark can also hang off a SUB-field of a field the fixtures already set ("x.subtasks.zebra"), read either
@@ -273,7 +301,7 @@ function subFieldsRead(src) {
 // Review 1: a helper called with the task must be inside the source the field check reads, or its reads are unseen.
 function helpersOutside(src) {
   const defined = new Set([...src.matchAll(new RegExp('(?:function\\s+|(?:const|let)\\s+)(' + ID + ')\\s*(?:\\(|=)', 'g'))].map((m) => m[1]));
-  return [...new Set([...src.matchAll(new RegExp('(?<![\\w$.])(' + ID + ')\\(\\s*x\\s*[,)]', 'g'))].map((m) => m[1]))]
+  return [...new Set(callsWithX(src).map(([n]) => n))]
     .filter((n) => !defined.has(n) && !['String', 'Number', 'Boolean', 'Array', 'Object'].includes(n));
 }
 function between(src, from, to) {
@@ -291,6 +319,13 @@ test('#9203 the fixtures set every field the list printers read', () => {
       + between(win, 'function builtTag(', 'function holdUntilWords(') + between(win, 'function holdUntilWords(', '\n}\n'),
     'install/kosmos long list': macProgram(),
   };
+  // Review 3: the scan follows the name x, so each printer's row loop must still call its task x (a rename goes red
+  // here instead of blinding the scan).
+  const loops = { 'engine/tasklist.js (compact and across)': [/const lines = tasks\.map\(\(x\) =>/g, 2], 'tools/windows/kosmos-cli.js taskList': [/for \(const x of tasks\)/g, 1],
+    'install/kosmos long list': [/for\(const x of t\)/g, 1] };
+  for (const [where, [re, n]] of Object.entries(loops)) {
+    assert.equal((sources[where].match(re) || []).length, n, where + ': its row loop no longer names the task x, so the field scan below cannot follow it');
+  }
   const set = new Set(FIXTURES.flatMap((f) => Object.keys(f)));
   const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
   const unset = [];
@@ -303,7 +338,7 @@ test('#9203 the fixtures set every field the list printers read', () => {
       const objs = FIXTURES.map((x) => x[a]).filter(isObj);
       if (objs.length && !objs.some((o) => Object.hasOwn(o, b))) unset.push(where + ': x.' + fb);
     }
-    for (const h of helpersOutside(src)) unset.push(where + ': calls ' + h + '(x, ...) from outside the source read here');
+    for (const h of helpersOutside(src)) unset.push(where + ': calls ' + h + '(..., x, ...) from outside the source read here');
   }
   assert.deepEqual(unset, [], 'a printer reads a field no fixture sets, so its mark is never rendered here:\n' + unset.join('\n'));
 });
