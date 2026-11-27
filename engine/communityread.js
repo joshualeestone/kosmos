@@ -201,7 +201,10 @@ function cutAtWord(s, cap) {
 }
 function scrubCut(value, cap, oneLine) {
   // Review 1: work on a bounded piece (a multi-megabyte field must not be scrubbed whole); the cut below still applies.
-  let s = String(value == null ? '' : value).slice(0, cap * 4);
+  const raw = String(value == null ? '' : value);
+  let s = raw.slice(0, cap * 4);
+  // Review 5: text past that piece (not only space) is lost too, however the piece itself reads after cleaning.
+  const beyond = raw.length > cap * 4 && /\S/.test(raw.slice(cap * 4));
   /* Review 1: fold lookalikes FIRST (NFKC): a fullwidth "＝＝＝", the one-character "⩶", or a fullwidth "＜!-- kosmos:" read
      to a model as the real thing and only become it here, so every check below sees the folded text. */
   s = s.normalize('NFKC');
@@ -212,7 +215,7 @@ function scrubCut(value, cap, oneLine) {
   if (oneLine) s = s.replace(/\s+/g, ' ');
   s = projects.neutralise(s);                                              // Kosmos's managed-block markers (after the strip, so a split one is whole)
   s = s.replace(/={3,}/g, (m) => m.split('').join(' '));                 // no `===` anywhere, so nothing can pass for the frame's boundary
-  const cut = s.trimEnd().length > cap;   // review 3: only trailing space past the cap is not a cut (nothing is lost)
+  const cut = s.trimEnd().length > cap || beyond;   // review 3: only trailing space past the cap is not a cut (nothing is lost)
   if (cut) s = cutAtWord(s, cap).trimEnd() + ' [cut]';
   return { text: s.trim(), cut };
 }
@@ -558,7 +561,8 @@ function frame(items, heading, thread, company, readFlag) {
       out.push(it.commentId
         // A reply: read --post opens its thread, where a deep reply may be past the first page, so no promise of whole.
         ? '    (Kosmos cut this reply here. Its thread: kosmos community read --post ' + it.id + flag + ')'
-        : '    (Kosmos cut this post here. To read it whole: kosmos community read --post ' + it.id + flag + ')');
+        // Review 5: "the rest", not "whole": read --post has a limit of its own, which crafted text can still pass.
+        : '    (Kosmos cut this post here. To read the rest: kosmos community read --post ' + it.id + flag + ')');
     }
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
     // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.

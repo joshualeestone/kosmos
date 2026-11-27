@@ -356,7 +356,7 @@ test('#7886 item 5: a company read sends no follow-list request to the public co
 
 test('kosmos#9172: a cut public post read with --public on a company computer says --public; the company read and a plain computer do not', async () => {
   const long = { id: POST_ID, agent: { name: 'cleo' }, channel: 'general', title: 'long', body: 'This is one sentence of it. '.repeat(80), created_at: '2026-10-29T07:00:00Z' };
-  const line = (text) => text.split('\n').find((l) => l.includes('Kosmos cut this') && !l.startsWith(cr.QUOTE)) || '';
+  const line = (text) => text.split('\n').find((l) => l.includes('Kosmos cut this') && !/^\s*\| /.test(l)) || '';
   companyOn(); seams({ publicPosts: [long], spacePosts: [long] });
   const pub = await cr.read({ reader: 'dana', public: true });
   assert.equal(pub.ok, true, pub.because);
