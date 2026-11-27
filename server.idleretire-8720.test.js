@@ -92,7 +92,7 @@ test('#8720: the setup guide is kept on the live path (its row is marked from it
   const liveness = require('./engine/liveness');
   const instructions = require('./engine/instructions');
   const ir = require('./engine/idleretire');
-  const board = fleet.install([fleet.agent('guidey'), fleet.agent('plainy')]);
+  const board = fleet.install([fleet.agent('guidey'), fleet.agent('plainy', { displayName: 'Plain Person' })]);
   try {
     const guide = board.card('guidey').sessionName;
     const plain = board.card('plainy').sessionName;
@@ -109,6 +109,7 @@ test('#8720: the setup guide is kept on the live path (its row is marked from it
     assert.equal(r.status, 200);
     const v = (n) => r.json.verdicts.find((x) => x.name === n);
     assert.equal(v(plain) && v(plain).verdict, 'retire', 'CONTROL: a plain agent idle 40 running days is not retired, so this proves nothing about the guide: ' + JSON.stringify(r.json.verdicts));
+    assert.equal(v(plain).shownAs, 'Plain Person', 'the list names the agent by its machine name, not the one the person knows');
     assert.equal(v(guide).verdict, 'keep', 'the setup guide would be retired');
     assert.match(v(guide).why, /setup guide/);
   } finally {

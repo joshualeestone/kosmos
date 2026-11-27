@@ -115,7 +115,7 @@ function assess(rows, readers, { days, now = Date.now(), upDays } = {}) {
   for (const a of Array.isArray(rows) ? rows : []) {
     const name = a && typeof a.sessionName === 'string' ? a.sessionName : null;
     if (!name) continue;
-    const shownAs = typeof a.displayName === 'string' && a.displayName ? a.displayName : name;
+    const shownAs = typeof a.name === 'string' && a.name ? a.name : name;   // the board's row: name is what the person sees
     const row = (verdict, idle, why) => out.push({ name, shownAs, verdict, days: idle, why });
     let beat;
     try { beat = readers.lastBeat(name); } catch { beat = null; }
@@ -198,7 +198,8 @@ function makeTick(deps) {
         log.tried.names.push(v.name);
         if (!writeLog(log)) break;
         let r;
-        try { r = deps.remove(v.name); } catch (e) { r = { outcome: 'refused', because: 'remove failed (' + (e && e.message ? e.message : 'error') + ')' }; }
+        // A throw from remove() can come after a step was taken (server.js's DELETE route says the same), so it is partial.
+        try { r = deps.remove(v.name); } catch (e) { r = { outcome: 'partial', because: 'the removal failed partway and may have stopped part of it (' + (e && e.message ? e.message : 'error') + ')' }; }
         let outcome = r && typeof r.outcome === 'string' ? r.outcome : 'refused';
         if (outcome === 'removed' && r.dryRun) outcome = 'refused';
         const entry = { name: v.name, shownAs: v.shownAs, at: new Date(t).toISOString(), days: v.days, outcome, because: outcome === 'removed' ? v.why : String((r && r.because) || 'not removed') };
@@ -220,7 +221,8 @@ function makeTick(deps) {
 function view(rows, readers, now = Date.now()) {
   const setting = readSetting();
   const log = readLog();
-  return { setting, choices: DAY_CHOICES, verdicts: assess(rows, readers || realReaders(), { days: setting.days, now, upDays: log.up }), recent: log.retired };
+  const up = log.up.includes(dayOf(now)) ? log.up : log.up.concat([dayOf(now)]);   // the next tick counts today before it judges
+  return { setting, choices: DAY_CHOICES, verdicts: assess(rows, readers || realReaders(), { days: setting.days, now, upDays: up }), recent: log.retired };
 }
 
 module.exports = { readSetting, writeSetting, assess, makeTick, view, realReaders, readLog, dayOf, DAY_CHOICES, DEFAULT_DAYS, KEEP_LOG, MAX_PER_TICK };
