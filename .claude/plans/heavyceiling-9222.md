@@ -10,13 +10,16 @@ longer than 12 hours left the board while it ran, which is when the line matters
 
 ## Change
 
-In `isLive`, a record whose process is confirmed by its start time is kept with no ceiling. The ceiling still applies
-to a record with no process, to "could not ask" (undefined), and to a record that recorded no start (Windows, no ps):
-a start read later cannot confirm one that recorded none.
+In `isLive`, a `--pid` record that recorded its process's start time is judged by it, with no ceiling: a different start
+is a reused number and it goes; an unread start this time (undefined: the process answers signal 0, but ps was over
+budget, timed out, or not asked, as in `start()` for the agent's other records) keeps it, so one read that could not
+ask never deletes what the next would confirm. The ceiling still applies to a record with no process, and to one that
+recorded no start (Windows, no ps): a start read later cannot confirm one that recorded none.
+A hung wrapper that never exits is kept on purpose: it is still running, and still holding what it holds.
 
 ## Rejected
 
-- Raising the ceiling: it would still drop a long run, and keep stuck records longer.
+- Raising the ceiling: it would still drop a long run, and keep records nothing can judge longer.
 - Renewing `at` on each confirmed read: a write per poll, for the same result.
 
 ## Weakest premise
@@ -27,5 +30,6 @@ the cache or not at all; an uncached one in that case meets the ceiling like any
 
 ## Tests
 
-engine/heavyjobs-9217.test.js: a confirmed process at 13 h stays; undefined at 13 h goes; no recorded start at 13 h
-goes; a job with no process at 13 h goes (control).
+engine/heavyjobs-9217.test.js: a confirmed process at 13 h stays; an unread start at 13 h stays; a different start
+goes; no recorded start at 13 h goes; a job with no process at 13 h goes (control). With the real defaultStartOf: a
+second start() by the same agent at 13 h, and a live() whose ps budget is spent, both keep the overnight record.

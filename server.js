@@ -9472,7 +9472,8 @@ const server = http.createServer(async (req, res) => {
            machine is not stuck. */
         updateAbort: updates.updateAbort(),
         /* kosmos#9217: the heavy jobs agents said are running on this computer (`kosmos heavy start`), for the top
-           note. engine/heavyjobs.js clears a record whose process or agent is gone, or past its age ceiling. */
+           note. engine/heavyjobs.js clears a record whose process or agent is gone, or past its age ceiling (which a process
+           confirmed by its recorded start time does not meet, kosmos#9222). */
         heavyJobs: heavyJobsNow({ running: agents, offline, complete: !couldNotAccount }),
         /* And the two facts the overlay needs even when the attempt record
            is gone with the old server: the diary's path (from the engine's
