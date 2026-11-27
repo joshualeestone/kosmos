@@ -57,12 +57,19 @@ const GAP = '[^\\p{L}\\p{N}]{0,6}';
 /* Review 1: "waits" alone (a wake prints "waits for ..." OR "waits until ...", and the compact list "(waits on ...)"), and
    the compact, across and long lists' marks in parentheses whose words are fixed: "(through #N)", "(under task N)",
    "(owner: ...)", "(reported finished: ...)", "(still to finish: ...)", "(last activity ...)", "(quiet N days",
-   ", left under closed task #N". ("(... since built)" and "(marked built ...)" are caught by "built".) An owner's bare
+   ", left under closed task #N"; review 2: "(no activity on record)", "(next run ...)", "(its project is paused)",
+   "(held by the person)", "(only the person can lift it)", "(its hold's condition is met)". ("(... since built)" and
+   "(marked built ...)" are caught by "built".) Review 2 narrowed three to the printers' exact words ("subtasks done",
+   "woke:", "left under closed"), so "fix subtasks rendering" or "woke up bug" stay plain. An owner's bare
    name in parentheses, "(otto)", has no fixed word to test: kosmos#9188 review 1 left it to a card of its own. */
-const LIST_PHRASES = ['not' + GAP + 'run', 'replaced' + GAP + 'by', 'project' + GAP + 'paused', 'added' + GAP + 'by', 'subtasks',
-  'repeats', 'waits', 'woke', 'checks' + GAP + 'reported', 'outside' + GAP + 'text',
-  'through\\s*#\\s*\\d+', 'under' + GAP + 'task', 'owner\\s*:', 'reported' + GAP + 'finished', 'still' + GAP + 'to' + GAP + 'finish',
-  'last' + GAP + 'activity', 'quiet\\s*\\d+', 'left' + GAP + 'under'];
+const phrase = (...words) => words.join(GAP);
+const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('project', 'paused'), phrase('project', 'is', 'paused'),
+  phrase('added', 'by'), phrase('subtasks', 'done'), 'repeats', 'waits', 'woke\\s*:', phrase('checks', 'reported'), phrase('outside', 'text'),
+  'through\\s*#\\s*\\d+', phrase('under', 'task'), 'owner\\s*:', phrase('reported', 'finished'), phrase('still', 'to', 'finish'),
+  phrase('last', 'activity'), 'quiet\\s*\\d+', phrase('left', 'under', 'closed'),
+  // Review 2: the compact and across lists' other words in parentheses.
+  phrase('no', 'activity', 'on', 'record'), phrase('next', 'run'), phrase('held', 'by', 'the', 'person'),
+  phrase('only', 'the', 'person', 'can', 'lift'), phrase('condition', 'is', 'met')];
 const LIST_WORD = new RegExp('(?<![\\p{L}\\p{N}])(?:' + LIST_PHRASES.join('|') + ')(?![\\p{L}\\p{N}])', 'iu');
 // Review 1: also after a number written as a row's own label, "[7] [done] x" or "#3 [done] x" (a bracket or # before the
 // digits, so "3 done items" stays plain).

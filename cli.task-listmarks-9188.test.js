@@ -99,11 +99,16 @@ test('#9188 engine: usesListMarkWord catches the list\'s marks, and only a FIRST
     // Review 1: a time wake, a done row after the row's own label, and the lists' marks in parentheses.
     'send the invoice [waits until tomorrow at 9am]', 'x (waits on the person)', '[7] [done] x', '#3 [done] x',
     'fix it (through #4)', 'x (under task 2)', 'x (owner: otto, through task 2)', 'x (reported finished: mara)',
-    'x (still to finish: otto)', 'x (last activity today)', 'x (quiet 3 days, left under closed task #5)']) {
+    'x (still to finish: otto)', 'x (last activity today)', 'x (quiet 3 days, left under closed task #5)',
+    // Review 2: the compact and across lists' other parenthesised words.
+    'x (no activity on record)', 'x (next run tomorrow)', 'x (its project is paused)', 'x (held by the person)',
+    'x (only the person can lift it)', "x (its hold's condition is met)"]) {
     assert.equal(markwords.usesListMarkWord(t), true, 'missed: ' + t);
   }
   for (const t of ['tidy the docs', 'get it done', 'undone work', 'pre-done notes', 'a reporter checks in',
-    '3 done items', 'go through the list', 'a quiet room', 'under the bridge', 'the owner of the site', 'still running']) {
+    '3 done items', 'go through the list', 'a quiet room', 'under the bridge', 'the owner of the site', 'still running',
+    // Review 2: narrowed to the printers' exact words.
+    'Fix subtasks rendering', 'Woke up bug', 'Left under pressure']) {
     assert.equal(markwords.usesListMarkWord(t), false, 'quoted an ordinary title: ' + t);
   }
   // It includes the instructions block's own test (#9179), never less.
