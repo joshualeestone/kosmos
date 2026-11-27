@@ -107,6 +107,9 @@ classes="$classes AIPoliciesUITests:1"
 # kosmos#8959 slice D1c1: UpdatesUITests, Settings' Updates row opening the native card, Update asking first in the
 #   page's words, and what it says once updated (1 check; lazy arm only). Its own line, as above.
 classes="$classes UpdatesUITests:1"
+# kosmos#8959 slice D1c2a: UsageUITests, Settings' Token usage row opening the native figures, the hero, the model
+#   table, By agent and the history (1 check; lazy arm only). Its own line, as above.
+classes="$classes UsageUITests:1"
 # kosmos#9089: ChatTallOpenUITests, a short chat of tall replies (20 messages) opens on its newest, first time and on
 #   coming back, with the one-liner chat as its control (2 checks). This lazy-arm run only: the lazy list is the one that
 #   opened above the newest (3 of 3 before the fix), the UIKit list already passed. 20 messages, so not the 260-message
