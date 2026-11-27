@@ -8,7 +8,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -O -o "$out/checkins-logic-tests" \
+xcrun swiftc -Onone -o "$out/checkins-logic-tests" \
   "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" \
   "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/SignInLogic.swift" "$src/TodayLogic.swift" "$src/TasksLogic.swift" "$src/BoardClient.swift" "$src/SessionKeychain.swift" \
   "$src/SettingsLogic.swift" "$src/CheckinsLogic.swift" "$here/checkins/main.swift"
