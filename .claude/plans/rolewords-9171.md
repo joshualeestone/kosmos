@@ -9,8 +9,8 @@ reviews") keeps the member in the Assigner's hand-outs, silently.
 - server.js POST /api/project/:id/role: also answers `stillAssigned: true` when the saved role names review or QA but is
   not review only. From the role just saved, like reviewOnly.
 - install/kosmos and tools/windows/kosmos-cli.js: one line, the same words on both: "It names review or QA, but not as
-  your whole role, so the automatic Assigner still hands you this project's tasks. To stop that, make the whole role
-  "review only" or "QA only"."
+  your whole role, so the automatic Assigner can still hand you this project's tasks. If you only review here, make the
+  whole role "review only" or "QA only"." (worded after review 1)
 - The review-only match itself is unchanged (deliberately exact, #7429).
 
 ## Rejected
