@@ -43,6 +43,15 @@ listed() { printf '%s\n' "$list" | grep -qx "$1"; }
 listed "$orphan" && pass "a detached kosmos leftover is ended" || fail "the detached leftover $orphan was not listed"
 ! listed "$relay_node" && pass "a node under the relay runner (by ancestry, not its own command) is spared" || fail "the relay runner's node $relay_node was listed"
 [ -n "$anc" ] && ! listed "$anc" && pass "the hook's own node-named ancestor is spared (as pkill spared it)" || fail "the hook's ancestor $anc was listed"
+# kosmos#9149: in a UTF-8 locale (the runner's .env sets one) a stray byte in any process's name made pgrep exit 3, and
+# the hook killed nothing. Played by a pgrep that fails that way unless LC_ALL=C (no live bad-byte process on the Mac).
+REALPG="$(command -v pgrep)"; mkdir -p "$T/pgl"
+printf '#!/bin/sh
+[ "${LC_ALL:-}" = C ] || { echo "pgrep: Regular expression evaluation error (illegal byte sequence)" >&2; exit 3; }
+exec "%s" "$@"
+' "$REALPG" > "$T/pgl/pgrep"; chmod 755 "$T/pgl/pgrep"
+list2="$(PATH="$T/pgl:$PATH" LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 HOME="$T" "$NODE" -e 'const c=require("child_process"); process.stdout.write(c.execFileSync(process.argv[1],["--list"]).toString())' "$HOOK")"
+printf '%s\n' "$list2" | grep -qx "$orphan" && pass "a pgrep that refuses a stray byte outside LC_ALL=C: the leftover is still listed" || fail "with a byte-refusing pgrep the hook listed: [$list2]"
 
 # CONTROL: the same hook with the relay exception removed must list the relay node, or the test proves nothing.
 sed 's/case "\$c" in \*"\$RELAY_DIR"\*) return 0 ;; esac/:/' "$HOOK" > "$T/nospare.sh"; chmod 755 "$T/nospare.sh"
