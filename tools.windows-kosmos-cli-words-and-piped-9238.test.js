@@ -92,12 +92,14 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win-words-piped-9238-'
 process.on('exit', () => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* best effort */ } });
 const PROBE = 'require(' + JSON.stringify(path.join(__dirname, 'tools', 'windows', 'kosmos-cli')) + ').stdinHasText().then((v) => { process.stdout.write(String(v)); process.exit(0); })';
 const SKIP_SHELL = process.platform === 'win32' ? 'it builds a shell pipe with /bin/sh' : false;
+const SKIP_UNLINK = process.platform === 'win32' ? 'Windows cannot remove the name of a file that is open' : false;
 
 function probe(stdin) {
   return new Promise((resolve, reject) => {
     let fd = null, cmd = process.execPath, argv = ['-e', PROBE];
     const env = { ...process.env };
-    if (stdin.file !== undefined) { const f = path.join(TMP, 'in-' + Math.random().toString(16).slice(2)); fs.writeFileSync(f, stdin.file); fd = fs.openSync(f, 'r'); }
+    // { file } is a heredoc: a temp file whose name the shell removed (nlink 0); { named } keeps its name, as `< file`.
+    if (stdin.file !== undefined || stdin.named !== undefined) { const f = path.join(TMP, 'in-' + Math.random().toString(16).slice(2)); fs.writeFileSync(f, stdin.file !== undefined ? stdin.file : stdin.named); fd = fs.openSync(f, 'r'); if (stdin.file !== undefined) fs.unlinkSync(f); }
     else if (stdin.devnull) fd = fs.openSync(process.platform === 'win32' ? '\\\\.\\NUL' : '/dev/null', 'r');
     else if (stdin.fifo !== undefined) {
       const f = path.join(TMP, 'fifo-' + Math.random().toString(16).slice(2)); fs.writeFileSync(f, stdin.fifo);
@@ -120,11 +122,11 @@ function probe(stdin) {
   });
 }
 
-test('#9238 stdinHasText: a heredoc (a file) with text is text', async () => { assert.equal((await probe({ file: BODY + '\n' })).value, 'true'); });
-test('#9238 stdinHasText: a file of white space only is not text', async () => { assert.equal((await probe({ file: '  \n\n' })).value, 'false'); });
+test('#9238 stdinHasText: a heredoc (a file) with text is text', { skip: SKIP_UNLINK }, async () => { assert.equal((await probe({ file: BODY + '\n' })).value, 'true'); });
+test('#9238 stdinHasText: a file of white space only is not text', { skip: SKIP_UNLINK }, async () => { assert.equal((await probe({ file: '  \n\n' })).value, 'false'); });
 test('#9238 stdinHasText: /dev/null is not text', async () => { assert.equal((await probe({ devnull: true })).value, 'false'); });
 test('#9238 stdinHasText: node\'s own pipe (a socket, what a program spawning kosmos hands over) with text is text', async () => { assert.equal((await probe({ socket: BODY })).value, 'true'); });
-test('#9238 stdinHasText: a file whose text comes after 70,000 spaces is text', async () => { assert.equal((await probe({ file: ' '.repeat(70000) + BODY })).value, 'true'); });
+test('#9238 stdinHasText: a file whose text comes after 70,000 spaces is text', { skip: SKIP_UNLINK }, async () => { assert.equal((await probe({ file: ' '.repeat(70000) + BODY })).value, 'true'); });
 test('#9238 stdinHasText: a shell pipe with text is text', { skip: SKIP_SHELL }, async () => { assert.equal((await probe({ fifo: BODY + '\n' })).value, 'true'); });
 test('#9238 stdinHasText: an empty shell pipe is not text', { skip: SKIP_SHELL }, async () => { assert.equal((await probe({ fifo: '' })).value, 'false'); });
 test('#9238 stdinHasText: a shell pipe whose writer sends nothing answers false after the short peek, not the 3 s read', { skip: SKIP_SHELL }, async () => {
@@ -141,4 +143,25 @@ test('#9238 stdinHasText: a writer of spaces that never stops is not text, and t
   const r = await probe({ producer: "yes ' '" });
   assert.equal(r.value, 'false', r.out);
   assert.ok(typeof r.doneAt === 'number' && r.doneAt >= 250 && r.doneAt < 2500, 'the probe answered after ' + r.doneAt + ' ms (the peek is ' + cli.PIPED_PEEK_MS + ' ms in all)');
+});
+test('#9238 stdinHasText: a named file (`< file`, a while-read loop\'s input) is never read', async () => { assert.equal((await probe({ named: BODY + '\n' })).value, 'false'); });
+
+test('#9238 every refusal also says what to do inside a loop', async () => {
+  const h = harness({ piped: true });
+  assert.equal(await cli.main(['community', 'comment', ID, 'a reply'], h.io), 2);
+  assert.match(h.all(), /If this runs inside a loop that reads its own input, add < \/dev\/null to the command/);
+});
+
+test('#9238 with --topic given, the post refusal does not tell them to use --topic', async () => {
+  const h = harness({ piped: true });
+  assert.equal(await cli.main(['community', 'post', '--topic', 'A title', 'and words'], h.io), 2, h.all());
+  assert.ok(h.all().split('\n').includes('Pipe the text in alone, or give all of it as words.'), h.all());
+  assert.doesNotMatch(h.all(), /put the title in --topic/);
+});
+
+test('#9238 editing a comment (which has no title) is not told to use --topic', async () => {
+  const h = harness({ piped: true });
+  assert.equal(await cli.main(['community', 'edit', 'comment', ID, 'new words'], h.io), 2, h.all());
+  assert.ok(h.all().split('\n').includes('Pipe the text in alone, or give all of it as words.'), h.all());
+  assert.doesNotMatch(h.all(), /put it in --topic/);
 });
