@@ -7,7 +7,7 @@
  * decides WHO, and keeps what it did.
  *
  * Idle is counted in days KOSMOS WAS RUNNING, not calendar days: the board writes the liveness record when a report
- * reaches it, so while the board is closed nobody can beat. Each tick records today as a running day; an agent is
+ * reaches it, so while the board is closed nobody can beat. Each tick that is allowed to run records today as a running day; an agent is
  * retired only when both its calendar days and the running days since its last beat reach N. A board closed for a
  * month therefore retires nobody on its first morning back.
  *
@@ -198,7 +198,7 @@ function realReaders() {
 
 /**
  * The hourly sweep. deps: allowed() (live execution), roster() -> rows, remove(name) -> { outcome, because, dryRun },
- * readers (default realReaders()), now(), log(line). Each tick records today as a running day; when the setting is on,
+ * readers (default realReaders()), now(), log(line). Each allowed tick records today as a running day; when the setting is on,
  * it sends up to MAX_PER_TICK 'retire' verdicts through remove(), never forced, skipping a name heldUntil() holds (the
  * attempt is written down before it is made). Under dry-run nothing happened (engine/remove.js markDryRun), so any
  * outcome but refused is recorded as refused. A refusal repeating the newest entry for that agent is not logged again.
@@ -211,7 +211,10 @@ function makeTick(deps) {
       const t = now();
       const today = dayOf(t);
       const log = readLog({ setAside: true });
-      if (log.unreadable) return { act: 'skip', because: 'its record could not be read, so it did nothing' };
+      if (log.unreadable) {
+        if (deps.log) deps.log('idle-retire: its record could not be read, so it did nothing');
+        return { act: 'skip', because: 'its record could not be read, so it did nothing' };
+      }
       if (!log.up.includes(today)) { log.up.push(today); log.up.sort(); if (!writeLog(log)) { if (deps.log) deps.log('idle-retire: its record could not be written, so it did nothing'); return { act: 'skip', because: 'its record could not be written, so it did nothing' }; } }
       const setting = readSetting();
       if (!setting.on) return { act: 'skip', because: 'off' };

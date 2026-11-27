@@ -5,7 +5,9 @@
  *
  * Drives the real paintIdleRetire() against a stubbed /api/idle-retire (no board), in Chromium and WebKit, at desktop
  * and phone width, inside the real Settings panel. The claims, each able to fail:
- *  - an unreadable setting hides the switch with no on or off on it and says so (never a false Off);
+ *  - a failed read of the setting (the route answers 500) hides the switch with no on or off on it and says so (never a
+ *    false Off);
+ *  - a record of retirements Kosmos cannot read: the heading says it retires nobody until it can;
  *  - off: the switch reads off, and the days and the lists still show, as a preview ("if you turn this on");
  *  - on: the days read the stored number; "would be retired" names each agent as the list shows it, with why, and a
  *    name with markup in it is shown as text; "kept" lists only agents idle long enough and protected (an agent that
@@ -120,6 +122,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         for (let i = 0; i < 50 && look().checked !== null; i += 1) await new Promise((res) => setTimeout(res, 20));
         out.savedNoList = look();
         current = { ...on, active: false }; await paintIdleRetire(); out.paused = look();
+        current = { ...on, unreadable: true, recent: [] }; await paintIdleRetire(); out.recordUnreadable = look();
         current = on; await paintIdleRetire();
         puts.length = 0;
         const sel2 = document.getElementById('idr-days');
@@ -135,7 +138,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         return out;
       }, { on: ON, off: OFF, emptyOn: EMPTY_ON });
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
-      say(r.fail.togHidden && r.fail.checked === null && !r.fail.lists && /could not read/.test(r.fail.msg), tag + ' an unreadable setting hides the switch with no position and says so', JSON.stringify(r.fail));
+      say(r.fail.togHidden && r.fail.checked === null && !r.fail.lists && /could not read/.test(r.fail.msg), tag + ' a failed read hides the switch with no position and says so', JSON.stringify(r.fail));
       say(!r.off.togHidden && r.off.checked === 'false' && r.off.days === '30' && r.off.lists
         && JSON.stringify(r.off.retire) === JSON.stringify(['Ada: it has not run in 70 days'])
         && /if you turn this on/.test(r.off.retireHead), tag + ' off: the switch reads off, and the days and a preview of who would go still show', JSON.stringify(r.off));
@@ -150,6 +153,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.savedNoList.checked === null && r.savedNoList.togHidden && /could not read/.test(r.savedNoList.msg), tag + ' a save with no agent list re-reads, and a failed read hides the switch and says so', JSON.stringify(r.savedNoList));
       say(JSON.stringify(r.afterDays.puts) === JSON.stringify([{ days: 90 }]) && r.afterDays.days === '90', tag + ' picking 90 days sends { days: 90 } once', JSON.stringify(r.afterDays.puts));
       say(/paused on this computer/.test(r.paused.retireHead) && r.paused.checked === 'true', tag + ' on but paused: the heading says retiring is paused', r.paused.retireHead);
+      say(/cannot read its record of retirements, so it retires nobody/.test(r.recordUnreadable.retireHead), tag + ' an unreadable record: the heading says nobody is retired until it can be read', r.recordUnreadable.retireHead);
       say(r.inflight.during.value === '60' && /Still saving/.test(r.inflight.during.msg) && r.inflight.after === '90' && JSON.stringify(r.inflight.puts) === JSON.stringify([{ days: 90 }]),
         tag + ' a days change during a save is put back and sends nothing; the save that was in flight is drawn', JSON.stringify(r.inflight));
       say(!r.on.sideways, tag + ' nothing scrolls sideways');

@@ -30326,8 +30326,9 @@ function paintIdleRetireFrom(r) {
   if (lists) lists.hidden = false;
   const v = Array.isArray(r.verdicts) ? r.verdicts : [];
   const limit = Number(s.days) || 30;
-  const paused = on && r.active === false;
-  idrList('idr-retire', 'idr-retire-h', paused ? 'Would be retired, but retiring is paused on this computer:'
+  const paused = on && (r.active === false || r.unreadable === true);
+  idrList('idr-retire', 'idr-retire-h', r.unreadable === true ? 'Would be retired, but Kosmos cannot read its record of retirements, so it retires nobody until it can:'
+    : paused ? 'Would be retired, but retiring is paused on this computer:'
     : on ? 'Would be retired soon, a few each hour:' : 'Would be retired if you turn this on:',
     v.filter((x) => x.verdict === 'retire').map((x) => x.shownAs + ': ' + x.why));
   idrList('idr-keep', 'idr-keep-h', 'Idle that long, but kept:',

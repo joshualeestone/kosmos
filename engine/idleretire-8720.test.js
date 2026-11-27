@@ -311,12 +311,14 @@ test('a log that cannot be READ is left alone and the tick does nothing; one tha
   const before = fs.readFileSync(f, 'utf8');
   fs.chmodSync(f, 0o000);
   const removed = [];
+  const logged = [];
   let r;
   try {
     assert.equal(ir.readLog().unreadable, true);
-    r = ir.makeTick({ allowed: () => true, roster: () => rows('x'), readers: readersOf({ x: { at: ago(40) } }), now: () => NOW, remove: (n) => { removed.push(n); return { outcome: 'removed' }; } })();
+    r = ir.makeTick({ allowed: () => true, roster: () => rows('x'), readers: readersOf({ x: { at: ago(40) } }), now: () => NOW, log: (l) => logged.push(l), remove: (n) => { removed.push(n); return { outcome: 'removed' }; } })();
   } finally { fs.chmodSync(f, 0o600); }
   assert.equal(r.because, 'its record could not be read, so it did nothing');
+  assert.ok(logged.some((l) => /record could not be read/.test(l)), 'the stopped sweep said nothing in the board log');
   assert.deepEqual(removed, []);
   assert.equal(fs.readFileSync(f, 'utf8'), before, 'an unreadable log was overwritten');
   assert.equal(fs.readdirSync(store.ROOT).filter((n) => n.includes('.damaged-')).length, 0, 'an unreadable log was renamed aside');
