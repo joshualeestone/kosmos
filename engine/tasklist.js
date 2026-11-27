@@ -56,7 +56,10 @@ function ownerOf(x) {
   if (x.whoNames && x.whoNames.length) return x.whoNames.map(q).join(', ');
   /* #5678, as the long list: nobody on it directly, but an open task in its tree is somebody's. kosmos#9237: said as
      nobody first, so a scan for work no one has taken finds it, and who to ask second. */
-  if (Array.isArray(x.ownerNames) && x.ownerNames.length) return 'nobody (' + x.ownerNames.map(q).join(', ') + ' holds #' + x.ownerFrom + ')';
+  if (Array.isArray(x.ownerNames) && x.ownerNames.length) {
+    const n = x.ownerNames.map(q);
+    return 'nobody (' + (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0]) + (n.length > 1 ? ' hold #' : ' holds #') + x.ownerFrom + ')';
+  }
   return 'nobody';
 }
 /* #4887, as the long list: who added it, when an agent did and it is not one of its owners, so a title that names one

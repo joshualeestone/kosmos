@@ -58,7 +58,8 @@ function quoteOwnWords(text) { return '"' + String(text == null ? '' : text).rep
    one of these words ("repeats the check", "added by hand") prints quoted, its words unchanged. */
 const GAP = '[^\\p{L}\\p{N}]{0,6}';
 /* Review 1: "waits" alone (a wake prints "waits for ..." OR "waits until ...", and the compact list "(waits on ...)"), and
-   the compact, across and long lists' marks in parentheses whose words are fixed: "(through #N)", "(under task N)",
+   the compact, across and long lists' marks in parentheses whose words are fixed: "(through #N)" (an older install's
+   compact list; kosmos#9237's words are below), "(under task N)",
    "(owner: ...)", "(reported finished: ...)", "(still to finish: ...)", "(last activity ...)", "(quiet N days",
    ", left under closed task #N"; review 2: "(no activity on record)", "(next run ...)", "(its project is paused)",
    "(held by the person)", "(only the person can lift it)", "(its hold's condition is met)". ("(... since built)" and
@@ -80,7 +81,7 @@ const LIST_PHRASES = [phrase('not', 'run'), phrase('replaced', 'by'), phrase('pr
   phrase('until', 'task') + '\\s*#?\\s*\\d+',
   // kosmos#9237: a task owned only through its tree, as both long lists ("(nobody has taken it; ask X, who holds task N
   // in its tree)") and the compact list ("nobody (X holds #N)") print it.
-  phrase('nobody', 'has', 'taken'), 'holds' + GAP + '(?:task\\s*#?|#)\\s*\\d+'];
+  phrase('nobody', 'has', 'taken'), 'holds?' + GAP + '(?:task\\s*#?|#)\\s*\\d+'];
 // Review 3: "done" in brackets or parentheses ANYWHERE ("release notes [done]", "fix login (done)"), as the list prints it;
 // a bare "done" still counts only as the first word.
 const BRACKET_DONE = /[[(]\s*done\s*[\])]/iu;
