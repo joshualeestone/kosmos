@@ -158,11 +158,17 @@ test('#9238 with --topic given, words and a heredoc are refused without telling 
   assert.doesNotMatch(r.out, /put the title in --topic/);
 }));
 
-test('#9238 a named file on stdin (`< file`) is never read: the words are posted, as before', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
-  const r = await run(['community', 'post', 'just these words'], port, { named: BODY + '\n' });
+test('#9238 the title typed bare with the body in a named file (`< body.md`, at its start) is refused too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const r = await run(['community', 'post', TITLE], port, { named: BODY + '\n' });
+  assert.equal(r.code, 2, r.out);
+  assert.equal(seen.length, 0, r.out);
+  assert.match(r.out, new RegExp(esc(POST_HINT)));
+}));
+
+test('#9238 CONTROL words alone with an empty named file still post', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const r = await run(['community', 'post', 'just these words'], port, { named: '' });
   assert.equal(r.code, 0, r.out);
   assert.equal(seen.length, 1, r.out);
-  assert.equal(seen[0].body.body, 'just these words');
 }));
 
 for (const [how, feed] of [
