@@ -23,7 +23,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *     (`const { f } = x`);
  *   - one level down for an object field (`x.subtasks.<name>`, or through a name for it: `const u = x &&
  *     x.onHoldUntil; u.task`), and an array's element fields read in a callback on it (`x.builtFiles.filter((e) =>
- *     e.fingerprint)`, with calls between too: `.slice(0, n).filter(...)`).
+ *     e.fingerprint)`, with calls between too: `.slice(0, n).filter(...)`), directly or through a name declared
+ *     for the array (`const rs = x.doneWhenResults.slice(...); rs.filter((r) => r.met)`).
  * The row loops must call the task x (checked). A qualified call that passes the task (`mod.fn(x)`) is reported as a
  * helper outside the source read, so a module helper that reads the task goes red until its source is read here too.
  * A read written any other way (a computed `x[k]`, a second alias of an alias, a helper reached only through another
@@ -318,14 +319,25 @@ function subFieldsRead(src) {
 const ARRAY_CALLS = 'filter|some|map|find|findIndex|every|forEach|reduce|flatMap';
 function elementFieldsRead(src) {
   const out = new Set();
-  for (const n of taskNames(src)) {
-    const re = new RegExp('(?<![\\w$.])' + esc(n) + GET + '(' + ID + ')((?:' + GET + ID + '\\([^()]*\\))*)' + GET + '(?:' + ARRAY_CALLS + ')\\(\\s*\\(?\\s*(' + ID + ')\\s*\\)?\\s*=>', 'g');
+  // Bases: x.<field> for each name the task goes by, and (review 6) a name declared for an array field, as
+  // "const rs = ... x.doneWhenResults.slice(0, n).filter(...)" (the first x.<field> its declaration goes on to call an
+  // array method on, or ends with).
+  const bases = [];
+  for (const n of taskNames(src)) bases.push([esc(n) + GET + '(' + ID + ')', null]);
+  for (const d of src.matchAll(new RegExp('(?:const|let|var)\\s+(' + ID + ')\\s*=([^;\\n]*)', 'g'))) {
+    for (const n of taskNames(src)) {
+      const f = d[2].match(new RegExp('(?<![\\w$.])' + esc(n) + GET + '(' + ID + ')(?=\\s*(?:' + GET + '(?:slice|' + ARRAY_CALLS + ')\\b|$))'));
+      if (f) { bases.push(['(?<![\\w$.])' + esc(d[1]) + '()', f[1]]); break; }
+    }
+  }
+  for (const [base, field] of bases) {
+    const re = new RegExp((field ? '' : '(?<![\\w$.])') + base + '((?:' + GET + ID + '\\([^()]*\\))*)' + GET + '(?:' + ARRAY_CALLS + ')\\(\\s*\\(?\\s*(' + ID + ')\\s*\\)?\\s*=>', 'g');
     for (const m of src.matchAll(re)) {
       // The callback body starts after its arrow, inside the array call's own bracket: read to where that bracket closes.
       let d = 1; let i = m.index + m[0].length;
       for (; i < src.length && d > 0; i++) { const c = src[i]; if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--; }
       const body = src.slice(m.index + m[0].length, i);
-      for (const r of body.matchAll(new RegExp('(?<![\\w$.])' + esc(m[3]) + GET + '(' + ID + ')', 'g'))) out.add(m[1] + '[].' + r[1]);
+      for (const r of body.matchAll(new RegExp('(?<![\\w$.])' + esc(m[3]) + GET + '(' + ID + ')', 'g'))) out.add((field || m[1]) + '[].' + r[1]);
     }
   }
   return out;
