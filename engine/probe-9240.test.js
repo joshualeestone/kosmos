@@ -10,11 +10,12 @@ const { kosmosCliShown } = require('./clipath');
 
 const P = [{ id: 'p1', name: 'Henderson lease', folder: '/tmp/henderson', agents: ['writer'] }];
 
-test('kosmos#9240: a member is told to check a direct message arrived with msg --status, sending nothing', () => {
+test('kosmos#9240: a member is told to send no test message, and to check the real one with msg --status', () => {
   const text = projects.blockBody(P, 'writer');
-  const want = 'To check that a direct message you sent arrived, send nothing: `' + kosmosCliShown() + ' msg --status <id>`, with the id';
+  assert.match(text, /Do not send a test message to see if your messages reach someone: send the real one, then run\n/);
+  const want = '`' + kosmosCliShown() + ' msg --status <id>` with the id your send printed. It says whether it has been typed to them and,';
   assert.ok(text.includes(want), 'the line is missing, or names the command without this machine\'s own kosmos');
-  assert.match(text, /your send printed, says whether it was typed to them, and whether they read or answered it\./);
+  assert.match(text, /when Kosmos can tell, whether they read or answered it\./);
 });
 
 test('kosmos#9240: --no-reply is no longer taught for a delivery test, so the two lines cannot disagree', () => {
@@ -24,5 +25,5 @@ test('kosmos#9240: --no-reply is no longer taught for a delivery test, so the tw
 });
 
 test('kosmos#9240 control: a block with no member does not carry it, as the other member rules', () => {
-  assert.ok(!projects.blockBody(P, '').includes('msg --status <id>'));
+  assert.ok(!projects.blockBody(P, '').includes('Do not send a test message'));
 });

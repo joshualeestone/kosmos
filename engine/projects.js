@@ -4149,16 +4149,17 @@ function blockRules(sessionName, cliShown) {
       /* kosmos#8395: an answer suggested beside the question lets the person answer in a word. */
       'If you know the answer you would give, add it: `--suggest "<your answer>"`. It shows beside your question, so they',
       'can answer in a word.',
-      /* kosmos#9096 item 3 (an agent's feedback, 11-25): a delivery test or a "thanks, nothing needed" note arrived with
-         the usual answer command, which costs a round trip. --no-reply exists on both (#2908, #7893) and is never
+      /* kosmos#9096 item 3 (an agent's feedback, 11-25): a "thanks, nothing needed" note arrived with the usual answer
+         command, which costs a round trip (a delivery test was covered here too, until kosmos#9240 below). --no-reply exists on both (#2908, #7893) and is never
          inferred from the words, so the sender is taught it where it writes the closing note. */
       'When a post or message only closes a thread (thanks, nothing needed), put --no-reply first:',
       `\`${cliShown} post --no-reply <project-id> ...\` or \`${cliShown} msg --no-reply <agent> ...\`. It arrives marked no reply`,
       'requested: it still reaches whoever it names, but nobody is asked to answer it, so name only who must see it.',
       /* kosmos#9240: delivery-check probes, even marked, still landed in the receiver's pane and cost it a turn. The
          receipt already exists (msg --status, #8961), so the check sends nothing. */
-      `To check that a direct message you sent arrived, send nothing: \`${cliShown} msg --status <id>\`, with the id`,
-      'your send printed, says whether it was typed to them, and whether they read or answered it.',
+      'Do not send a test message to see if your messages reach someone: send the real one, then run',
+      `\`${cliShown} msg --status <id>\` with the id your send printed. It says whether it has been typed to them and,`,
+      'when Kosmos can tell, whether they read or answered it.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
