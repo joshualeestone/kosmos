@@ -4061,7 +4061,16 @@ function blockBody(projects, sessionName) {
       if (T.isOnHold(t) && t.onHoldForPerson === true) return ' [on hold' + waits + ', waiting on your person: do not start it until they answer and it is taken off hold. When you ask them, name task ' + Number(t.number) + ', so Kosmos shows them you asked]';
       return ' [on hold' + waits + ': do not start it until it is taken off hold]';
     };
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
+    /* kosmos#9175: a task marked built is not open work, and the live list (tasks.listGroup, which `kosmos task list`
+       groups by) puts it in its built group, out of the open list. Listed here unmarked, it read as work still to do.
+       It stays listed, as a held task does, because it is still this agent's until it is closed or reopened; a hold
+       says more, so a held task keeps only the hold's mark. */
+    const built = (t) => {
+      if (held(t) || require('./tasks').listGroup(t) !== 'built') return '';
+      const waits = { person: ', waiting on your person', review: ', waiting on a review', release: ', waiting on a release' }[t.builtWaitingOn] || '';
+      return ' [built' + waits + ': nothing to start; it comes back as open work if it is reopened]';
+    };
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}${built(t)}`)].join('\n');
   });
   const rules = blockRules(sessionName, cliShown);
   return [

@@ -1,0 +1,141 @@
+'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+
+/**
+ * kosmos#9175, end to end with nothing stubbed: the task list in an agent's "Your projects" section, read straight
+ * after a task is marked built, cleared, or given to somebody else, says what the live list says for that agent.
+ * Before the fix the built route never rewrote the section, and the section listed a built task as open work, while
+ * the live list (tasks.listGroup) puts it in its built group. Same sandboxed board as server.reread-e2e-8989.test.js.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-taskblock-9175-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+
+const { start, server, boardAuthState } = require('./server');
+const sendertoken = require('./engine/sendertoken');
+const fleet = require('./test-support/fleet');
+const projectsEngine = require('./engine/projects');
+const tasksEngine = require('./engine/tasks');
+const ir = require('./engine/instructionreread');
+
+const BOARD = 'BOARDTOKEN_test_9175_blk_0123456789abcdef01';
+let base;
+
+test.before(async () => {
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal(boardAuthState.on, false, 'a fully-sandboxed board must not enforce');
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+});
+test.after(() => {
+  try { server.close(); } catch { /* ignore */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+async function call(method, p, { headers = {}, body } = {}) {
+  const res = await fetch(base + p, {
+    method, redirect: 'manual',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text().catch(() => '');
+  return { code: res.status, text };
+}
+const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
+const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
+
+function instructions(name) {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# ' + name + '\n\nYou work here.\n');
+  return path.join(dir, 'CLAUDE.md');
+}
+// The one line the section writes for task n of the project named, or null (every test's project has a task 1).
+function lineFor(file, n, name) {
+  const hit = fs.readFileSync(file, 'utf8').split('\n').find((l) => l.startsWith('  - task ' + n + ' of ' + name + ': '));
+  return hit === undefined ? null : hit;
+}
+// What the live list says for this agent: the group tasks.listGroup puts each of its tasks in (as /api/tasks orders them).
+function liveGroups(projectId, name) {
+  const p = projectsEngine.readAll().find((x) => x && x.id === projectId);
+  const out = {};
+  for (const t of p.tasks) if (tasksEngine.whoOf(t).includes(name)) out[t.number] = tasksEngine.listGroup(t);
+  return out;
+}
+function setup(label) {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
+  const mara = instructions('mara'), otto = instructions('otto');
+  const folder = path.join(SANDBOX, 'work', label);
+  fs.mkdirSync(folder, { recursive: true });
+  const p = projectsEngine.create({ name: label, folder, agents: ['mara', 'otto'] });
+  const k = tasksEngine.create(p.id, { sentence: 'draft the letter', made: { via: 'screen', by: null } });
+  assert.equal(tasksEngine.assignPart(p.id, k.number, 1, 'otto', { via: 'screen' }).ok, true);
+  projectsEngine.syncAgent('otto', board.roster);
+  projectsEngine.syncAgent('mara', board.roster);
+  assert.match(lineFor(otto, k.number, p.name) || '', /draft the letter$/, 'fixture: otto\'s section lists the task, unmarked');
+  return { board, p, k, files: { mara, otto } };
+}
+
+test('marking a task built rewrites its holder\'s section to say so; clearing the mark takes it back to open', async (t) => {
+  const { board, p, k, files } = setup('Built');
+  t.after(() => board.restore());
+  const otto = sendertoken.mint('otto').token;
+
+  const r = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(otto), body: { note: 'sent', waiting_on: 'review' } });
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  assert.deepEqual(liveGroups(p.id, 'otto'), { [k.number]: 'built' }, 'fixture: the live list has it as built');
+  const line = lineFor(files.otto, k.number, p.name);
+  assert.ok(line, 'the built task left the section, but it is still otto\'s');
+  assert.match(line, /\[built, waiting on a review: nothing to start/, 'the section did not say the task is built: ' + line);
+
+  const c = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(otto), body: { clear: true } });
+  assert.equal(c.code, 200, c.text.slice(0, 300));
+  assert.deepEqual(liveGroups(p.id, 'otto'), { [k.number]: 'open' }, 'fixture: cleared, the live list has it open');
+  assert.match(lineFor(files.otto, k.number, p.name) || '', /draft the letter$/, 'a cleared mark was still in the section');
+});
+
+test('the person marking an agent\'s task built rewrites its section and owes it a re-read; its own mark owes none', async (t) => {
+  const { board, p, k, files } = setup('Owed');
+  t.after(() => board.restore());
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* none owed */ } };
+  const owed = () => (ir.readOwed().otto || {}).sections;
+
+  clear();
+  const own = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(sendertoken.mint('otto').token), body: { note: 'mine' } });
+  assert.equal(own.code, 200, own.text.slice(0, 300));
+  assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built: nothing to start/, 'fixture: the own mark must change the section');
+  assert.equal(owed(), undefined, 'the agent marking its own task was owed a re-read');
+
+  const back = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: asAgent(sendertoken.mint('otto').token), body: { clear: true } });
+  assert.equal(back.code, 200, back.text.slice(0, 300));
+  clear();
+  const screen = await call('POST', `/api/project/${p.id}/task/${k.number}/built`, { headers: withBoard(), body: {} });
+  assert.equal(screen.code, 200, screen.text.slice(0, 300));
+  assert.match(lineFor(files.otto, k.number, p.name) || '', /\[built/, 'the person\'s mark did not reach the section');
+  assert.deepEqual(owed(), ['projects'], 'a mark the person made was not owed to the holder');
+});
+
+test('a task given to somebody else leaves the old holder\'s section and joins the new one\'s', async (t) => {
+  const { board, p, k, files } = setup('Moved');
+  t.after(() => board.restore());
+  const r = await call('POST', `/api/project/${p.id}/task/${k.number}/part/1/who`, { headers: withBoard(), body: { who: 'mara' } });
+  assert.equal(r.code, 200, r.text.slice(0, 300));
+  assert.deepEqual(liveGroups(p.id, 'otto'), {}, 'fixture: the live list has nothing for otto');
+  assert.deepEqual(liveGroups(p.id, 'mara'), { [k.number]: 'open' }, 'fixture: the live list has it as mara\'s');
+  assert.equal(lineFor(files.otto, k.number, p.name), null, 'the old holder still lists a task that moved to someone else');
+  assert.match(lineFor(files.mara, k.number, p.name) || '', /draft the letter$/, 'the new holder\'s section does not list it');
+});

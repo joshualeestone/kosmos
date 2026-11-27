@@ -28575,6 +28575,12 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
+      /* kosmos#9175: each holder's "Your projects" lists the task marked built (projects.blockBody), so a mark or a clear
+         rewrites their sections, as a close does; a holder who did not make the change is owed a re-read (#8989). Before
+         this the section still showed the task as open work. Never fails the mark. */
+      if (out.changed) {
+        try { tellEveryoneOn(out.task, roster || undefined, { notice: { projectId: id, by } }); } catch { /* the mark stands; the next sync catches up */ }
+      }
       let delivered = null;
       let summary = null;
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the
