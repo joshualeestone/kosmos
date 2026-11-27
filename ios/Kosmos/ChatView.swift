@@ -917,6 +917,8 @@ struct ChatView: View {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
                     atBottom = endVisible
                     if endVisible { unseenNew = false }
+                    // kosmos#9212: a scroll that rested on the end before anything named the anchor names it.
+                    if endVisible, positionId == nil, !anchorLetGo, !searchMode { positionId = "end" }
                     Self.trace("person scroll rested, atBottom \(endVisible)")
                     // kosmos#7645: whether the reader's own scroll names a row again after a let-go (it ends the let-go) is not measured.
                     if anchorLetGo { Self.trace("anchor after a scroll while let go \(Board.anchorKind(positionId))") }
@@ -974,7 +976,7 @@ struct ChatView: View {
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
                     if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     // kosmos#9212: to the end by a scroll; the end's appearance names the anchor (sampleAnchorAtOpen's note). A
-                    // short chat's end can appear before this runs and has named it already.
+                    // short chat's end can appear before this runs and has named it already: its rows are drawn, nothing to do.
                     if Self.idAnchor, !Self.sampleAnchorAtOpen {
                         if positionId != "end" {
                             appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom)
@@ -1128,7 +1130,7 @@ struct ChatView: View {
                         return
                     }
                     Self.trace("box height changed, to the newest")
-                    if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
+                    if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); nameEnd() } else { goNewest(proxy) }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     // kosmos#7817 (Josh 11-03 09:27, build 30): did-show came three times in 0.3 s as the keyboard went 380, 608,
@@ -1145,7 +1147,7 @@ struct ChatView: View {
                     Self.trace("keyboard shown, to the newest")
                     // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                     // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
-                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
+                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); nameEnd() } else { goNewest(proxy, animated: true) }
                 }
                 // kosmos#8045: the tray rising with no keyboard takes the list's room as a keyboard would, so a reader at the newest
                 // stays there. With a keyboard up the list does not move at all.
@@ -1155,7 +1157,7 @@ struct ChatView: View {
                         guard !trayFromKeyboard, atBottom, !searchMode else { return }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             guard trayOpen, visible, !personScrolling else { return }   // a reader's finger is never moved
-                            if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
+                            if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); nameEnd() } else { goNewest(proxy, animated: true) }
                         }
                     } else if !composerFocused {
                         // Going down with no keyboard takes the same room a keyboard going down does: the same look (#7420).
@@ -1269,12 +1271,15 @@ struct ChatView: View {
     // kosmos#7265: to the newest message. With the id anchor (idAnchor) the anchor is the end marker, which keeps the
     // end in view as rows land, until the person's own scroll moves the anchor; re-set through nil so a repeat is seen.
     // Under the anchor the move is not animated (`animated` applies to the iOS 16 path only).
+    // kosmos#9212: the anchor to "end", except while the open waits for its end with no anchor yet: the end's appearance names it.
+    private func nameEnd() { if !(anchorOnEndAppear && positionId == nil) { positionId = "end" } }
+
     private func goNewest(_ proxy: ScrollViewProxy, animated: Bool = false) {
         appMoves &+= 1
         if Self.idAnchor {
             // kosmos#9212: while the open waits for the end to appear, an arrival or a read goes there by a scroll too; the end's
             // appearance names the anchor.
-            if anchorOnEndAppear, positionId != "end" { proxy.scrollTo("end", anchor: .bottom); return }
+            if anchorOnEndAppear, positionId == nil { proxy.scrollTo("end", anchor: .bottom); return }
             // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
             if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
             return
@@ -1307,9 +1312,9 @@ struct ChatView: View {
                 Self.trace("open landed short of the end: to the newest again")   // no value: the record admits only listed ones (#7420)
                 appMoves &+= 1
                 proxy.scrollTo("end", anchor: .bottom)
-                // kosmos#9212: the anchor is named when the end appears, never while its rows are estimates (sampleAnchorAtOpen's note).
-                // Re-armed within the open's request window: its lapse (0.3 s after the last look) drops this too.
-                if Self.sampleAnchorAtOpen { positionId = "end" } else if positionId != "end" { anchorOnEndAppear = true }
+                // kosmos#9212: with no anchor yet, the end's appearance names it (sampleAnchorAtOpen's note); a row that a
+                // person's scroll named is moved to "end", as before.
+                if Self.sampleAnchorAtOpen || positionId != nil { positionId = "end" } else { anchorOnEndAppear = true }
             }
         }
     }
@@ -1608,7 +1613,7 @@ struct ChatView: View {
                     } else {
                         Self.trace("keyboard settled: the newest not showing (short \(Int(short)) pt), back to it")
                         // As did-show (#7344): an anchor already reading "end" is scrolled to, not only set again.
-                        if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
+                        if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); nameEnd() } else { goNewest(proxy) }
                         // Review 7: an id scroll against an estimate can land past the end (build 29's follow); look once more.
                         DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
                             settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: false, again: true)
@@ -2995,7 +3000,7 @@ struct ChatView: View {
             // The Mac answered, with a reason: said as it is, never as "not answering".
             // kosmos#7810: a kept copy or small page is not left over the reason (the chat draws the reason only with no
             // thread). A whole window read in this open stays, as before.
-            if !fullRead { thread = nil; positionId = nil }   // kosmos#9212: the next list is not created anchored over estimates
+            if !fullRead { thread = nil; positionId = nil; anchorLetGo = false }   // kosmos#9212: the next list starts with no anchor, and its end names one
             refusal = why
             dropChoices()
             failedReads = 0
