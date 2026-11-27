@@ -52,6 +52,12 @@ expect "a comment ending in a backslash does not hide the next line"    1 '/swif
 xcrun swiftc -O -o "$out/x" "$here/x.swift"
 '
 expect "a trailing comment that names -O, on the command's last line"   0 's|"\$here/updates/main.swift"$|"$here/updates/main.swift" # was -O|'
+expect "a trailing comment ending in a backslash does not hide the next" 1 '/"\$here\/updates\/main.swift"$/{
+s|$| # note \\|
+a\
+xcrun swiftc -O -o "$out/y" "$here/y.swift"
+}'
+expect "swiftc followed by a ) is still a compile"                      1 's|xcrun swiftc -Onone -o|"$(xcrun -f swiftc)" -O -o|'
 
 fresh; rm -rf "${T:?}/r/ios/tools"
 got="$(check)"; if [ "$got" = 2 ]; then pass "a missing folder is exit 2, not a pass"; else fail "a missing folder: exit $got, want 2"; fi
@@ -72,7 +78,7 @@ if ! command -v ruby >/dev/null 2>&1; then
 elif ruby -ryaml -e '
   s = YAML.load_file(ARGV[0])["jobs"]["build"]["steps"]
   raise "the last build step runs the check, it is #{s.last["name"]}" unless s.last["run"].to_s.strip == "ios/tools/check-logic-onone.sh"
-  raise "no if: on it, so a red suite above still ends the job red and this never runs alone" if s.last.key?("if")
+  raise "no if: on it: the check runs only on an otherwise green build (kosmos#9213), so a stray flag never hides the suites" if s.last.key?("if")
 ' "$REPO/.github/workflows/ios.yml" 2>"$T/rb.err"; then
   pass "ios.yml: the build job ends by running ios/tools/check-logic-onone.sh"
 else
