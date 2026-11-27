@@ -28575,6 +28575,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
+      /* kosmos#9176 review 4: each holder's instruction block marks a task built for that holder (projects.blockBody), so
+         a set or a clear that changed the mark re-syncs every holder, owing a re-read to each one it did not come from.
+         The mark stands whatever the sync does. */
+      if (out.changed) {
+        for (const one of tasks.whoOf(out.task)) {
+          try { projects.syncAgent(one, roster, { byOther: owesNotice(id, one, by) }); } catch { /* the mark stands; the next sync catches up */ }
+        }
+      }
       let delivered = null;
       let summary = null;
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the

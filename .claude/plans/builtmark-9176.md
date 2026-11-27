@@ -61,3 +61,14 @@ filter matches whoOf against the same name).
     note can name the agent's own follow-ups. Fixed: "done and waiting; its note says what is left".
   - NIT taken: a test that an unnamed caller's mark frees nobody. NIT not taken here: one shared builtFor helper (in
     #9177, where --mine needs it too).
+- Round 4 (sonnet): 1 BLOCKER, 2 WARNING, 0 CONVENTION, 3 NIT.
+  - BLOCKER: the task built route (set and clear) synced nobody, so the new mark only appeared, or went away, when some
+    unrelated change re-synced the agent; a cleared mark could keep saying "done and waiting". Confirmed (no periodic
+    sweep either). Fixed in server.js: when the mark changed, every holder is synced, owing a re-read to each one the
+    change did not come from (owesNotice, as the edit and close routes). server.built-sync-9176.test.js (3): an agent's
+    mark syncs both holders (only the other owed), the person's clear owes both, CONTROL unchanged syncs nobody.
+    Perturbation (sync off): 2 fail. Built-route, 8989 and block files: 1864 tests, 0 fail.
+  - WARNING: a third copy of the built-for-holder predicate: duplicate of round 3's NIT, in #9177.
+  - WARNING: repeating tasks waiting for their next run: unreachable (setBuilt drops built on a recurring task).
+  - NIT taken: the test header named the wait. NITs not taken: a sentence in the standing rules about the mark (changes
+    every agent's instructions; the mark explains itself); the plan's suite count (measured here, stated with its files).
