@@ -707,8 +707,44 @@ _qh_free_now() {
 # forwarding and grace, the watcher for a killed wrapper, the bg/fg label --withdraw reads, the END line), with no take,
 # no claim and no renewer. It used to run its command in the foreground here, so --withdraw or a TERM did nothing until
 # the command ended, and the command's exit code was lost (the class #9118 fixed for main turns).
-QH_BESIDE=""; QH_BESIDE_ID=""
-_qh_go_beside() { QH_BESIDE=1; return 0; }
+QH_BESIDE=""; QH_BESIDE_ID=""; QH_SLOT=""; QH_HOLD_PASSES=0
+# Review 5 (round 5): ONE beside run at a time. Two capped runs both went beside one holder (reproduced: three heavy runs
+# on the box). A check of the beside log cannot do it (the start is noted later), so a beside run takes a SLOT, an mkdir
+# lock naming this script's pid, held to its end. A slot whose holder is gone is broken only while a second read still
+# names that holder (a dead holder cannot release); one with no pid only past 300 s, judged again after that read.
+_qh_slot_dir() { printf '%s/queued-heavy-beside.slot' "$(_qh_marker_dir_raw)"; }
+_qh_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=""; case "$m" in ''|*[!0-9]*) date +%s ;; *) printf '%s' "$m" ;; esac; }
+_qh_slot_held() {   # 0 when a live run holds the beside slot; a dead holder's slot is broken here
+  local d h; d="$(_qh_slot_dir)"; [ -d "$d" ] || return 1
+  h="$(cat "$d/pid" 2>/dev/null)"
+  case "$h" in
+    ''|*[!0-9]*) [ $(( $(date +%s) - $(_qh_mtime "$d") )) -gt 300 ] || return 0 ;;
+    *) kill -0 "$h" 2>/dev/null && return 0 ;;
+  esac
+  if [ "$(cat "$d/pid" 2>/dev/null)" = "$h" ] && { [ -n "$h" ] || [ $(( $(date +%s) - $(_qh_mtime "$d") )) -gt 300 ]; }; then
+    rm -f "$d/pid" 2>/dev/null; rmdir "$d" 2>/dev/null || true
+  fi
+  [ -d "$d" ]   # broken (or released meanwhile): free; made again by another run meanwhile: held
+}
+_qh_slot_take() {
+  local d; d="$(_qh_slot_dir)"
+  mkdir "$d" 2>/dev/null || return 1
+  { echo "$$" > "$d/pid"; } 2>/dev/null || return 1   # the dir was broken in the moment after mkdir: not ours
+  QH_SLOT="$d"; return 0
+}
+_qh_slot_release() {   # only a slot that still names this script ($$ is this script's pid in the watcher too)
+  if [ -n "${QH_SLOT:-}" ] && [ "$(cat "$QH_SLOT/pid" 2>/dev/null)" = "$$" ]; then
+    rm -f "$QH_SLOT/pid" 2>/dev/null; rmdir "$QH_SLOT" 2>/dev/null || true
+  fi
+  return 0
+}
+_qh_go_beside() { _qh_slot_take || return 1; QH_BESIDE=1; return 0; }
+# What holds a beside run back (printed), or 1 when nothing does.
+_qh_beside_blocker() {
+  if _qh_cut_holds; then echo "a release cut holds the machine"; return 0; fi
+  if _qh_slot_held; then echo "another run is already beside the holder"; return 0; fi
+  return 1
+}
 # The wait gave up. With no cap, as before: refused. With a cap: a free turn now (in order), the cut waited out, or
 # beside. Review 1: the cut re-wait sleeps between passes and does not honour KOSMOS_NO_WAIT, so a wait that gives up
 # at once (a cap of 0, or KOSMOS_NO_WAIT=1) cannot spin beside a cut for its two hours.
@@ -724,19 +760,22 @@ _qh_after_bound() {
 }
 # Past the deadline with no turn: a cut is waited out (sleeping between passes); then a free turn, or beside.
 _qh_cut_or_beside() {
-  local every="${KOSMOS_WAIT_EVERY_S:-30}" waited=0 passes=0
+  local every="${KOSMOS_WAIT_EVERY_S:-30}" waited=0 why
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
-  while _qh_cut_holds; do
-    waited=1; passes=$((passes + 1))
-    # Review 3: said on the first pass and every tenth, not on every pass of a two-hour cut.
-    [ $(( (passes - 1) % 10 )) = 0 ] && echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while a release cut holds the machine; waiting past the cap (pass $passes, kosmos#9139): $WHAT"
+  while why="$(_qh_beside_blocker)"; do
+    waited=1; QH_HOLD_PASSES=$((QH_HOLD_PASSES + 1))
+    # Review 3: said on the first pass and every tenth, not on every pass of a two-hour cut. Review 5: the count is kept
+    # across calls (a local restarted at 1 on every return here, so every pass printed "pass 1").
+    [ $(( (QH_HOLD_PASSES - 1) % 10 )) = 0 ] && echo "QUEUED-HEAVY $(date '+%H:%M:%S') the cap (${QH_CAP_S}s) ran out while $why; waiting past the cap (pass $QH_HOLD_PASSES, kosmos#9139): $WHAT"
+    # Review 5: every pass after the first SLEEPS first. A free turn taken below can be lost to an earlier waiter, and
+    # that came straight back here with no sleep anywhere in the cycle (reproduced: 22 loops in 12 s beside a cut).
+    [ "$QH_HOLD_PASSES" -gt 1 ] && sleep "$every"
     # Review 4: no kosmos_wait_until_clear here. With a ceiling of 0 it gave up at once and dropped this run's place
     # every pass, so a run that joined DURING the cut took the turn when it ended and this one went beside it; and each
     # pass printed the lib's refusal. The place (its join time) is kept instead, and a free turn is tried quietly, in
     # order (_qh_take checks earlier waiters against the kept place).
     [ -e "$(_kosmos_suite_waiter_file "$$")" ] || kosmos_mark_suite_waiting "$QH_JOINED"
     _qh_free_now && return 0
-    sleep "$every"
   done
   # Review 1: the cut may have ended between the last check and the loop's test. Review 2: only after a cut was waited
   # out; a free box with no cut here is the one this run just lost a take on, and taking it again would only lose again.
@@ -757,7 +796,8 @@ until { { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_A
     export KOSMOS_WAIT_QUEUE_CEIL_S="$_qh_left"
     # Past the deadline the next wait has a ceiling of 0, so it gives up at once and _qh_after_bound decides (a cut
     # waited out, or beside). That holds when only the TAKE lost (an earlier waiter on a free box) too: the wait sees
-    # the waiter ahead and gives up. Review 2's 169-take spin was _qh_cut_or_beside retaking that same free box.
+    # the waiter ahead and gives up. Review 2's 169-take spin was _qh_cut_or_beside retaking that same free box; review
+    # 5's was the same cycle beside a claimless cut, closed by the sleep at the top of each later pass there.
   fi
   # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
@@ -886,6 +926,7 @@ _qh_end() {
   [ -n "${QH_LABEL:-}" ] && rm -f "$QH_LABEL"   # #9118 item 1: the label goes with the claim
   if [ -n "${QH_BESIDE_ID:-}" ]; then   # kosmos#9139: after the command group is stopped, so the end is the real end
     command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run end "$QH_BESIDE_ID"
+    _qh_slot_release
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') ran beside the queue; no claim to release"
   else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') claim released"
@@ -1060,6 +1101,7 @@ else
         kill -KILL -- "-$CMD" 2>/dev/null
         # kosmos#9139 review 4: a beside run's end, which the killed wrapper could not write.
         [ -n "$QH_BESIDE_ID" ] && command -v kosmos_note_beside_run >/dev/null 2>&1 && kosmos_note_beside_run end "$QH_BESIDE_ID"
+        _qh_slot_release   # review 5: the killed wrapper's slot (it names the wrapper's pid, which is $$ here too)
         exit 0
       fi
     done ) </dev/null >/dev/null 2>&1 &
