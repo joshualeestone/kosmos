@@ -36,7 +36,7 @@ Split from #9166 item 5 (feedback triage 11-26).
 That builtWho holds the same session names the block is built for (the Assigner reads it the same way, and the `mine`
 filter matches whoOf against the same name).
 
-## Tests: engine/builtmark-9176.test.js (5)
+## Tests: engine/builtmark-9176.test.js (6) and server.built-sync-9176.test.js (5)
 - built (by this agent) marked, open not (CONTROL); an unnamed caller's mark (builtWho empty) leaves it unmarked; built + on hold reads on hold only; two holders, built by ada: ada
   marked, bo not, and after the person's mark both are; built in a paused project reads on hold only.
 - Controls: any builtAt marks (1 fail, the two-holder case); the mark removed (2 fail); hold not first (2 fail).
@@ -80,8 +80,8 @@ filter matches whoOf against the same name).
 - Round 5 (opus): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 3 NIT.
   - WARNING: a repeat rule drops a built mark (setRepeat) but the repeat route synced nobody, so the block kept "built".
     Fixed: the route reads the task first and, if the mark went, re-syncs the holders (tellEveryoneOn with notice). Test +
-    CONTROL (not built: no sync); perturbation red. (Give and part routes already rewrite the block through
-    tellEveryoneOn when they drop the mark for new work, and the holder is told of the new work.)
+    CONTROL (not built: no sync); perturbation red. (Corrected in round 7: the give and part routes rewrite the block
+    when new work drops the mark, but owe no re-read to the holder who marked it; filed as #9178.)
   - WARNING: "its note says what is left" could point at no note. Fixed: the mark names `task show <project> <n>`.
   - NITs taken: the built route now calls tellEveryoneOn (it fetches a roster if none), not a hand copy, and its comment
     says owesNotice decides; the route test's agent case now runs the real new-mark path (waitsOnly off).
@@ -94,3 +94,11 @@ filter matches whoOf against the same name).
   - NIT taken: the mark guards a missing project id. NITs not taken: the predicate copies (#9177); the route test's stub
     (the real setRepeat is now pinned at engine level); the #5864 citation.
   - After: the 76 repeat, built, block and sync files: 2259 tests, 0 fail.
+- Round 7 (opus): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 4 NIT.
+  - WARNING: the give and part routes drop the mark for new work and rewrite every block, but pass no notice, so the
+    holder that marked it built is not told to re-read. DEFERRED to #9178: changing who those routes tell is #8989's
+    delicate ground (the new assignee's heard line, failovertell), and round 7 of 8 is not where to change it. The
+    plan's claim that these routes were covered is corrected above.
+  - NITs taken: the test header claimed agreement with --mine; the plan's test counts. NITs not taken: the repeat
+    route's sync sits after a later step that could throw (setReviewer, checked first under the same condition, so
+    unreachable in practice); the route tests stub syncAgent (the block side is tested in the engine file).

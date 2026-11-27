@@ -1,7 +1,7 @@
 'use strict';
 require('../test-support/tmpscope'); // required first in every suite file (#9104)
-/* kosmos#9176: an agent's own instructions list a built task (marked built for it) marked as built,
- * as `kosmos task list --mine` groups it, not as plain work to do. A hold or a paused project is still named first.
+/* kosmos#9176: an agent's own instructions list a task built for that agent (per holder, as the Assigner reads it)
+ * with a mark, not as plain work to do. A hold or a paused project is still named first.
  *
  *   node --test engine/builtmark-9176.test.js
  */
