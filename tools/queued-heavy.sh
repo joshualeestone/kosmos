@@ -729,18 +729,28 @@ _qh_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1
 # Review 7: each number is checked with its START TIME too (pstart, gstart, written before the number they describe), so a
 # slot left by a run killed with its watcher (a CI cancel, a reboot) cannot be held for ever by an unrelated process that
 # was later given the same pid or group number (reproduced: every capped run waited past its cap). A start that cannot be
-# read (no file yet, or ps fails) keeps the number counted, the safe side; a group leader that is gone while its group
-# still runs is still that group (a new group with that number needs a leader with that pid).
-_qh_slot_live() {   # <slot dir>: 0 while its holder (or its command's group) lives, or it is under 300 s old with no pid
+# read (no file yet, or ps fails) keeps the number counted, the safe side. LIMITS, stated (review 8): a zombie wrapper
+# reads live until its parent reaps it, and the gaps between reading a slot and removing it (a release, a break) are
+# builtin-wide, not closed by a rename.
+# Review 8: gone means kill says "No such process" and nothing else. EPERM (a waiter in a sandbox, or another user) is a
+# LIVE process, as _qh_wrapper_gone and the lib's _kosmos_pid_gone read it; reading it as gone broke a live slot.
+_qh_gone() {   # <pid>: 0 only when no such process exists
+  local e; e="$(LC_ALL=C kill -0 -- "$1" 2>&1)" && return 1
+  case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac
+}
+_qh_slot_live() {   # <slot dir>: 0 while its holder (or its command) lives, or it is under 300 s old with no pid
   local h g st now
-  read -r h g < "$1/pid" 2>/dev/null || h=""
+  { read -r h g < "$1/pid"; } 2>/dev/null || h=""   # review 8: a slot with no pid file yet says nothing on stderr
   case "$h" in ''|*[!0-9]*) [ $(( $(date +%s) - $(_qh_mtime "$1") )) -le 300 ]; return ;; esac
-  if kill -0 "$h" 2>/dev/null; then
+  if ! _qh_gone "$h"; then
     st="$(cat "$1/pstart" 2>/dev/null)"; now="$(_qh_pid_start "$h")"
     { [ -z "$st" ] || [ -z "$now" ] || [ "$now" = "$st" ]; } && return 0
   fi
   case "$g" in ''|*[!0-9]*) return 1 ;; esac
-  kill -0 -- "-$g" 2>/dev/null || return 1
+  # Review 8: the command counts only while its LEADER (pid g, the command itself) lives with the recorded start. A group
+  # whose leader is gone is either this run's leftovers, which its watcher stops, or an unrelated group that took the
+  # number after its own leader exited (reproduced: such a group held the slot for ever).
+  _qh_gone "$g" && return 1
   st="$(cat "$1/gstart" 2>/dev/null)"; now="$(_qh_pid_start "$g")"
   [ -z "$st" ] || [ -z "$now" ] || [ "$now" = "$st" ]
 }
