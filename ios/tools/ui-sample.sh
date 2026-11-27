@@ -112,6 +112,8 @@ classes="$classes ChatTallOpenUITests:2"
 # kosmos#9002: DuoFoldUITests, two panes, a fold with a project's room open, its page opened folded, then an unfold and a chat three pages deep, and an
 #   upright phone keeping its tabs out of a project's room, page and task (2 checks).
 classes="$classes DuoFoldUITests:2"
+# kosmos#9212 EXPERIMENT (draft PR, never merged): this branch runs ONLY the re-open probe, so each CI job is short.
+classes="ChatTallReopenProbeUITests:2"
 skip=""
 arm="lazy"
 if [ "$uikit" = 1 ]; then
