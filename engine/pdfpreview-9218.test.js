@@ -139,14 +139,24 @@ test('Linux: mutool when pdftoppm is missing; with neither, one line naming the 
   assert.match(range.err[0], /no page 9/);
   const broke = await pdfpreview.main([src], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => ({ code: 1, stdout: '', stderr: 'Syntax Error: Couldn\'t read xref table' }) });
   assert.equal(broke.code, 1, 'a damaged file was called a page range');
-  /* Review 1: mutool says nothing that separates a page past the end from a damaged file, so its own count decides. */
+  /* Reviews 1 and 2: mutool may clamp a page past the end to the last page and exit 0 (its draw here SUCCEEDS on any
+     page, the worst case), so its own count is read first and decides. */
   const mutOnly = { PATH: pathWith(['mutool']) };
-  const asked = [];
-  const mrun = (pages) => async (cmd, args) => { asked.push(args[0]); return args[0] === 'info' ? { code: pages === null ? 1 : 0, stdout: pages === null ? '' : 'PDF-1.4\nPages: ' + pages + '\n' } : { code: 1, stdout: '' }; };
-  const mpast = await pdfpreview.main([src, '--page', '9'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(3) });
+  let asked = [];
+  const mrun = (pages, drawOk = false) => async (cmd, args) => {
+    asked.push(args[0]);
+    if (args[0] === 'info') return { code: pages === null ? 1 : 0, stdout: pages === null ? '' : 'PDF-1.4\nPages: ' + pages + '\n' };
+    if (drawOk) fs.writeFileSync(args[args.indexOf('-o') + 1], realPng());
+    return { code: drawOk ? 0 : 1, stdout: '' };
+  };
+  const mpast = await pdfpreview.main([src, '--page', '9'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(3, true) });
   assert.equal(mpast.code, 2, mpast.err.join('\n'));
   assert.equal(mpast.err[0], 'That PDF has 3 pages, so there is no page 9 to draw.');
-  assert.deepEqual(asked, ['draw', 'info']);
+  assert.deepEqual(asked, ['info'], 'mutool drew a page past the end');
+  asked = [];
+  const mlast = await pdfpreview.main([src, '--page', '3'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(3, true) });
+  assert.equal(mlast.code, 0, 'the last page itself was refused');
+  assert.deepEqual(asked, ['info', 'draw']);
   const minside = await pdfpreview.main([src, '--page', '2'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(3) });
   assert.equal(minside.code, 1, 'a page inside the count that failed to draw was called a page range');
   const mnocount = await pdfpreview.main([src, '--page', '9'], { platform: 'linux', env: mutOnly, tmpdir: d, run: mrun(null) });
@@ -208,6 +218,15 @@ test('--out over an existing PNG replaces it whole; a failed draw leaves it as i
   /* A link at --out is refused, and says it is a link. */
   const link = path.join(d, 'link.png');
   fs.symlinkSync(out, link);
+  /* Review 2: on a disk that ignores case, another spelling of the PDF's own name is still the PDF. */
+  const odd = fakePdf(d, 'odd.png');
+  const upper = path.join(d, 'ODD.PNG');
+  if (fs.existsSync(upper)) {
+    const self = await pdfpreview.main([odd, '--out', upper], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => assert.fail('ran') });
+    assert.equal(self.code, 2);
+    assert.match(self.err[0], /the PDF itself/);
+    assert.ok(fs.readFileSync(odd, 'latin1').startsWith('%PDF-'), 'the PDF was overwritten');
+  } else test.diagnostic('this disk tells case apart; the ODD.PNG arm did not run');
   const linked = await pdfpreview.main([src, '--out', link], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => assert.fail('ran') });
   assert.equal(linked.code, 2);
   assert.match(linked.err[0], /is a link/);
@@ -223,6 +242,14 @@ test('a renderer killed for printing too much is a failure, not a timeout', { sk
   const r = await pdfpreview.main([fakePdf(d)], { platform: 'linux', env: { PATH: bin + path.delimiter + '/usr/bin' + path.delimiter + '/bin' }, tmpdir: d });
   assert.equal(r.code, 1);
   assert.doesNotMatch(r.err[0], /took over/, 'an overflowing renderer was reported as a timeout');
+});
+
+test('a temporary folder that cannot be made is one line and exit 1, not a crash', async () => {
+  const d = fresh();
+  const r = await pdfpreview.main([fakePdf(d)], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: path.join(d, 'no', 'such'), run: async () => assert.fail('ran') });
+  assert.equal(r.code, 1);
+  assert.match(r.err[0], /could not make a folder for the picture/);
+  assert.match(r.err[0], /--out/);
 });
 
 test('a computer with no renderer for its kind says so and exits 1', async () => {
@@ -271,6 +298,31 @@ test('on a Mac: pages 1 and 3 of a real PDF are drawn through PDFKit, decode at 
   const past = await pdfpreview.main([pdf, '--page', '4'], { tmpdir: d });
   assert.equal(past.code, 2);
   assert.equal(past.err[0], 'That PDF has 3 pages, so there is no page 4 to draw.');
+});
+
+/* Review 2: a PDF locked with a password, made by PDFKit itself. PDFKit counts its pages and draws each one blank white,
+   which an agent would read as an empty design. */
+function locked(dir) {
+  const script = path.join(dir, 'lock.js');
+  fs.writeFileSync(script, ["ObjC.import('Quartz');", 'function run(argv) {',
+    '  const doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(argv[0]));',
+    "  const opts = $({ [ObjC.unwrap($.PDFDocumentUserPasswordOption)]: 'pw', [ObjC.unwrap($.PDFDocumentOwnerPasswordOption)]: 'pw' });",
+    '  doc.writeToURLWithOptions($.NSURL.fileURLWithPath(argv[1]), opts);',
+    '  return String($.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(argv[1])).isLocked);', '}'].join('\n'));
+  const out = path.join(dir, 'locked.pdf');
+  assert.equal(execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', script, threePages(dir), out], { encoding: 'utf8' }).trim(), 'true', 'the fixture is not locked');
+  return out;
+}
+test('on a Mac: a PDF locked with a password is refused (exit 1, saying so), never drawn as a blank page', { skip: !(cups && fs.existsSync('/usr/bin/sandbox-exec')) && 'needs macOS PDFKit and cupsfilter' }, async () => {
+  const d = fresh();
+  const pdf = locked(d);
+  const out = path.join(d, 'blank.png');
+  const r = await pdfpreview.main([pdf, '--out', out], { tmpdir: d });
+  assert.equal(r.code, 1, 'a locked PDF was drawn: ' + r.out.join(' '));
+  assert.match(r.err[0], /locked with a password/);
+  assert.equal(fs.existsSync(out), false);
+  /* The board's own preview reads the same script: no count, so it shows no later pages of a locked file. */
+  assert.equal(await require('./pdfpages').count(pdf), null);
 });
 
 const pdftoppm = pdfpreview.onPath('pdftoppm');

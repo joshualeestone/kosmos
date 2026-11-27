@@ -178,17 +178,20 @@ async function drawLinux(copy, index, work, deps) {
   if (!pdftoppm && !mutool) return { ok: false, words: LINUX_HELP };
   const png = path.join(work, 'page.png');
   const p = String(index + 1);
+  /* Review 2: mutool may clamp a page past the end to the last page and exit 0, so its own count (`mutool info`
+     prints Pages: N) is read BEFORE drawing. A count it cannot give is not a refusal; the draw then decides. */
+  if (mutool) {
+    const info = await run(mutool, ['info', copy], { timeout: TIMEOUT_MS, env });
+    const pages = info.code === 0 ? /^Pages:\s*(\d+)\s*$/m.exec(info.stdout) : null;
+    if (pages && index >= Number(pages[1])) return { ok: false, range: Number(pages[1]) };
+  }
   const got = pdftoppm
     ? await run(pdftoppm, ['-f', p, '-l', p, '-png', '-singlefile', '-scale-to', String(LONG_SIDE), copy, path.join(work, 'page')], { timeout: TIMEOUT_MS, env })
     : await run(mutool, ['draw', '-q', '-o', png, '-h', String(LONG_SIDE), '-w', String(LONG_SIDE), '-F', 'png', copy, p], { timeout: TIMEOUT_MS, env });
   if (got.killed) return { ok: false, words: 'Drawing that page took over ' + (TIMEOUT_MS / 1000) + ' seconds, so it was stopped.' };
   if (got.code === 0 && fs.existsSync(png)) return { ok: true, png };
-  /* Both tools fail on a page past the end, and on a whole file they cannot open. poppler says "Wrong page range";
-     mutool says nothing that tells the two apart, so (review 1) its own count is asked: `mutool info` prints Pages: N. */
-  if (pdftoppm) return { ok: false, range: /wrong page range/i.test(got.stdout + (got.stderr || '')) ? true : undefined };
-  const info = await run(mutool, ['info', copy], { timeout: TIMEOUT_MS, env });
-  const pages = info.code === 0 ? /^Pages:\s*(\d+)\s*$/m.exec(info.stdout) : null;
-  return { ok: false, range: pages && index >= Number(pages[1]) ? Number(pages[1]) : undefined };
+  /* pdftoppm fails both on a page past the end and on a file it cannot open; only "Wrong page range" is the first. */
+  return { ok: false, range: pdftoppm && /wrong page range/i.test(got.stdout + (got.stderr || '')) ? true : undefined };
 }
 
 async function drawWindows(copy, index, work, deps) {
@@ -215,6 +218,14 @@ function placeAt(from, out) {
   finally { try { fs.rmSync(stage, { recursive: true, force: true }); } catch { /* best effort */ } }
 }
 
+/* The same file: the same device and inode, or, where a drive reports inode 0 (some Windows volumes), the same size and
+   change time as well, which a PNG about to be written over a PDF will not share by chance. */
+function sameFile(a, b) {
+  if (a.dev !== b.dev) return false;
+  if (a.ino && b.ino) return a.ino === b.ino;
+  return a.size === b.size && a.mtimeMs === b.mtimeMs && a.birthtimeMs === b.birthtimeMs;
+}
+
 /* Where the PNG goes: --out made absolute (its folder must exist; an existing file there must be a regular file, and
    never the PDF itself), or a new private folder of the system's temporary folder. { ok, out } or { ok: false, words }. */
 function outFor(given, file, page, deps) {
@@ -226,7 +237,8 @@ function outFor(given, file, page, deps) {
     let st = null;
     try { st = fs.lstatSync(out); } catch { st = null; }
     if (st && !st.isFile()) return { ok: false, words: out + ' is there and is ' + (st.isSymbolicLink() ? 'a link' : 'not a plain file') + ', so nothing was drawn. Name another --out.' };
-    try { if (st && fs.realpathSync(out) === fs.realpathSync(file)) return { ok: false, words: '--out names the PDF itself, so nothing was drawn.' }; } catch { /* the PDF was readable a moment ago */ }
+    /* Review 2: by device and inode, not by path: on a disk that ignores case (APFS, NTFS by default) ODD.PNG is odd.png. */
+    try { if (st && sameFile(fs.statSync(out), fs.statSync(file))) return { ok: false, words: '--out names the PDF itself, so nothing was drawn.' }; } catch { /* the PDF was readable a moment ago */ }
     return { ok: true, out };
   }
   const tmp = deps.tmpdir || os.tmpdir();
@@ -247,7 +259,10 @@ async function preview(file, { page = 1, out = null } = {}, deps = {}) {
   const abs = path.resolve(String(file));
   const read = readPdf(abs);
   if (!read.ok) return { ok: false, code: 2, words: read.words };
-  const where = outFor(out, abs, page, deps);
+  let where;
+  try { where = outFor(out, abs, page, deps); } catch (e) {   // review 2: a temporary folder that cannot be made
+    return { ok: false, code: 1, words: 'Kosmos could not make a folder for the picture in ' + (deps.tmpdir || os.tmpdir()) + ' (' + (e && e.code ? e.code : 'error') + '), so nothing was drawn. Name one with --out.' };
+  }
   if (!where.ok) return { ok: false, code: 2, words: where.words };
   let work = null;
   try {
@@ -257,7 +272,7 @@ async function preview(file, { page = 1, out = null } = {}, deps = {}) {
     const got = await draw(copy, page - 1, work, deps);
     if (!got.ok) {
       if (got.range !== undefined) return { ok: false, code: 2, words: 'That PDF has ' + (typeof got.range === 'number' ? got.range + ' page' + (got.range === 1 ? '' : 's') : 'fewer pages') + ', so there is no page ' + page + ' to draw.' };
-      return { ok: false, code: 1, words: got.words || 'This computer could not draw page ' + page + ' of that PDF. The file may be damaged.' };
+      return { ok: false, code: 1, words: got.words || 'This computer could not draw page ' + page + ' of that PDF. The file may be damaged, or locked with a password.' };
     }
     if (!isPng(got.png)) return { ok: false, code: 1, words: 'This computer could not draw page ' + page + ' of that PDF: the picture came out empty.' };
     placeAt(got.png, where.out);
