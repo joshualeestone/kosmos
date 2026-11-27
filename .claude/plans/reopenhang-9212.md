@@ -21,7 +21,7 @@ check on the fix only).
   its own open). While the request is set and nothing has named "end", goNewest (an arrival, a read that follows the newest)
   only scrolls, unanimated, as goNewest always is under the anchor, and so do the paths that wrote "end" directly (the box
   height, keyboard and tray follows and settleAtNewest's put-back, now through nameEnd()). The two delayed put-backs that
-  name "end" after an offset write wait for it too. Once anything (a person's scroll on iOS 17) has named a row, they all
+  name "end" after an offset write wait on the same condition. Once anything (a person's scroll on iOS 17) has named a row, they all
   behave as before.
 - The end marker's onAppear names "end" whenever nothing holds an anchor (positionId nil) and nothing let it go: not under a
   person's scroll (personScrolling, or UIKit's under-a-finger reading, since iOS 17 sets no personScrolling), not after a
@@ -32,7 +32,8 @@ check on the fix only).
 - A person's scroll (iOS 18+), a fresh chat and a list rebuild clear the request. #9089's looks scroll the same way and
   re-arm it within the open's window.
 - KOSMOS_SAMPLE_ANCHORATOPEN=1 (Debug only) restores the old open: the control.
-- ChatTallOpenUITests: a third check re-opens the chat 8 times in one launch; TEST_RUNNER_KOSMOS_ANCHORATOPEN=1 runs it
+- ChatTallOpenUITests: a third check re-opens the chat 20 times in one launch (at the old rate, about 7% a re-open,
+  that shows a returning freeze about three runs in four); TEST_RUNNER_KOSMOS_ANCHORATOPEN=1 runs it
   against the old open. ios/tools/ui-sample.sh: the class count is 3. LogicTests/room: the source pins follow the
   changed lines, and one new check pins the #9212 lines (and that no direct scroll-and-name write is left).
 
@@ -47,10 +48,11 @@ check on the fix only).
   the same treatment applies.
 - The new check asks that each re-open draws the chat and its newest message, not that the newest is wholly on screen: the
   landing is the other two checks' job, and a freeze draws nothing at all.
-
 - Until the end appears no id anchor holds the list, so an earlier page landing above before then is not held by it. A
   tall chat's top is far from its end; the end's own appearance names the anchor before its settled page is asked for
   (loadEarlier("settled") runs a turn later).
+  A person who reaches the top in those frames can ask for the page before (loadEarlier("top")) with no anchor to hold it;
+  that is the same narrow window.
 
 ## Weakest premise
 The simulator, not a phone. And between the open and the end's appearance (a frame or two) no anchor holds the list;
