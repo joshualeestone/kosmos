@@ -21680,7 +21680,8 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 200, { delivery: { state: 'could_not', because: 'you are not on that project, so nothing was posted and no file was taken' } });
             return;
           }
-          const got = require('./engine/replyfile').attach(who, postFile, { roster, scope: 'project', owner: pj.id });
+          // Review 3: only from the agent's Files folder or THIS room's own project folder (onlyProject).
+          const got = require('./engine/replyfile').attach(who, postFile, { roster, scope: 'project', owner: pj.id, onlyProject: pj.id });
           if (!got.ok) { sendJson(res, 200, { delivery: { state: 'could_not', because: got.because + ', so nothing was posted' } }); return; }
           postFiles = [got.rec];
           if (typeof body.text !== 'string' || !body.text.trim()) body.text = got.rec.name;

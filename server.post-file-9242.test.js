@@ -43,6 +43,8 @@ let LEO_TOKEN = '';
 let base;
 let FILES;
 let OUTSIDE;
+let ROOMDIR;
+let SIDEDIR;
 
 test.before(async () => {
   await start(0);
@@ -58,9 +60,15 @@ test.before(async () => {
   OUTSIDE = path.join(SANDBOX, 'outside');
   fs.mkdirSync(OUTSIDE, { recursive: true });
   projects.readAll();
+  ROOMDIR = path.join(SANDBOX, 'room');
+  SIDEDIR = path.join(SANDBOX, 'side');
+  fs.mkdirSync(ROOMDIR, { recursive: true });
+  fs.mkdirSync(SIDEDIR, { recursive: true });
   projects.writeAll([
-    { id: 'room-9242', name: 'Room', agents: [WHO, 'mara'], createdAt: new Date().toISOString() },
+    { id: 'room-9242', name: 'Room', folder: ROOMDIR, agents: [WHO, 'mara'], createdAt: new Date().toISOString() },
     { id: 'other-9242', name: 'Other', agents: ['mara'], createdAt: new Date().toISOString() },
+    // leo is on this one too, but it is not the room being posted into (review 3)
+    { id: 'side-9242', name: 'Side', folder: SIDEDIR, agents: [WHO], createdAt: new Date().toISOString() },
   ]);
 });
 test.after(() => { try { server.close(); } catch { /* closed */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
@@ -204,4 +212,16 @@ test('#9242 review 2: two identical posts of the same file at once leave exactly
   assert.equal(a.json.delivery.id, b.json.delivery.id, 'the two were not folded into one post');
   assert.equal(storedCount(), copies + 1, 'a copy no post carries was left behind');
   assert.equal(replyfile.sentToday(WHO), total + fs.statSync(src).size, 'the daily total was charged other than once');
+}));
+
+test('#9242 review 3: a room post attaches from the room\'s own project folder, never from another of the agent\'s projects (a reply still may)', () => withLeo(async () => {
+  const inRoom = write(path.join(ROOMDIR, 'mockup.png'), Buffer.alloc(2048, 9));
+  const ok = await post({ project: 'room-9242', text: 'the mockup', file: inRoom });
+  assert.ok(ok.json.delivery && ok.json.delivery.id, ok.text);
+  const inSide = write(path.join(SIDEDIR, 'private-plan.md'), '# not for this room\n');
+  await refused({ project: 'room-9242', text: 'x', file: inSide }, /another of your projects, and a room post can attach only from your Files folder or this room's own project folder/);
+  // CONTROL: reply --file's own rule is unchanged: the same file goes to the person.
+  const asReply = replyfile.attach(WHO, inSide, {});
+  assert.equal(asReply.ok, true, JSON.stringify(asReply));
+  replyfile.discard(asReply.rec);
 }));

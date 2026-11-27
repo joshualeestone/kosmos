@@ -298,7 +298,7 @@ function libraryOpen(chain, k, rootDepth) {
   return false;
 }
 
-function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false } = {}) {
+function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false, onlyProject = null } = {}) {
   const chain = chainOf(real);
   const filesReal = filesRoot(sessionName, filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
@@ -323,7 +323,8 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
     depthCache.set(folder, at);
     return at;
   };
-  const listsMe = (p) => (p.agents || []).includes(sessionName);
+  // kosmos#9242 review 3: a room post counts only that room's own project as the agent's (onlyProject); a reply, every one.
+  const listsMe = (p) => (p.agents || []).includes(sessionName) && (!onlyProject || p.id === onlyProject);
   const usable = (p) => p && typeof p.folder === 'string' && p.folder;
   /* #7232 B3: the agent's OWN projects first. None holding the file is a refusal (as it always was: the deepest
      project would then not be the agent's), said before any other agent's folder is touched, so an attach of a file in
@@ -761,7 +762,7 @@ function winRealRefusal(real, given, roots) {
    or a room post ('project', the project's id, where the room's attachments live, so the room draws and serves it as a
    person's upload to that room). Which files may go is decided exactly the same way either way, and the daily total is
    the agent's own in both (the copy keeps `from`, the sending agent). */
-function attach(sessionName, given, { roster, platform = process.platform, scope = 'agent', owner = sessionName } = {}) {
+function attach(sessionName, given, { roster, platform = process.platform, scope = 'agent', owner = sessionName, onlyProject = null } = {}) {
   if (scope !== 'agent' && scope !== 'project') return { ok: false, because: 'that is not a place a file can be kept' };
   if (typeof given !== 'string' || !given || given.includes('\0')) return { ok: false, because: 'name the file to attach by its path' };
   if (!path.isAbsolute(given)) return { ok: false, because: 'give the full path of the file to attach' };
@@ -791,7 +792,12 @@ function attach(sessionName, given, { roster, platform = process.platform, scope
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
   if (Number(st.nlink) > 1) return { ok: false, because: HARD_LINK };
   const size = Number(st.size);
-  const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win });
+  const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win, onlyProject });
+  /* kosmos#9242 review 3: a room post reaches the room's other agents, not only the person, so a file from another of the
+     agent's projects would hand that project's files to members who are not on it. Said plainly when that is the reason. */
+  if (!where && onlyProject && allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win })) {
+    return { ok: false, because: 'that file is in another of your projects, and a room post can attach only from your Files folder or this room\'s own project folder' };
+  }
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (size > attachments.MAX_BYTES) {
