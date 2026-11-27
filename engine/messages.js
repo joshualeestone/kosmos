@@ -3959,10 +3959,10 @@ function blockBody() {
     '',
     '    ' + cli + ' msg --no-reply <their-name> "what you want to tell them"',
     '',
-    // kosmos#9240: delivery-check probes arrived looking like requests, and each cost its receiver a turn.
-    'To check that a message reached someone, do not send another one:',
-    '`' + cli + ' msg --status <id>` (the id `' + cli + ' msg` printed) says whether they read or',
-    'answered it. A test message that needs no answer goes with --no-reply.',
+    // kosmos#9240: delivery-check probes arrived looking like requests, and each cost its receiver a turn. Marking a test
+    // message --no-reply is taught in the project block (projects.js, #9096); what saves the turn is not sending one.
+    'To check that a direct message you sent arrived, do not send another one:',
+    '`msg --status <id>`, with the id your send printed, says whether they read or answered it.',
     '',
     'If one of these commands fails in your shell, tell your operator in',
     'your own words rather than staying silent. The message never arrived,',
