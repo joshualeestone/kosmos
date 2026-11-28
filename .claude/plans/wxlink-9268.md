@@ -55,3 +55,5 @@ the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac a
 - Windows, run 46119679376, after review 1: all three #9268 arms of engine/securewrite.test.js pass there (the
   followed link, the name swapped after the open, and the ordinary-save control with atomicOnly), so an ordinary
   save is not refused on Windows; trust.test.js 51 pass. The same 9 #1787 and #1793 arms as before fail, by name.
+- Windows, run 46119979883, after review 2: all four #9268 arms pass (24 pass in securewrite.test.js, the hard-link
+  arm among them); trust.test.js 51 pass; the same 9 #1787 and #1793 arms fail, by name.
