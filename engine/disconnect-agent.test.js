@@ -177,6 +177,49 @@ test('a name that could escape its own folder is refused', () => {
 /* #5432: on Linux the agent's job is a systemd user unit (job.unit, job.plist null), and the undo used to leave it, so
    the row could not be added again. This runs on every platform: remove's teardown and create's systemd seam are stubbed,
    so what is measured is disconnect's own rule (the unit goes only after the teardown fully landed, and systemd is told). */
+/* kosmos#9271: the same rule for a Windows Scheduled Task (jobFor's win32 shape: a task label, no plist, no unit). Runs on
+   every platform: remove's teardown is stubbed and win32job's runner records the schtasks calls, so what is measured is
+   disconnect's own rule, as the #5432 arm below does for Linux. The real Windows path runs in this file on the Windows job. */
+test('#9271 an undo on Windows deletes the agent\'s Scheduled Task, only after the teardown landed, by its clean name', () => {
+  const discover = require('./discover');
+  const removal = require('./remove');
+  const store = require('./store');
+  const win32job = require('./win32job');
+  const name = 'taskundo';
+  const folder = path.join(SB, 'taskundo-folder');
+  const saved = { jobFor: removal.jobFor, remove: removal.remove, forget: removal.forget };
+  const calls = [];
+  let outcome;
+  try {
+    removal.jobFor = () => ({ label: win32job.taskName(name, 'w9271'), plist: null, ours: true, worldId: 'w9271' });
+    removal.remove = () => ({ outcome });
+    removal.forget = () => true;
+    win32job.setRunner((args) => { calls.push(args); return { ok: true, out: '' }; });
+    const undo = (o, as) => {
+      outcome = o;
+      calls.length = 0;
+      fs.mkdirSync(folder, { recursive: true });
+      store.writeProfile(name, { dir: folder });
+      return discover.disconnect(as || name);
+    };
+    const deletes = () => calls.filter((a) => a[0] === '/Delete');
+
+    // CONTROL: a teardown that did not fully land keeps the task (deleting it under a live job is worse).
+    assert.equal(undo(removal.OUTCOME.PARTIAL).ok, true);
+    assert.deepEqual(deletes(), [], 'a partial teardown deleted the task');
+
+    assert.equal(undo(removal.OUTCOME.REMOVED).ok, true);
+    assert.deepEqual(deletes(), [['/Delete', '/F', '/TN', win32job.taskName(name, 'w9271')]], 'the undo left the Scheduled Task, so the row cannot be added again');
+
+    // Spaces around the name: the task deleted is the one teardown acted on (create.cleanName), not a name that misses it.
+    assert.equal(undo(removal.OUTCOME.REMOVED, '  ' + name + ' ').ok, true);
+    assert.deepEqual(deletes(), [['/Delete', '/F', '/TN', win32job.taskName(name, 'w9271')]], 'a padded name aimed the delete at a task that is not there');
+  } finally {
+    Object.assign(removal, saved);
+    win32job.setRunner(null);
+  }
+});
+
 test('#5432 an undo on Linux removes the agent\'s systemd unit, only after the teardown landed', () => {
   const discover = require('./discover');
   const removal = require('./remove');
