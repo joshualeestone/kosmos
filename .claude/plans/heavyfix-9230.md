@@ -5,7 +5,8 @@
    of #9222 (a pane-named agent must see what holds its places). Rejected: token-only listing.
 2. The re-announce carry-over (an earlier record's start kept when ps cannot answer) is now read inside the file lock,
    so a write made meanwhile is the one seen. The drop key in live() gains `at`, so a re-announce made meanwhile
-   (same agent, pid and kept since, new at) is never removed by a drop decided before it.
+   (same agent, pid and kept since) is never removed by a drop decided before it: start() gives a re-announce an
+   `at` one past the record it replaces when the clock has not moved, so the keys differ even in the same millisecond.
 3. The wall-clock arm "start stops reading ... once its time is spent" keeps only its upper bound: a stall can only
    lower the count.
 
@@ -14,7 +15,8 @@
 
 Tests: the carry-over arms (#9222) red when the block is removed. A new arm re-announces from inside a read (the
 injected startOf runs before live() takes the lock), so a drop decided before the re-announce must spare it; removing
-`at` from the key reds it (review round 1 found the way in).
+`at` from the key reds it (review round 1 found the way in). A second arm re-announces in the same millisecond; removing
+the later-`at` step in start() reds it (review round 7 found that the key alone only narrowed the race).
 
 Not pinned by a test: that the carry-over read is now inside the lock. The window it closes is between the old
 outside-the-lock read and locked(), and no seam reaches it: the injected startOf runs before both the old and the new
