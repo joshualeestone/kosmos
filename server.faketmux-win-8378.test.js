@@ -128,18 +128,24 @@ test('fleet.restore() returns to the stand-in once it is installed, and to none 
   const messages = require('./engine/messages');
   const fleet = require('./test-support/fleet');
   const real = status.setPaneSource;
+  const realCap = status.setPaneCapture;
   const seen = [];
+  const seenCap = [];
   try {
     assert.equal(win.serveOnWindows('win32'), true);
-    const { source } = win.current();
+    const { source, capture } = win.current();
     status.setPaneSource = (fn) => { seen.push(fn); return real(fn); };
+    status.setPaneCapture = (fn) => { seenCap.push(fn); return realCap(fn); };
     fleet.restore();
-    assert.equal(seen.pop(), source, 'fleet.restore() dropped the stand-in (on Windows the board would read a tmux it cannot run)');
+    assert.equal(seen.pop(), source, 'fleet.restore() dropped the stand-in pane list (on Windows the board would read a tmux it cannot run)');
+    assert.equal(seenCap.pop(), capture, 'fleet.restore() dropped the stand-in screen (round 6: the capture half was unpinned)');
     win.reset();
     fleet.restore();
     assert.equal(seen.pop(), null, 'CONTROL: with nothing installed, fleet.restore() still puts back none, as before');
+    assert.equal(seenCap.pop(), null, 'CONTROL: and no screen');
   } finally {
     status.setPaneSource = real;
+    status.setPaneCapture = realCap;
     status.setPaneSource(null);
     status.setPaneCapture(null);
     messages.setRunner(null);
