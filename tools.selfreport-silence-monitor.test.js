@@ -1,6 +1,7 @@
 'use strict';
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
+const SKIP_FAKE_GH = require('./test-support/skip-on-win32').skipOnWin32('it stands in gh with a shell script, which Windows cannot run by name, so the monitor cannot post through it (it says gh failed); the monitor can run on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -59,7 +60,7 @@ function ghCalls(record) {
   catch { return []; }
 }
 
-test('STALE + agents running -> posts an alert to the issue, exits 1', () => {
+test('STALE + agents running -> posts an alert to the issue, exits 1', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ record, ghStub, storeDir, dir }) => {
     writeReport(storeDir, 'angel', NOW - 5 * 24 * 60 * MIN); // 5 days old (the #2509 shape)
     const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due, to isolate the alert
@@ -82,7 +83,7 @@ test('FRESH + agents running, heartbeat NOT due -> SILENT (no gh call), exits 0'
   });
 });
 
-test('FRESH + agents running, heartbeat DUE (no state) -> posts "still watching" and records the heartbeat, exits 0', () => {
+test('FRESH + agents running, heartbeat DUE (no state) -> posts "still watching" and records the heartbeat, exits 0', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ record, ghStub, storeDir, dir }) => {
     writeReport(storeDir, 'angel', NOW - 2 * MIN);
     const hb = path.join(dir, 'hb.txt'); // absent -> due
@@ -118,7 +119,7 @@ test('--check prints the verdict JSON and exits by staleness WITHOUT posting', (
   });
 });
 
-test('STALE re-post is THROTTLED: a second sample within the window does NOT re-post (no burying the signal)', () => {
+test('STALE re-post is THROTTLED: a second sample within the window does NOT re-post (no burying the signal)', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ record, ghStub, storeDir, dir }) => {
     writeReport(storeDir, 'angel', NOW - 5 * 24 * 60 * MIN);
     const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due
@@ -133,7 +134,7 @@ test('STALE re-post is THROTTLED: a second sample within the window does NOT re-
   });
 });
 
-test('a config typo (SELFREPORT_STALE_MINUTES not a number) FALLS BACK to 45, not NaN (the alarm is not silently disabled)', () => {
+test('a config typo (SELFREPORT_STALE_MINUTES not a number) FALLS BACK to 45, not NaN (the alarm is not silently disabled)', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ record, ghStub, storeDir, dir }) => {
     writeReport(storeDir, 'angel', NOW - 50 * MIN); // older than 45, younger than any larger typo-value
     const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW));
@@ -143,7 +144,7 @@ test('a config typo (SELFREPORT_STALE_MINUTES not a number) FALLS BACK to 45, no
   });
 });
 
-test('a return to HEALTH clears the alarm state, so a future outage alarms immediately (no throttle carryover)', () => {
+test('a return to HEALTH clears the alarm state, so a future outage alarms immediately (no throttle carryover)', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ record, ghStub, storeDir, dir }) => {
     const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due, to isolate
     const alarm = path.join(dir, 'alarm.txt');
@@ -158,7 +159,7 @@ test('a return to HEALTH clears the alarm state, so a future outage alarms immed
   });
 });
 
-test('a FAILING gh does NOT advance the heartbeat clock (a dead alert channel must not read as watched)', () => {
+test('a FAILING gh does NOT advance the heartbeat clock (a dead alert channel must not read as watched)', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ ghStub, storeDir, dir }) => {
     // a gh stub that FAILS (exit 1)
     const failGh = path.join(dir, 'gh-fail.sh');
@@ -171,7 +172,7 @@ test('a FAILING gh does NOT advance the heartbeat clock (a dead alert channel mu
   });
 });
 
-test('W3: a non-fresh, non-stale sample (no-agents-running) does NOT clear the alarm throttle', () => {
+test('W3: a non-fresh, non-stale sample (no-agents-running) does NOT clear the alarm throttle', { skip: SKIP_FAKE_GH }, () => {
   withHarness(({ record, ghStub, storeDir, dir }) => {
     const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due
     const alarm = path.join(dir, 'alarm.txt');

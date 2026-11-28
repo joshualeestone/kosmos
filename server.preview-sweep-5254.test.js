@@ -82,7 +82,8 @@ test('#5254: a drawn page carries a private record of its file and its owner', a
   const dir = folderFor(path.join(FILES, 'rec.pdf'));
   assert.ok(dir, 'no record names the drawn file');
   const f = path.join(dir, filepreview.SOURCE_FILE);
-  assert.equal(fs.statSync(f).mode & 0o777, 0o600, 'the record is readable by others');
+  // kosmos#8378: Windows keeps no POSIX mode bits (a file reads 0o666 there), so owner-only is checked only off Windows.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(f).mode & 0o777, 0o600, 'the record is readable by others');
   assert.deepEqual(JSON.parse(fs.readFileSync(f, 'utf8')).owner, { kind: 'agent', id: 'ava' });
 });
 

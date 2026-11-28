@@ -14,6 +14,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
  */
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -208,7 +209,7 @@ test('#7365: a marker file that will not parse is copied aside, and Archive and 
 });
 
 // chmod 000 does not stop root reading, so as root this test cannot set up its case.
-test('#7365: a marker file that cannot be READ refuses the write and changes nothing', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, async () => {
+test('#7365: a marker file that cannot be READ refuses the write and changes nothing', { skip: SKIP_POSIX_MODES || (typeof process.getuid === 'function' && process.getuid() === 0) }, async () => {
   const file = roomarchive.fileFor();
   const before = fs.readFileSync(file, 'utf8');
   fs.chmodSync(file, 0o000);

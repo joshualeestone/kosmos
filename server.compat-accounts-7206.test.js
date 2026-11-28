@@ -11,6 +11,8 @@
  *   node --test server.compat-accounts-7206.test.js
  */
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
+const SKIP_COMPAT_MAC = require('./test-support/skip-on-win32').skipOnWin32('it adds or checks a DeepSeek, Z.ai GLM or MiniMax account, which the board refuses on Windows by design (those agents run on a Mac for now, server.js)');   // kosmos#8378
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -65,7 +67,7 @@ function vendorAnswers(reply) {
 }
 const hasModels = { status: 200, body: { data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] } };
 
-test('slice 1b: with the switch OFF (the default) the add route refuses and GET offers nothing; ON is the control', async () => {
+test('slice 1b: with the switch OFF (the default) the add route refuses and GET offers nothing; ON is the control', { skip: SKIP_COMPAT_MAC }, async () => {
   const urls = vendorAnswers(hasModels);
   require('./test-support/compat-switch').setAt(SANDBOX, false);
   try {
@@ -85,7 +87,7 @@ test('slice 1b: with the switch OFF (the default) the add route refuses and GET 
   assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek'], 'GLM was offered under DeepSeek\'s switch');   // #7206 2a review 1: one switch per vendor
 });
 
-test('add: with no Claude Code on the computer, nothing is stored and the person is told why', async () => {
+test('add: with no Claude Code on the computer, nothing is stored and the person is told why', { skip: SKIP_COMPAT_MAC }, async () => {
   vendorAnswers(hasModels);
   claudeHere = false;
   try {
@@ -99,7 +101,7 @@ test('add: with no Claude Code on the computer, nothing is stored and the person
   } finally { claudeHere = true; }
 });
 
-test('add: a key DeepSeek refuses stores nothing, and the key went to DeepSeek only', async () => {
+test('add: a key DeepSeek refuses stores nothing, and the key went to DeepSeek only', { skip: SKIP_COMPAT_MAC }, async () => {
   const urls = vendorAnswers({ status: 401, body: null });
   const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'refused' });
   assert.equal(r.status, 400);
@@ -108,7 +110,7 @@ test('add: a key DeepSeek refuses stores nothing, and the key went to DeepSeek o
   assert.deepEqual(urls, ['https://api.deepseek.com/models']);
 });
 
-test('add: a good key is stored and listed under DeepSeek while the switch is on, never as a Claude account', async () => {
+test('add: a good key is stored and listed under DeepSeek while the switch is on, never as a Claude account', { skip: SKIP_COMPAT_MAC }, async () => {
   const urls = vendorAnswers(hasModels);
   const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'work', baseUrl: 'https://elsewhere.example' });
   assert.equal(r.status, 200);
@@ -140,7 +142,7 @@ test('add: a good key is stored and listed under DeepSeek while the switch is on
   assert.equal(compat.list('deepseek').some((a) => a.label === 'work'), true);
 });
 
-test('add: a vendor that cannot be reached stores the account and says so; a second add of the name is refused', async () => {
+test('add: a vendor that cannot be reached stores the account and says so; a second add of the name is refused', { skip: SKIP_COMPAT_MAC }, async () => {
   vendorAnswers('throw');
   const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'offline' });
   assert.equal(r.status, 200);
@@ -151,7 +153,7 @@ test('add: a vendor that cannot be reached stores the account and says so; a sec
   assert.match((await again.json()).error, /already a DeepSeek account called offline/);
 });
 
-test('add: an empty folder left by an add that died is reclaimed after a minute; a fresh one is still taken', async () => {
+test('add: an empty folder left by an add that died is reclaimed after a minute; a fresh one is still taken', { skip: SKIP_COMPAT_MAC }, async () => {
   vendorAnswers(hasModels);
   const old = nodePath.join(SANDBOX, '.kosmos-deepseek-leftover');
   fs.mkdirSync(old, { mode: 0o700 });
@@ -168,7 +170,7 @@ test('add: an empty folder left by an add that died is reclaimed after a minute;
   assert.equal(r2.status, 409, 'a claim under a minute old (another add in flight) was taken over');
 });
 
-test('add: an unknown vendor, a missing key, or a model the vendor lacks is refused before anything is asked', async () => {
+test('add: an unknown vendor, a missing key, or a model the vendor lacks is refused before anything is asked', { skip: SKIP_COMPAT_MAC }, async () => {
   const urls = vendorAnswers(hasModels);
   for (const [body, want] of [
     [{ vendor: 'anthropic', key: KEY }, /does not know that provider/],
@@ -183,7 +185,7 @@ test('add: an unknown vendor, a missing key, or a model the vendor lacks is refu
   assert.deepEqual(urls, [], 'the vendor was asked about a request that was already refused');
 });
 
-test('check: asks the vendor for a listed account; an unknown folder is 404', async () => {
+test('check: asks the vendor for a listed account; an unknown folder is 404', { skip: SKIP_COMPAT_MAC }, async () => {
   vendorAnswers(hasModels);
   await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'checked' });
   compat.resetLiveCacheForTest();
@@ -199,7 +201,7 @@ test('check: asks the vendor for a listed account; an unknown folder is 404', as
   assert.equal(missing.status, 404);
 });
 
-test('delete: forget sets the folder aside, remove deletes it; a Claude folder is never touched', async () => {
+test('delete: forget sets the folder aside, remove deletes it; a Claude folder is never touched', { skip: SKIP_FAKE_TMUX }, async () => {
   vendorAnswers(hasModels);
   await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'gone' });
   await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'kept' });
@@ -263,7 +265,7 @@ test('1b review 3: a DeepSeek agent\'s model line names DeepSeek, never Claude',
   assert.doesNotMatch(String(modelLine({ runner: 'claude', account: { dir: '/x/.claude-a' }, modelName: 'claude-sonnet-5' })), /DeepSeek/, 'CONTROL');
 });
 
-test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refused, offered nowhere and sent no key; its own switch is the control', async () => {
+test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refused, offered nowhere and sent no key; its own switch is the control', { skip: SKIP_COMPAT_MAC }, async () => {
   const urls = vendorAnswers({ status: 200, body: { data: [{ id: 'glm-5.3' }] } });
   const sw = require('./test-support/compat-switch');
   const r = await post('/api/accounts/compat', { vendor: 'glm', key: 'zai-route-key-0123456789', label: 'glmoff' });
@@ -295,7 +297,7 @@ test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refu
   } finally { sw.setVendorAt(SANDBOX, 'glm', false); fs.rmSync(nodePath.join(SANDBOX, '.kosmos-glm-stored'), { recursive: true, force: true }); }
 });
 
-test('#7206 slice 3: MiniMax is refused, stored nowhere and sent no key while only DeepSeek\'s and GLM\'s switches are on; its own switch is the control', async () => {
+test('#7206 slice 3: MiniMax is refused, stored nowhere and sent no key while only DeepSeek\'s and GLM\'s switches are on; its own switch is the control', { skip: SKIP_COMPAT_MAC }, async () => {
   const urls = vendorAnswers({ status: 200, body: { data: [{ id: 'MiniMax-M3.1-Flash' }] } });
   const sw = require('./test-support/compat-switch');
   sw.setVendorAt(SANDBOX, 'glm', true);
@@ -316,7 +318,7 @@ test('#7206 slice 3: MiniMax is refused, stored nowhere and sent no key while on
   } finally { sw.setVendorAt(SANDBOX, 'minimax', false); }
 });
 
-test('#7206 2a review 5: the check route refuses a stored GLM account under DeepSeek\'s switch, in GLM\'s name, and sends no key; its own switch is the control', async () => {
+test('#7206 2a review 5: the check route refuses a stored GLM account under DeepSeek\'s switch, in GLM\'s name, and sends no key; its own switch is the control', { skip: SKIP_COMPAT_MAC }, async () => {
   const sw = require('./test-support/compat-switch');
   const dir = nodePath.join(SANDBOX, '.kosmos-glm-checkme');
   compat.storeAccount(dir, { vendor: 'glm', model: 'glm-5.3', key: 'zai-check-key-0123456789' });

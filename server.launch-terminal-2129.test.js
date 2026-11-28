@@ -17,6 +17,7 @@
  */
 
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const SKIP_TERMINAL_MAC = require('./test-support/skip-on-win32').skipOnWin32('it opens macOS Terminal with osascript, attached to a tmux session, which Windows does not have (engine/terminal.js has no Windows path)');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
@@ -95,7 +96,7 @@ async function launch(name) {
   return { status: res.status, body: await res.json() };
 }
 
-test('a live agent: opens Terminal attached to its session, command is shell-quoted', async () => {
+test('a live agent: opens Terminal attached to its session, command is shell-quoted', { skip: SKIP_TERMINAL_MAC }, async () => {
   lastRun = null;
   const name = 'lt-live';
   born(name);
@@ -120,7 +121,7 @@ test('a live agent: opens Terminal attached to its session, command is shell-quo
     'the tmux binary is not present or not single-quoted: ' + script);
 });
 
-test('#2955: Terminal attaches with the tmux whose version matches the server (status.attachTmux), given the agent\'s baked one', async () => {
+test('#2955: Terminal attaches with the tmux whose version matches the server (status.attachTmux), given the agent\'s baked one', { skip: SKIP_TERMINAL_MAC }, async () => {
   lastRun = null;
   const name = 'lt-switched';
   born(name);
@@ -135,7 +136,7 @@ test('#2955: Terminal attaches with the tmux whose version matches the server (s
   } finally { status.attachTmux = real; }
 });
 
-test('a stopped agent: refuses, and NO terminal is opened', async () => {
+test('a stopped agent: refuses, and NO terminal is opened', { skip: SKIP_TERMINAL_MAC }, async () => {
   lastRun = null;
   /* An agent with a job but NO live pane. Clear the pane file so paneRoster
      finds nothing under its name. */
@@ -153,7 +154,7 @@ test('a stopped agent: refuses, and NO terminal is opened', async () => {
   assert.equal(lastRun, null, 'a terminal was opened for a stopped agent -- nothing should have run');
 });
 
-test('an environment failure (osascript fails / headless board) is a 503, not a 400', async () => {
+test('an environment failure (osascript fails / headless board) is a 503, not a 400', { skip: SKIP_TERMINAL_MAC }, async () => {
   /* A live agent, but the osascript call fails the way it would on a headless
      board. That is an environment condition, not a bad request: the route must
      answer 503 so a transient/headless failure does not read as a client
@@ -172,7 +173,7 @@ test('an environment failure (osascript fails / headless board) is a 503, not a 
   assert.match(String(r.body.because || ''), /could not open a terminal/, JSON.stringify(r.body));
 });
 
-test('an Automation-permission denial (-1743) returns an actionable grant message, not the raw AppleScript code', async () => {
+test('an Automation-permission denial (-1743) returns an actionable grant message, not the raw AppleScript code', { skip: SKIP_TERMINAL_MAC }, async () => {
   /* "Not authorized to send Apple events to Terminal (-1743)" is the macOS AUTOMATION grant
      Kosmos lacks -- a SEPARATE TCC bucket from the agent-folder trust the "Trust & Restart"
      button gives. The raw AppleScript code is what a user sees today (Josh, 0.6.84) and cannot

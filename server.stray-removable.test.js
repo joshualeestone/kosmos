@@ -23,6 +23,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * enumeration-from-profiles-only: both strays are simply absent.
  */
 
+const SKIP_SH_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stands in tmux with a shell script, which Windows cannot run by name, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
@@ -117,7 +118,7 @@ function boardWithStrays() {
 
 const BOARD = boardWithStrays();
 
-test('#500: both profile-less strays are visible, with the no-record sentence', () => {
+test('#500: both profile-less strays are visible, with the no-record sentence', { skip: SKIP_SH_TMUX }, () => {
   const rows = new Map(BOARD.status.agents.map((a) => [a.sessionName, a]));
   const sf = rows.get('strayfolder');
   assert.ok(sf, 'the birth-recorded stray folder is absent: the survey still enumerates from profiles only');
@@ -136,7 +137,7 @@ test('#500: both profile-less strays are visible, with the no-record sentence', 
   assert.doesNotMatch(sj.because, /free the name/, sj.because);
 });
 
-test('#500: the stranger\'s checkout stays invisible, and the control is a normal row', () => {
+test('#500: the stranger\'s checkout stays invisible, and the control is a normal row', { skip: SKIP_SH_TMUX }, () => {
   const rows = new Map(BOARD.status.agents.map((a) => [a.sessionName, a]));
   assert.equal(rows.has('checkout'), false,
     'a directory with no birth record reached the board: the roster-from-records ruling is broken');
@@ -146,7 +147,7 @@ test('#500: the stranger\'s checkout stays invisible, and the control is a norma
     'the control wears a stray sentence');
 });
 
-test('#500: both strays have viable removal plans, the road to clearing them off the board', () => {
+test('#500: both strays have viable removal plans, the road to clearing them off the board', { skip: SKIP_SH_TMUX }, () => {
   for (const [label, plan] of [['folder', BOARD.folderPlan], ['job', BOARD.jobPlan]]) {
     assert.equal(plan.ok, true, label + ' plan: ' + JSON.stringify(plan));
   }

@@ -8,6 +8,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * concretely, engine/connect.js's `run()` spawning `<claude> install`
  * without its own explicit cwd override.
  */
+const SKIP_DEL_CWD = require('./test-support/skip-on-win32').skipOnWin32('it removes a folder a running process works in, which Windows refuses (POSIX lets the folder go and the process keeps a deleted working folder)');   // kosmos#8378
+const SKIP_LSOF = require('./test-support/skip-on-win32').skipOnWin32('it reads the board process working folder with lsof, a Mac and Linux tool');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -18,7 +20,7 @@ const { execFileSync } = require('node:child_process');
 const { stopBoard } = require('./test-support/board-child');
 const { eventually } = require('./test-support/eventually');
 
-test('#923: the board process chdirs to $HOME at startup, so a directory it was launched from can be removed without stranding its cwd', async () => {
+test('#923: the board process chdirs to $HOME at startup, so a directory it was launched from can be removed without stranding its cwd', { skip: SKIP_LSOF }, async () => {
   const launchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cwd-'));
   const dataDir = path.join(launchDir, 'data');
   // The chdir target, stubbed to a sandbox so this test asserts the board landed
@@ -78,7 +80,7 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
   assert.equal(dead, true, 'the board was still running when its sandbox was deleted');
 });
 
-test('#923: reproduces the precise failure -- a child spawned without an explicit cwd inherits a deleted one from its parent and fails at its OWN startup, the way `claude install` did', async () => {
+test('#923: reproduces the precise failure -- a child spawned without an explicit cwd inherits a deleted one from its parent and fails at its OWN startup, the way `claude install` did', { skip: SKIP_DEL_CWD }, async () => {
   // engine/connect.js's run() is internal (not exported) and driving the
   // full download+install flow is too heavy for a unit test, so this
   // isolates the actual OS-level mechanism instead: a child process does

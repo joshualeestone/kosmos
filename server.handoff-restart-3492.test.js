@@ -19,6 +19,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.handoff-restart-3492.test.js
  */
 
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -94,7 +95,7 @@ async function hit(method, p) {
   return { status: res.status, body };
 }
 
-test('ask: a running agent gets a prompt, and the response names the handoff path + baseline', async () => {
+test('ask: a running agent gets a prompt, and the response names the handoff path + baseline', { skip: SKIP_FAKE_TMUX }, async () => {
   const name = 'hr-ask';
   born(name);
   // No handoff file yet.
@@ -108,7 +109,7 @@ test('ask: a running agent gets a prompt, and the response names the handoff pat
   assert.equal(r.body.baseline, '', 'baseline is empty when no handoff exists yet');
 });
 
-test('status: fresh flips false -> true only once the handoff is (re)written', async () => {
+test('status: fresh flips false -> true only once the handoff is (re)written', { skip: SKIP_FAKE_TMUX }, async () => {
   const name = 'hr-status';
   born(name);
   const p = handoffPathOf(name);
@@ -140,7 +141,7 @@ test('status: fresh flips false -> true only once the handoff is (re)written', a
   assert.equal(r.body.fresh, true, 'mtime advanced past baseline: fresh');
 });
 
-test('status: a malformed baseline is REFUSED (400), never silently reported fresh', async () => {
+test('status: a malformed baseline is REFUSED (400), never silently reported fresh', { skip: SKIP_FAKE_TMUX }, async () => {
   // 🛑 The dangerous direction: a bad baseline must NOT coerce into a snapshot
   // that reads fresh for a pre-existing handoff. `Number('abc')` is NaN (the
   // unreadable-time trap), and `Number(' ')`/`Number('-1')` are finite 0/-1 (the
@@ -161,7 +162,7 @@ test('status: a malformed baseline is REFUSED (400), never silently reported fre
   assert.equal(ok.status, 200, 'a valid numeric baseline is accepted: ' + JSON.stringify(ok.body));
 });
 
-test('pickup: a running agent gets the pointer delivery', async () => {
+test('pickup: a running agent gets the pointer delivery', { skip: SKIP_FAKE_TMUX }, async () => {
   const name = 'hr-pickup';
   born(name);
   const r = await hit('POST', encodeURIComponent(name) + '/handoff-restart/pickup');
@@ -171,7 +172,7 @@ test('pickup: a running agent gets the pointer delivery', async () => {
   assert.equal(r.body.handoffPath, handoffPathOf(name));
 });
 
-test('not running / unknown: all three routes 404 (pane-gated, like the thread route)', async () => {
+test('not running / unknown: all three routes 404 (pane-gated, like the thread route)', { skip: SKIP_FAKE_TMUX }, async () => {
   /* These routes gate on knownAgent, which is pane-based: an agent with no live
      pane is simply not known to them, so a stopped-but-born agent and a name
      nobody ever ran both 404 -- the same gate the /thread send uses. The

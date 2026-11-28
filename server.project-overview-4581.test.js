@@ -9,6 +9,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  * Harness: server.agent-token-gate-4491.test.js's (a fully sandboxed board, enforcement flipped on in memory).
  */
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert');
 const os = require('node:os');
@@ -163,7 +164,7 @@ test('round 1: the reads are GET only, so a HEAD cannot answer differently from 
   assert.notEqual(res.status, 200, 'HEAD is no longer served by the overview handler');
 });
 
-test('#4581 round 5: an unreadable projects store is a 500, never an empty list', async (t) => {
+test('#4581 round 5: an unreadable projects store is a 500, never an empty list', { skip: SKIP_POSIX_MODES }, async (t) => {
   withProject(t);
   const file = projectsEngine.file();
   fs.chmodSync(file, 0o000);

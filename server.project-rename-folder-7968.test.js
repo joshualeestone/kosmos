@@ -6,6 +6,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.project-rename-folder-7968.test.js
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -56,7 +57,7 @@ const renamed = (starter, name) => {
 };
 const offered = (id) => projects.get(id).folderRenameTo;
 
-test('#7968 the person renames the folder: the work moves, the id and the old name stay out of it, the room is told', async () => {
+test('#7968 the person renames the folder: the work moves, the id and the old name stay out of it, the room is told', { skip: SKIP_FAKE_TMUX }, async () => {
   const p = renamed('Starter One', 'Launch Plan');
   assert.equal(offered(p.id), 'Launch Plan', 'CONTROL: it is offered first');
   const r = await put(p.id, { renameFolder: true }, SCREEN);
@@ -83,7 +84,7 @@ test('#7968 only the person, and on its own', async () => {
   assert.equal(fs.existsSync(path.join(KEEP, 'Starter Two', 'work.txt')), true);
 });
 
-test('#7968 a folder outside the projects root is never offered, and asking anyway leaves it alone', async () => {
+test('#7968 a folder outside the projects root is never offered, and asking anyway leaves it alone', { skip: SKIP_FAKE_TMUX }, async () => {
   const mine = path.join(HOME, 'My Own Work');
   fs.mkdirSync(mine, { recursive: true });
   const p = projects.create({ name: 'Elsewhere', folder: mine });
@@ -95,7 +96,7 @@ test('#7968 a folder outside the projects root is never offered, and asking anyw
   assert.equal(fs.existsSync(mine), true);
 });
 
-test('#7968 a folder already called that is refused, with both folders untouched', async () => {
+test('#7968 a folder already called that is refused, with both folders untouched', { skip: SKIP_FAKE_TMUX }, async () => {
   const p = renamed('Starter Three', 'Taken Name');
   fs.mkdirSync(path.join(KEEP, 'Taken Name'), { recursive: true });
   fs.writeFileSync(path.join(KEEP, 'Taken Name', 'theirs.txt'), 'theirs');
@@ -257,7 +258,7 @@ test('#7968 a stopped agent living in the folder refuses it too, which the board
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Stopped Home'));
 });
 
-test('#7968 a member waiting on a question refuses, a stopped one does not, and a running Gemini member refuses', async (t) => {
+test('#7968 a member waiting on a question refuses, a stopped one does not, and a running Gemini member refuses', { skip: SKIP_FAKE_TMUX }, async (t) => {
   const b = fleet.install([fleet.agent('quin', { state: 'needs_you' }), fleet.agent('sol', { state: 'stopped' }), fleet.agent('gem', { state: 'idle', runner: 'gemini' })]);
   t.after(() => b.restore());
   const asks = renamed('Asks Start', 'Asks Other');
@@ -280,7 +281,8 @@ test('#7968 a member waiting on a question refuses, a stopped one does not, and 
 
 test('#7968 a name Windows cannot hold is not offered there', () => {
   const p = renamed('Starter Win', 'What? Plan');
-  assert.equal(offered(p.id), 'What? Plan', 'CONTROL: this disk can hold it');
+  // kosmos#8378: off Windows the name is offered; on Windows it is refused (the arm below), so the control is not run there.
+  if (process.platform !== 'win32') assert.equal(offered(p.id), 'What? Plan', 'CONTROL: this disk can hold it');
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {

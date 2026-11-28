@@ -15,6 +15,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * 🛑 Sandboxes every root the create route writes to (the fixture-discipline
  * rule), and DRY_RUN + fake bins so no launchd job or tmux write escapes.
  */
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -101,7 +102,7 @@ test('#1903 CONTROL: a create on a CONNECTED account is not blocked by the gate'
 /* kosmos#9031, caught by 0.8.23's promote gate: the gate's probe named the default account's folder (CLAUDE_CONFIG_DIR), and
    Claude Code then read another Keychain entry than the one the plain login is in. kosmos#9082 probes the default as its
    agents run (unset, or the tmux server's pinned folder), so the test below holds the probe to that. */
-test('kosmos#9082: a signed-in DEFAULT account is probed UNSET, the login its agents use, and is not refused', async () => {
+test('kosmos#9082: a signed-in DEFAULT account is probed UNSET, the login its agents use, and is not refused', { skip: SKIP_FAKE_RUNNER }, async () => {
   /* The fake claude answers as Claude Code does: with CLAUDE_CONFIG_DIR set it reads another Keychain entry and says
      "Not logged in" (0.8.23's promote gate, #9031's words now back in the dead list); unset, it answers ok. It records
      the variable and the USER it was given. The second arm takes USER and LOGNAME out of the board's environment (#3136's

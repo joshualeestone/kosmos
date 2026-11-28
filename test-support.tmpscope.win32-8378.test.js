@@ -4,6 +4,9 @@
  * os.tmpdir(), which reads TEMP and TMP there, not TMPDIR. Before this, the scope did nothing on Windows and test
  * fixtures piled up in the real %TEMP%. Run in child processes so this file's own temp folder is not the one tested.
  */
+// kosmos#8378: the box's own TEMP and TMP, read before this file's scope replaces them (the long-form arm below hands them to a child).
+const BOX_TEMP = process.env.TEMP;
+const BOX_TMP = process.env.TMP;
 require('./test-support/tmpscope');   // this file's own scope, so a child's kts- folder left by a failing run stays inside it
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -25,6 +28,19 @@ test('on Windows, requiring tmpscope moves os.tmpdir() into its own kts- folder,
   assert.equal(r.temp, r.tmp, 'TEMP was not set to the scope (children would escape it)');
   assert.equal(r.tmpv, r.tmp, 'TMP was not set to the scope');
   assert.equal(fs.existsSync(r.tmp), false, 'the scope folder was left behind after the process ended');
+});
+
+test('on Windows the scope is named in its long form, as realpath names it, even when TEMP is an 8.3 short path', { skip: !WIN && 'about 8.3 short paths, which only Windows has' }, () => {
+  const fs = require('node:fs');
+  // GitHub's runner gives TEMP as C:\Users\RUNNER~1\...; the product resolves paths with realpath and gets
+  // C:\Users\runneradmin\..., so a scope left short made a test's expected path differ from the product's answer.
+  const r = child(`require(${JSON.stringify(SCOPE)}); const os = require('os'); const fs = require('fs'); process.stdout.write(JSON.stringify({ tmp: os.tmpdir(), native: fs.realpathSync.native(os.tmpdir()), temp: process.env.TEMP }))`, { TEMP: BOX_TEMP, TMP: BOX_TMP });
+  assert.equal(r.tmp, r.native, 'the scope is not in its long form: ' + r.tmp + ' vs ' + r.native);
+  assert.equal(r.temp, r.native, 'TEMP (what children see) is not the long form');
+  // Whether this box's own TEMP is short decides whether the arm above could have failed here; say which.
+  const outer = BOX_TEMP || BOX_TMP || '';
+  let outerNative = outer; try { outerNative = fs.realpathSync.native(outer); } catch { /* keep */ }
+  if (outer === outerNative) console.log('# note: this box gives TEMP in its long form already, so the arm above could not have failed here');
 });
 
 test('on Windows the sweep outlasts a child that holds a fixture as its working folder for a moment after exit', { skip: !WIN && 'about how Windows holds a folder a process is using' }, async () => {

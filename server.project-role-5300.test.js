@@ -7,6 +7,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.project-role-5300.test.js
  */
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -110,7 +112,7 @@ test('#5300: refusals: not a member, too long, not text, nobody named; the scree
   } finally { board.restore(); }
 });
 
-test('#5300 review 3: a paneless (Windows) agent sets its role under the member name the project stores; tag characters are dropped', async () => {
+test('#5300 review 3: a paneless (Windows) agent sets its role under the member name the project stores; tag characters are dropped', { skip: SKIP_FAKE_TMUX }, async () => {
   // The REAL paneless row, as server.project-pause-4771 makes it: a token plus a live beat, no typed card.
   const remote = sendertoken.mint('Kip5300', { launcher: 'remote' });
   assert.equal(remote.ok, true, 'fixture: no paneless token');
@@ -145,7 +147,7 @@ test('#5300 review 9: the pane path (no token, as a Mac agent without its token 
   } finally { board.restore(); }
 });
 
-test('#5300 review 13: a write that fails for a reason of the board\'s own is a 500 with a fixed sentence, not a 400 with its details', async () => {
+test('#5300 review 13: a write that fails for a reason of the board\'s own is a 500 with a fixed sentence, not a 400 with its details', { skip: SKIP_POSIX_MODES }, async () => {
   const { board, ada } = twoAgents();
   const dir = path.dirname(projects.file());
   try {

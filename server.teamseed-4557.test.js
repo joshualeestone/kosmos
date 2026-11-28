@@ -14,6 +14,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * discipline as server.team-route-1279.test.js. The catalogue is a fixture in the shape agreed with
  * #4555 on the card, injected through teamseed.setCatalogue, so this does not depend on the seed.
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -179,7 +180,7 @@ test('check: true refuses a name whose agent folder already exists here; without
   assert.equal(unchecked.status, 200);
 });
 
-test('the specs, made in order through the real POST /api/agents, give a team: reports to the lead, all on the project', async () => {
+test('the specs, made in order through the real POST /api/agents, give a team: reports to the lead, all on the project', { skip: SKIP_FAKE_TMUX }, async () => {
   teamseed.setCatalogue(CATALOGUE);
   const p = await call('POST', '/api/projects', { name: 'Marketing 4557' });
   assert.ok(p.status === 200 || p.status === 201, 'project made: ' + p.status + ' ' + JSON.stringify(p.json));

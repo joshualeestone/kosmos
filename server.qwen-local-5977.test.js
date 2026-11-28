@@ -63,7 +63,9 @@ test('GET says what is missing and only reads', async () => {
   assert.equal((await (await fetch(base + '/api/accounts/qwen/local')).json()).state, 'no_ollama');
 });
 
-test('a download starts only with the person\'s confirm, and only when the base is missing', async () => {
+test('a download starts only with the person\'s confirm, and only when the base is missing', async (t) => {
+  // kosmos#8378: the Mac setup path on every system (Windows refuses local Qwen; that refusal has its own arm below)
+  local.platformForTest = 'darwin'; t.after(() => { local.platformForTest = null; });
   let calls = ollama([], { '/api/pull': async () => ({ status: 200, body: { status: 'success' } }), '/api/create': async () => ({ status: 200, body: { status: 'success' } }) });
   const no = await post('/api/accounts/qwen/local/download', {});
   assert.equal(no.status, 400);
@@ -78,7 +80,9 @@ test('a download starts only with the person\'s confirm, and only when the base 
   assert.equal(calls.some((c) => c.p === '/api/pull'), false);
 });
 
-test('model: makes the 16k copy when the base is there, refuses when it is not, and is a no-op when ready', async () => {
+test('model: makes the 16k copy when the base is there, refuses when it is not, and is a no-op when ready', async (t) => {
+  // kosmos#8378: the Mac setup path on every system (Windows refuses local Qwen; that refusal has its own arm below)
+  local.platformForTest = 'darwin'; t.after(() => { local.platformForTest = null; });
   let calls = ollama(['qwen2.5:7b'], { '/api/create': async () => ({ status: 200, body: { status: 'success' } }) });
   const r = await post('/api/accounts/qwen/local/model', {});
   assert.equal(r.status, 200);

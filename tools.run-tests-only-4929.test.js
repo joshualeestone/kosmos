@@ -90,8 +90,11 @@ fs.writeFileSync(RED, `'use strict';\nrequire('node:test')('red', () => { throw 
 const GROUP = 'my $pid; $SIG{TERM} = sub { $SIG{TERM} = "IGNORE"; kill "TERM", -$$; exit 143 }; setpgrp(0, 0); ' +
   '$pid = fork; die "fork: $!" unless defined $pid; if (!$pid) { exec @ARGV or exit 127 } ' +
   'waitpid($pid, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)';
+/* kosmos#8378: Windows has no POSIX process group to put the runner in (Git Bash's perl has no setpgrp), so there the
+   runner is started directly. */
+function grouped(argv) { return process.platform === 'win32' ? [argv[0], argv.slice(1)] : ['perl', ['-e', GROUP, ...argv]]; }
 function runRunner(args, env, timeout) {
-  return spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, ...args], { env, encoding: 'utf8', timeout });
+  return spawnSync(...grouped(['bash', RUNNER, ...args]), { env, encoding: 'utf8', timeout });
 }
 
 function run(args, extraEnv = {}) {
@@ -127,7 +130,8 @@ test('--only runs the named file with the suite\'s environment and guards', () =
   assert.equal(e.legacy, '1');
   assert.equal(e.codexHome, null, 'an inherited CODEX_HOME reached the test');
   assert.equal(e.tokenOnly, null, 'an inherited KOSMOS_AGENT_TOKEN_ONLY reached the test');
-  assert.ok(String(e.tmpdir).startsWith(PLAIN_TMP + '/kt') && /\/kt\d+$/.test(e.tmpdir), 'the test did not get the run\'s own temp root: ' + e.tmpdir);
+  // kosmos#8378: either separator, so the same check reads a Windows path
+  assert.ok(String(e.tmpdir).startsWith(PLAIN_TMP + path.sep + 'kt') && (process.platform === 'win32' ? /\\kt\d+$/ : /\/kt\d+$/).test(e.tmpdir), 'the test did not get the run\'s own temp root: ' + e.tmpdir);
   assert.match(e.guards, /launch-guard\.js/);
   assert.match(e.guards, /tool-guard\.js/);
   assert.match(r.out, /tests 1\b/, 'more than the named file ran');
@@ -149,13 +153,19 @@ test('--only reads a relative name from the runner\'s tree, whatever the caller\
   fs.mkdirSync(path.join(cdp, 'tools'));
   const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', CDPATH: cdp });
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
-  const r = spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, '--only', rel, './' + rel, 'tools/../' + rel, __filename], { env, encoding: 'utf8', timeout: 120000, cwd: DIR });
+  const r = spawnSync(...grouped(['bash', RUNNER, '--only', rel, './' + rel, 'tools/../' + rel, __filename]), { env, encoding: 'utf8', timeout: 120000, cwd: DIR });
   const out = (r.stdout || '') + (r.stderr || '');
   assert.equal(r.status, 0, out.slice(-1500));
   assert.match(out, /--only: 1 named file\(s\)/, 'four spellings of one file were counted apart');
-  assert.ok(out.includes('run-tests: --only:   ' + fs.realpathSync(__filename) + '\n'), 'the physical path of what runs is not printed');
+  // kosmos#8378: on Windows the runner is a Git Bash script and prints the path in its form (/d/a/... for D:\\a\\...).
+  const real = fs.realpathSync(__filename);
+  const shown = process.platform === 'win32' ? '/' + real[0].toLowerCase() + real.slice(2).replace(/\\/g, '/') : real;
+  assert.ok(out.includes('run-tests: --only:   ' + shown + '\n'), 'the physical path of what runs is not printed; the --only lines were: ' + JSON.stringify(out.split('\n').filter((l) => l.includes('--only:'))));
   // The shell names the caller's folder by its real path (macOS /var is /private/var), so either spelling counts.
-  assert.ok(out.includes('not from your folder (' + DIR) || out.includes('not from your folder (' + fs.realpathSync(DIR)),
+  // kosmos#8378: on Windows Git Bash names the folder its own way (the temp folder is /tmp there); cygpath, which the
+  // runner itself needs on Windows, gives that name.
+  const bashDir = process.platform === 'win32' ? String(spawnSync('cygpath', ['-u', DIR], { encoding: 'utf8' }).stdout || '').trim() : '';
+  assert.ok(out.includes('not from your folder (' + DIR) || out.includes('not from your folder (' + fs.realpathSync(DIR)) || (bashDir !== '' && out.includes('not from your folder (' + bashDir + ')')),
     'no note that the name was read from the runner\'s tree: ' + out.slice(0, 600));
   assert.match(out, /stands down inside its own inner run/);
 });
@@ -168,7 +178,7 @@ test('--only works when the runner is called by a relative path from outside the
   const cdp = fs.mkdtempSync(path.join(DIR, 'cdp2-'));
   fs.mkdirSync(path.join(cdp, path.dirname(relRunner)), { recursive: true });   // review 19: keep tools/ (join would drop it)
   const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', CDPATH: cdp });
-  const r = spawnSync('perl', ['-e', GROUP, 'bash', relRunner, '--only', PROBE], { env, encoding: 'utf8', timeout: 120000, cwd: above });
+  const r = spawnSync(...grouped(['bash', relRunner, '--only', PROBE]), { env, encoding: 'utf8', timeout: 120000, cwd: above });
   const out = (r.stdout || '') + (r.stderr || '');
   assert.doesNotMatch(out, /No such file or directory/, 'a lib did not load: ' + out.slice(-800));
   assert.doesNotMatch(out, /LEAK/, 'a false LEAK red: ' + out.slice(-800));
@@ -184,7 +194,7 @@ test('--only takes a repo file whose name starts with a dash as a file, not a no
   for (const d of ['tools', 'test-support']) fs.symlinkSync(path.join(__dirname, d), path.join(fake, d));
   fs.writeFileSync(path.join(fake, '-dash.test.js'), `require('node:test')('dash', () => {});\n`);
   const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
-  const r = spawnSync('perl', ['-e', GROUP, 'bash', path.join(fake, 'tools', 'run-tests.sh'), '--only', './-dash.test.js'], { env, encoding: 'utf8', timeout: 120000, cwd: fake });
+  const r = spawnSync(...grouped(['bash', path.join(fake, 'tools', 'run-tests.sh'), '--only', './-dash.test.js']), { env, encoding: 'utf8', timeout: 120000, cwd: fake });
   const out = (r.stdout || '') + (r.stderr || '');
   assert.doesNotMatch(out, /bad option/, 'the dash name reached node as an option: ' + out.slice(-600));
   assert.equal(r.status, 0, out.slice(-1500));

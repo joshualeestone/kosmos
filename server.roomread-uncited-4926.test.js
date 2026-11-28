@@ -5,6 +5,7 @@
  * after moves off the list onto its own line, by id, and `kosmos room` says the same under the post.
  */
 require('./test-support/tmpscope');
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
@@ -352,7 +353,7 @@ test('review 1: with --all an old ask the reader posted after is named on the li
   assert.ok(!t.includes('more than 3 days ago'), 't: ' + t);
 });
 
-test('review 1: an unreadable room names nothing as covered and says it may be wrong', async () => {
+test('review 1: an unreadable room names nothing as covered and says it may be wrong', { skip: SKIP_POSIX_MODES }, async () => {
   const pid = newRoom('Uncited4926p');
   ask(pid);
   own(pid);
