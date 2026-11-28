@@ -69,3 +69,6 @@ is carded as #9307 rather than called harmless.
   a mixed-plant atomicOnly arm pins that the rule runs before the atomicOnly exit (it fails with the order swapped).
 - Review 6: the unmeasured-mounts risk has its own card (#9308). The refusal has one shape on every path (the first
   swap as its cause, the last attempt's error as lastAttempt), and the all-swap arm checks both fields.
+- Review 7: the code names the worst case (a mount where the stat answers always disagree refuses every such save,
+  every time) and cites #9308; the token-door sentence says those callers catch the throw, not the code; the
+  leftovers sentence is scoped to a followed link (Windows), with the POSIX case said.
