@@ -162,9 +162,10 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  * leaving it would leave a file where somebody else chose. Returns null to go on, or the verdict to refuse with.
  *
  * What a refusal leaves (kosmos#9285): whatever was planted at the temp name (a link, a swapped-in file, a second hard
- * link, a folder) stays, because the name is never touched; and when the name is no longer a link to the made file
- * (swapped, removed, a hard link), the made file stays where the link pointed, empty, since nothing is ever written to
- * it. Both are inert, and the reaper does not take temps under a live writer's own pid, so they stay until removed.
+ * link, a folder) stays, because the name is never touched; the reaper takes it later, once this writer has ended,
+ * since it carries a temp name. And when the name is no longer a link to the made file (swapped, removed), the made
+ * file stays where the link pointed, empty, since nothing is ever written to it; it carries no temp name, so nothing
+ * reaps it. (A second hard link is the made file itself under the planted name, and goes with that name.)
  *
  * Not closed, and accepted:
  *   - the check runs once, right after the open, so a name swapped between it and the rename still goes over the
@@ -173,13 +174,13 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     the made file back to the temp name before this check (Windows lets a file held open be renamed). The name is
  *     then the opened file and passes, and the saved config keeps the access list it was created with where the link
  *     pointed. Closing it needs the file's own access list set or checked at the open; that is not done here.
- *   - (kosmos#9285) three refusals in a row end the atomic attempts. An atomicOnly caller then gets
- *     ERR_KOSMOS_TEMP_SWAPPED and its file is untouched. Any other caller takes the in-place fallback below, as it
- *     does after any three failed atomic attempts: it refuses a link at the config itself (refuseSymlinkTarget) and
- *     rewrites the config in place, which is not atomic (a crash mid-write can cut it short) but writes nothing
- *     through the links this check refuses, which sit at temp names. So somebody who can plant links there can cost
- *     a write its atomicity, not its secrecy. Chosen over refusing the write: either way the save is spoiled, and
- *     a refusal would turn every planted link into a failed save.
+ *   - (kosmos#9285) when all three atomic attempts are refused this way, the write throws ERR_KOSMOS_TEMP_SWAPPED
+ *     and the file is left as it was, for every caller, atomicOnly or not: it never takes the in-place fallback.
+ *     Three refusals are positive evidence that somebody is planting links in the folder, and on Windows that
+ *     fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back would hand
+ *     the same person a race at the config itself. An ordinary save never sees this refusal, so the cost is a failed
+ *     save while somebody is tampering, chosen over a write that could be read. Any other mix of failures falls back
+ *     as before.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -467,8 +468,10 @@ function writeSecret(file, data, mode, opts) {
      a fresh name each time, so the one realistic trigger after the unique-name
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is
      what keeps the destructive fallback essentially unreachable rather than
-     merely rare. */
+     merely rare. The one thing that can refuse every fresh name is somebody
+     planting a link at each (kosmos#9268), and that never falls back (#9285). */
   let lastAtomicError = null;
+  let swappedAttempts = 0;   // kosmos#9285: attempts refused because the temp name was not the opened file
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
@@ -547,6 +550,7 @@ function writeSecret(file, data, mode, opts) {
          a writer-shaped one. Not done here. */
       const earlierAtomicError = lastAtomicError;   // #5434: an earlier attempt's, for the early exit below
       lastAtomicError = err;
+      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') swappedAttempts += 1;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
          `created` is the FACT, and it is set the instant the open returns and the
@@ -565,6 +569,7 @@ function writeSecret(file, data, mode, opts) {
   }
 
   if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
+  if (swappedAttempts === 3) throw lastAtomicError;     // kosmos#9285: links planted at every name; never fall back
 
   /* The in-place fallback. It exists so a write that cannot take the atomic path
      fails soft rather than outright, and every line of it is defensive. */

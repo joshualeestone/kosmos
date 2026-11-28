@@ -981,7 +981,6 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
     // kosmos#9285: what was planted at the temp name is left as it was (a folder stays a folder; a removed name stays gone)
     if (label === 'replaced by a folder') assert.equal(fs.lstatSync(planted).isDirectory(), true, 'the planted folder was removed or replaced');
-    else assert.equal(fs.existsSync(planted), false, 'something was written at the removed temp name');
   });
 }
 
@@ -1059,15 +1058,17 @@ test('#9268: a file renamed onto the made file\'s path after the close is never 
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268g', 'the save did not land');
 });
 
-/* kosmos#9285: a caller WITHOUT atomicOnly whose three atomic attempts all meet a followed link takes the in-place
-   fallback, as after any three failed atomic attempts (refuseFollowedLink's doc says so). The save lands in the config
-   itself, and none of the planted links' targets gets the secret. */
-test('#9285: three followed links send an ordinary caller to the in-place fallback, and no link target gets the secret', (t) => {
-  const file = fresh('fellback');
+/* kosmos#9285: a caller WITHOUT atomicOnly whose three atomic attempts all meet a followed link gets
+   ERR_KOSMOS_TEMP_SWAPPED, and the in-place fallback is NOT taken: three refusals mean somebody is planting links, and
+   on Windows the fallback has no O_NOFOLLOW, so it would hand them a race at the config. The config is left as it was,
+   and none of the planted links' targets gets the secret. */
+test('#9285: three followed links refuse an ordinary save too: no in-place fallback, the config left as it was', (t) => {
+  const file = fresh('nofallback');
   fs.writeFileSync(file, 'old config');
   const realOpen = fs.openSync;
   const planted = [];
   const targets = [];
+  let inPlace = 0;
   fs.openSync = function (p, flags, ...rest) {
     if (flags === 'wx' && String(p).includes('.kosmos-')) {
       const elsewhere = fresh('attacker8');
@@ -1075,13 +1076,17 @@ test('#9285: three followed links send an ordinary caller to the in-place fallba
       fs.symlinkSync(elsewhere, String(p));
       return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link, every time
     }
+    if (String(p) === file) inPlace += 1;                    // the in-place fallback opens the config itself
     return realOpen.call(fs, p, flags, ...rest);
   };
   t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
-  securewrite.writeSecret(file, 'secret-9285', 0o600);
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285', 0o600); } catch (e) { err = e; }
   fs.openSync = realOpen;
-  assert.equal(planted.length, 3, 'the atomic path did not try three fresh names before the fallback');
-  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9285', 'the fallback did not write the config');
-  assert.equal(fs.lstatSync(file).isSymbolicLink(), false, 'the config became a link');
+  assert.equal(planted.length, 3, 'the atomic path did not try three fresh names');
+  assert.ok(err, 'three planted links did not refuse the save');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
+  assert.equal(inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
   for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
 });

@@ -1,23 +1,28 @@
-# kosmos#9285: what a #9268 refusal leads to, said and pinned (branch swfollow-9285)
+# kosmos#9285: what a #9268 refusal leads to, decided and pinned (branch swfollow-9285)
 
-Follow-up from #9268 (PR #9289), whose review stopped at the fleet's 8-round rule with two WARNINGs and three NITs
-open. Built on wxlink-9268 because both edit engine/securewrite.js; rebased onto main once #9289 merges.
+Follow-up from #9268 (PR #9289, merged), whose review stopped at the fleet's 8-round rule with two WARNINGs and three
+NITs open. One commit on main.
 
-## The call on the first WARNING: three forced refusals reach the in-place fallback
+## The call on the first WARNING: three forced refusals reached the in-place fallback
 
-Said, not changed. An atomicOnly caller gets ERR_KOSMOS_TEMP_SWAPPED and its file is untouched (already pinned).
-Any other caller takes the in-place fallback, as after any three failed atomic attempts: it refuses a link at the
-config itself (refuseSymlinkTarget) and rewrites the config in place. That is not atomic, but it writes nothing
-through the links this check refuses, which sit at temp names. So the attacker costs a write its atomicity, not its
-secrecy.
+Changed: when all three atomic attempts are refused because the temp name was not the opened file
+(ERR_KOSMOS_TEMP_SWAPPED), the write throws that error and leaves the file as it was, for every caller. It never takes
+the in-place fallback. Any other mix of atomic failures falls back as before.
 
-Rejected: making an exhausted refusal throw for callers that hold secrets. Either way that save is spoiled, and a
-throw would turn every planted link into a failed save, for callers that chose a fallback precisely so a write fails
-soft. What would change my mind: a caller whose file is worse half-written than not written (that caller should pass
-atomicOnly, which it can today).
+Why: three such refusals are positive evidence that somebody is planting links in the config's folder, and on Windows
+the fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back hands the same
+person a race at the config itself, easiest when the config does not exist yet. An ordinary save never sees this
+refusal, so the cost is a failed save while somebody is tampering.
 
-A new arm pins it: three followed links, no atomicOnly; the save lands in the config, the config is not a link, and
-no planted target holds the secret.
+What I first decided, and what changed my mind: the first version of this branch kept the fallback and documented it
+("costs a write its atomicity, not its secrecy"). Review 1 showed that is only true when nobody races the fallback, and
+that #9268's refusals let an attacker force every save into that race on purpose. For a secret, a refused save is the
+smaller harm. Rejected now: keeping the fallback. Weakest premise of the new call: that no caller relies on a save
+always landing; a caller that cannot tolerate a refusal already has none to fall back on with atomicOnly, and no
+caller branches on ERR_KOSMOS_TEMP_SWAPPED (grep).
+
+A new arm pins it: three followed links, no atomicOnly; the save throws ERR_KOSMOS_TEMP_SWAPPED, the in-place open is
+never made, the config keeps its old bytes, and no planted target holds the secret. It fails with the new rule removed.
 
 ## The second WARNING: unmeasured mounts
 
@@ -26,16 +31,14 @@ Linux container on overlay; network shares, FUSE and OneDrive-style folders are 
 
 ## The NITs
 
-- The doc block's long sentence is rewrapped, and what a refusal leaves is said for every case (the planted name
-  always stays; the made file stays, empty, unless the name is still a link to it).
-- The hard-link and folder arms now assert the planted name is left as it was; the removed arm asserts nothing was
-  written at the removed name. (The swap arm already asserted it.)
-
-## Weakest premise
-
-That refuseSymlinkTarget on the config is enough for the fallback on Windows, which has no O_NOFOLLOW for the
-in-place open. That is the module's existing posture, unchanged by #9268 or this, and its own tests cover it.
+- The doc block's long sentence is rewrapped, and what a refusal leaves is said with each leftover's lifetime: what
+  was planted at the temp name stays until the reaper takes it after this writer ends; the made file left where a link
+  pointed carries no temp name, so nothing reaps it.
+- The hard-link and folder arms assert the planted name is left as it was.
+- The comment that calls the fallback "essentially unreachable" now says the one thing that refuses every fresh name
+  never falls back.
 
 ## Checked
 
-- engine/securewrite.test.js and engine/trust.test.js on the Mac: 92 pass, 0 fail.
+- engine/securewrite.test.js and engine/trust.test.js on the Mac: 92 pass, 0 fail; the new arm fails with the rule
+  removed.
