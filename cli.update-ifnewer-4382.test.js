@@ -12,6 +12,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 const test = require('node:test');
 const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const SKIP_MAC_LAYOUT = require('./test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but its fixture builds the Mac installed layout (runtime/bin/node) and Windows reads the portable zip layout (runtime\\node.exe), so there the look answers source; its Windows arm is owed on kosmos#9280');   // kosmos#8378
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -241,7 +242,7 @@ test('#4382: only a computer set to connect elsewhere, and only a person, may up
   }
 });
 
-test('#4382: the look never starts the board\'s own install, even with Updates on', async () => {
+test('#4382: the look never starts the board\'s own install, even with Updates on', { skip: SKIP_MAC_LAYOUT }, async () => {
   reset({ prod: '1.2.0' });   // no Updates file: consent on
   const BEGAN = path.join(T, 'began.txt');
   fs.rmSync(BEGAN, { force: true });
