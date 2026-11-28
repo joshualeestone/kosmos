@@ -479,8 +479,10 @@ async function providerWork(runner, dir, holds) {
                 bodies.push({ q, text: src.slice(open + 1, end) });
                 spans.push([open + 1, end]);
               }
-              const live = bodies.filter((b) => !(b.span && b.span.dead));
-              bodies.length = 0; bodies.push(...live);
+              // A loop, not a spread: a script of over 100,000 literal patches overflowed the stack (review 6).
+              let w = 0;
+              for (let r = 0; r < bodies.length; r += 1) if (!(bodies[r].span && bodies[r].span.dead)) bodies[w++] = bodies[r];
+              bodies.length = w;
               const liveSpans = spans.filter((sp) => !sp.dead).sort((x, y) => x[0] - y[0]);
               /* One pass: the text between the literal strings, each string replaced by newlines of its length, so a path
                  outside them stops where one begins and never runs across it into a later header (review 3). */

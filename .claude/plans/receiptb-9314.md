@@ -84,4 +84,12 @@ literal-piece patch is read piece by piece, so #9323's cat.md is listed now.
 Right names left out: about 490 per 10k on both versions (the review-4 "0" was for a generator without quotes in names),
 mostly names holding a " that the whole-script reading cannot read; not a regression.
 Timing: the operand loop is linear on its shapes (64k joined names, members, name-and-string calls); the mixed var and
-literal shape grew 4.1, 18, 104 ms at 4k, 16k, 64k, which is for the next round to settle.
+literal shape grew 4.1, 18, 104 ms at 4k, 16k, 64k on one run; review 6 measured it linear to 128k (7, 25, 64 ms).
+
+## Review 6 (sonnet, measuring)
+Fuzz on four seeds, 10,000 scripts each: wrong names about 590 and 550 here against about 1,700 and 1,640 on main; right
+names left out equal on both. Linear on 14 shapes to 128k. Fixed: a spread into `bodies` overflowed the stack past about
+120,000 literal patches in one script (main read them); a loop now, measured 130,000 literals (8.3 MB) read in 166 ms.
+Residual, accepted: a literal patch joined to a name (`"..." + x.y()`) turns on the whole-script reading, which can list
+a header from a log string or comment elsewhere: 8 to 11 scripts per 10,000 worse than main, against about 1,100 fewer
+wrong names overall. The name may hold part of the patch, so it cannot be skipped.
