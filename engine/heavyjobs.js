@@ -198,7 +198,7 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
       if (had) job.pidStart = had.pidStart;
     }
     const was = here.find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
-    if (was && judge(was, { now, startOf: othersOf, agentAlive: null }) !== 'drop') job.since = was.since;   // shown or hidden: still it   // announced again: since stays
+    if (was && judge(was, { now, startOf: othersOf, agentAlive: null }) !== 'drop') job.since = was.since;   // announced again, shown or hidden: since stays
     list.push(job);
     if (!writeAll(root, list.filter((j) => j.agent !== agent || judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop'))) out = { ok: false, because: NOT_SAVED };
   });
@@ -249,7 +249,7 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
   if (verdict.includes('drop')) {
     // Exactly the records this read dropped go (re-read under the lock, so a start made meanwhile stays); nothing is
     // judged again, so a second pass with the budget spent cannot change what this read decided.
-    // kosmos#9230: `at` too, so a re-announce made meanwhile (same agent, pid and kept since, new at) is never this drop.
+    // kosmos#9230: `at` too, so a re-announce made meanwhile (same agent, pid and kept since, at a later millisecond) is never this drop.
     // It narrows the race rather than closing it: a re-announce in the same millisecond as the dropped record keeps its key.
     const key = (j) => j.agent + '\u0000' + j.pid + '\u0000' + j.since + '\u0000' + j.at;
     const gone = new Set(all.filter((_, i) => verdict[i] === 'drop').map(key));
