@@ -375,7 +375,7 @@ rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whol
   timeout 20 powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
 }
 rt_wd_loop_win() {
-  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key krc file f p w
+  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key krc tl file f p w
   # Each look starts powershell and a full process query (0.3 s warm, 2.4 s cold), so the tick scales with the limit:
   # a twentieth of it, from 1 s to 30 s (30 s at the default 30 min; a file is still stopped within about 5% of it).
   tick=$(( RT_FILE_TIMEOUT_S / 20 )); [ "$tick" -lt 1 ] && tick=1; [ "$tick" -gt 30 ] && tick=30
@@ -429,7 +429,11 @@ rt_wd_loop_win() {
         # the file itself is still there: if it is, it is tried again at the next look; if not, it was stopped.
         taskkill //T //F //PID "$pid" >/dev/null 2>&1; krc=$?
         if [ "$krc" = 128 ]; then stopped="$stopped $key"; continue; fi
-        if [ "$krc" != 0 ] && tasklist //FI "PID eq $pid" //NH 2>/dev/null | grep -q " $pid "; then continue; fi
+        if [ "$krc" != 0 ]; then
+          # Captured first, not piped into grep -q: under pipefail an early reader can read a match as a failure (#8195).
+          tl="$(tasklist //FI "PID eq $pid" //NH 2>/dev/null)"
+          case "$tl" in *" $pid "*) continue ;; esac
+        fi
         stopped="$stopped $key"
         echo "run-tests: TIMED OUT after $RT_FILE_TIMEOUT_LABEL: $file (#6668; stopped it and its process tree)" >&2
         printf '%s\n' "$file" >> "$flag"
