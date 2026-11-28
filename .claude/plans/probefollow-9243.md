@@ -33,3 +33,5 @@ That agents read the CLI's line right after their own send. It is the likeliest 
 7. Review 3: a --no-reply send is never told to wait for an answer (it asked for none): its maybe outcomes say "do not
    send it again" (both CLIs, run-level arms on both). The Mac duplicate id is checked in the cutonce run. The rule says
    a post's command says "whom it reached, or what happened to it" (a timed-out post says it is still delivering).
+
+8. Review 4: cli.refused-retry-6968 pinned the old Mac sentence for cut-then-refused (missed until review); it now pins exit 3 and the asked-once-more sentence. A Mac --no-reply send cut twice is run (red with the no_reply check broken). Every test that drives kosmos msg was run (23 files, 559 tests, 0 failed).
