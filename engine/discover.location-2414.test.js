@@ -50,6 +50,7 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
 delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;   // force the default-roots path (defaultScanRoots)
 
 const discover = require('./discover');
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 
 test.after(() => {
   restoreHome();
@@ -136,7 +137,7 @@ test('#2414 heavyweight non-agent trees (~/go, ~/anaconda3, ~/miniconda3) are no
   assert.ok(!dirs.includes(mini), '~/miniconda3 was promoted to a deep scan root');
 });
 
-test('an arbitrary top-level SYMLINK is NOT followed (no escape via a discovered parent)', () => {
+test('an arbitrary top-level SYMLINK is NOT followed (no escape via a discovered parent)', { skip: NO_SYMLINK }, () => {
   /* ⚠️ A discovered name is untrusted (unlike a curated root name). An agent reachable
      only through an arbitrary top-level symlink out of $HOME must NOT surface -- the
      no-symlink-escape rule. Contrast with a curated ~/work symlink, which IS followed

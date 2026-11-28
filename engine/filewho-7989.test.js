@@ -16,6 +16,7 @@ const assert = require('node:assert/strict');
 const fw = require('./filewriters');
 const store = require('./store');
 const { renderWho } = require('./filewhoview');
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 
 test('sandbox: the store root is inside this test\'s temp dir', () => {
   assert.ok(path.resolve(store.ROOT).startsWith(fs.realpathSync(SB)) || path.resolve(store.ROOT).startsWith(SB), store.ROOT);
@@ -222,7 +223,7 @@ test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is
   assert.match(renderWho({ ok: false, because: 'outside' })[0], /give the path as this computer names it/);
 });
 
-test('kosmos#7989 slice 2 review 6: a folder above the file swapped for a link after the path was resolved says nothing about the target', () => {
+test('kosmos#7989 slice 2 review 6: a folder above the file swapped for a link after the path was resolved says nothing about the target', { skip: NO_SYMLINK }, () => {
   const r = room();
   const list = [{ id: r.id, folder: r.folder }];
   fs.mkdirSync(r.file('sub'), { recursive: true });
@@ -260,7 +261,7 @@ test('kosmos#7989 slice 2 review 3: an entry past KEEP_MS (lapsed, not yet prune
   assert.equal(r.about('fresh.md').lastSeen.agent, 'mona', 'CONTROL: a recent entry is read');
 });
 
-test('kosmos#7989 slice 2 review 2: a linked project folder and a path with .. find the record; a link out of the folder is outside', () => {
+test('kosmos#7989 slice 2 review 2: a linked project folder and a path with .. find the record; a link out of the folder is outside', { skip: NO_SYMLINK }, () => {
   const r = room();
   r.write('doc.md', 'mona', T);
   r.land('doc.md', T + 1000);

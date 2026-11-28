@@ -276,9 +276,10 @@ test('#3939 3c-1: the refused credential is the one the turn STARTED with (round
 
 test('#3939 3c-1: a Muse file unread at the refusal, or a note body that cannot be read, never makes the file answer yes', () => withXdg((xdg) => {
   clean();
+  // Written on every platform: the garbled-note half below needs Muse's file present, or "no" proves nothing.
+  const f = writeAuth(xdg, { meta: { token: 't' } });
   // The unread half makes Muse's file unreadable with chmod 0o000, a POSIX file mode Windows does not keep (kosmos#8378).
   if (!NO_POSIX_MODES) {
-    const f = writeAuth(xdg, { meta: { token: 't' } });
     fs.chmodSync(f, 0o000);
     let atStart;
     try { atStart = muse.fileAtStart(); } finally { fs.chmodSync(f, 0o600); }

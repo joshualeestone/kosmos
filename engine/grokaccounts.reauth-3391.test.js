@@ -62,6 +62,7 @@ function waitFor(pred, ms = 15000) {
   return eventually(pred, (v) => v, { timeoutMs: ms, stepMs: 25 });
 }
 const settled = (id) => waitFor(() => { const s = grok.grokLoginStatus(id); return s.state === 'connected' || s.state === 'error' || s.state === 'cancelled' ? s : null; });
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 function withMode(mode, email, fn) {
   process.env.FAKE_MODE = mode;
   process.env.FAKE_EMAIL = email;
@@ -165,7 +166,7 @@ test('the same email in different capitals is the same account', { skip: STANDIN
   assert.match(auth(live), /"NEW"/);
 }));
 
-test('a symlinked account dir is refused, so the rename cannot write through the link', () => {
+test('a symlinked account dir is refused, so the rename cannot write through the link', { skip: NO_SYMLINK }, () => {
   const real = account('real-target');
   const link = nodePath.join(SANDBOX, '.grok-linked');
   fs.rmSync(link, { force: true });

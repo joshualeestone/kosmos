@@ -16,6 +16,7 @@ const feedbackpull = require('./feedbackpull');
 
 const PULLED = feedbackpull.defaultDir();
 const OWN = feedback.dir();
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 function reset() {
   for (const d of [PULLED, OWN]) fs.rmSync(d, { recursive: true, force: true });
   fs.mkdirSync(OWN, { recursive: true });
@@ -120,7 +121,7 @@ test('#6265 review 3: the pulled note says how old the newest pulled report is',
   assert.ok(feedback.reportsForTriage({}).notes.some((n) => n.includes('newest dated 2026-10-12')));
 });
 
-test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', () => {
+test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', { skip: NO_SYMLINK }, () => {
   reset();
   const real = path.join(SANDBOX, 'real-report.md');
   fs.writeFileSync(real, '---\ndate: 2026-10-13\n---\nlinked\n');

@@ -37,6 +37,7 @@ const PAIR_BUDGET = limits.DEFAULTS.perHour;
 const ROOM_BUDGET = limits.DEFAULTS.perHour * limits.ROOM_FACTOR;
 const fleet = require('../test-support/fleet');
 const NO_CHMOD_FAIL = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (the hard-link guard on a read-only Inbox), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 
 function withFleet(specs, fn) {
   const board = fleet.install(specs);
@@ -3864,7 +3865,7 @@ test('#4447: a recipient with no folder of its own is refused a long message, an
   });
 });
 
-test('#4447: a link the agent planted in its own folder cannot turn the spill into a write somewhere else', () => {
+test('#4447: a link the agent planted in its own folder cannot turn the spill into a write somewhere else', { skip: NO_SYMLINK }, () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     workerFolders(['leo', 'mara']);
     const elsewhere = path.join(SANDBOX, 'elsewhere-' + Date.now());
