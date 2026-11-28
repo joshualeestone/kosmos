@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, boardAuthState, _heavyJobsNowForTest: heavyJobsNow } = require('./server');
+const { start, server, boardAuthState, _heavyJobsNowForTest: heavyJobsNow, _heavyMissingSinceForTest: heavyMissingSince } = require('./server');
 const store = require('./engine/store');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
@@ -107,7 +107,7 @@ test('kosmos#9217: a page request, a bad action and a bad label are refused, and
   const tok = sendertoken.mint(ada).token;
   assert.equal((await asScreen({ action: 'start', label: 'x' })).status, 403);
   let r = await asAgent(tok, { action: 'begin', label: 'x' });
-  assert.deepEqual([r.status, (await r.json()).error], [400, 'say start or end']);
+  assert.deepEqual([r.status, (await r.json()).error], [400, 'say start, end, take or release']);
   r = await asAgent(tok, { action: 'start', label: '-x' });
   assert.deepEqual([r.status, (await r.json()).error], [400, 'a job cannot start with -']);
   assert.deepEqual(await jobsInStatus(), []);
@@ -282,4 +282,76 @@ test('kosmos#9222: an agent named by its pane alone (no token) is listed its own
     const got = await (await fetch(`${base}/api/heavy?from_pane=${encodeURIComponent(adaCard.target)}`)).json();
     assert.deepEqual(got.jobs.map((j) => [j.label, j.unchecked]), [['by pane', true]], 'its pane did not name it');
   } finally { Object.assign(rs, was); hj.end({ root: store.ROOT, agent: ada, pid: 434343 }); }
+});
+
+test('kosmos#9217 slice 2: take is the turn on a free computer, a kept place behind a holder, and the status lists the line', async () => {
+  const { ada, bo } = twoAgents();
+  const ta = sendertoken.mint(ada).token, tb = sendertoken.mint(bo).token;
+  let r = await asAgent(ta, { action: 'take', label: 'ada suite' });
+  assert.equal(r.status, 200, await r.clone().text());
+  const mine = await r.json();
+  assert.deepEqual([mine.turn, mine.job.label], [true, 'ada suite']);
+  assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [ada], 'the turn is the heavy job, as start records it');
+  r = await asAgent(tb, { action: 'take', label: 'bo validation' });
+  const wait = await r.json();
+  assert.deepEqual([wait.turn, wait.place, wait.holder.agent, wait.ahead], [false, 1, ada, []]);
+  const status = await (await fetch(`${base}/api/status`)).json();
+  assert.deepEqual(status.heavyLine.map((e) => [e.agent, e.label]), [[bo, 'bo validation']]);
+  assert.ok(status.heavyLine[0].name && status.heavyLine[0].name !== bo, 'the line carries the name the board shows');
+  const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tb } })).json();
+  assert.deepEqual(got.line.map((e) => e.agent), [bo], 'GET /api/heavy lists the line too');
+  assert.deepEqual(await (await asAgent(ta, { action: 'release' })).json(), { ok: true, left: 0, ended: 1, others: 0 });
+  r = await asAgent(tb, { action: 'take', label: 'bo validation' });
+  assert.equal((await r.json()).turn, true, 'released, the turn goes to the front of the line');
+  assert.deepEqual((await (await fetch(`${base}/api/status`)).json()).heavyLine, []);
+  assert.deepEqual(await (await asAgent(tb, { action: 'release' })).json(), { ok: true, left: 0, ended: 1, others: 0 });
+});
+
+test('kosmos#9217 slice 2: a page cannot take a turn, and a refused take writes no place', async () => {
+  const { ada } = twoAgents();
+  const ta = sendertoken.mint(ada).token;
+  assert.equal((await asScreen({ action: 'take', label: 'x' })).status, 403);
+  const r = await asAgent(ta, { action: 'take', label: 'a\nb' });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, 'say what the job is on one line');
+  assert.deepEqual((await (await fetch(`${base}/api/status`)).json()).heavyLine, []);
+  assert.deepEqual(await jobsInStatus(), []);
+});
+
+test('kosmos#9217 slice 2: a take alone starts a missing waiter\'s grace and, once it has run out, drops the place (no page polling needed)', async () => {
+  const { ada } = twoAgents();
+  const ta = sendertoken.mint(ada).token;
+  const lineFile = require('node:path').join(store.ROOT, require('./engine/heavyturns').FILE);
+  const t0 = Date.now();
+  fs.writeFileSync(lineFile, JSON.stringify([{ agent: 'hv-ghost-gone', label: 'left', pid: null, pidStart: null, since: t0, at: t0, front: null, missed: 0 }]));
+  heavyMissingSince.delete('hv-ghost-gone');
+  let r = await (await asAgent(ta, { action: 'take', label: 'ada suite' })).json();
+  assert.deepEqual([r.turn, r.place, (r.ahead || []).map((e) => e.agent)], [false, 2, ['hv-ghost-gone']], 'inside the grace the place is kept');
+  assert.ok(heavyMissingSince.has('hv-ghost-gone'), 'the take did not start the missing waiter\'s grace');
+  heavyMissingSince.set('hv-ghost-gone', Date.now() - 91 * 1000);   // as if 91 s had passed
+  r = await (await asAgent(ta, { action: 'take', label: 'ada suite' })).json();
+  assert.equal(r.turn, true, 'past the grace, the gone waiter still held the front');
+  await asAgent(ta, { action: 'release' });
+});
+
+test('kosmos#9217 slice 2: one status read runs ps at most 8 times for the jobs and the line together', () => {
+  const rs = require('./engine/restoresink');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  let ps = 0;
+  rs.pidAlive = () => true;
+  rs.processStart = () => { ps += 1; return 'A'; };
+  const p = require('node:path');
+  const now = Date.now(), H = 60 * 60 * 1000;
+  const jobsFile = p.join(store.ROOT, require('./engine/heavyjobs').FILE), lineFile = p.join(store.ROOT, require('./engine/heavyturns').FILE);
+  try {
+    // Ten aged jobs and ten places that asked a minute ago, each tied to a process with a recorded start: each wants a ps read.
+    fs.writeFileSync(jobsFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-j' + i, label: 'j', pid: 97100 + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H }))));
+    fs.writeFileSync(lineFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-w' + i, label: 'w', pid: 97200 + i, pidStart: 'A', since: now - H, at: now - 60 * 1000, front: null, missed: 0 }))));
+    heavyJobsNow(null, now);
+    assert.ok(ps <= 8, 'ps ran ' + ps + ' times in one read of the jobs and the line');
+    assert.ok(ps >= 1, 'control: the read asked ps at all');
+  } finally {
+    Object.assign(rs, was);
+    fs.rmSync(jobsFile, { force: true }); fs.rmSync(lineFile, { force: true });
+  }
 });

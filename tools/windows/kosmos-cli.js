@@ -90,7 +90,7 @@ const WRONG_WORLD_STATUS = 421;
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
   msg: 'Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written; --no-reply: they are told no answer is wanted)',
-  heavy: 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid)',
+  heavy: 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N] | kosmos heavy take "<what the job is>" [--pid N] | kosmos heavy release [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid. take is the turn (exit 0) when nobody has one and nobody is ahead of you, else it keeps your place in line and exits 10: ask again at least once a minute to keep it (a place not asked for in 30 minutes is gone), and take a free turn within 2 minutes or go to the back of the line (out on a second miss). Run the job only when take exits 0; on any other exit (Kosmos not up, a refusal) you do not have the turn. With --pid, name a wrapper that runs the whole wait and the job, not the shell of your tool call; a take with --pid while you hold the turn with no process moves that turn to the process. release ends your turn or gives up your place)',
   'reply-channel': 'Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, and their thread with you says you answer there, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; --file <path>: attach one file from your Files folder or a project you are on, up to 100 MB) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
@@ -2898,28 +2898,30 @@ async function verbHeavy(ctx, args) {
   const r = await ctx.call('GET', '/api/heavy');
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting.') : ctx.unreachable('list heavy jobs');
   if (r.status === 200 && r.json && Array.isArray(r.json.jobs)) {
-    if (!r.json.jobs.length) { ctx.out('No heavy job is running on this computer.'); return 0; }
+    if (!r.json.jobs.length) ctx.out('No heavy job is running on this computer.');
     for (const x of r.json.jobs) {
       ctx.out(x.label + ' (' + (x.name || x.agent) + ', since ' + heavyWhen(x.since) + (x.pid ? ', process ' + x.pid : '') + ')'
         + (x.unchecked ? ': Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid ' + x.pid : ''));
     }
+    // kosmos#9217 slice 2: the line of turns, in order
+    (Array.isArray(r.json.line) ? r.json.line : []).forEach((x, i) => ctx.out('Waiting ' + (i + 1) + ': ' + (x.name || x.agent) + ', ' + x.label + ' (in line since ' + heavyWhen(x.since) + (x.pid ? ', process ' + x.pid : '') + ')'));
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not list heavy jobs: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }
   ctx.err('Kosmos gave an answer we could not read.');
   return 1;
 }
-/* The words after start/end: a label (start only) and --pid N, as the Mac parses them; null for a usage error. */
+/* The words after start/end/take/release: a label (start and take only) and --pid N, as the Mac parses them; null for a usage error. */
 function heavyArgs(sub, args) {
   let label = '', pid = '';
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--pid') { if (i + 1 >= args.length || !args[i + 1]) return null; pid = args[i + 1]; i += 1; }
     else if (a.startsWith('--pid=')) { pid = a.slice('--pid='.length); if (!pid) return null; }
-    else if (sub === 'start' && !label) label = a;
+    else if ((sub === 'start' || sub === 'take') && !label) label = a;
     else return null;
   }
-  if (sub === 'start' && !label) return null;
+  if ((sub === 'start' || sub === 'take') && !label) return null;
   return { label, pid };
 }
 function heavySend(sub) {
@@ -2927,12 +2929,32 @@ function heavySend(sub) {
     const got = heavyArgs(sub, args);
     if (!got) { ctx.err(USAGE.heavy); return 2; }
     if (got.pid && !/^[0-9]+$/.test(got.pid)) { ctx.err('Kosmos did not record that: a process id is a whole number above 1.'); return 1; }
-    const r = await ctx.call('POST', '/api/heavy', { action: sub, label: sub === 'start' ? got.label : undefined, pid: got.pid ? Number(got.pid) : undefined });
+    const r = await ctx.call('POST', '/api/heavy', { action: sub, label: sub === 'start' || sub === 'take' ? got.label : undefined, pid: got.pid ? Number(got.pid) : undefined });
     if (!r.reached) {
       return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
         : ctx.unreachable('record that');
     }
     const j = r.json;
+    const ok = r.status === 200 && j && j.ok === true;
+    // kosmos#9217 slice 2, worded as install/kosmos: take is the turn (0) or a kept place (10); release ends either.
+    if (ok && j.turn === true && j.job) { ctx.out('Your turn: ' + j.job.label + ' is recorded as running' + (j.job.pid ? ' while process ' + j.job.pid + ' runs' : '') + '. kosmos heavy release' + (j.job.pid ? ' --pid ' + j.job.pid : '') + ' when it is done.'); return 0; }
+    if (ok && j.turn === false && Number.isSafeInteger(j.place)) {
+      const n = j.place;
+      const nth = n + (n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th');
+      const ahead = Array.isArray(j.ahead) ? j.ahead : [];
+      const nm = (x) => x.name || x.agent;
+      const who = j.holder ? nm(j.holder) + ' has the turn (' + (j.holder.unchecked ? 'Kosmos could not check it just now' : j.holder.label + ', since ' + heavyWhen(j.holder.since)) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
+      ctx.out('Not yet: you are ' + nth + ' in line; ' + who + (ahead.length > 1 || (j.holder && ahead.length) ? '. Ahead of you: ' + ahead.map(nm).join(', ') : '') + '. Ask again with kosmos heavy take to keep your place.');
+      return 10;   // a code no other verb uses: here 3 is "maybe" (a timed-out take is 3, never "wait"); the Mac exits 1 then
+    }
+    if (ok && typeof j.left === 'number') {
+      const rest = typeof j.others === 'number' ? j.others : 0;
+      if (j.ended && rest) ctx.out('Released: that turn has ended. You still have ' + rest + ' recorded, which still ' + (rest === 1 ? 'holds' : 'hold') + ' the turn; kosmos heavy lists them.');
+      else if (j.ended) ctx.out('Released: your turn has ended, and it no longer shows on the board.');
+      else if (!j.left && typeof j.others === 'number' && j.others && !got.pid) ctx.out('You had no turn and no place in line without a process. Your ' + j.others + ' recorded ' + (j.others === 1 ? 'job is' : 'jobs are') + ' tied to a process: release ' + (j.others === 1 ? 'it' : 'each') + ' with kosmos heavy release --pid N (kosmos heavy lists them).');
+      else ctx.out(j.left ? 'Released: you gave up your place in line.' : 'You had no turn and no place in line' + (got.pid ? ' for that process' : '') + '.');
+      return 0;
+    }
     if (r.status === 200 && j && j.ok === true && j.job) { ctx.out('Recorded: ' + j.job.label + '. It shows on the board as running' + (j.job.pid ? ' while process ' + j.job.pid + ' runs' : '') + '. kosmos heavy end' + (j.job.pid ? ' --pid ' + j.job.pid : '') + ' when it is done.'); return 0; }
     if (r.status === 200 && j && j.ok === true && typeof j.ended === 'number') {
       const left = typeof j.others === 'number' ? j.others : 0;
@@ -4812,7 +4834,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  heavy: { start: heavySend('start'), end: heavySend('end') },   // kosmos#9217
+  heavy: { start: heavySend('start'), end: heavySend('end'), take: heavySend('take'), release: heavySend('release') },   // kosmos#9217
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold, wake: taskWake, edit: taskEdit /* kosmos#8664 */ },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
@@ -4841,7 +4863,7 @@ const DESCRIBE = {
   msg: 'send a message to one agent',
   reply: 'message the person in your conversation with them (an answer, or one you start)',
   'reply-channel': 'say where you answer the person, when it is not kosmos reply',
-  heavy: 'say a heavy job (a long test run) is running on this computer, or list them',
+  heavy: 'say a heavy job (a long test run) is running on this computer, take turns on one, or list them',
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   'file-notices': 'take the notices Kosmos kept for you when another agent was about to change a file of yours',
   away: 'what reached you while you were not running',
