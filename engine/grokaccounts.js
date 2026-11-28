@@ -55,6 +55,10 @@ const subscription = require('./subscription');
 const inflight = require('./inflight');
 const accountclaim = require('./accountclaim');
 const runners = require('./runners');
+/* kosmos#9269: a runner path ending in .js or .cjs starts through this node (tunnelcommand.js, #8449's seam), so a
+   node stand-in can sign in on Windows, which cannot run a script by its shebang line. A real codex or grok resolves to
+   an executable (codex.exe, grok.exe on Windows), and any other path starts exactly as before. */
+const { tunnelCommand } = require('./tunnelcommand');
 const securewrite = require('./securewrite');
 
 const STATE = subscription.STATE; // CONNECTED | NONE | UNKNOWN -- one vocabulary
@@ -883,7 +887,8 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
   const args = ['login', '--device-auth', '--leader-socket', sock];
   let child;
   try {
-    child = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const cmd = tunnelCommand(bin, args);
+    child = spawn(cmd.file, cmd.args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch {
     activeGrokDirs.delete(spot.dir);
     if (reauth) activeGrokDirs.delete(reauth.dir);

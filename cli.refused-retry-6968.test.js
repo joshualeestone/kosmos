@@ -18,6 +18,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * refused try (exit 7), so the first try is refused however late it comes; only the one-second pause still bounds it.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -171,7 +172,7 @@ async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = fa
   }
 }
 
-test('#6968: a board that refuses the request once and then accepts: `task list` succeeds, asked once more', () => withRefusingBoard('refused', async (port, seen) => {
+test('#6968: a board that refuses the request once and then accepts: `task list` succeeds, asked once more', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard('refused', async (port, seen) => {
   const env = baseEnv(port);
   const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -181,7 +182,7 @@ test('#6968: a board that refuses the request once and then accepts: `task list`
   assertNoLeftovers(env);
 }));
 
-test('#7258: a first try slower than any re-listen clock the fast arms allow is still refused, then asked once more', () => withRefusingBoard('refused', async (port, seen) => {
+test('#7258: a first try slower than any re-listen clock the fast arms allow is still refused, then asked once more', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard('refused', async (port, seen) => {
   // 1.5 s before the first try. The fast arms' first try comes about 0.1 s after the health check and their retry a
   // second later, so a clock must be under about 1.1 s for them; this arm's first try would take a board back on any
   // such clock (1 try, red). So no fixed clock passes both, and a return to one goes red.
@@ -204,7 +205,7 @@ test('#6968 CONTROL: a board that stopped listening and never came back: "could 
   assertNoLeftovers(env);
 }));
 
-test('#6968 CONTROL: a board still listening that refuses every try (too busy): the passing-problem words', async () => {
+test('#6968 CONTROL: a board still listening that refuses every try (too busy): the passing-problem words', { skip: SKIP_POSIX_SHELL }, async () => {
   // The counting curl answers 7 for the request without connecting, and this board never stops listening, so lsof
   // sees its listener the whole time (a refusal from a full accept queue cannot be made on demand).
   const seen = [];
@@ -226,7 +227,7 @@ test('#6968 CONTROL: a board still listening that refuses every try (too busy): 
   } finally { await new Promise((r) => board.close(r)); }
 });
 
-test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body on the retry', () => withRefusingBoard('refused', async (port, seen) => {
+test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body on the retry', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard('refused', async (port, seen) => {
   const env = baseEnv(port, { TMUX_PANE: '%42' });
   const out = await runCli(['msg', 'mara', 'the', 'whole', 'body'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -237,7 +238,7 @@ test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body
   assertNoLeftovers(env);
 }));
 
-test('#6968: a refused call that reads its status code (-w) sees only the second try\'s (`community follow`)', () => withRefusingBoard('refused', async (port, seen) => {
+test('#6968: a refused call that reads its status code (-w) sees only the second try\'s (`community follow`)', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard('refused', async (port, seen) => {
   // curl prints -w even on a refusal ("000"); were the first try's printed too, the answer would not parse.
   const env = baseEnv(port);
   const out = await runCli(['community', 'follow', 'Echo'], env);
@@ -248,7 +249,7 @@ test('#6968: a refused call that reads its status code (-w) sees only the second
   assertNoLeftovers(env);
 }));
 
-test('#6968: `task told` keeps kosmos_curl\'s retry (only `ran` asks again on its own): refused once, then recorded', () => withRefusingBoard('refused', async (port, seen) => {
+test('#6968: `task told` keeps kosmos_curl\'s retry (only `ran` asks again on its own): refused once, then recorded', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard('refused', async (port, seen) => {
   const env = baseEnv(port, { TMUX_PANE: '%42' });
   const out = await runCli(['task', 'told', 'proj', '1', 'it is done'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -258,7 +259,7 @@ test('#6968: `task told` keeps kosmos_curl\'s retry (only `ran` asks again on it
   assertNoLeftovers(env);
 }));
 
-test('#6968: the edit hook\'s keep-copy and tool-failed are one try each (they promise a short wait)', async () => {
+test('#6968: the edit hook\'s keep-copy and tool-failed are one try each (they promise a short wait)', { skip: SKIP_POSIX_SHELL }, async () => {
   // A port nothing holds: refused at once. With -m 3 and the default pause a second try would still fit, so
   // without _KOSMOS_CURL_ONCE each would be asked twice.
   const port = await closedPort();
@@ -272,7 +273,7 @@ test('#6968: the edit hook\'s keep-copy and tool-failed are one try each (they p
   assert.equal(tries(tf, /\/api\/toolfail/), 1);
 });
 
-test('#6968: `task ran` answered 503 and then refused: not recorded, never "nothing was sent", and its own loop does the asking', () => withRefusingBoard(null, async (port, seen) => {
+test('#6968: `task ran` answered 503 and then refused: not recorded, never "nothing was sent", and its own loop does the asking', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard(null, async (port, seen) => {
   const env = baseEnv(port, { TMUX_PANE: '%42', KOSMOS_RETRY_PAUSE_MS: '50' });
   const out = await runCli(['task', 'ran', 'proj', '1', 'found nothing'], env);
   assert.equal(out.code, 1, out.stdout + out.stderr);
@@ -283,7 +284,7 @@ test('#6968: `task ran` answered 503 and then refused: not recorded, never "noth
   assert.doesNotMatch(out.stdout, /nothing was sent|Is it running|kosmos start/);
 }, { after503: true }));
 
-test('#6968: msg\'s second ask after a cut reply is one plain try: a board that restarts meanwhile gets the message once', () => withRefusingBoard('refused', async (port, seen) => {
+test('#6968: msg\'s second ask after a cut reply is one plain try: a board that restarts meanwhile gets the message once', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard('refused', async (port, seen) => {
   // The first send's reply is cut (it may have landed), then the board restarts. msg asks once more after 1 s, which is
   // refused, and the board is back the moment that refusal is recorded (#7258: no clock for load to outrun). kosmos_curl
   // would ask again 3 s after that, into the restarted board: a third try, and a second POST the board records.
@@ -296,7 +297,7 @@ test('#6968: msg\'s second ask after a cut reply is one plain try: a board that 
   assert.equal(seen.filter((s) => s.method === 'POST' && s.url.startsWith('/api/msg')).length, 1, JSON.stringify(seen));
 }, { cutFirstPost: true }));
 
-test('#6968: an interrupt during the pause leaves none of kosmos_curl\'s files behind (the body is the agent\'s words)', () => withRefusingBoard(null, async (port) => {
+test('#6968: an interrupt during the pause leaves none of kosmos_curl\'s files behind (the body is the agent\'s words)', { skip: SKIP_POSIX_SHELL }, () => withRefusingBoard(null, async (port) => {
   const env = baseEnv(port, { TMUX_PANE: '%42', KOSMOS_REFUSED_RETRY_MS: '5000' });
   // Its own process group, so the interrupt reaches the whole command, as Ctrl-C at a terminal does.
   // exit code not read (#3628): this arm asserts the signal the command died of, never a code.
