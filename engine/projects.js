@@ -522,7 +522,7 @@ function canonicalPath(p) {
  */
 function isUnderTmpDir(folder) {
   // kosmos#9267: case-blind on Windows, as its file system is (a folder typed in lower case that does not exist yet).
-  const fold = (p) => (p && process.platform === 'win32' ? p.toLowerCase() : p);
+  const fold = (p) => p;   // MUTANT, never merged
   const target = fold(canonicalPath(folder));
   if (!target) return false;
   /* kosmos#9267: each root in its given spelling too, because a folder that does not exist yet cannot be resolved,
