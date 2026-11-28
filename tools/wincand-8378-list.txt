@@ -1,1 +1,4 @@
-engine/securewrite.test.js
+engine/projects.test.js
+engine/pdfpreview-9218.test.js
+engine/startimports-5774.test.js
+engine.runnable-not-directory.test.js
