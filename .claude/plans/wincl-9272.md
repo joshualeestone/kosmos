@@ -9,7 +9,12 @@ the setup itself cannot exist on Windows, with its Windows arm beside it.
 - At main: orgchartfile 4 failing (three #!/bin/sh claude stand-ins, and #4660), teamcreate 7 failing.
 - After this branch (run on d61c4f1fd6): orgchartfile 54 pass, 3 failing (the three #!/bin/sh arms, now skipped);
   teamcreate 7 of 7 pass.
-- The real Windows job (windows.yml) on this branch: recorded on the card when it finishes.
+- The real Windows job (windows.yml) on this branch, run 46127894389 at 67dfa82fe9: orgchartfile PASS (58 tests, 3
+  skipped), teamcreate PASS (7, 0 skipped); its one red was engine.reachable (the new seam unlisted), fixed in
+  57c7f461b5. The final run's number goes on the card.
+- Timing tests now in the Windows job: orgchartfile carries #4559's 1500 ms bound and #4598's N vs 4N ratio checks.
+  They passed in each Windows run of the whole file so far (runs 46126840546, 46127083853 and 46127894389), which is
+  a few runs, not a measure of flakiness. If one goes red there alone, that is the first place to look.
 
 ## What changed
 1. engine/orgchartfile.js: setClaudeLaunchForTest, a test-only hook for what the real Claude call starts, as

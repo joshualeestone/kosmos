@@ -772,9 +772,14 @@ async function withNodeClaude(script, fn) {
   const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = process.execPath;
   let started = 0;
-  o.setClaudeLaunchForTest((bin, args) => { started += 1; return [process.execPath, [stub, ...args]]; });
+  const bins = [];
+  o.setClaudeLaunchForTest((bin, args) => { started += 1; bins.push(bin); return [process.execPath, [stub, ...args]]; });
   o.setModelRunner(null);   // the real runner
-  try { await fn(dir, () => started); } finally {
+  try {
+    await fn(dir, () => started);
+    // The hook is handed the claude the reader resolved (AGENT_WORKFORCE_CLAUDE_BIN here), never another binary.
+    assert.deepEqual(bins, bins.map(() => process.execPath), 'the launch was handed another binary than the resolved claude');
+  } finally {
     o.setClaudeLaunchForTest(null);
     if (was === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
     fs.rmSync(dir, { recursive: true, force: true });
@@ -812,7 +817,7 @@ test('#9272: a Claude Code too old for these flags says so, on every platform (a
   try {
     await withNodeClaude(nodeClaude('process.stderr.write("error: unknown option \'--tools\'\\n"); process.exitCode = 1;'), async (dir, started) => {
       const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
-      assert.ok(started() === 1, 'CONTROL: the read went through the launch hook');
+      assert.equal(started(), 1, 'CONTROL: the read went through the launch hook');
       assert.match(r.problems[0], /too old to read files/, JSON.stringify(r));
       assert.ok(warned.some((w) => /unknown option/.test(w)), 'the boundary logs what claude said');
     });
@@ -850,6 +855,7 @@ test('#9272: the read runs claude with CLAUDE_CONFIG_DIR unset on the default ac
 });
 
 test('#9272: setClaudeLaunchForTest is named only by its own module and by test files (it decides what the reader starts)', () => {
+  // Needs a git checkout and git on PATH, as the 13 other test files here that call git ls-files do.
   const { execFileSync } = require('node:child_process');
   const root = path.join(__dirname, '..');
   const files = execFileSync('git', ['ls-files', '-z', '--', '*.js', '*.mjs', '*.cjs'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
