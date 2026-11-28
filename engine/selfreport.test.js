@@ -501,3 +501,21 @@ test('#5297 history: every state and time in the tail, oldest first; a bad line 
   // A line with no author (written before authors were recorded) carries none, never a guess.
   assert.equal(h3[1].by, undefined, 'an authorless row was given an author');
 });
+
+test('kosmos#8378: only a regular file is a report; a link to /dev/null (opens, holds nothing) is unreadable, not never reported', { skip: require('../test-support/skip-on-win32').skipOnWin32('Windows has no /dev/null to link to; a folder in the file place stands in there (engine/idleretire-8720 realReaders)') }, () => {
+  const file = selfreport.fileFor('devnull-8378');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.rmSync(file, { force: true });
+  fs.symlinkSync('/dev/null', file);
+  try {
+    assert.equal(fs.statSync(file).isFile(), false, 'CONTROL: the planted name is not a regular file');
+    assert.equal(fs.openSync(file, 'r') >= 0, true, 'CONTROL: and it opens, so only the type check can refuse it');
+    assert.deepEqual(selfreport.read('devnull-8378'), { found: false, because: selfreport.NO_READING.UNREADABLE });
+  } finally { fs.rmSync(file, { force: true }); }
+  // CONTROL: a link to a real report still reads (open follows it, fstat sees the regular file).
+  const real = selfreport.fileFor('real-8378');
+  selfreport.record('real-8378', { state: 'working' });
+  fs.symlinkSync(real, file);
+  try { assert.equal(selfreport.read('devnull-8378').found, true, 'a link to a real report is read'); }
+  finally { fs.rmSync(file, { force: true }); fs.rmSync(real, { force: true }); }
+});

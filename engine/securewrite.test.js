@@ -27,6 +27,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const securewrite = require('./securewrite');
+const WIN = process.platform === 'win32';   // kosmos#8378: mode lines only, inside arms whose subject runs there
 const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-securewrite-'));
@@ -39,19 +40,23 @@ const modeOf = (p) => fs.statSync(p).mode & 0o777;
    Both the old shape (write in place, then chmod) and this one END at 0600, so a
    mode assertion passes either way and cannot be the guard. `rename` REPLACES the
    inode; a write in place REUSES it. That is the only observable that differs. */
-test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewriting it', { skip: NO_POSIX_MODES }, () => {
+// kosmos#8378: the subject is the inode, which Windows has too (its file index); only the mode lines are POSIX.
+test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewriting it', () => {
   const f = fresh('replace');
   fs.writeFileSync(f, 'OLD');
-  fs.chmodSync(f, 0o644);
-  assert.equal(modeOf(f), 0o644, 'the loose plant did not take, so this arm would pass without the fix');
+  if (!WIN) {
+    fs.chmodSync(f, 0o644);
+    assert.equal(modeOf(f), 0o644, 'the loose plant did not take, so this arm would pass without the fix');
+  }
   const inodeBefore = fs.statSync(f).ino;
+  assert.ok(inodeBefore > 0, 'CONTROL: this file system reports an inode, so the comparison below can fail');
 
   securewrite.writeSecret(f, 'NEW-SECRET', 0o600);
 
   assert.notEqual(fs.statSync(f).ino, inodeBefore,
     'the secret was written IN PLACE: same inode means no rename, so the bytes were '
     + 'on disk at 0644 before any chmod');
-  assert.equal(modeOf(f), 0o600, 'the file was left loose');
+  if (!WIN) assert.equal(modeOf(f), 0o600, 'the file was left loose');
   assert.equal(fs.readFileSync(f, 'utf8'), 'NEW-SECRET');
 });
 
@@ -290,10 +295,11 @@ test('#1787: writeSecret CALLS the refusal on its fallback, not merely defines i
    to see it. Both shapes end at the right mode, because a fatal chmod just costs an
    attempt and the retry succeeds. What the wrap changes is whether the FIRST attempt
    survives, so that is what this counts. */
-test('#1787: a chmod failure on the temp costs ZERO retries, because it is not fatal', { skip: NO_POSIX_MODES }, () => {
+// kosmos#8378: the retry count runs on Windows too (the fchmod stub fires there as well); only the mode lines are POSIX.
+test('#1787: a chmod failure on the temp costs ZERO retries, because it is not fatal', () => {
   const f = fresh('chmod-eperm');
   fs.writeFileSync(f, 'OLD');
-  fs.chmodSync(f, 0o644);
+  if (!WIN) fs.chmodSync(f, 0o644);
 
   let temps = 0;
   const realOpen = fs.openSync;
@@ -316,7 +322,8 @@ test('#1787: a chmod failure on the temp costs ZERO retries, because it is not f
   assert.equal(temps, 1,
     `a chmod failure on the temp cost ${temps} attempts: it is best effort like the `
     + 'other two chmods, so it must not abandon the atomic path');
-  assert.equal(modeOf(f), 0o600, 'the pre-existing loose file was left loose');
+  if (!WIN) assert.equal(modeOf(f), 0o600, 'the pre-existing loose file was left loose');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'SECRET');
 });
 
 /* 🛑 THE FALLBACK MUST TIGHTEN BEFORE THE BYTES LAND, and no end-state assertion can

@@ -91,7 +91,7 @@ test('#8597: an existing table gets the entry under its own heading, and the res
   assert.equal(withMigration('model = "a"', 'a', 'b'), 'model = "a"\n\n[notice.model_migrations]\n"a" = "b"\n', 'a file with no final newline');
 });
 
-test('#8597: a file that mentions model_migrations in another shape is left alone (a second definition would break it)', async () => {
+test('#8597: a file that mentions model_migrations in another shape is left alone (a second definition would break it)', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex(CATALOG);
   const inline = 'model = "gpt-5.4"\n[notice]\nmodel_migrations = { "gpt-5.2" = "gpt-5.4" }\n';
   const d = home(inline);
@@ -100,7 +100,7 @@ test('#8597: a file that mentions model_migrations in another shape is left alon
   assert.equal(withMigration(inline, 'gpt-5.4', 'gpt-5.6-terra'), null);
 });
 
-test('#8597: it declines, never throws, on a failing binary, an unusable model id or target, and an unreadable config', async () => {
+test('#8597: it declines, never throws, on a failing binary, an unusable model id or target, and an unreadable config', { skip: SKIP_SH_STAND_IN }, async () => {
   assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', fakeCodex(null, { exit: 3 }).bin), false);
   assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', '/nonexistent/codex'), false);
   assert.equal(await pinModelMigration(home(''), 'bad"model', fakeCodex(CATALOG).bin), false);
