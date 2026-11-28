@@ -260,3 +260,15 @@ test('round 7: a second wrapper of the same agent waits, and its asking never ru
   assert.deepEqual(ht.readLine(r).map((e) => [e.agent, e.missed, e.front]), [['angel', 0, null], ['renet', 0, null]], 'a waiting agent was given a miss for a turn that was never free');
   assert.deepEqual(hj.live({ root: r, now: T0 + 4 + 3 * ht.GRACE_MS, startOf }).map((j) => j.pid), [5200], 'more than one job ran');
 });
+
+test('round 8: a move whose wrapper cannot be recorded leaves the turn where it was, so nobody else gets in', () => {
+  const r = root();
+  assert.equal(ht.take({ root: r, agent: 'renet', label: 'bare', now: T0 }).turn, true);
+  let reads = 0;
+  const startOf = () => (++reads === 1 ? 'W' : null);   // the wrapper is there at the take's check, gone when start reads it
+  const t = ht.take({ root: r, agent: 'renet', label: 'wrapper', pid: 5400, now: T0 + 5, startOf });
+  assert.equal(t.ok, false);
+  assert.deepEqual(hj.live({ root: r, now: T0 + 6 }).map((j) => [j.agent, j.pid]), [['renet', null]], 'the turn without a process was ended before its wrapper existed');
+  const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 7 });
+  assert.deepEqual([a.turn, a.holder && a.holder.agent], [false, 'renet'], 'another agent got the turn beside a job still running');
+});
