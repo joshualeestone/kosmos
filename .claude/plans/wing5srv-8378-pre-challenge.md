@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: wing5srv-8378
-diff_hash: bc89fc57339a16239857772143aeba46faba809a72fb7dc86bdca018dc841fd6
+diff_hash: d5179686163b744f5e0c920f49bed7d7cfe0681db4c9c169bc1de71637091142
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-28T09:36:00Z
@@ -28,7 +28,7 @@ Measured on GitHub's Windows runner, through the never-merged branch wing5srv-83
 Mutations of the new helper test went red on each install call into engine/status, both factory patches, reset, and
 both halves of fleet.restore.
 
-**Closing validation.** Full validation of 5df74d5425 passed: 32017 node tests, 0 failures, rc 0, audit rc 0, clean tree, head unchanged. Main then moved 18 commits; one touched tools/windows-tests.js outside this branch's entries (its ALSO list). The branch was rebased onto it cleanly (merge-tree clean). After the rebase every file but tools/windows-tests.js is byte-identical to the validated head, the file has no key twice, engine/windows-tests-1777 and the helper test pass (30/30), and the final Mac run of the 61 files (514 tests, 0 fail) and the Windows run of the 60 (465 pass, 25 skip, 0 fail) were on the validated tree.
+**Closing validation.** Full validation of 5df74d5425 passed: 32017 node tests, 0 failures, rc 0, audit rc 0, clean tree, head unchanged. Main then moved 18 commits; one touched tools/windows-tests.js outside this branch's entries (its ALSO list). The branch was rebased onto it cleanly (merge-tree clean). After the rebase every file but tools/windows-tests.js is byte-identical to the validated head, the file has no key twice, engine/windows-tests-1777 and the helper test pass (30/30), and the final Mac run of the 61 files (514 tests, 0 fail) and the Windows run of the 60 (465 pass, 25 skip, 0 fail) were on the validated tree. While the PR waited, main took four more Windows changes to tools/windows-tests.js (#9291, #9293, #9295, #9298); the branch was rebased again (05:1x CST, 11-28), the file merged once from its final states (212 + 9 + 15 = 236 entries, none twice), every other file byte-identical, the guard and helper test 30/30.
 
 ### Per-Iteration Breakdown
 
