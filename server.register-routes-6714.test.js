@@ -22,6 +22,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const store = require('./engine/store');
 const create = require('./engine/create');

@@ -517,8 +517,11 @@ function refuses(message = 'tmux is not answering') {
 
 /** Put the engine back on the real tmux. Safe to call twice. */
 function restore() {
-  status.setPaneSource(null);
-  status.setPaneCapture(null);
+  // kosmos#8378 group 5: on Windows, back to fake tmux's reads served in process (test-support/faketmux-win.js), when a
+  // test file installed them, rather than to "none", which there means a tmux Windows cannot run. Elsewhere both are null.
+  const win = require('./faketmux-win').current();
+  status.setPaneSource(win.source);
+  status.setPaneCapture(win.capture);
   status.setCreatedSource(null);   // #1078: clear the created-never-run seam too, so a fixture cannot leak into a later test in the same process
 }
 

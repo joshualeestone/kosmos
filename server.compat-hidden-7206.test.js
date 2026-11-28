@@ -35,6 +35,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 
 
 const compat = require('./engine/anthropiccompat');
 const runners = require('./engine/runners');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const _origResolveBin = runners.resolveBin;
 runners.resolveBin = (p) => (p === 'claude'

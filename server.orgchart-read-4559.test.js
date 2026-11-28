@@ -32,6 +32,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, boardAuthState } = require('./server');
 const orgchartfile = require('./engine/orgchartfile');
 // No ChatGPT subscription (#5346): run alone from a Codex session, CODEX_HOME names a real account, and these tests

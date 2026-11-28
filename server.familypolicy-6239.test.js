@@ -37,6 +37,7 @@ const agentevents = require('./engine/agentevents');
 const remote = require('./engine/remote');
 const projects = require('./engine/projects');
 const fleet = require('./test-support/fleet');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const { assertSandboxedDataRoot } = require('./test-support/data-root-sandbox');
 

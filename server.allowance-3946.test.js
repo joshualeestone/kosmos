@@ -35,6 +35,7 @@ const create = require('./engine/create');
 const swarm = require('./engine/swarm');
 const allowance = require('./engine/allowance');
 const statusline = require('./engine/kosmos-statusline');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, calibrateSwarmAllowances } = require('./server');
 
 function lead(name, profile, configDir) {
