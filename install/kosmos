@@ -4033,7 +4033,7 @@ cmd_reply_channel() {
 # One copy of the usage, for the verb and for the global --help guard (bare `kosmos heavy` reads the board, so --help
 # cannot re-dispatch it bare the way the message verbs do).
 heavy_usage() {
-  say 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N] | kosmos heavy take "<what the job is>" [--pid N] | kosmos heavy release [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid. take is the turn (exit 0) when nobody has one and nobody is ahead of you, else it keeps your place in line and exits 10: ask again to keep it (a place not asked for in 30 minutes is gone), and take a free turn within 2 minutes or go to the back of the line (out on a second miss). Run the job only when take exits 0; on any other exit (Kosmos not up, a refusal) you do not have the turn. With --pid, name a wrapper that runs the whole wait and the job, not the shell of your tool call; a take with --pid while you hold the turn with no process moves that turn to the process. release ends your turn or gives up your place)'
+  say 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N] | kosmos heavy take "<what the job is>" [--pid N] | kosmos heavy release [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid. take is the turn (exit 0) when nobody has one and nobody is ahead of you, else it keeps your place in line and exits 10: ask again at least once a minute to keep it (a place not asked for in 30 minutes is gone), and take a free turn within 2 minutes or go to the back of the line (out on a second miss). Run the job only when take exits 0; on any other exit (Kosmos not up, a refusal) you do not have the turn. With --pid, name a wrapper that runs the whole wait and the job, not the shell of your tool call; a take with --pid while you hold the turn with no process moves that turn to the process. release ends your turn or gives up your place)'
 }
 cmd_heavy() {
   local sub="${1:-}" label="" pid="" _tok="" _bt _n body ans rc=0 _pq
@@ -4098,8 +4098,9 @@ cmd_heavy() {
         process.exit(10);
       }
       if (j && j.ok === true && typeof j.left === "number") {
-        if (j.ended) { console.log("Released: your turn has ended, and it no longer shows on the board."); return; }
         const rest = typeof j.others === "number" ? j.others : 0;
+        if (j.ended && rest) { console.log("Released: that turn has ended. You still have " + rest + " recorded, which still " + (rest === 1 ? "holds" : "hold") + " the turn; kosmos heavy lists them."); return; }
+        if (j.ended) { console.log("Released: your turn has ended, and it no longer shows on the board."); return; }
         if (!j.left && rest && !process.argv[1]) { console.log("You had no turn and no place in line without a process. Your " + rest + " recorded " + (rest === 1 ? "job is" : "jobs are") + " tied to a process: release " + (rest === 1 ? "it" : "each") + " with kosmos heavy release --pid N (kosmos heavy lists them)."); return; }
         console.log(j.left ? "Released: you gave up your place in line." : "You had no turn and no place in line" + (process.argv[1] ? " for that process" : "") + "."); return;
       }

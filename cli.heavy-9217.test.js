@@ -227,3 +227,10 @@ test('kosmos heavy take: another agent\'s job Kosmos could not check is named as
     assert.equal(r.code, 10, r.out);
     assert.match(r.out, /^Not yet: you are 1st in line; Ada has the turn \(Kosmos could not check it just now\)\. Ask again with kosmos heavy take to keep your place\.$/m);
   }));
+
+test('kosmos heavy release: a turn ended while other records of yours remain says they still hold the turn', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => ({ ok: true, left: 0, ended: 1, others: 1 }), async (port) => {
+    const r = await runCli(['heavy', 'release', '--pid', '4242'], envFor(port));
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^Released: that turn has ended\. You still have 1 recorded, which still holds the turn; kosmos heavy lists them\.$/m);
+  }));

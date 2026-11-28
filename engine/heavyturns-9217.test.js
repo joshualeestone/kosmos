@@ -272,3 +272,23 @@ test('round 8: a move whose wrapper cannot be recorded leaves the turn where it 
   const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 7 });
   assert.deepEqual([a.turn, a.holder && a.holder.agent], [false, 'renet'], 'another agent got the turn beside a job still running');
 });
+
+test('round 9: a record without a process left beside the wrapper (a failed end) is ended by the next take --pid', () => {
+  const r = root();
+  const startOf = () => 'W';
+  hj.start({ root: r, agent: 'renet', label: 'bare', now: T0 });
+  hj.start({ root: r, agent: 'renet', label: 'wrapper', pid: 5500, now: T0 + 1, startOf });   // as if the move's end had failed
+  const t = ht.take({ root: r, agent: 'renet', label: 'wrapper', pid: 5500, now: T0 + 2, startOf });
+  assert.equal(t.turn, true);
+  assert.deepEqual(hj.live({ root: r, now: T0 + 3, startOf }).map((j) => j.pid), [5500], 'the leftover record without a process outlived the next take');
+});
+
+test('round 9: with another job of its own running, a record without a process does not move: the new wrapper waits', () => {
+  const r = root();
+  const startOf = () => 'W';
+  hj.start({ root: r, agent: 'renet', label: 'bare', now: T0 });
+  hj.start({ root: r, agent: 'renet', label: 'other', pid: 7001, now: T0 + 1, startOf });
+  const t = ht.take({ root: r, agent: 'renet', label: 'third', pid: 7002, now: T0 + 2, startOf });
+  assert.equal(t.turn, false, 'a third job got the turn beside two of its own');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 3, startOf }).map((j) => j.pid).sort(), [7001, null].sort(), 'the move ended a record it should have left');
+});
