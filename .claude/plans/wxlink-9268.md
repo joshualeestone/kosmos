@@ -38,8 +38,9 @@ refuse every save on such a mount) and passed a hard link to the made file; both
 ## Weakest premise
 
 That a device and inode readable and nonzero on both sides mean the same thing to fstat and lstat on every mount the
-product writes to. Where they would disagree for an ordinary file, every save there is refused three times and takes
-the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac agree (the ordinary-save control).
+product writes to. Where they would disagree for an ordinary file, every save there would be refused three times: a
+caller without atomicOnly takes the in-place fallback (safe, not atomic), and the about 70 atomicOnly callers, the
+main store among them, would fail outright with ERR_KOSMOS_TEMP_SWAPPED. GitHub's Windows runner and this Mac agree (the ordinary-save control).
 
 A second, of the same kind: that a fresh regular file reports one hard link. A mount that inflated the count would
 have every save there refused the same way.
@@ -77,3 +78,9 @@ have every save there refused the same way.
 - Review 6: the check's call is wrapped so an unexpected throw from it still closes the fd. Deferred, with reason: the
   new code reaches only atomicOnly callers, none of which branches on it, and what it reports is the safe failure
   (the config untouched).
+- Review 7: refuseFollowedLink only decides; the caller closes the fd at one place on each path and removeMadeFile
+  re-checks before its unlink (new arm: a file renamed onto the made file's path after the close survives; fails with
+  the re-check replaced by true).
+- Linux in a container, run 46121258434 (node:26 on GitHub's ubuntu runner, the root an overlay file system):
+  securewrite.test.js and trust.test.js, 91 pass, 0 fail, the ordinary-save control and all nine #9268 arms among them.
+  Windows, the same run: securewrite.test.js 29 pass (all nine #9268 arms), the 9 #1787 and #1793 arms failing as on main.
