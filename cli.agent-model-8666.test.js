@@ -181,7 +181,7 @@ test('kosmos#8666: Gemini takes a model id; a refused list is said; the route\'s
       assert.equal(r.code, 1, r.text);
       assert.match(r.text, /Kosmos did not change Sally Sales's model: that is not a valid Gemini model name\.$/m);
     }
-    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['gemini 3', 'gemini 3'], 'a free id goes to the route, which checks it');
+    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), Array(RUNS).fill('gemini 3'), 'a free id goes to the route, which checks it');
   });
   await withStub(MUSE, CHANGED, async (port, seen) => {
     for (const r of await both(port, ['agent', 'model', 'Sally Sales'])) {
@@ -217,7 +217,7 @@ test('kosmos#8666 review 1: an OpenAI account\'s menu (rows with no full id) mar
     assert.equal((await hostRun(port, ['agent', 'model', 'Sally Sales', 'o3', '--yes'])).code, 0, 'CONTROL: a listed model is sent');
     // Review 2: the menu folds dated snapshots, and the route takes any id the account runs, so a miss goes to the route.
     for (const r of await both(port, ['agent', 'model', 'Sally Sales', 'gpt-5-2025-08-07', '--yes'])) assert.equal(r.code, 0, r.text);
-    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['o3', 'gpt-5-2025-08-07', 'gpt-5-2025-08-07']);
+    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['o3', ...Array(RUNS).fill('gpt-5-2025-08-07')]);
   }));
 
 test('kosmos#8666 review 1: an empty Claude menu says the policy allows none, not the OpenAI sentence', () => withStub(
@@ -297,7 +297,7 @@ test('kosmos#8666 review 6: a name two agents answer to exits 1 on both paths; a
   const w = await winRun(port, ['agent', 'model', 'Sal', 'opus55'], { tty: true, answer: 'n' });
   assert.match(w.out + w.err, /Switching Sal Folder \(sal\) to Claude Opus 5\.5/);
   assert.match(w.asked.join(' '), /Switch Sal Folder \(sal\) to Claude Opus 5\.5\? \[y\/N\]/);
-  assert.deepEqual(posts(seen).map((s) => s.url), ['/api/agent/sal/model', '/api/agent/sal/model']);
+  assert.deepEqual(posts(seen).map((s) => s.url), Array(RUNS).fill('/api/agent/sal/model'));
 }));
 
 test('kosmos#8666 review 7: no control character from any field the board sends reaches the terminal; a refused OpenAI pick gets the list', async () => {
