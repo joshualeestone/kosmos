@@ -360,14 +360,17 @@ rt_wd_loop() {
 # cold), and a file and its tree are stopped with taskkill /T /F. The limit, the TIMED OUT line and the flag file are
 # the Mac loop's own. On Windows node --test runs once per #7257 chunk, so when one ends the loop looks for the next.
 # Each file is stopped once, keyed on its pid AND its start time (Windows reuses pids quickly). Only a child of node
-# whose command line runs node counts (node's own console host, conhost.exe, lives as long as node). A file is named
+# whose command line mentions node counts (node's own console host, conhost.exe, lives as long as node). A file is
+# named by the longest entry of this run's list its command line ends with, else by its last word (a quoted path
+# with a space then keeps its closing quote). A file is named
 # only when taskkill stopped it (one that ended first is not). The snapshot runs in the foreground, so a stop waits
 # for the one in progress. Not covered: node behind a shim (the Mac loop's shim step has no Windows twin).
+# A snapshot that hangs (a stuck WMI query) is cut at 20 s and reads as empty, so it cannot hold the stop at the end.
 rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whole seconds, start time, command line
-  powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
+  timeout 20 powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
 }
 rt_wd_loop_win() {
-  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 stopped="" d pp cmd old row pid key file f p w
+  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key file f p w
   [ "$RT_FILE_TIMEOUT_S" -lt 30 ] && tick=1
   trap 'stop=1; [ -n "${sl:-}" ] && kill "$sl" 2>/dev/null' TERM
   while [ "$stop" = 0 ] && kill -0 "$parent" 2>/dev/null; do
@@ -389,7 +392,17 @@ rt_wd_loop_win() {
       node=""; nodew=""; looks=0
       continue
     else
-      old="$(rt_wd_snap_win | awk -v n="$nodew" -v lim="$RT_FILE_TIMEOUT_S" '$2 == n && $3 >= lim && tolower($0) ~ /node(\.exe)?"? /')"
+      snap="$(rt_wd_snap_win)"
+      if [ -z "$snap" ]; then
+        # No rows at all (powershell refused or timed out): no file can be stopped, so the limit is not claimed.
+        if [ "$blind" = 0 ]; then
+          blind=1; rm -f "$flag.node"
+          echo "run-tests: the Windows process snapshot came back empty, so the per-file limit is off for now (#6668, kosmos#9278)" >&2
+        fi
+      else
+        [ "$blind" = 1 ] && { blind=0; : > "$flag.node"; }
+      fi
+      old="$(printf '%s\n' "$snap" | awk -v n="$nodew" -v lim="$RT_FILE_TIMEOUT_S" '$2 == n && $3 >= lim && tolower($0) ~ /node(\.exe)?"? /')"
       while IFS= read -r row; do
         [ "$stop" = 0 ] || break
         [ -n "$row" ] || continue
@@ -403,8 +416,10 @@ rt_wd_loop_win() {
           case "$cmd" in *" $f"|*"/$f"|*" $w"|*"\\$w") [ "${#f}" -gt "${#p}" ] && p="$f" ;; esac
         done
         [ -n "$p" ] && file="$p"
+        # A taskkill that fails (the file ended first, or part of its tree went mid-kill) is not recorded, so a file that
+        # is still there is tried again at the next look; one that ended is simply gone from the next snapshot.
+        taskkill //T //F //PID "$pid" >/dev/null 2>&1 || continue
         stopped="$stopped $key"
-        taskkill //T //F //PID "$pid" >/dev/null 2>&1 || continue   # it ended first: it timed nothing out
         echo "run-tests: TIMED OUT after $RT_FILE_TIMEOUT_LABEL: $file (#6668; stopped it and its process tree)" >&2
         printf '%s\n' "$file" >> "$flag"
       done <<< "$old"
@@ -421,14 +436,14 @@ rt_file_watchdog_start() {
   # and the stops at the end of a run (#8890, #9159) still read ps -A, which Git Bash's ps refuses (its ps -W lists
   # Windows processes with no parent or command line). Said once, here.
   if [ "$_RT_WIN" = 1 ]; then echo "run-tests: on Windows the leftover-process checks and stops (#4273, #8890, #9159) do not run: Git Bash's ps cannot list Windows processes (kosmos#9278)" >&2; fi
-  # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
-  # run root exists it lands in TMPDIR itself, which the tests then share. A signal in the microseconds between mktemp
-  # creating the file and this assignment leaves it behind (the traps remove only a flag they can name).
   # kosmos#9278: the Windows loop reads every process through powershell; without it there is no limit, and it says so.
   if [ "$_RT_WIN" = 1 ] && ! command -v powershell >/dev/null 2>&1; then
     echo "run-tests: powershell is missing, so the file watchdog cannot see Windows processes; running without a per-file limit (#6668, kosmos#9278)" >&2
     return 0
   fi
+  # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
+  # run root exists it lands in TMPDIR itself, which the tests then share. A signal in the microseconds between mktemp
+  # creating the file and this assignment leaves it behind (the traps remove only a flag they can name).
   _rt_wd_flag="$(mktemp "$(dirname "$KOSMOS_RUN_TMPDIR")/kt$$-file-timeout.XXXXXXXXXX")" || { echo "run-tests: could not make the file watchdog's flag file; running without a per-file limit (#6668)" >&2; _rt_wd_flag=""; return 0; }
   if [ "$_RT_WIN" = 1 ]; then rt_wd_loop_win "$$" "$_rt_wd_flag" & else rt_wd_loop "$$" "$_rt_wd_flag" & fi
   _rt_wd_pid=$!
