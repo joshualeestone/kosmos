@@ -62,14 +62,17 @@ test('#4326 a child that IGNORES SIGTERM is answered at the timeout and then SIG
      stand-in starts more slowly than the shell `trap '' TERM` it replaced, kosmos#8378). */
   const armed = path.join(os.tmpdir(), 'devicedoor-armed-' + process.pid + '-' + Date.now());
   const stub = script('stubborn.js', "process.on('SIGTERM', () => {});\nrequire('fs').writeFileSync(" + JSON.stringify(armed) + ", '');\nsetInterval(() => {}, 1000);");
-  const r = await run(STUB_BIN, [stub], { timeoutMs: 400, graceMs: 300 });
+  /* 2 s, not the shell stand-in's 400 ms: node must start and install its handler inside the timeout, and a loaded
+     machine can take longer than 400 ms to start node (the #4656 notes: a fixed speed is the wrong bound). */
+  const T = 2000;
+  const r = await run(STUB_BIN, [stub], { timeoutMs: T, graceMs: 300 });
   try {
     assert.ok(fs.existsSync(armed), 'the stand-in was ended before its SIGTERM handler was in place, so this arm tested nothing (premise)');
     assert.equal(r.code, -1, 'a timed-out probe must answer -1 (not connected), as execFile did');
-    // #4656: "not before" is the claim (350 ms). The upper bound only has to catch a probe that ignores the
+    // #4656: "not before" is the claim (T - 50 ms). The upper bound only has to catch a probe that ignores the
     // timeout it was given and uses runBounded's own 8000 ms default, so it sits just below that, with as much
     // room for a stalled event loop as that allows.
-    assert.ok(r.ms >= 350 && r.ms < 7500, `the answer must come at the timeout it was given, not before or at the 8000 ms default: ${r.ms} ms`);
+    assert.ok(r.ms >= T - 50 && r.ms < 7500, `the answer must come at the timeout it was given, not before or at the 8000 ms default: ${r.ms} ms`);
     assert.ok(r.pid > 0, 'no child pid (premise)');
     assert.equal(await gone(r.pid), true, 'the SIGTERM-ignoring child outlived timeout + grace (the #4326 orphan)');
   } finally {

@@ -37,7 +37,7 @@ const fleet = require('../test-support/fleet');
    folder is an absolute POSIX path (the parser refuses any other), and Kosmos runs no tmux on Windows (its folder read
    there is status.setWin32FolderSource), so on a Windows host each such line reads as unreadable and refuses for that
    reason, not the one the arm checks. */
-const TMUX_FOLDERS = require('../test-support/skip-on-win32').skipOnWin32('it hands the folder check tmux pane folders, which are absolute POSIX paths, and Kosmos runs no tmux on Windows');
+const TMUX_FOLDERS = require('../test-support/skip-on-win32').skipOnWin32('it hands the folder check tmux pane folders, which are absolute POSIX paths, and Kosmos runs no tmux on Windows (the same folder matching runs there in delete-leftover.win32folders-8640.test.js)');
 
 leftover.setRunner(() => ({ ok: true, stdout: '' }));
 remove.setRunner(() => ({ ok: true, stdout: '' }));
