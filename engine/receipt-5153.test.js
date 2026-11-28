@@ -306,8 +306,8 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     call('10:18', 'c2g', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: C:\\\\Users\\\\kay\\\\drive.js\\n+x\\n*** End Patch"});'),
     out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
     /* #9314: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
-       key before it does not decide it, two calls in one script each keep their own, and a patch passed by name keeps its
-       own too. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
+       key before it does not decide it, two calls in one script each keep their own; a '-string patch passed by name (named.md) is read from its own
+       literal, with its own quote. A patch built in literal pieces is read piece by piece (cat.md); one that holds a template's ${ is left out. */
     call('10:19', 'c2h', String.raw`await tools.apply_patch({'patch': "*** Begin Patch\n*** Update File: q'key.md\n+x\n*** End Patch"});`
       + String.raw` await tools.apply_patch({patch:'*** Begin Patch\n*** Update File: first.md\n+x\n*** End Patch'});`
       + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: sec'ond.md\n+x\n*** End Patch"});`
@@ -342,7 +342,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
   const drive = a.files.filter((f) => f.includes('drive.js'));
   assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
-    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
+    "q'key.md", 'first.md', "sec'ond.md", 'cat.md', 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
     'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
   // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
   assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
@@ -364,6 +364,9 @@ test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped
   const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
   // No newline and no quote after the first header, so every later header sits inside the text the first path read.
   const src = 'await tools.apply_patch({patch:"*** Begin Patch ' + '*** Update File: x'.repeat(32000) + '"});';
+  // The same with a newline after Begin Patch, so the first header is at a patch line's start and is read (review 1 of
+  // slice 2: with the space it never matched, and the swallowed-header rule went untested).
+  const srcNl = 'await tools.apply_patch({patch:"*** Begin Patch\\n' + '*** Update File: x'.repeat(32000) + '"});';
   /* Begin Patch openers that alternate between ' and " with every quote escaped, so no string closes. One cached
      close found each header's opener a miss and rescanned to the end (4,000 repeats 1.5 s, quadratic). */
   const alt = 'await tools.exec(' + String.raw`\'*** Begin Patch\n*** Update File: a\n\"*** Begin Patch\n*** Update File: a\n`.repeat(8000) + ');';
@@ -373,6 +376,8 @@ test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped
     ev('10:05', 'response_item', { type: 'custom_tool_call_output', call_id: 'l1', output: [{ type: 'input_text', text: 'Script completed' }] }),
     ev('10:06', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l2', input: alt + ' tools.apply_patch(x);' }),
     ev('10:06', 'response_item', { type: 'custom_tool_call_output', call_id: 'l2', output: [{ type: 'input_text', text: 'Script completed' }] }),
+    ev('10:07', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l3', input: srcNl }),
+    ev('10:07', 'response_item', { type: 'custom_tool_call_output', call_id: 'l3', output: [{ type: 'input_text', text: 'Script completed' }] }),
   ]));
   const t0 = process.hrtime.bigint();
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
@@ -381,6 +386,128 @@ test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped
   assert.ok(took < 3000, 'reading the script took ' + Math.round(took) + ' ms');
   // The one path it reads swallows every later header (no line end between them), so it is no file name and is left out.
   assert.deepEqual(r.agents[0].files, [], 'no file from a path that swallowed further headers: ' + JSON.stringify(r.agents[0].files).slice(0, 200));
+});
+
+/* #9314: the cases from Baron Draxum's receiptquote-9314 (built in parallel and handed over), whose design this reader
+   now uses: each tools.apply_patch( call's own string argument is read, and the rest of the script only for a call
+   whose argument is not one literal string. Their own agent, so their expected list stands on its own. */
+test('#9314: a Codex patch is read from its own apply_patch string (receiptquote-9314 cases)', async () => {
+  const project = 'p' + (++pn);
+  const bdx = worker('bdx9314');
+  store.writeProfile('bdx9314', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'bdx9314' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
+  const call = (at, id, src) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: src });
+  const out = (at, id, text) => ev(at, 'response_item', { type: 'custom_tool_call_output', call_id: id, output: [{ type: 'input_text', text }] });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-bdx9314.jsonl'), jl([
+    ev('10:00', 'session_meta', { cwd: fs.realpathSync(bdx) }),
+    /* #9314: a path stops at the patch string's OWN quote. b2d is a single-quoted patch cut off with no End Patch line,
+       its path last, so the closing quote sits right after the name; a ' inside a double-quoted patch (b2e) is part of
+       the name. */
+    call('10:16', 'b2d', "await tools.apply_patch({patch:'*** Begin Patch\\n*** Delete File: gone.md'});"),
+    out('10:16', 'b2d', 'Script completed\nWall time 1 seconds'),
+    call('10:17', 'b2e', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: o\'k.md\\n+x\\n*** End Patch"});'),
+    out('10:17', 'b2e', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a call's string may start with a newline; each patch in one script keeps its own quote (one quote for
+       the whole script, the first one's, would read z.md as `z.md"});`); and a backtick
+       patch's name may hold a ", and one holding ${ is an expression, not a name, so it is left out. */
+    call('10:18', 'b2f', "await tools.apply_patch({patch:'\\n*** Begin Patch\\n*** Delete File: lead.md'}); await tools.apply_patch({patch:\"*** Begin Patch\\n*** Delete File: z.md\"});"),
+    out('10:18', 'b2f', 'Script completed\nWall time 1 seconds'),
+    call('10:19', 'b2g', 'await tools.apply_patch({patch:`*** Begin Patch\\n*** Delete File: b"c.md\\n*** Delete File: ${name}.md`});'),
+    out('10:19', 'b2g', 'Script completed\nWall time 1 seconds'),
+    /* #9314: only an apply_patch call's own string is read, so a shell heredoc's patch held elsewhere (here in a plain
+       string, so the command count is unchanged) is not counted: h.md is not listed, hb.md is. */
+    call('10:20', 'b2h', 'const sh = {cmd:"apply_patch <<\'EOF\'\\n*** Begin Patch\\n*** Update File: h.md\\n+x\\nEOF"}; await tools.apply_patch({patch:"*** Delete File: hb.md"});'),
+    out('10:20', 'b2h', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a patch line that itself mentions '*** Begin Patch' or writes an apply_patch call (an agent editing code
+       like this file) changes nothing (fake.md is not listed);
+       a quote of another kind inside a backtick string is just a character; and a call whose argument is a variable falls back to
+       reading the whole script. */
+    call('10:21', 'b2i', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: lib.js\\n+x = \'*** Begin Patch\'\\n+tools.apply_patch(\'*** Delete File: fake.md\')\\n*** Update File: q\'s.md\\n+y\\n*** End Patch"});'),
+    out('10:21', 'b2i', 'Script completed\nWall time 1 seconds'),
+    call('10:22', 'b2j', 'await tools.apply_patch({patch:`say \\"hi\\"\\n*** Begin Patch\\n*** Delete File: esc.md`});'),
+    out('10:22', 'b2j', 'Script completed\nWall time 1 seconds'),
+    call('10:23', 'b2k', 'const p = "*** Begin Patch\\n*** Delete File: v.md"; await tools.apply_patch({patch:p});'),
+    out('10:23', 'b2k', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a variable call beside literal ones, and a concatenated patch, are still read (the rest of the script, as
+       before), not dropped; the literal calls beside them (mixq.md single-quoted) still read from their own strings. */
+    call('10:24', 'b2l', 'const p = "*** Begin Patch\\n*** Delete File: mixv.md"; await tools.apply_patch({patch:"*** Begin Patch\\n*** Delete File: mixl.md\\n*** End Patch"}); await tools.apply_patch({patch:\'*** Begin Patch\\n*** Delete File: mixq.md\'}); await tools.apply_patch({patch:p});'),
+    out('10:24', 'b2l', 'Script completed\nWall time 1 seconds'),
+    call('10:25', 'b2m', 'await tools.apply_patch({patch:"*** Begin Patch\\n" + "*** Delete File: cat.md\\n*** End Patch"});'),
+    out('10:25', 'b2m', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a call whose key is quoted is read from its own string too. */
+    call('10:26', 'b2n', 'await tools.apply_patch({"patch":\'*** Begin Patch\\n*** Delete File: qk.md\'});'),
+    out('10:26', 'b2n', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a first member that is not the patch is not taken for it; an escaped delimiter quote inside a call's
+       string does not end it (double and single quotes); and a string a cut-off script never closes is read to the end. */
+    call('10:27', 'b2o', 'await tools.apply_patch({cwd:"x", patch:"*** Begin Patch\\n*** Delete File: cwd.md\\n*** End Patch"});'),
+    out('10:27', 'b2o', 'Script completed\nWall time 1 seconds'),
+    call('10:28', 'b2p', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Delete File: a\\"b.md\\n*** End Patch"}); await tools.apply_patch({patch:\'*** Begin Patch\\n*** Delete File: c\\\'d.md\'});'),
+    out('10:28', 'b2p', 'Script completed\nWall time 1 seconds'),
+    call('10:29', 'b2q', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Delete File: trunc.md'),
+    out('10:29', 'b2q', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 1: a path that swallowed a second header lists nothing (it is no file name); a call whose first
+       member is not the patch is read at its next member, a '-string included; a '-string name holding a " in a patch passed by name is read
+       whole from its own literal, never cut at the "; and a concatenation after a long run of spaces is seen. */
+    call('10:30', 'b2r', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Delete File: s1.md *** Delete File: s2.md\n*** End Patch"});`),
+    out('10:30', 'b2r', 'Script completed\nWall time 1 seconds'),
+    call('10:31', 'b2s', String.raw`await tools.apply_patch({cwd:'x', patch:'*** Begin Patch\n*** Delete File: cwd2.md'});`),
+    out('10:31', 'b2s', 'Script completed\nWall time 1 seconds'),
+    call('10:32', 'b2t', String.raw`const p = '*** Begin Patch\n*** Update File: a"b2.md\n+x\n*** End Patch'; await tools.apply_patch({patch:p});`),
+    out('10:32', 'b2t', 'Script completed\nWall time 1 seconds'),
+    call('10:33', 'b2u', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Delete File: f1.md\n"` + ' '.repeat(70) + String.raw`+ "*** Delete File: f2.md\n*** End Patch"});`),
+    out('10:33', 'b2u', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 2: an indented template patch is read (its lines start with spaces); a name holding a quote
+       and code characters in a patch passed by name is read whole from its own literal; and a shell heredoc beside a
+       variable call does not lend its word's closing quote to the patch after it. */
+    call('10:34', 'b2v', 'await tools.apply_patch(`\n  *** Begin Patch\n  *** Update File: indent.md\n  +y\n  *** End Patch`);'),
+    out('10:34', 'b2v', 'Script completed\nWall time 1 seconds'),
+    call('10:35', 'b2w', String.raw`const p = '*** Begin Patch\n*** Update File: x"}}_c.md\n+x\n*** End Patch'; await tools.apply_patch({patch:p});`),
+    out('10:35', 'b2w', 'Script completed\nWall time 1 seconds'),
+    call('10:36', 'b2x', String.raw`const sh = {cmd:"apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: hd.md\n+x\nEOF"}; const q = "*** Begin Patch\n*** Delete File: qv.md"; await tools.apply_patch({patch:q});`),
+    out('10:36', 'b2x', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 3: a header-shaped log string does not swallow a real header across a string read on its own
+       (realn.md is listed), and a call written inside a patch held in a variable is not a call (fakev.md is not). */
+    call('10:37', 'b2y', String.raw`console.log('*** Delete File: noisel.md'); await tools.apply_patch(p); await tools.apply_patch({patch:'*** Begin Patch\n' + '*** Delete File: realn.md\n*** End Patch'});`),
+    out('10:37', 'b2y', 'Script completed\nWall time 1 seconds'),
+    call('10:38', 'b2z', String.raw`const p = "*** Begin Patch\n*** Update File: libv.js\n+tools.apply_patch('*** Delete File: fakev.md')\n*** Delete File: realv.md"; await tools.apply_patch(p);`),
+    out('10:38', 'b2z', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 4: a literal piece concatenated after the patch (`+ "\n"`) is read as a piece, so the
+       whole-script reading is not turned on and a log string's header (decoy.md) is not listed. */
+    call('10:39', 'b3a', String.raw`console.log("*** Add File: decoy.md"); await tools.apply_patch('*** Begin Patch\n*** Update File: tail.md\n+x\n*** End Patch' + "\n");`),
+    out('10:39', 'b3a', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 5: a call written as added-line text in a concatenated patch is not a call, whether the first
+       piece is a literal Begin Patch or a variable (fakec.md and fakeh.md are not listed); and three guards pinned: a
+       member with no header is skipped for the next (nm.md, not the log's decoyz.md); a path that ran on into code is
+       left out (nothing with `await` in it); a stop at the assumed " is not a cut (never `a`). */
+    call('10:40', 'b3b', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n" + "*** Update File: realc.md\n+tools.apply_patch('*** Delete File: fakec.md')\n"});`),
+    out('10:40', 'b3b', 'Script completed\nWall time 1 seconds'),
+    call('10:41', 'b3c', String.raw`const h0 = "*** Begin Patch\n"; await tools.apply_patch({patch:h0 + "*** Update File: realh.md\n+tools.apply_patch('*** Delete File: fakeh.md')\n"});`),
+    out('10:41', 'b3c', 'Script completed\nWall time 1 seconds'),
+    call('10:42', 'b3d', String.raw`console.log("*** Delete File: decoyz.md"); await tools.apply_patch({cwd:"x", patch:'*** Delete File: nm.md'});`),
+    out('10:42', 'b3d', 'Script completed\nWall time 1 seconds'),
+    call('10:43', 'b3e', String.raw`const p = "*** Begin Patch\n" + '*** Delete File: r.md'; await tools.apply_patch(p);`),
+    out('10:43', 'b3e', 'Script completed\nWall time 1 seconds'),
+    call('10:44', 'b3f', String.raw`const h = "*** Begin Patch\n"; const p2 = h + '*** Delete File: a"bq.md\n*** End Patch'; await tools.apply_patch(p2);`),
+    out('10:44', 'b3f', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 7: a quote that never opened a string (here in a comment) does not run on into a later real
+       call's string and drop it: it's9.md is read whole, never `it`. */
+    call('10:45', 'b3g', "// the text starts '*** Begin Patch\nawait tools.apply_patch(p);\nawait tools.apply_patch({patch:\"*** Begin Patch\\n*** Delete File: it's9.md\\n*** Delete File: two9.md\\n*** End Patch\"});"),
+    out('10:45', 'b3g', 'Script completed\nWall time 1 seconds'),
+    // #9314 slice 2 review 8: a call with more than 16 object members still has its patch read (m17.md).
+    call('10:46', 'b3h', 'await tools.apply_patch({' + Array.from({ length: 17 }, (_, i) => 'k' + i + ':"v",').join('') + 'patch:"*** Begin Patch\\n*** Add File: m17.md\\n+x\\n*** End Patch"});'),
+    out('10:46', 'b3h', 'Script completed\nWall time 1 seconds'),
+  ]));
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  // r.md (b3e) and a"bq.md (b3f) are real files both readers leave out; they are not pinned, so a reader that recovers
+  // them stays green (their guards are the negative assertion below).
+  assert.deepEqual(r.agents[0].files.filter((f) => f !== 'r.md' && f !== 'a"bq.md'), ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
+    'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
+    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md', 'tail.md', 'realc.md', 'realh.md', 'nm.md', "it's9.md", 'two9.md', 'm17.md'], 'each path stops at its own patch string\'s quote (#9314)');
+  assert.ok(!r.agents[0].files.some((f) => /fake[ch]\.md|decoyz|await/.test(f)), 'a call inside a patch, a decoy or a run-on was listed: ' + JSON.stringify(r.agents[0].files));
+  assert.ok(!r.agents[0].files.some((f) => f === 'a' || f === 'x' || f.includes('s1.md') || f.includes('s2.md') || /["'`]\}?\)\s*;/.test(f)), 'a cut, swallowed or run-on name (a quote, then `);` or `});`) was listed: ' + JSON.stringify(r.agents[0].files));
 });
 
 test('a Gemini CLI agent: a reply written twice counts once, an edit counts only when it succeeded', async () => {

@@ -43,7 +43,8 @@ const COMMAND_TOOLS = new Set(['Bash']);
    2: Codex and Gemini CLI agents are read (slice 2).
    3: the pull requests a Claude agent worked on while it held the task (`prs`, kosmos#6842).
    Not bumped for kosmos#8999 (a folder several accounts link to is read once): only rows with no id were counted more than
-   once, and working a kept receipt out again could lose work whose transcripts have since been pruned. */
+   once, and working a kept receipt out again could lose work whose transcripts have since been pruned.
+   Not bumped for kosmos#9263 or #9314 (a Codex patch path read whole, a cut one left out) for the same reason. */
 const VERSION = 3;
 /* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session acts on a pull request
    (opens, comments on or merges it), then repeats it on that session's later turns. A PR is listed when some session's
@@ -319,83 +320,6 @@ const CODEX_COMMAND_FUNCS = new Set(['shell', 'exec_command', 'container.exec'])
 const GEMINI_EDIT_TOOLS = new Set(['write_file', 'replace']);
 const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
 
-/* #9314: each `*** Add|Update|Delete File: <path>` line of a Codex exec script, as { text, end, quote, assumed }. The patch is a
-   JavaScript string, and inside a string only ITS OWN quote has to be escaped, so the path ends at a newline (a real one,
-   or `\n` / `\r`) or at an unescaped copy of the quote that opened that string: a '-string ends at ' (so
-   `{patch:'*** Update File: a.js'}` reads `a.js`, not `a.js'});`), and a "-string still reads `it's.md` whole. The
-   opener is the character just before the nearest `*** Begin Patch` above the line, the start of the patch's own
-   string (a quoted key such as `{'patch': "..."}` comes before it and does not count). With no quote there, or when
-   that string has already closed before the header (a patch built in pieces), a " is assumed, as main did. The Begin
-   Patch marks are found once, in order, and each path is consumed, so it is linear.
-   `end` is where the path stopped in src. */
-function codexPatchPaths(src) {
-  const found = [];
-  const begins = [];
-  for (let b = src.indexOf('*** Begin Patch'); b >= 0; b = src.indexOf('*** Begin Patch', b + 1)) begins.push(b);
-  // Where the string a Begin Patch opens with `quote` closes: its first unescaped `quote` after it (Infinity if none).
-  const closeOf = (from, quote) => {
-    for (let i = from; i < src.length; i += 1) {
-      if (src[i] === '\\') { i += 1; continue; }
-      if (src[i] === quote) return i;
-    }
-    return Infinity;
-  };
-  /* The character that opens the string a Begin Patch starts, looking back past whitespace and the escapes `\n` `\r`
-     `\t` (a patch string may open with a newline: `"\n*** Begin Patch`), at most 16 of them. */
-  const openerBefore = (b) => {
-    let i = b - 1;
-    for (let steps = 0; i >= 0 && steps < 16; steps += 1) {
-      const c = src[i];
-      if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i -= 1; continue; }
-      if ((c === 'n' || c === 'r' || c === 't') && src[i - 1] === '\\') { i -= 2; continue; }
-      break;
-    }
-    return i >= 0 ? src[i] : '';
-  };
-  const head = /\*\*\* (?:Add|Update|Delete) File: /g;
-  let k = -1;   // the last Begin Patch before the current header
-  /* Per quote kind, the close last found and the Begin Patch it was found from. A later Begin Patch before that close
-     shares it (scanning from it would find the same quote), so each kind's scans only move forward: linear in all, even
-     when openers alternate between kinds (review 3 measured one shared entry as quadratic there). */
-  const closes = { "'": { from: -1, at: -1 }, '"': { from: -1, at: -1 }, '`': { from: -1, at: -1 } };
-  for (let m = head.exec(src); m; m = head.exec(src)) {
-    while (k + 1 < begins.length && begins[k + 1] < m.index) k += 1;
-    const before = k >= 0 ? openerBefore(begins[k]) : '';
-    const opened = before === "'" || before === '"' || before === '`';
-    let j = m.index + m[0].length;
-    let at = -1;
-    if (opened) {
-      const c = closes[before];
-      if (!(c.from >= 0 && c.from <= begins[k] && c.at > begins[k])) { c.from = begins[k]; c.at = closeOf(begins[k], before); }
-      at = c.at;
-    }
-    /* The header lies past the end of the string its Begin Patch opened (another string, or code): that quote says
-       nothing about this path (review 2), so the " main assumed is used, and the ran-on rule drops a path it misreads. */
-    const known = opened && at > m.index;
-    const quote = known ? before : '"';
-    const start = j;
-    while (j < src.length) {
-      const c = src[j];
-      if (c === '\n' || c === '\r' || c === quote) break;
-      if (c === '\\') {
-        const n = src[j + 1];
-        if (n === undefined || n === 'n' || n === 'r' || n === '\n' || n === '\r') break;
-        j += 2; continue;
-      }
-      j += 1;
-    }
-    const text = src.slice(start, j);   // escape pairs are kept as written; decodeJsEscapes reads them
-    // Resume after the path, as a consuming regex would: a header inside the text just read is not read again (review 2,
-    // which measured a one-line script re-scanned per header: 2,000 headers 711 ms, 32,000 out of memory).
-    head.lastIndex = Math.max(head.lastIndex, j);
-    if (text) found.push({ text, end: j, quote, assumed: !known });
-  }
-  return found;
-}
-
-/* #9314: a path read past the end of its string into code (a quote, then `)` `;` `+` `}` or `,`: a patch built in pieces,
-   or one the opener rule could not see) or holding a template's `${` is left out, never shown as a file name. */
-const CODEX_PATH_RAN_ON = /['"`]\s*[)};+,]|\$\{/;
 /* #9263: a JavaScript string's text decoded, for a path read out of a Codex exec script. Null when the path cannot be
    trusted whole: an escape with no special meaning (`\U`) is legal JavaScript, but in a path it is far likelier a single
    backslash written raw (String.raw) than a meant identity escape, so it is treated as one; and a decoded control
@@ -467,25 +391,157 @@ async function providerWork(runner, dir, holds) {
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
             /* A relative path is the session's own folder's (review 1), so the same file reads the same either way.
-               The path is a JavaScript string's text, so it is decoded as one: it ends at a newline (`\n`, `\r`, or a
-               real one) or its string's closing quote (codexPatchPaths, #9314), and its escapes are read (`\\` is a
-               backslash, so `C:\\Users\\kay` is `C:\Users\kay`). A path decodeJsEscapes cannot trust whole, or one that
-               ran on into code, is left out rather than shown as a file it is not (#9263, #9314). */
+               The path is a JavaScript string's text, so it is decoded as one: it ends at a newline (`\n`, `\r`, or a real
+               one) or the end of its patch string (#9314), and its escapes are read (`\\` is a backslash, so `C:\\Users\\kay`
+               is `C:\Users\kay`).
+               A path decodeJsEscapes cannot trust whole is left out rather than shown as a file it is not (#9263). */
             const own = path.resolve(folder);
-            const paths = codexPatchPaths(src)
-              /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A "newline"
-                 followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it is left out. */
-              .filter((x) => {
-                const nl = /(?:(?:\\r)?\\n|\r?\n)?/y; nl.lastIndex = x.end; nl.exec(src);
-                const c = src[nl.lastIndex];
-                return c === undefined || /[-+@* ]/.test(c) || c === x.quote;
-              })
-              /* A path that swallowed further headers (no line end between them) is not a file name, and the ran-on rule
-                 applies only where the quote was assumed: in a string whose quote is known, `'a', b` is part of a name.
-                 A backtick string's ${ is code either way. */
-              .filter((x) => !/\*\*\* (?:Add|Update|Delete) File: /.test(x.text)
-                && !(x.assumed ? CODEX_PATH_RAN_ON.test(x.text) : x.quote === '`' && x.text.includes('${')))
-              .map((x) => decodeJsEscapes(x.text)).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
+            /* #9314: the paths are read from INSIDE each apply_patch call's string argument: its opening quote (", ' or
+               a backtick) is found after `tools.apply_patch(` (and an optional `{name:`), and the string runs to the
+               same quote unescaped. So text elsewhere in the script (a shell heredoc, a `*** Begin Patch` written in a
+               patch's own added line) is not read as a patch, and a file name may hold the other quote kinds. A member
+               string holding no patch header (`{cwd:"x", patch:...}`) is skipped for the next member. A call whose
+               argument is not one literal string (a variable, a concatenation) cannot be read that way, so the rest of
+               the script (outside the literal strings already read) is read as well then. A call written inside an
+               earlier patch's string is not a call: the scan resumes after each call's whole value. */
+            const bodies = [];
+            let readWhole = false;
+            let after = 0;
+            const spans = [];   // the literal strings read on their own, blanked out of a whole-script reading
+            const HEADER = /\*\*\* (?:Add|Update|Delete) File: /;
+            const NEXT_MEMBER = /\s*,\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*/y;
+            const CONCAT = /\s*\+/y;
+            const NAME = /[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*(?:\s*\([^)\n]{0,200}\))?/y;   // a variable, a property, a call
+            for (const c of src.matchAll(/tools\.apply_patch\(\s*(?:\{\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*)?/g)) {
+              if (c.index < after) continue;
+              let open = c.index + c[0].length;
+              for (let member = 0; ; member += 1) {
+                if (member >= 16) { readWhole = true; break; }   // past 16 members the rest is read with the whole script (review 8)
+                /* One member's value, read as what it is: operands joined by `+`, each a string literal (read with its own
+                   quote) or a name (a variable, a property, a call). The scan then resumes after the whole value, so a
+                   `tools.apply_patch(` written inside any piece is never read as a call (review 5). A name among them
+                   means part of the patch is elsewhere, so the whole script is read too. */
+                const pieces = [];
+                let named = false;
+                let o = open;
+                for (let n = 0; ; n += 1) {
+                  while (o < src.length && (src[o] === ' ' || src[o] === '\t' || src[o] === '\n' || src[o] === '\r')) o += 1;
+                  const pq = src[o];
+                  if (pq === "'" || pq === '"' || pq === '`') {
+                    let k = o + 1;
+                    while (k < src.length && src[k] !== pq) k += src[k] === '\\' ? 2 : 1;
+                    const pend = Math.min(k, src.length);
+                    pieces.push({ q: pq, text: src.slice(o + 1, pend), span: [o + 1, pend] });
+                    o = pend + 1;
+                  } else {
+                    NAME.lastIndex = o;
+                    if (!NAME.test(src)) break;
+                    named = true;
+                    o = NAME.lastIndex;
+                  }
+                  CONCAT.lastIndex = o;
+                  if (!CONCAT.test(src)) break;
+                  o = CONCAT.lastIndex;
+                  if (n >= 64) { named = true; break; }   // past 64 pieces the rest is read with the whole script
+                }
+                after = Math.max(after, o);
+                if (!pieces.some((x) => HEADER.test(x.text))) {
+                  // Another member ({cwd:"x", patch:...}): the next `key:` value of the same call, if there is one.
+                  NEXT_MEMBER.lastIndex = o;
+                  if (NEXT_MEMBER.test(src)) { open = NEXT_MEMBER.lastIndex; if (named) readWhole = true; continue; }
+                  readWhole = true; break;
+                }
+                for (const x of pieces) { bodies.push(x); spans.push(x.span); }
+                if (named) readWhole = true;
+                break;
+              }
+            }
+            if (readWhole) {
+              /* A call's argument was not one literal string (a variable, a concatenation). A patch held elsewhere is still
+                 a literal somewhere, so every string literal whose text starts with `*** Begin Patch` (after whitespace or
+                 `\n` escapes) is read the same way, with its own quote, outside the strings already read. A literal counts
+                 only where JavaScript can start one (after `=` `(` `:` `,` `[` `+` `|` `&` `?` `!`, whitespace or the start), so
+                 the quote closing a shell heredoc's word (`<<'EOF'\n*** Begin Patch`) is not taken for an opener. A call
+                 found inside such a literal was written in a patch held in a variable, not made: it is dropped (review 3). */
+              const lit = /(^|[=(:,[+|&?!\s])(['"`])(?=(?:\\[nrt]|\s)*\*\*\* Begin Patch)/g;
+              const calls = spans.slice();   // in order, as the calls were read
+              let ci = 0;                    // the first call string that does not end before this literal (linear)
+              const inSpan = (i) => { while (ci < calls.length && calls[ci][1] < i) ci += 1; return ci < calls.length && i >= calls[ci][0]; };
+              let litAfter = 0;
+              for (const m of src.matchAll(lit)) {
+                const open = m.index + m[1].length;
+                if (open < litAfter || inSpan(open + 1)) continue;
+                const q = m[2];
+                let i = open + 1;
+                // A ' or " string cannot hold a raw line break, so reaching one means the quote never opened a string.
+                while (i < src.length && src[i] !== q && (q === '`' || (src[i] !== '\n' && src[i] !== '\r'))) i += src[i] === '\\' ? 2 : 1;
+                if (i < src.length && src[i] !== q) continue;
+                const end = Math.min(i, src.length);
+                /* A real string cannot end inside another string: a literal whose closing quote lands inside a live call's
+                   string began at a quote that never opened one (a comment, review 7), so it is not read, and no call is
+                   dropped for it. Only a call whose whole string lies inside a real literal is dropped. */
+                let bogus = false;
+                for (let k = ci; k < calls.length && calls[k][0] <= end; k += 1) if (end <= calls[k][1] && calls[k][0] > open) { bogus = true; break; }
+                if (bogus) continue;
+                litAfter = end + 1;
+                for (let k = ci; k < calls.length && calls[k][0] < end; k += 1) if (calls[k][0] > open && calls[k][1] < end) calls[k].dead = true;
+                bodies.push({ q, text: src.slice(open + 1, end) });
+                spans.push([open + 1, end]);
+              }
+              // A loop, not a spread: a script of over 100,000 literal patches overflowed the stack (review 6).
+              let w = 0;
+              for (let r = 0; r < bodies.length; r += 1) if (!(bodies[r].span && bodies[r].span.dead)) bodies[w++] = bodies[r];
+              bodies.length = w;
+              const liveSpans = spans.filter((sp) => !sp.dead).sort((x, y) => x[0] - y[0]);
+              /* One pass: the text between the literal strings, each string replaced by newlines of its length, so a path
+                 outside them stops where one begins and never runs across it into a later header (review 3). */
+              const parts = [];
+              let at = 0;
+              for (const [from, to] of liveSpans) { parts.push(src.slice(at, from), '\n'.repeat(to - from)); at = to; }
+              parts.push(src.slice(at));
+              bodies.push({ q: '"', text: parts.join(''), whole: true });
+            }
+            const patterns = {};
+            const patternsFor = (q, whole) => {
+              const key = q + (whole ? 'w' : '');
+              if (patterns[key]) return patterns[key];
+              const qe = q === '"' ? '"' : `\\${q}`;
+              /* Inside a call's own string a header counts only at the start of a patch line (the string's start or after
+                 a newline), never inside an added line that mentions one. The whole-script reading is unanchored, as the
+                 #9263 reading was, and it cannot see which string a path is in, so pathsIn guards it below. */
+              const at = whole ? '' : '(?<=(?:^|\\\\n|\\n)[ \\t]*)';   // a patch line may be indented (a template literal)
+              return (patterns[key] = {
+                pathLine: new RegExp(`${at}\\*\\*\\* (?:Add|Update|Delete) File: ((?:\\\\[^nr\\n\\r]|[^\\n\\r\\\\${qe}])+)`, 'g'),
+                nextLine: new RegExp(`(?:(?:\\\\r)?\\\\n|\\r?\\n)?(?:[-+@* ${qe}]|$)`, 'y'),
+              });
+            };
+            const pathsIn = ({ q, text, whole }) => {
+              const { pathLine, nextLine } = patternsFor(q, whole);
+              return [...text.matchAll(pathLine)].filter((x) => {
+                // In a backtick string `${` opens an expression, so such a path is not a name that can be read.
+                if (q === '`' && x[1].includes('${')) return false;
+                /* The whole-script reading assumes a " (it cannot see which string a path is in), so a path that ran on
+                   past the end of its real string into code (a quote, then `)` `;` `+` `}` or `,`, as a patch built in
+                   pieces or passed by name does) or holds a template's ${ is left out, never listed as a file name. */
+                if (whole && /['"`]\s*[)\]};+,]|\$\{/.test(x[1])) return false;
+                // A path that swallowed further headers (no line end between them) is not a file name, in either reading.
+                if (HEADER.test(x[1])) return false;
+                /* The whole-script reading stops at a " it assumed; a ' or backtick string's name may hold one (`a"b.md`),
+                   so a stop at " counts only where code follows it (a `)` `}` `,` `;` `+` or the end), else the path is
+                   left out rather than cut. */
+                if (whole) {
+                  const stop = x.index + x[0].length;
+                  if (text[stop] === '"' && !/"\s*(?:[)},;+\]]|$)/y.test(text.slice(stop, stop + 80))) return false;
+                }
+                /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A
+                   "newline" followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it
+                   is left out. */
+                nextLine.lastIndex = x.index + x[0].length;
+                return nextLine.test(text);
+              });
+            };
+            const paths = bodies.flatMap(pathsIn)
+              .map((x) => decodeJsEscapes(x[1])).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
               /* Never the agent's own folder as an edited file: no patch line names it, so one that resolves there was
                  misread (#9263). */
               .map((f) => path.resolve(folder, f)).filter((f) => f !== own);
