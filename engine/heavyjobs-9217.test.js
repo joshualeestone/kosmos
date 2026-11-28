@@ -453,7 +453,8 @@ test('kosmos#9222: an aged record with no recorded start is dropped without aski
   assert.equal(asked, 0, 'a read was spent on a record the ceiling had already settled');
 });
 
-test('kosmos#9222: start reads no more than its time allows (that it reads at all: "one start asks each of the agent\'s pids once")', () => {
+// That start reads at all is pinned by "one start asks each of the agent's pids once"; this arm pins only the ceiling.
+test('kosmos#9222: start spends at most two ps reads inside its time budget', () => {
   const rs = require('./restoresink');
   const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
   let ps = 0;

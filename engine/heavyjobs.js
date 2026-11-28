@@ -250,6 +250,7 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
     // Exactly the records this read dropped go (re-read under the lock, so a start made meanwhile stays); nothing is
     // judged again, so a second pass with the budget spent cannot change what this read decided.
     // kosmos#9230: `at` too, so a re-announce made meanwhile (same agent, pid and kept since, new at) is never this drop.
+    // It narrows the race rather than closing it: a re-announce in the same millisecond as the dropped record keeps its key.
     const key = (j) => j.agent + '\u0000' + j.pid + '\u0000' + j.since + '\u0000' + j.at;
     const gone = new Set(all.filter((_, i) => verdict[i] === 'drop').map(key));
     require('./filelock').withFileLock(fileOf(root), () => {
