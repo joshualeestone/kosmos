@@ -166,8 +166,7 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  * What a refusal leaves (kosmos#9285): whatever was planted at the temp name (a link, a swapped-in file, a second hard
  * link, a folder) stays, because the name is never touched; a later process's reaper unlinks a planted file or link,
  * once this writer has ended, since it carries a temp name, but cannot remove a planted folder, which stays. When the
- * name
- * is no longer a link to the made file (swapped, removed, or a second hard link to it), the made file stays where the
+ * name is no longer a link to the made file (swapped, removed, or a second hard link to it), the made file stays where the
  * link pointed, empty, since nothing is ever written to it; that name is not a temp name, so nothing reaps it.
  *
  * Not closed, and accepted:
@@ -587,8 +586,7 @@ function writeSecret(file, data, mode, opts) {
 
   // kosmos#9285: any attempt refused for a swapped temp name means somebody is planting; never fall back then (a plain
   // file planted at one name, a guessable one, must not be enough to reach the in-place open).
-  if (swappedAttempts > 0) {
-    if (lastAtomicError && lastAtomicError.code === 'ERR_KOSMOS_TEMP_SWAPPED') throw lastAtomicError;
+  if (swappedAttempts > 0) {   // one shape every time: the first swap as the cause, the last attempt's error beside it
     throw Object.assign(new Error('the temp name is not the file this write opened'),
       { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError });
   }

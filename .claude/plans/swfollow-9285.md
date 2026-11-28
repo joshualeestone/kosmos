@@ -31,7 +31,7 @@ never made, the config keeps its old bytes, and no planted target holds the secr
 
 ## The second WARNING: unmeasured mounts
 
-Not settled here, and still open on #9285. The same-file rules are measured on the Mac, GitHub's Windows runner and a
+Not settled here; carded on its own as #9308 so it does not close with #9285. The same-file rules are measured on the Mac, GitHub's Windows runner and a
 Linux container on overlay; network shares, FUSE and OneDrive-style folders are not. No machine here has one.
 
 ## The NITs
@@ -67,3 +67,5 @@ is carded as #9307 rather than called harmless.
 - Review 5: the stated cost says one swapped refusal is enough when the other two attempts fail for any reason (with
   the EPERM-rename case named). The refusal keeps the first swap as its cause and the last attempt's error beside it;
   a mixed-plant atomicOnly arm pins that the rule runs before the atomicOnly exit (it fails with the order swapped).
+- Review 6: the unmeasured-mounts risk has its own card (#9308). The refusal has one shape on every path (the first
+  swap as its cause, the last attempt's error as lastAttempt), and the all-swap arm checks both fields.

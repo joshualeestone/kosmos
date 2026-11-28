@@ -1086,6 +1086,8 @@ test('#9285: three followed links refuse an ordinary save too: no in-place fallb
   assert.equal(planted.length, 3, 'the atomic path did not try three fresh names');
   assert.ok(err, 'three planted links did not refuse the save');
   assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
+  assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the last attempt is not kept');
   assert.equal(inPlace, 0, 'the in-place fallback opened the config');
   assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
   for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
