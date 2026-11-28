@@ -11,7 +11,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.grok-subscription-3391.test.js
  */
 const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -27,6 +26,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = mkTemp('aw-gsr-projects-');
 process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-gsr-launch-');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#9262: fake tmux's reads, served in process on Windows
 
 const runners = require('./engine/runners');
 const grokAccounts = require('./engine/grokaccounts');
@@ -162,7 +162,7 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
 /* Round 19 raised that the Disconnect/Delete sentence says "key" for a sign-in Kosmos
    cannot describe (identityOf null). It cannot be reached: forget and remove refuse such a
    dir before any sentence is built. This pins that refusal, so the deferral stays true. */
-test('a Grok dir holding a sign-in Kosmos cannot describe is refused by Disconnect and Delete, so no "key" sentence is sent', { skip: SKIP_FAKE_TMUX }, async () => {
+test('a Grok dir holding a sign-in Kosmos cannot describe is refused by Disconnect and Delete, so no "key" sentence is sent', async () => {
   const dir = nodePath.join(SANDBOX, '.grok-garbled');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, 'auth.json'), '{not json', { mode: 0o600 });

@@ -30,7 +30,6 @@
  */
 
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
@@ -82,6 +81,7 @@ process.env.AGENT_WORKFORCE_CODEX_BIN = CODEX_BIN;
 const FAKE_TMUX = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
 const PANES = nodePath.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_TMUX_BIN = FAKE_TMUX;
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#9262: fake tmux's reads, served in process on Windows
 process.env.AGENT_WORKFORCE_FAKE_PANES = PANES;
 
 const fleet = require('./test-support/fleet');
@@ -440,7 +440,7 @@ test('#7470 route: a window that would not close is still running, and the saved
   assert.equal(require('./engine/remove').RESTART_CHANGED_NOTHING, 'Nothing was changed.');
 });
 
-test('#7470 route: the model switch, its window still open, says to start or restart it to put the new model into effect, never "Nothing was changed"', { skip: SKIP_FAKE_TMUX }, async () => {
+test('#7470 route: the model switch, its window still open, says to start or restart it to put the new model into effect, never "Nothing was changed"', async () => {
   const alive = () => ({ ok: true, stdout: '' });
   const name = born('route-7470-model');
   create.setRunner(alive);
@@ -489,7 +489,7 @@ test('#7470 review 3: a window Kosmos cannot tie to the agent gets no next step 
   assert.equal(store.readProfile(name).provider, 'openai', 'CONTROL: the switch was saved');
 });
 
-test('#7470 review 4: the restart marks a job Kosmos did not start as one a start cannot fix', { skip: SKIP_FAKE_TMUX }, () => {
+test('#7470 review 4: the restart marks a job Kosmos did not start as one a start cannot fix', () => {
   const name = born('route-7470-nojob');
   fs.rmSync(jobfix.jobPath(name), { force: true });   // no launch job: Kosmos did not start it
   const back = require('./engine/remove').restart(name, 'test');
