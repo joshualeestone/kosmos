@@ -4,6 +4,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
 // coordinator, in a temp data root.
 const test = require('node:test');
 const assert = require('node:assert');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -1036,7 +1037,7 @@ test('tiny messages at the minute limit stop at the day row cap', async (t) => {
   assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-rows').length, fedseats.INBOUND_ROWS_PER_DAY);
 });
 
-test('#3311: a connector that ignores SIGTERM is killed with SIGKILL, so a stopped seat never lingers', async () => {
+test('#3311: a connector that ignores SIGTERM is killed with SIGKILL, so a stopped seat never lingers', { skip: skipOnWin32('it needs a child that ignores SIGTERM, and Windows has no signals: any kill ends the child at once') }, async () => {
   const { spawn } = require('node:child_process');
   // A child that ignores both stdin closing and SIGTERM, as a hung connector would.
   const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); process.stdin.resume(); process.stdin.on('end', () => {}); setInterval(() => {}, 1000); process.stdout.write('ready')"], { stdio: ['pipe', 'pipe', 'ignore'] });

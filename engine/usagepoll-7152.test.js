@@ -26,6 +26,11 @@ const BODY = JSON.stringify({
   seven_day: { utilization: 56.0, resets_at: '2026-10-30T14:00:00.447704+00:00' },
 });
 
+/* realHome: a home that holds every folder a test reads. For a folder under the temp folder that is the temp folder's
+   own root: '/' on the Mac, the temp drive's root on Windows, where '/' is the checkout's drive and a temp folder on
+   another drive is outside it (path.relative across drives gives an absolute path, which the reader refuses). */
+const TMP_ROOT = path.parse(os.tmpdir()).root;
+
 function tmpDir(t) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'usagepoll-7152-'));
   t.after(() => fs.rmSync(d, { recursive: true, force: true }));
@@ -62,8 +67,8 @@ function fakeRequest(answer, seen) {
 test('#7152: the default account reads the bare Keychain entry and any other account its own folder\'s entry', async () => {
   const asked = [];
   const readCred = async (svc) => { asked.push(svc); return cred(); };
-  await usagepoll.tokenStateFor({ dir: '/u/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/u' });
-  await usagepoll.tokenStateFor({ dir: '/u/.claude-account-d' }, { now: NOW, platform: 'darwin', readCred, realHome: '/u' });
+  await usagepoll.tokenStateFor({ dir: '/u/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: path.resolve('/u') });
+  await usagepoll.tokenStateFor({ dir: '/u/.claude-account-d' }, { now: NOW, platform: 'darwin', readCred, realHome: path.resolve('/u') });
   assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE, loginexpiry.serviceNameFor('/u/.claude-account-d')]);
   assert.notEqual(asked[1], loginexpiry.DEFAULT_SERVICE, 'CONTROL: a non-default account must not read the bare entry');
 });
@@ -79,9 +84,9 @@ test('#7152: the token states: no credential, unreadable, no token, expired, and
 
 test('#7152: off macOS the folder\'s own .credentials.json is read', async (t) => {
   const d = tmpDir(t);
-  assert.equal((await usagepoll.tokenStateFor({ dir: d }, { now: NOW, platform: 'linux', realHome: '/' })).state, 'no-credential', 'CONTROL: no file yet');
+  assert.equal((await usagepoll.tokenStateFor({ dir: d }, { now: NOW, platform: 'linux', realHome: TMP_ROOT })).state, 'no-credential', 'CONTROL: no file yet');
   fs.writeFileSync(path.join(d, '.credentials.json'), cred());
-  assert.equal((await usagepoll.tokenStateFor({ dir: d }, { now: NOW, platform: 'linux', realHome: '/' })).state, 'ok');
+  assert.equal((await usagepoll.tokenStateFor({ dir: d }, { now: NOW, platform: 'linux', realHome: TMP_ROOT })).state, 'ok');
 });
 
 test('#7152: a good answer gives weekly and five-hour usage with reset times in seconds, over the right request', async () => {
@@ -123,7 +128,7 @@ test('#7152: a refused, failed or unreadable answer is a state, never a reading;
 test('#7152: the recorded file holds the numbers and the state, never the token, and only this user can read it', async (t) => {
   const d = tmpDir(t);
   const n = await usagepoll.pollAll([{ dir: d, email: EMAIL }], {
-    now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}),
+    now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}),
   });
   assert.equal(n, 1);
   const body = fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8');
@@ -174,7 +179,7 @@ test('#7152 review 1: a window with usage but no reset yet is still a reading; a
 
 test('#7152 review 1: a failed read keeps the last good figures, dated when they were measured', async (t) => {
   const d = tmpDir(t);
-  const ok = { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
+  const ok = { now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
   assert.equal(await usagepoll.pollAll([{ dir: d, email: EMAIL }], ok), 1);
   const later = NOW + 10 * 60000;
   const failed = { ...ok, now: later, request: fakeRequest({ code: 429, body: '{}' }, {}) };
@@ -200,7 +205,7 @@ test('#7152 review 1: a request that never finishes ends at its deadline', async
 
 test('#7152 review 3: a reading is dated when its figure last changed, as the status line dates its own', async (t) => {
   const d = tmpDir(t);
-  const at = (now, body) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
+  const at = (now, body) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, BODY));
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, BODY));
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 11 * 60000).at, NOW, 'an unchanged figure claimed a new change');
@@ -212,7 +217,7 @@ test('#7152 review 3: a reading is dated when its figure last changed, as the st
 
 test('#7152 review 4: a reset that moves by under a minute between reads is the same window, so nothing changed', async (t) => {
   const d = tmpDir(t);
-  const at = (now, body) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
+  const at = (now, body) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, BODY));
   const jitter = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-30T13:59:59.569985');
   assert.notEqual(jitter, BODY, 'CONTROL: the jittered body differs');
@@ -292,10 +297,10 @@ test('#7152 review 7: a sandboxed board never reads the bare Keychain entry, wha
   const readCred = async (svc) => { asked.push(svc); return cred(); };
   /* The shape a harness board has: a sandbox HOME whose .claude is listed as the default account, and the real
      Keychain, whose bare entry is the operator's own login. */
-  const st = await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/Users/op' });
+  const st = await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: path.resolve('/Users/op') });
   assert.equal(st.state, 'no-credential');
   assert.deepEqual(asked, [], 'the operator\'s real login was read for a sandbox account');
-  await usagepoll.tokenStateFor({ dir: '/Users/op/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/Users/op' });
+  await usagepoll.tokenStateFor({ dir: '/Users/op/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: path.resolve('/Users/op') });
   assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE], 'CONTROL: the real home\'s default account reads the bare entry');
   await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: null });
   assert.equal(asked.length, 1, 'an unknown real home read the bare entry');
@@ -306,7 +311,7 @@ test('#7152 review 7: a failed profile read keeps the last good figures and is n
   const resets = Math.floor((NOW + 86400000) / 1000);
   usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, weekly: { usedPct: 12, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
   const n = await usagepoll.pollAll([{ dir: d, email: 'a@example.test' }], {
-    now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(),
+    now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 429, body: '' } : { code: 200, body: BODY }), {}),
   });
   assert.equal(n, 0, 'a reading with an unread profile was counted as measured');
@@ -336,7 +341,7 @@ test('#7152: accounts are read one at a time, so a slow read never stacks reques
   const seen = {};
   const list = [tmpDir(t), tmpDir(t), tmpDir(t)].map((dir) => ({ dir, email: EMAIL }));
   const n = await usagepoll.pollAll(list, {
-    now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, seen),
+    now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, seen),
   });
   assert.equal(n, 3);
   assert.equal(seen.calls.length, 6, 'CONTROL: every account was read (usage, then profile)');
@@ -387,7 +392,7 @@ test('#7152 review 9: the account folder\'s own sign-in names its organization, 
   fs.writeFileSync(path.join(d, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: EMAIL, organizationUuid: 'org-team' } }));
   assert.equal(require('./accounts').identityOf(d).organizationUuid, 'org-team', 'the folder\'s organization was not read');
   const r = await usagepoll.readOne({ dir: d, email: EMAIL }, {
-    now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(),
+    now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile'
       ? { code: 200, body: JSON.stringify({ account: { email: EMAIL }, organization: { uuid: 'org-personal' } }) } : { code: 200, body: BODY }), {}),
   });
@@ -398,7 +403,7 @@ test('#7152 review 9: a folder signed in again as another login does not keep th
   const d = tmpDir(t);
   const resets = Math.floor((NOW + 86400000) / 1000);
   const old = { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: 'old@example.test', weekly: { usedPct: 12, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null };
-  const failing = { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 429, body: '' }, {}) };
+  const failing = { now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 429, body: '' }, {}) };
   usagepoll.write(d, old);
   await usagepoll.pollAll([{ dir: d, email: 'new@example.test' }], failing);
   assert.equal(usagepoll.readUsage(d, NOW).weekly, null, 'the old login\'s figure is shown under the new one');
@@ -409,7 +414,7 @@ test('#7152 review 9: a folder signed in again as another login does not keep th
 
 test('#7152 review 10: figures survive consecutive failed reads until they are stale, not just one', async (t) => {
   const d = tmpDir(t);
-  const ok = { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
+  const ok = { now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
   const failAt = (now) => ({ ...ok, now, request: fakeRequest({ code: 503, body: '' }, {}) });   // review 23: a 5xx, which is never held, so each sweep really reads
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], ok);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], failAt(NOW + 10 * 60000));
@@ -421,7 +426,7 @@ test('#7152 review 10: figures survive consecutive failed reads until they are s
 
 test('#7152 review 10: a new login with the same figure is a change, not the old login\'s last change', async (t) => {
   const d = tmpDir(t);
-  const ok = (now, email) => usagepoll.pollAll([{ dir: d, email }], { now, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) });
+  const ok = (now, email) => usagepoll.pollAll([{ dir: d, email }], { now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) });
   /* Seeded by hand: the fake profile always answers EMAIL, so a read as another login would not record anything. */
   usagepoll.write(d, { at: NOW, measuredAt: NOW, state: 'ok', email: 'old@example.test', fiveHour: null,
     weekly: { usedPct: 56, resetsAt: Math.floor(Date.parse('2026-10-30T14:00:00.447704Z') / 1000), changedAt: NOW } });
@@ -436,7 +441,7 @@ test('#7152 review 11: the same email in another organization does not keep the 
   const d = tmpDir(t);
   const resets = Math.floor((NOW + 86400000) / 1000);
   const old = { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, org: 'org-personal', weekly: { usedPct: 12, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null };
-  const failing = (org) => ({ now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 503, body: '' }, {}),   // review 23: never held
+  const failing = (org) => ({ now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), request: fakeRequest({ code: 503, body: '' }, {}),   // review 23: never held
     identityOf: () => ({ email: EMAIL, organizationUuid: org }) });
   usagepoll.write(d, old);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], failing('org-team'));
@@ -471,7 +476,7 @@ test('#7152 review 13: the same figure in the same window shows the later change
 test('#7152 review 13: a record names the organization the profile answered for', async (t) => {
   const d = tmpDir(t);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], {
-    now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), identityOf: () => ({ email: EMAIL, organizationUuid: null }),
+    now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred(), identityOf: () => ({ email: EMAIL, organizationUuid: null }),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile'
       ? { code: 200, body: JSON.stringify({ account: { email: EMAIL }, organization: { uuid: 'org-x' } }) } : { code: 200, body: BODY }), {}),
   });
@@ -496,7 +501,7 @@ test('#7152 review 14: no folder outside the real home is read, on any platform'
 test('#7152 review 14: after a refusal the token is not sent again for an hour', async (t) => {
   const d = tmpDir(t);
   const seen = {};
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 429, body: '' }));
   assert.equal(seen.calls.length, 1, 'CONTROL: the first read was sent');
   await usagepoll.pollAll([{ dir: d, email: EMAIL.toUpperCase() }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
@@ -514,7 +519,7 @@ test('#7152 review 15: a refused profile request backs off too, and a new login 
   const d = tmpDir(t);
   const seen = {};
   const profile429 = (opts) => (opts.path === '/api/oauth/profile' ? { code: 429, body: '' } : { code: 200, body: BODY });
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, profile429));
   assert.equal(usagepoll.readUsage(d, NOW).state, 'profile-http-429');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
@@ -525,9 +530,14 @@ test('#7152 review 15: a refused profile request backs off too, and a new login 
 
 test('#7152 review 15: the real home comes from the user database, so a sandboxed HOME cannot pass for it', async (t) => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'usagepoll-home-'));
-  const saved = process.env.HOME;
-  t.after(() => { if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved; fs.rmSync(sandbox, { recursive: true, force: true }); });
-  process.env.HOME = sandbox;
+  /* os.homedir() reads USERPROFILE on Windows and HOME elsewhere, so the sandbox sets both. */
+  const saved = process.env.HOME; const savedProfile = process.env.USERPROFILE;
+  t.after(() => {
+    if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved;
+    if (savedProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedProfile;
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  });
+  process.env.HOME = sandbox; process.env.USERPROFILE = sandbox;
   assert.equal(os.homedir(), sandbox, 'CONTROL: the sandbox HOME took effect');
   const asked = [];
   const readCred = async (svc) => { asked.push(svc); return cred(); };
@@ -540,7 +550,7 @@ test('#7152 review 15: the real home comes from the user database, so a sandboxe
 test('#7152 review 16: a renewed token ends the backoff, another login\'s token backs off, and a waiting record stays shown', async (t) => {
   const seen = {};
   let expiresAt = NOW + 10 * 3600000;
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
   const d = tmpDir(t);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 40 * 60000, { code: 200, body: BODY }));
@@ -578,17 +588,17 @@ test('#7152 review 17: the backoff is keyed to the token that was refused, read 
   const seen = {};
   /* The login is renewed between the token being sent and the answer arriving: the refusal belongs to the old one. */
   const renewing = () => { expiresAt = NOW + 20 * 3600000; return { code: 401, body: '' }; };
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: '/', readCred, request: fakeRequest(renewing, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred, request: fakeRequest(renewing, seen) });
   assert.equal(reads.length, 1, 'the credential was read more than once in one sweep');
   assert.equal(JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8')).refusedExpiresAt, NOW + 10 * 3600000, 'the backoff was keyed to a token that was never sent');
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW + 10 * 60000, platform: 'darwin', realHome: '/', readCred, request: fakeRequest({ code: 200, body: BODY }, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW + 10 * 60000, platform: 'darwin', realHome: TMP_ROOT, readCred, request: fakeRequest({ code: 200, body: BODY }, seen) });
   assert.equal(seen.calls.length, 2, 'the renewed, good token was held back for the old one\'s hour');
 });
 
 test('#7152 review 17: the same figure under another organization the profile names is a change', async (t) => {
   const d = tmpDir(t);
   const read = (now, org) => usagepoll.pollAll([{ dir: d, email: EMAIL }], {
-    now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), identityOf: () => ({ email: EMAIL, organizationUuid: null }),
+    now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), identityOf: () => ({ email: EMAIL, organizationUuid: null }),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile'
       ? { code: 200, body: JSON.stringify({ account: { email: EMAIL }, organization: { uuid: org } }) } : { code: 200, body: BODY }), {}),
   });
@@ -604,10 +614,10 @@ test('#7152 review 18: a refusal stamped in the future does not hold the account
   const seen = {};
   const exp = NOW + 10 * 3600000;
   usagepoll.write(d, { at: NOW, state: 'http-429', refusedAt: NOW + 6 * 3600000, refusedEmail: EMAIL, refusedExpiresAt: exp });
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: exp }), request: fakeRequest({ code: 200, body: BODY }, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: exp }), request: fakeRequest({ code: 200, body: BODY }, seen) });
   assert.equal(seen.calls.length, 2, 'a refusal from the future held the account back');
   usagepoll.write(d, { at: NOW, state: 'http-429', refusedAt: NOW - 60000, refusedEmail: EMAIL, refusedExpiresAt: exp });
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: exp }), request: fakeRequest({ code: 200, body: BODY }, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: exp }), request: fakeRequest({ code: 200, body: BODY }, seen) });
   assert.equal(seen.calls.length, 0, 'CONTROL: a refusal a minute ago holds it back');
 });
 
@@ -644,7 +654,7 @@ test('#7152 review 20: switched off, the board shows nothing the reader measured
 test('#7152 review 20: a rate limit keeps its hour across a renewed token; a 401 does not', async (t) => {
   const seen = {};
   let expiresAt = NOW + 10 * 3600000;
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
   const d = tmpDir(t);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 429, body: '' }));
   expiresAt = NOW + 20 * 3600000;
@@ -661,7 +671,7 @@ test('#7152 review 20: a rate limit keeps its hour across a renewed token; a 401
 test('#7152 review 21: a sweep that could not use the token does not erase a refusal\'s hour', async (t) => {
   const seen = {};
   let token = cred({ expiresAt: NOW + 10 * 3600000 });
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => token, request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => token, request: fakeRequest(answer, seen) });
   const d = tmpDir(t);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 429, body: '' }));
   token = cred({ expiresAt: NOW });   // expired by the next sweep
@@ -692,7 +702,7 @@ test('#7152 review 21: with the brake on, earlier records are not shown either',
 
 test('#7152 review 22: any 4xx from either request is a refusal; a server error is not', async (t) => {
   const seen = {};
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   for (const [label, answer] of [
     ['usage 404', { code: 404, body: '' }],
     ['profile 400', (opts) => (opts.path === '/api/oauth/profile' ? { code: 400, body: '' } : { code: 200, body: BODY })],
@@ -712,7 +722,7 @@ test('#7152 review 22: any 4xx from either request is a refusal; a server error 
 test('#7152 review 22: a clock stepped back inside the hour still holds', async (t) => {
   const d = tmpDir(t);
   const seen = {};
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW - 5 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a clock stepped back five minutes let the refused token be sent');
@@ -724,7 +734,7 @@ test('#7152 review 22: a folder that cannot be written keeps its refusal in memo
   fs.chmodSync(d, 0o500);
   t.after(() => { try { fs.chmodSync(d, 0o700); } catch { /* already removed */ } });
   const seen = {};
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
   assert.equal(fs.existsSync(path.join(d, usagepoll.FILE)), false, 'CONTROL: the record could not be written');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
@@ -737,7 +747,7 @@ test('#7152 review 22: a refusal from an earlier run survives a sweep that sent 
   const d = tmpDir(t);
   /* Written as a board that has since restarted would have left it: nothing of it is in this process's memory. */
   usagepoll.write(d, { at: NOW, state: 'http-429', refusedState: 'http-429', refusedAt: NOW, refusedEmail: EMAIL, refusedExpiresAt: NOW + 10 * 3600000 });
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW + 10 * 60000, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW }), request: fakeRequest({ code: 200, body: BODY }, {}) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW + 10 * 60000, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW }), request: fakeRequest({ code: 200, body: BODY }, {}) });
   const rec = JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8'));
   assert.equal(rec.state, 'token-expired', 'CONTROL: the sweep had no usable token');
   assert.equal(rec.refusedState, 'http-429', 'a sweep that sent nothing dropped the refusal from the record');
@@ -746,7 +756,7 @@ test('#7152 review 22: a refusal from an earlier run survives a sweep that sent 
 
 test('#7152 review 23: a redirect or an answer that cannot be read is a refusal too; the held record says why', async (t) => {
   const seen = {};
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   for (const [label, answer, state] of [
     ['a redirect', { code: 302, body: '' }, 'http-302'],
     ['an answer of another shape', { code: 200, body: '{"something":"else"}' }, 'unreadable-response'],
@@ -764,7 +774,7 @@ test('#7152 review 23: a held account shows its refusal, not the last reading\'s
   const d = tmpDir(t);
   const seen = {};
   let expiresAt = NOW + 10 * 3600000;
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
   expiresAt = NOW + 20 * 3600000;
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
@@ -779,7 +789,7 @@ test('#7152 review 23: a refusal still within its hour beats a newer copy that h
   const d = tmpDir(t);
   const seen = {};
   const exp = NOW + 10 * 3600000;
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: exp }), request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => cred({ expiresAt: exp }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
   /* The record now carries a refusal stamped two hours ahead (a clock that was wrong, then corrected): newer, expired. */
   usagepoll.write(d, { at: NOW, state: 'http-401', refusedState: 'http-401', refusedAt: NOW + 2 * 3600000, refusedEmail: EMAIL, refusedExpiresAt: exp });
@@ -791,7 +801,7 @@ test('#7152 review 24: a restarted board keeps a refusal for a token that is sti
   const d = tmpDir(t);
   const seen = {};
   let token = cred({ expiresAt: NOW + 10 * 3600000 });
-  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => token, request: fakeRequest(answer, seen) });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: TMP_ROOT, readCred: async () => token, request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
   token = cred({ expiresAt: NOW + 20 * 3600000 });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 5 * 60000, { code: 200, body: BODY }));

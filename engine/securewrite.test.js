@@ -27,6 +27,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const securewrite = require('./securewrite');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-securewrite-'));
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -38,7 +39,7 @@ const modeOf = (p) => fs.statSync(p).mode & 0o777;
    Both the old shape (write in place, then chmod) and this one END at 0600, so a
    mode assertion passes either way and cannot be the guard. `rename` REPLACES the
    inode; a write in place REUSES it. That is the only observable that differs. */
-test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewriting it', () => {
+test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewriting it', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('replace');
   fs.writeFileSync(f, 'OLD');
   fs.chmodSync(f, 0o644);
@@ -57,7 +58,7 @@ test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewritin
 /* The create-time mode is a real mechanism and it is NOT what this module is for:
    this arm is the CONTROL that the fresh-create case was never broken, so a reader
    can see which case the inode arm above is actually about. */
-test('#1787: CONTROL, a fresh path was never the broken case', () => {
+test('#1787: CONTROL, a fresh path was never the broken case', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('fresh');
   securewrite.writeSecret(f, 'SECRET', 0o600);
   assert.equal(modeOf(f), 0o600);
@@ -67,7 +68,7 @@ test('#1787: CONTROL, a fresh path was never the broken case', () => {
 /* #1763: mkdirSync's mode is create-only too, so a directory that already exists at
    0755 stays there. A loose directory discloses the FILENAMES even when every file
    inside is 0600. */
-test('#1787: secureDir tightens a pre-existing loose directory, not just a fresh one', () => {
+test('#1787: secureDir tightens a pre-existing loose directory, not just a fresh one', { skip: NO_POSIX_MODES }, () => {
   const d = fresh('dir');
   fs.mkdirSync(d, { recursive: true });
   fs.chmodSync(d, 0o755);
@@ -289,7 +290,7 @@ test('#1787: writeSecret CALLS the refusal on its fallback, not merely defines i
    to see it. Both shapes end at the right mode, because a fatal chmod just costs an
    attempt and the retry succeeds. What the wrap changes is whether the FIRST attempt
    survives, so that is what this counts. */
-test('#1787: a chmod failure on the temp costs ZERO retries, because it is not fatal', () => {
+test('#1787: a chmod failure on the temp costs ZERO retries, because it is not fatal', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('chmod-eperm');
   fs.writeFileSync(f, 'OLD');
   fs.chmodSync(f, 0o644);
@@ -324,7 +325,7 @@ test('#1787: a chmod failure on the temp costs ZERO retries, because it is not f
    `fs.fstatSync(fd).mode` at the instant the bytes land.
    ⚠️ A two-line swap renders as a ONE-LINE git diff and reads like a comment change,
    so confirm the region rather than trusting the diff shape. */
-test('#1787: the fallback tightens BEFORE the bytes land, observed from inside the write', () => {
+test('#1787: the fallback tightens BEFORE the bytes land, observed from inside the write', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('fb-order');
   fs.writeFileSync(f, 'OLD');
   fs.chmodSync(f, 0o644);
@@ -546,7 +547,7 @@ test('#1787: the restore writes through the DESCRIPTOR, so a link swapped in aft
    the defect this module exists for: for the length of the window it lists the
    credential filenames to everybody. The end state is 0700 either way, so the arm
    observes the mode AT THE MOMENT chmod is called, before chmod applies. */
-test('#1787: secureDir creates the directory AT the mode, not loose and then tightened', () => {
+test('#1787: secureDir creates the directory AT the mode, not loose and then tightened', { skip: NO_POSIX_MODES }, () => {
   const d = fresh('dir-at-mode');
   const realChmod = fs.chmodSync;
   let seenAtChmod = null;
@@ -617,7 +618,7 @@ test('#1787: a temp whose write fails part way is removed, not left holding the 
    restrictive umask the wx create lands at mode 0 (measured: umask 0600 -> 0), and the
    fchmod on the fd is what makes the secret readable by its owner at all. Red by name
    with that fchmod deleted. */
-test('#1787: under a restrictive umask the temp is tightened to the requested mode before the rename, in this file', () => {
+test('#1787: under a restrictive umask the temp is tightened to the requested mode before the rename, in this file', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('umask');
   const prev = process.umask(0o600);
   try {
@@ -699,15 +700,26 @@ test('#1793: a temp from a DEAD foreign pid is reaped', () => {
   assert.equal(fs.existsSync(orphan), false, 'a dead process\'s orphan temp was not reaped');
 });
 
-test('#1793 SAFETY: a temp from a LIVE foreign pid is LEFT, never taken', () => {
+test('#1793 SAFETY: a temp from a LIVE foreign pid is LEFT, never taken', (t) => {
   /* 🛑 THE RACE THE GLOB WOULD HAVE CREATED. pid 1 (launchd) is always alive and
      foreign; `process.kill(1,0)` throws EPERM (alive, not ours), which is NOT
      ESRCH, so the reaper must leave it. If it took this it could take a
      concurrent writer's in-flight temp between that writer's create and rename.
      This arm stays green when the fix is reverted (nothing is reaped either way);
      it reddens if the predicate is ever widened to delete a live pid's temp. */
+  /* kosmos#8378: Windows has no pid 1, so there `process.kill(1,0)` throws ESRCH and the
+     plant is a dead pid's temp, which is rightly reaped. There the live foreign pid is a
+     child of ours that stays running (kill(pid,0) succeeds: alive), the other arm of
+     the same predicate. */
+  let livePid = 1;
+  if (process.platform === 'win32') {
+    const child = childProcess.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    t.after(() => child.kill());
+    assert.ok(Number.isInteger(child.pid), 'the live-writer child did not start');
+    livePid = child.pid;
+  }
   const dir = reapDir();
-  const live = plantTemp(dir, 'gh-token', 1, Date.now() - 5000, 1);
+  const live = plantTemp(dir, 'gh-token', livePid, Date.now() - 5000, 1);
   assert.ok(fs.existsSync(live), 'the plant did not take');
   securewrite.writeSecret(path.join(dir, 'gh-token'), 'NEW', 0o600);
   assert.equal(fs.existsSync(live), true,
@@ -747,7 +759,8 @@ test('#1793: the reaper does not break the write it runs before', () => {
   const target = path.join(dir, 'sender-token');
   securewrite.writeSecret(target, 'THE-NEW-SECRET', 0o600);
   assert.equal(fs.readFileSync(target, 'utf8'), 'THE-NEW-SECRET', 'the write did not land after the reap');
-  assert.equal(fs.statSync(target).mode & 0o777, 0o600, 'the written secret is not private');
+  // kosmos#8378: Windows keeps no POSIX modes (a file reads 0666 there), so only the write is checked there.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(target).mode & 0o777, 0o600, 'the written secret is not private');
 });
 
 test('#1793 SAFETY: a same-pid temp from a DIFFERENT thread is LEFT (worker_threads)', () => {

@@ -151,13 +151,15 @@ test('#5407: each advisory names its account row\'s folder only when that row re
   const home = require('./accounts').homeDir();
   const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'cleo-discord', pane: '0.1' }),
     paneOf({ session: 'pixel-discord', pane: '0.2' }), paneOf({ session: 'ivy-discord', pane: '0.3' })];
-  const ccdByName = { roo: '/acct/one', cleo: null, pixel: '/acct/two/', ivy: nodePath.join(home, '.claude') };
+  /* kosmos#8378: absolute on this platform (D:\acct\one on Windows, /acct/one here), as accounts.list gives a row's folder. */
+  const ONE = nodePath.resolve('/acct/one'); const TWO = nodePath.resolve('/acct/two');
+  const ccdByName = { roo: ONE, cleo: null, pixel: TWO + nodePath.sep, ivy: nodePath.join(home, '.claude') };
   const readCcd = (a) => ccdByName[a.name];
   const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
-  const rowDirs = new Set(['/acct/one', '/acct/two', nodePath.join(home, '.claude')]);   // the folders AI Models lists
+  const rowDirs = new Set([ONE, TWO, nodePath.join(home, '.claude')]);   // the folders AI Models lists
   const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] }, rowDirs });
   const dirFor = (agent) => (out.find((a) => a.agents.includes(agent)) || {}).dir;
-  assert.equal(dirFor('roo'), '/acct/one', 'a labelled folder names its row');
+  assert.equal(dirFor('roo'), ONE, 'a labelled folder names its row');
   // kosmos#7198: the same folder with no account row in AI Models names nothing (Refresh login then opens AI Models).
   const none = status.computeLoginAdvisories([panes[0]], now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] }, rowDirs: new Set() });
   assert.equal(none.length, 1, 'CONTROL: the folder with no account row still raises its notice');

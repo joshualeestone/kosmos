@@ -16,6 +16,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const RUNS_BIN_SH = require('./test-support/skip-on-win32').skipOnWin32('it runs the installer the Mac and Linux way, by the absolute POSIX path /bin/sh, which Windows does not have (Windows updates through engine/win32update.js)');   // kosmos#8378
 
 const mv = require('./engine/manifest-verify.js');
 const VERIFIER = fs.readFileSync(path.join(__dirname, 'engine', 'manifest-verify.js'), 'utf8');
@@ -112,7 +113,7 @@ function runSetup(extraEnv) {
   return { code: r.status, err: r.stderr, ran: fs.existsSync(mark) };
 }
 
-test('run-setup: paused, the installer is NOT run and the exit is 96 (tried again later); CONTROL: not paused, it runs', () => {
+test('run-setup: paused, the installer is NOT run and the exit is 96 (tried again later); CONTROL: not paused, it runs', { skip: RUNS_BIN_SH }, () => {
   const held = runSetup({ KOSMOS_UPDATE_PAUSE_URL: meta('{"updates_paused":true}') });
   assert.equal(held.code, mv.NOT_FETCHED, held.err);
   assert.equal(held.ran, false, 'the installer ran during a pause');
@@ -122,7 +123,7 @@ test('run-setup: paused, the installer is NOT run and the exit is 96 (tried agai
   assert.equal(control.ran, true, 'CONTROL: the same install, not paused, runs');
 });
 
-test('run-setup: an unreachable coordinator does not hold the update (fail open), and the override skips a pause', () => {
+test('run-setup: an unreachable coordinator does not hold the update (fail open), and the override skips a pause', { skip: RUNS_BIN_SH }, () => {
   const open = runSetup({ KOSMOS_UPDATE_PAUSE_URL: 'file://' + path.join(tmp, 'no-meta-here.json') });
   assert.equal(open.code, 0, open.err);
   assert.equal(open.ran, true);

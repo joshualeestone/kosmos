@@ -86,7 +86,8 @@ const report = async (port, token, seen) => {
   assert.equal(seen.length, before + 1, 'the CLI did not report at all, so the header cannot be judged');
 };
 
-test('#1139: the CLI presents a well-formed token, and only a well-formed one', () => withStub(async (port, seen) => {
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+test('#1139: the CLI presents a well-formed token, and only a well-formed one', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   await report(port, null, seen);
   assert.equal(seen[0], undefined, 'no token set, so no header may be sent');
 

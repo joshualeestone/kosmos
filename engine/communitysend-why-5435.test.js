@@ -80,6 +80,11 @@ test('#5435 review 2: the log names the switch file, once, when it cannot be rea
   const real = console.error;
   console.error = (...a) => { lines.push(a.join(' ')); };
   try {
+    /* kosmos#8378: start from a readable switch, so a failure an earlier arm left logged (the first arm ends
+       unreadable) does not hide this one. On the Mac the records arm above happened to clear it; on Windows
+       that arm skips, and this one saw no line at all. */
+    cs.setSwitch(() => ({ on: true, ok: true }));
+    cs.switchOn();
     cs.setSwitch(() => ({ on: false, ok: false }));
     cs.willSend('ava');
     cs.willSend('ava');

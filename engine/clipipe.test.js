@@ -12,6 +12,9 @@ const { EventEmitter } = require('node:events');
 const clipipe = require('./clipipe');
 
 const GUARD = path.join(__dirname, 'clipipe.js');
+// Inside double quotes NODE_OPTIONS reads a backslash as an escape, so a Windows path (D:\a\...) is written with each
+// backslash doubled. A Mac or Linux path has none, so the value there is unchanged.
+const GUARD_OPT = '--require "' + GUARD.replace(/\\/g, '\\\\') + '"';
 // kosmos#8714: a spawned child's stdout is a socket, so its closed reader can read as ENOTCONN or ECONNRESET.
 const CLOSED = /EPIPE|ENOTCONN|ECONNRESET/;
 // About 1 MB, far more than a pipe holds, so the write is still going when the reader closes.
@@ -44,7 +47,7 @@ test('guarded: a closed reader is a quiet exit 141 (CONTROL: unguarded, the same
 });
 
 test('as a preload: it restores the NODE_OPTIONS it was loaded with, then guards', async () => {
-  const env = { NODE_OPTIONS: '--require "' + GUARD + '"', KOSMOS_CLIPIPE_SET: '1',
+  const env = { NODE_OPTIONS: GUARD_OPT, KOSMOS_CLIPIPE_SET: '1',
     KOSMOS_USER_NODE_OPTIONS: '', KOSMOS_USER_NODE_OPTIONS_SET: '' };
   const seen = await runAndCloseEarly(['-e',
     "process.stderr.write(JSON.stringify([process.env.NODE_OPTIONS ?? null, process.env.KOSMOS_CLIPIPE_SET ?? null]) + '\\n'); " + WRITER], env);
@@ -57,7 +60,7 @@ test('the board (an entry named server.js) restores the env but is not guarded (
   const body = "process.stderr.write(JSON.stringify([process.env.NODE_OPTIONS ?? null]) + '\\n'); " + WRITER;
   fs.writeFileSync(path.join(dir, 'server.js'), body);
   fs.writeFileSync(path.join(dir, 'other.js'), body);
-  const env = { NODE_OPTIONS: '--require "' + GUARD + '"', KOSMOS_CLIPIPE_SET: '1',
+  const env = { NODE_OPTIONS: GUARD_OPT, KOSMOS_CLIPIPE_SET: '1',
     KOSMOS_USER_NODE_OPTIONS: '', KOSMOS_USER_NODE_OPTIONS_SET: '' };
   const board = await runAndCloseEarly([path.join(dir, 'server.js')], env);
   assert.match(board.err, /^\[null\]/, 'the board still restores NODE_OPTIONS');

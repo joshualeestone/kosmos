@@ -49,6 +49,10 @@ function withPauseUrl(url, fn) {
 
 function board(version) {
   update.resetCache();
+  /* The fetcher answers the Mac pointer's shape ({ version }). On Windows the board reads the Windows pointer, which
+     must also carry sha256 and the versioned zip, so the same answer reads as unreadable there and nothing is offered.
+     This file is the Mac board's pause; the Windows path is engine/win32connectupdate.test.js. */
+  update.setPlatform('darwin');
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version }) }));
   update.setInstalledRoot(() => '/nonexistent/kosmos-install-root');
   update.setAutoPref(() => ({ on: true, ok: true }));
@@ -57,7 +61,7 @@ function board(version) {
   return () => started;
 }
 function clear() {
-  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.resetCache();
+  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.setPlatform(null); update.resetCache();
 }
 
 test('board: paused, a newer version is not installed automatically and paused() says so; CONTROL: not paused, it is', async () => {

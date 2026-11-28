@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const { stopBoard, runUntilBanner } = require('./test-support/board-child');
@@ -29,7 +30,7 @@ test('a child that honours SIGTERM is dead when stopBoard resolves', async () =>
   assert.equal(child.signalCode, 'SIGTERM');
 });
 
-test('a child that ignores SIGTERM is SIGKILLed after the grace period', async () => {
+test('a child that ignores SIGTERM is SIGKILLed after the grace period', { skip: skipOnWin32('it needs a child that ignores SIGTERM, and Windows has no signals: any kill ends the child at once') }, async () => {
   /* Leaves on its own after 3s, so a missing escalation fails below instead of
      hanging the suite. */
   const child = node("process.on('SIGTERM', () => {}); process.stdout.write('up'); setTimeout(() => process.exit(0), 3000)");
