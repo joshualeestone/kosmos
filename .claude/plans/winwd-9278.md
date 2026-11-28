@@ -9,16 +9,19 @@ runner (tools.run-tests-winwd-9278.test.js in ALSO_ROOT). Mac and Linux start th
 
 ## Change
 - tools/run-tests.sh: rt_wd_snap_win (one Get-CimInstance snapshot: pid, parent, age, start time, command line; cut at
-  20 s by timeout) and rt_wd_loop_win: node --test found through /proc/<pid>/ppid and cmdline, its winpid from
-  /proc/<pid>/winpid; it follows each #7257 chunk's node --test in turn; a child of node over the limit whose command
-  line mentions node is stopped with taskkill /T /F, and only when that succeeds is it printed with the Mac loop's
-  TIMED OUT line and added to the flag file; each file is keyed on pid and start time (a failed taskkill is retried at
-  the next look); an empty snapshot is said once and the limit is not claimed while it lasts (.node removed).
-  rt_file_watchdog_start starts it when _RT_WIN=1, and says so and starts nothing when powershell is missing. The
-  Windows start line says only that the leftover-process checks and stops do not run there. The guard step 1 put on
-  the Mac loop's not-found line is removed (the Mac loop no longer runs on Windows).
-- tools.run-tests-winwd-9278.test.js: which loop starts where (source); on Windows, the real runner on a stuck file and
-  a quick one with a 30 s limit; and 116 long-named quick files over two or more chunks with the stuck file last.
+  20 s by coreutils timeout; KOSMOS_TEST_WIN_SNAP_EMPTY=1 empties it, for the tests) and rt_wd_loop_win: node --test
+  found through /proc/<pid>/ppid and cmdline, its winpid from /proc/<pid>/winpid; it follows each #7257 chunk's node
+  --test in turn; a child of node over the limit whose command line mentions node is stopped with taskkill /T /F. It
+  is named (the Mac loop's TIMED OUT line, and the flag file) when taskkill succeeds, or when taskkill failed but the
+  file is gone (tasklist); taskkill's not-found (128) means it ended first and is not named; a file still there is
+  tried again at the next look. Each file is keyed on pid and start time. An empty snapshot is said once a spell and
+  recorded in $flag.blind, which a red run's summary reads ("but off while the Windows process snapshot came back
+  empty"). rt_file_watchdog_start starts it when _RT_WIN=1, and starts nothing (and says so) when powershell or
+  coreutils timeout is missing. The Windows start line says only that the leftover-process checks and stops do not run
+  there. The guard step 1 put on the Mac loop's not-found line is removed (the Mac loop no longer runs on Windows).
+- tools.run-tests-winwd-9278.test.js: two source arms (which loop starts where; the summary's order and the .blind
+  marker's cleanup) and three Windows arms through the real runner with a 30 s limit (a stuck file beside a quick one;
+  116 long-named files over two or more chunks with the stuck one last; an empty snapshot, said once, and the summary).
 
 ## Measured (Windows runner, never-merge branch angel-9278-never-merge)
 - Pass 7: the runner stopped the stuck file at the limit (41 s total), named only it, run red, no node left.
@@ -28,8 +31,9 @@ runner (tools.run-tests-winwd-9278.test.js in ALSO_ROOT). Mac and Linux start th
 
 - Pass 11: both Windows arms pass (40.1 s; 116 files, 48.0 s).
 - Controls: with the Mac loop forced on Windows both arms went red ("not stopped by its own watchdog"); with the loop
-  ending after the first chunk the chunk arm went red (its timeout is now checked before the chunk count, so it names
-  that failure).
+  ending after the first chunk the chunk arm went red with "the stuck file in a later chunk was not stopped" (its
+  timeout is checked before the chunk count, so it names that failure).
+- Pass 15 (run 46146905561): all four Windows-run arms pass (42.2 s; 116 files, 49.6 s; the empty-snapshot arm).
 
 ## Rejected
 - Porting the leftover-process checks and stops (#4273, #8890, #9159) in the same change: they need the same snapshot

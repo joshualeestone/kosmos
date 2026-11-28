@@ -17,7 +17,8 @@
 # --test not found yet", which prints on a green run whenever node takes 5 s or more to start, at any limit, and
 # "could not make the file watchdog's flag file", when its flag file cannot be made). On Windows (Git Bash) a green
 # run also prints the schtasks rule line (#7247), the chunk count (#7257) and that the leftover-process checks and
-# stops do not run there (#9278), and, where powershell is missing, that the per-file limit is off (#9278).
+# stops do not run there (#9278), and that the per-file limit is off when powershell or coreutils timeout is missing
+# or while the Windows process snapshot comes back empty (#9278).
 #
 # The suite itself is isolated by construction (every booted server takes
 # port 0, every store-using test sandboxes before requiring, every shell test
@@ -235,7 +236,8 @@ esac
 # the slowest file sampled in a full run on 2026-10-20, 388 s at mean load 18.7; see
 # .claude/plans/filewatchdog-6668.md), scaled by KOSMOS_TEST_TIME_SCALE like the other liveness ceilings but never
 # past 60 min by the scaling: the point is to bound how long one node test file can hold the shared queue (an N set
-# above 60 is taken as given). KOSMOS_TEST_FILE_TIMEOUT_S, in seconds and unscaled, is for this runner's own tests.
+# above 60 is taken as given). KOSMOS_TEST_FILE_TIMEOUT_S, in seconds and unscaled, is for this runner's own tests, and
+# so is KOSMOS_TEST_WIN_SNAP_EMPTY=1, which empties the Windows watchdog's process snapshot (kosmos#9278).
 # Both refuse a leading 0 (bash would read 010 as octal) and more than a day (1440 min, 86400 s).
 # KOSMOS_TEST_TIMEOUT_MS overrides node's per-test --test-timeout (default 600000, scaled below by
 # KOSMOS_TEST_TIME_SCALE like the suite's other liveness ceilings); validated the same way.
@@ -372,7 +374,7 @@ rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whol
   timeout 20 powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
 }
 rt_wd_loop_win() {
-  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key file f p w
+  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key krc file f p w
   [ "$RT_FILE_TIMEOUT_S" -lt 30 ] && tick=1
   trap 'stop=1; [ -n "${sl:-}" ] && kill "$sl" 2>/dev/null' TERM
   while [ "$stop" = 0 ] && kill -0 "$parent" 2>/dev/null; do
@@ -419,11 +421,12 @@ rt_wd_loop_win() {
           case "$cmd" in *" $f"|*"/$f"|*" $w"|*"\\$w") [ "${#f}" -gt "${#p}" ] && p="$f" ;; esac
         done
         [ -n "$p" ] && file="$p"
-        # taskkill /T can stop the file and still fail on a child that went first, so on a failure ask whether the file
-        # itself is still there: if it is, it is tried again at the next look; if not, it was stopped (or ended).
-        if ! taskkill //T //F //PID "$pid" >/dev/null 2>&1; then
-          tasklist //FI "PID eq $pid" //NH 2>/dev/null | grep -q " $pid " && continue
-        fi
+        # taskkill exits 128 when the pid is not found: the file ended on its own first, so it timed nothing out and is
+        # not named. Any other failure can still have stopped it (/T fails on a child that went first), so ask whether
+        # the file itself is still there: if it is, it is tried again at the next look; if not, it was stopped.
+        taskkill //T //F //PID "$pid" >/dev/null 2>&1; krc=$?
+        if [ "$krc" = 128 ]; then stopped="$stopped $key"; continue; fi
+        if [ "$krc" != 0 ] && tasklist //FI "PID eq $pid" //NH 2>/dev/null | grep -q " $pid "; then continue; fi
         stopped="$stopped $key"
         echo "run-tests: TIMED OUT after $RT_FILE_TIMEOUT_LABEL: $file (#6668; stopped it and its process tree)" >&2
         printf '%s\n' "$file" >> "$flag"
