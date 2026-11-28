@@ -140,6 +140,29 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-t${THREAD}-${START
    no `t` segment) still matches and is treated as thread 0 (a prior release could
    only have written from the main thread). That suffix is unique to this module, so
    a match is by construction one of our temps and never a credential file. */
+/**
+ * kosmos#9268: did the create-exclusive open of `tmp` FOLLOW a link planted there? On Windows it can: Node maps
+ * `'wx'` to CREATE_NEW, and CreateFile follows a reparse point, so a dangling link at the temp name is not an existing
+ * file to it and the open creates the link's TARGET (measured on GitHub's Windows runner, engine/trust.test.js). A
+ * POSIX O_CREAT|O_EXCL refuses a link instead, so there this is false.
+ *
+ * When it did, the file the open just made sits where somebody else chose. This closes it and removes that file, and
+ * only that one: the same file as the open's (device and inode) and still empty, so it holds nothing of anyone's (the
+ * exclusive open made it). The link itself is left as it was. Returns true when it refused.
+ */
+function refuseFollowedLink(tmp, fd) {
+  let link;
+  try { link = fs.lstatSync(tmp).isSymbolicLink(); } catch { link = false; }
+  if (!link) return false;
+  try {
+    const made = fs.fstatSync(fd);
+    const target = fs.realpathSync(tmp);
+    const there = fs.lstatSync(target);
+    fs.closeSync(fd);
+    if (there.isFile() && there.dev === made.dev && there.ino === made.ino && there.size === 0) fs.unlinkSync(target);
+  } catch { try { fs.closeSync(fd); } catch { /* already closed */ } }
+  return true;
+}
 const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
 
 /* Directories already swept this process, so the reap runs once per directory per
@@ -406,6 +429,7 @@ function writeSecret(file, data, mode, opts) {
          The flag flips the instant the inode exists, which is the only moment
          "we created it" is a fact rather than a proxy. */
       const tfd = fs.openSync(tmp, 'wx', createMode);
+      if (refuseFollowedLink(tmp, tfd)) throw Object.assign(new Error('a link was planted at the temp name'), { code: 'EEXIST' });   // kosmos#9268: the next attempt takes a fresh name
       created = true;
       try {
         /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
