@@ -45,10 +45,10 @@ function fileStdin(text, keepName) {
    long (the CLI's own exit time is taken from the shell, not from the pipeline's end); { socket: text } and
    { open: true } node's own stdin pipe, which is a socket pair, with text then closed or left open with nothing on it;
    { devnull: true } /dev/null. An open pipe is closed after the CLI exits, so it cannot leak. */
-/* kosmos#9264: run() puts each child in its own process group, so a group still running when this file ends (the run
-   was interrupted) is not taken down with it: end any that are left. */
+/* kosmos#9264: run() puts each child in its own process group, which an interrupt to this file does not reach, so any
+   group still running when it ends (normally or by SIGINT, SIGTERM or SIGHUP, through removeAtEnd) is ended here. */
 const LIVE_GROUPS = new Set();
-process.on('exit', () => { for (const pid of LIVE_GROUPS) { try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ } } });
+require('./test-support/remove-at-end').removeAtEnd(() => { for (const pid of LIVE_GROUPS) { try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ } } });
 function run(args, port, stdin) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN };
@@ -237,7 +237,7 @@ for (const [how, stdin] of [
     assert.equal(r.code, 0, r.out);
     assert.equal(seen.length, 1, r.out);
     assert.equal(seen[0].body.body, 'just these words');
-    // kosmos#9264: no wall-clock bound (a busy machine trips one); the peek's length is checked in the CLI below.
+    // kosmos#9264: no wall-clock bound (a busy machine trips one); the #9264 test below checks the peek's length in the CLI.
   }));
 }
 
@@ -260,13 +260,14 @@ function peekProblems(cli) {
   const m = cli.match(/^KOSMOS_PIPED_PEEK_MS=(\d+)\b/m);
   if (!m) problems.push('no KOSMOS_PIPED_PEEK_MS line');
   else if (Number(m[1]) >= 1000) problems.push('KOSMOS_PIPED_PEEK_MS is ' + m[1] + ' ms, not under 1 s');
-  const start = cli.indexOf('\n_words_and_piped() {');
-  const end = start < 0 ? -1 : cli.indexOf('\n}\n', start);
+  const start = cli.search(/\r?\n_words_and_piped\(\) \{/);
+  const rel = start < 0 ? -1 : cli.slice(start).search(/\r?\n\}\r?\n/);
+  const end = rel < 0 ? -1 : start + rel;
   if (start < 0 || end < 0) { problems.push('no _words_and_piped function'); return problems; }
   const body = cli.slice(start, end);
   if (!/\bKOSMOS_PEEK_MS="?\$\{?KOSMOS_PIPED_PEEK_MS\}?"?(\s|$)/.test(body)) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
-  if (!/setTimeout\([^;]*process\.env\.KOSMOS_PEEK_MS/.test(body)) problems.push('the peek timer does not read KOSMOS_PEEK_MS');
-  const code = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');   // a comment may name the quiet read
+  if (!/setTimeout\([^,;]*,\s*Number\(\s*process\.env\.KOSMOS_PEEK_MS\s*\)\s*\)/.test(body)) problems.push('the peek timer is not exactly KOSMOS_PEEK_MS');
+  const code = body.split(/\r?\n/).filter((l) => !/^\s*(#|\/\/)/.test(l)).join('\n');   // a comment line may name the quiet read
   if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(code)) problems.push('the peek reaches the quiet read');
   return problems;
 }
@@ -274,9 +275,10 @@ function peekProblems(cli) {
 test('#9264 the peek for words alone is under a second and is not the quiet read', () => {
   const cli = fs.readFileSync(CLI, 'utf8');
   assert.deepEqual(peekProblems(cli), []);
-  // CONTROL: the same check refuses a 3 s peek, and a peek given the quiet read's length.
+  // CONTROL: the same check refuses a 3 s peek, a peek given the quiet read's length, and a scaled peek timer.
   assert.notDeepEqual(peekProblems(cli.replace(/^KOSMOS_PIPED_PEEK_MS=\d+/m, 'KOSMOS_PIPED_PEEK_MS=3000')), []);
   assert.notDeepEqual(peekProblems(cli.replace('KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS"', 'KOSMOS_PEEK_MS="$((KOSMOS_STDIN_QUIET_S * 1000))"')), []);
+  assert.notDeepEqual(peekProblems(cli.replace('Number(process.env.KOSMOS_PEEK_MS))', 'Number(process.env.KOSMOS_PEEK_MS) * 10)')), []);
 });
 
 for (const v of [
