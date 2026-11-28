@@ -9,11 +9,13 @@
 
 **Rejected.** Keeping the question alongside the blocked state (the card's other option). Every board reader renders one state per card, so two states would touch all of them for the same outcome.
 
-**Not warned, on purpose.** `clear`, which is the agent saying its wait is answered. An automatic write, which record() already refuses over a deliberate wait. Replacing an automatic permission prompt, which is no question anybody asked.
+**Not warned, on purpose.** `clear`, which is the agent saying its wait is answered. An automatic write, which record() already refuses over a deliberate wait. Replacing an automatic permission prompt, which is no question anybody asked. An operator clear (by:'operator', #2575 and #5034), which removes the question on purpose; those writes skip the read entirely.
+
+**Review 1.** The note cut the question with a plain slice and kept control characters. Either could reach the reply as a JSON escape, a backslash the macOS CLI would print. Now control characters become spaces and the cut keeps whole characters (cutUnits, #7108). A test covers both inputs, and the old slice turns it red.
 
 **Measured.**
 - server.replacedquestion-9320.test.js is 4/4, three times. Its controls: a blocked report with no question standing gets no such note; clear gets none; replacing a permission prompt gets none.
 - Mutants: with the route line removed, 2 tests go red; with record()'s check removed, 3 go red.
-- The 159 test files that name selfreport or /api/report are run through queued-heavy.sh.
+- The 159 test files that name selfreport or /api/report, run through queued-heavy.sh on 1e69c0fbe4: 3195 tests, 0 fail, 31 skipped.
 
 **Weakest premise.** The note is advice, not a block: an agent that ignores it still loses the question. The card asked to be told, and blocking a report would stop an agent from saying what it is doing.
