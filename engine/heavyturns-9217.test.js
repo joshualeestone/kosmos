@@ -215,11 +215,17 @@ test('round 3: a place nobody has asked for in PLACE_IDLE_MS is gone, even one t
   assert.deepEqual(names(ht.waiting({ root: r, now: T0 + 10 + ht.PLACE_IDLE_MS, startOf })), ['angel'], 'inside the limit the place stays');
   assert.deepEqual(ht.waiting({ root: r, now: T0 + 11 + ht.PLACE_IDLE_MS, startOf }), [], 'a place that stopped asking stayed past the limit');
   assert.deepEqual(ht.readLine(r), [], 'and it left the file');
+  // Control (round 5: the first version could not fail): a place that keeps asking inside the limit keeps its position
+  // over a wait far longer than the limit, ahead of a later joiner.
+  const step = ht.PLACE_IDLE_MS - 60 * 1000;
   ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 });
-  const m = ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 2 * ht.PLACE_IDLE_MS });
-  assert.equal(m.place, 1, 'control: asking again keeps the place, however long the wait');
-  ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 3 * ht.PLACE_IDLE_MS - 1 });
-  assert.equal(ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 4 * ht.PLACE_IDLE_MS - 2 }).place, 1);
+  ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 1 });
+  for (let t = T0 + step; t <= T0 + 4 * step; t += step) {
+    ht.take({ root: r, agent: 'kitty', label: 'shots', now: t + 1 });
+    const m = ht.take({ root: r, agent: 'mona', label: 'cut', now: t });
+    assert.deepEqual([m.place, m.ahead.length], [1, 0], 'asking again inside the limit lost the place at ' + (t - T0) + ' ms');
+  }
+  assert.deepEqual(names(ht.waiting({ root: r, now: T0 + 4 * step + 2 })), ['mona', 'kitty']);
 });
 
 test('round 4: the caller\'s own lapsed place goes too: back after PLACE_IDLE_MS, it rejoins at the back', () => {
