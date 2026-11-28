@@ -1,8 +1,10 @@
 # wintests-8378: cluster 1's cli files skip their Mac CLI arms on Windows (kosmos#8378)
 
 ## Finished looks like
-On GitHub's Windows runner, each of the 25 cli.* files below has 0 failing tests, every skip says why, and every file still
-passes in full on the Mac (no skip there). engine/windows-tests-1777 (the coupling audit) is green.
+Every one of the 25 cli.* files has 0 failing tests on GitHub's Windows runner, measured once by my own runs; the seven
+both-CLI files also join ALSO_ROOT, so the Windows CI job keeps checking them (the other 18 are not run there, and nothing
+keeps their Windows green). Every skip says why, every file passes in full on the Mac, and engine/windows-tests-1777 is
+green.
 
 ## Where the list came from (measured)
 - 454 candidate test files (no Windows guard, a Mac/Linux-only mechanism), run on GitHub's Windows runner at main
@@ -24,7 +26,8 @@ passes in full on the Mac (no skip there). engine/windows-tests-1777 (the coupli
   2. it runs install/kosmos through /bin/bash by an absolute POSIX path (community-quiet-stdin);
   3. it runs /bin/sh by an absolute POSIX path (exit-code-mapping, whose tests exercise its harness, not the CLI);
   4. it runs install/kosmos with a bare bash, which reaches Git Bash, where the Mac and Linux CLI's check for a running
-     board does not read the test board as Kosmos (observed; the cause inside Git Bash was not found); and a Windows computer never runs that CLI (it runs
+     board does not read the test board as Kosmos (observed; the cause inside Git Bash was not found; the skip reason names only the fact that a Windows computer never
+     runs that CLI); and a Windows computer never runs that CLI (it runs
      tools/windows/kosmos-cli.js) (unknown-flag, open-1957).
 - Two are fixes, not skips, measured on the runner: feedback-note's control matched /feedback/ with forward slashes only
   (path.join on Windows gives backslashes), and version's warning names the installed command as KOSMOS_HOME +
