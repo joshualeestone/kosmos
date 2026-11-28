@@ -14,7 +14,9 @@ enum Conn {
         static let savedToken = "Saved on your computer"
         static let savedSignIn = "Signed in on your computer"
         static let notConnected = "Not connected"
-        static let unknown = "Signed in through its own tool, if at all: Kosmos cannot tell from here"
+        // held null: a tool's own sign-in Kosmos does not keep, so the disk cannot say (review 1: not "cannot tell",
+        // which reads as if nobody can; the computer's own Connections check can).
+        static let unknown = "Not saved by Kosmos: check it on your computer"
     }
 
     enum State: String, Equatable { case saved, none, unknown }

@@ -21,7 +21,7 @@ final class ConnUITests: XCTestCase {
         let rows = app.descendants(matching: .any).matching(identifier: "conn-service")
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10), "no service rows")
         // By their whole labels, not by position (a duplicated element would shift positions).
-        for label in ["GitHub, Signed in on your computer", "Vercel, Signed in through its own tool, if at all: Kosmos cannot tell from here",
+        for label in ["GitHub, Signed in on your computer", "Vercel, Not saved by Kosmos: check it on your computer",
                       "Cloudflare, Not connected", "Brave Search, Saved on your computer"] {
             XCTAssertTrue(rows.matching(NSPredicate(format: "label == %@", label)).firstMatch.exists, "no row reads: " + label)
         }
