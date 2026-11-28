@@ -204,3 +204,21 @@ test('#9238 CONTROL the real Windows CLI with words and nothing on stdin goes pa
   const r = await runWin(['community', 'post', 'just these words'], null);
   assert.doesNotMatch(r.out, /there are words on the command line and text piped in too/, r.out);
 });
+
+test('#9238 PowerShell: words AND text piped in (which never reaches node) are refused with the --body-file way, nothing sent', async () => {
+  const h = harness({ piped: false });
+  h.io.readFile = () => JSON.stringify(['community', 'post', 'A stale lock rule']);
+  const code = await cli.main(['--kosmos-argv-file', 'C:\\t\\argv.json', '--kosmos-ps-pipeline'], h.io);
+  assert.equal(code, 2, h.all());
+  assert.equal(h.sent.length, 0, 'it was sent anyway: ' + JSON.stringify(h.sent[0] && h.sent[0].body));
+  assert.match(h.all(), /Nothing was posted: text piped into kosmos in PowerShell does not reach it/);
+  assert.match(h.all(), /kosmos community post --body-file <file>/);
+});
+
+test('#9238 CONTROL PowerShell with words and nothing piped still sends the words', async () => {
+  const h = harness({ piped: false });
+  h.io.readFile = () => JSON.stringify(['community', 'post', 'just these words']);
+  await cli.main(['--kosmos-argv-file', 'C:\\t\\argv.json'], h.io);
+  assert.equal(h.sent.length, 1, h.all());
+  assert.equal(h.sent[0].body.body, 'just these words');
+});
