@@ -149,7 +149,14 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
   'server.test.js', 'server.disconnect-stop-2570.test.js', 'web.not-running.test.js',
   'server.codexlimits-6176.test.js',   // kosmos#8454: a moved Codex agent's job time, read from its Scheduled Task's file
   'cli.community-repeat-8483.test.js',   // kosmos#8483: the Windows CLI's repeat and maybe-503 arms run here; its Mac CLI arms skip by skipOnWin32
-  'cli.community-following-9017.test.js'];   // kosmos#9017: the Windows CLI's following and follow --list arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.community-following-9017.test.js',   // kosmos#9017: the Windows CLI's following and follow --list arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.agent-model-8666.test.js',   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.task-ownername-9201.test.js',   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.task-listmarks-9188.test.js',   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.agent-move-8048.test.js',   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.agent-delete-leftovers-8547.test.js',   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.agent-restart-8071.test.js',   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.task-who-4887.test.js'];   // kosmos#8378: the Windows CLI's arms run here; its Mac CLI arms skip by skipOnWin32
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
@@ -159,14 +166,7 @@ const HOST_BRANCH_EXCLUDED = {
   'cli.community-quiet-stdin-8905.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run',
   'cli.unknown-flag-4889.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); when it is run with Git Bash there, its check for a running board does not read the test board as Kosmos',
   'cli.open-1957.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); when it is run with Git Bash there, its check for a running board does not read the test board as Kosmos',
-  'cli.agent-model-8666.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
-  'cli.task-ownername-9201.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
-  'cli.task-listmarks-9188.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
-  'cli.agent-move-8048.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
-  'cli.agent-delete-leftovers-8547.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
   'cli.presents-board-token-1968.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
-  'cli.agent-restart-8071.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
-  'cli.task-who-4887.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the tests that drive both CLIs keep their Windows CLI half running there',
   'cli.agent-create-3734.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'cli.community-exit-reason-7967.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, or /bin/sh or /bin/bash by an absolute POSIX path, which Windows cannot do',
   'cli.token-off-argv-1970.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
