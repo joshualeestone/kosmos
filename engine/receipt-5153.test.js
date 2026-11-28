@@ -305,7 +305,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     /* #9314: an escaped drive-letter absolute path, on every host (on Windows the src/new.js arm above is one too). */
     call('10:18', 'c2g', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: C:\\\\Users\\\\kay\\\\drive.js\\n+x\\n*** End Patch"});'),
     out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
-    /* #9314 review 1: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
+    /* #9314: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
        key before it does not decide it, two calls in one script each keep their own, and a patch passed by name keeps its
        own too. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
     call('10:19', 'c2h', String.raw`await tools.apply_patch({'patch': "*** Begin Patch\n*** Update File: q'key.md\n+x\n*** End Patch"});`
@@ -315,9 +315,9 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
       + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n" + '*** Update File: cat.md' + "\n+x\n*** End Patch"});`
       + ' await tools.apply_patch({patch:`*** Begin Patch\\n*** Update File: $' + '{dir}/tpl.js\\n+x\\n*** End Patch`});'),
     out('10:19', 'c2h', 'Script completed\nWall time 1 seconds'),
-    /* #9314 review 2: a header past the end of the string its Begin Patch opened (here a second, "-quoted piece) is read
+    /* #9314: a header past the end of the string its Begin Patch opened (here a second, "-quoted piece) is read
        with the " main assumed, never cut at the first piece's quote (it would read `it`). */
-    /* #9314 review 3: in a string whose quote is known, a ' then , or ) is part of the name, never "code". */
+    /* #9314: in a string whose quote is known, a ' then , or ) is part of the name, never "code". */
     call('10:19', 'c2j', String.raw`await tools.apply_patch({patch:"*** Begin Patch
 *** Update File: notes 'a', b.md
 +x
@@ -354,7 +354,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
 });
 
-test('#9314 reviews 2 and 3: a one-line script of 32,000 headers, and 16,000 alternating escaped openers, are read in linear time', async () => {
+test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped openers, are read in linear time', async () => {
   const project = 'p' + (++pn);
   const lin9314 = worker('lin9314');
   store.writeProfile('lin9314', { provider: 'openai' });
@@ -364,7 +364,7 @@ test('#9314 reviews 2 and 3: a one-line script of 32,000 headers, and 16,000 alt
   const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
   // No newline and no quote after the first header, so every later header sits inside the text the first path read.
   const src = 'await tools.apply_patch({patch:"*** Begin Patch ' + '*** Update File: x'.repeat(32000) + '"});';
-  /* Review 3: Begin Patch openers that alternate between ' and " with every quote escaped, so no string closes. One cached
+  /* Begin Patch openers that alternate between ' and " with every quote escaped, so no string closes. One cached
      close found each header's opener a miss and rescanned to the end (4,000 repeats 1.5 s, quadratic). */
   const alt = 'await tools.exec(' + String.raw`\'*** Begin Patch\n*** Update File: a\n\"*** Begin Patch\n*** Update File: a\n`.repeat(8000) + ');';
   fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-lin9314.jsonl'), jl([

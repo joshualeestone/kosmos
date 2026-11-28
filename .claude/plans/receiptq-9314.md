@@ -41,4 +41,7 @@ Rejected: stopping at every `'` and backtick (the card's own warning): a real fi
 ## Weakest premise
 Neither case has been seen in a real Codex transcript (the card says so); both are reasoned from the script being a
 JavaScript string. A patch whose Begin Patch line is not at the start of its own string (it is built in pieces) gets the
-assumed `"`; such paths are usually caught by the ran-on rule and left out, not read wrong.
+assumed `"`; such paths are usually caught by the ran-on rule and left out, not read wrong. The opener is the one
+character before `*** Begin Patch`, so two shapes read it wrong: a patch whose own text mentions `'*** Begin Patch` inside
+a "-string gives later headers `'` (`it's.md` would read `it`), and a string that starts with a newline before Begin
+Patch is read as "no opener" and gets the assumed `"`. Both are contrived, and neither reads worse than main.
