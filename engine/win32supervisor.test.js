@@ -856,6 +856,61 @@ test('#570 headless: a supervisor whose task was ended never starts the agent ag
   h.stop();
 });
 
+test('#9236 a task ended DURING the running-agents lookup does not launch, and a live one still does', () => {
+  /* The lookup (`claude agents --json`) can take up to 15 s and a board restart ends the task inside it. Homer measured
+     the old supervisor's `--resume` beside the new one in 2 of 15 restarts. The host is killed from inside the lookup
+     here, so only a check made AFTER it can see that. The control keeps the host alive and must launch. */
+  for (const killDuringLookup of [true, false]) {
+    const kids = [];
+    const events = [];
+    let hostAlive = true;
+    let lookups = 0;
+    const h = sup.superviseStreaming({ name: 'r', cwd: 'C:\\w' }, {
+      liveReader: () => { lookups += 1; if (killDuringLookup && lookups === 2) hostAlive = false; return []; },
+      throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+      mayStart: () => hostAlive,
+      onEvent: (e) => events.push(e.action),
+      launch: () => { const c = streamingChild(1 + kids.length); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+    });
+    assert.equal(kids.length, 1, 'the first start launches');
+    events.length = 0;
+    kids[0].die(1);                  // a crash: the restart's lookup is the second one
+    assert.equal(lookups, 2, 'the restart did look');
+    if (killDuringLookup) {
+      assert.equal(kids.length, 1, 'no launch for a task ended during the lookup');
+      assert.ok(events.includes('not-starting'), 'and it says so on the task log');
+    } else {
+      assert.equal(kids.length, 2, 'control: a live task relaunches after the same lookup');
+      assert.ok(!events.includes('not-starting'));
+    }
+    h.stop();
+  }
+});
+
+test('#9236 a supervisor whose task was ended refuses a send, and types nothing', () => {
+  const kids = [];
+  const written = [];
+  let hostAlive = true;
+  const h = sup.superviseStreaming({ name: 's', cwd: 'C:\\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    mayStart: () => hostAlive,
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stdin.write = (line, cb) => { written.push(line); if (cb) cb(null); };
+  assert.deepEqual(h.send('one'), { ok: true }, 'control: a live task takes the message');
+  assert.equal(written.length, 1);
+  hostAlive = false;
+  let answered = null;
+  const r = h.send('two', (x) => { answered = x; });
+  assert.equal(r.ok, false);
+  assert.ok(!r.unsure, 'nothing was written, so it is a definite no');
+  assert.match(r.because, /task was ended/);
+  assert.deepEqual(answered, r, 'the callback gets the same answer');
+  assert.equal(written.length, 1, 'and nothing reached the agent');
+  h.stop();
+});
+
 test('#570 every finished run retires ITS OWN token: a crash, a relaunch, then a stop', () => {
   /* Each launch mints a credential for that run (a resume included). Without
      retiring the dead run's, every crash-restart left one more live token behind
