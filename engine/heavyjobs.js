@@ -172,7 +172,8 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
   let othersOf = startOf;
   let out = { ok: true, job };
   const r = locked(root, () => {
-    const list = readAll(root).filter((j) => !(j.agent === agent && j.pid === p));
+    const here = readAll(root);   // one read under the lock serves the cap, the carry-over and the since check
+    const list = here.filter((j) => !(j.agent === agent && j.pid === p));
     // The agent's other records are judged by signal 0 and the cache, since this runs under the lock, on the route; its
     // aged ones (at most MAX_PER_AGENT, which the cap holds) get a real read while PS_MS_PER_READ lasts, because without
     // one they could only be hidden (kosmos#9222). Each pid is asked once per start, however many times it is judged.
@@ -191,8 +192,7 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
       return;
     }
     // kosmos#9222/#9230: announced again while ps cannot answer, the agent's own record for this process keeps the start
-    // it recorded (and with it its "since"); read here, under the lock, so a write made meanwhile is the one seen.
-    const here = readAll(root);
+    // it recorded (and with it its "since"), from the read taken under the lock above.
     if (unread) {
       const had = here.find((j) => j.agent === agent && j.pid === p && j.pidStart);
       if (had) job.pidStart = had.pidStart;
