@@ -15,7 +15,9 @@
 # <cwd> (pid), N other gate runs, load L". The person then knows whether to
 # rerun alone or read the red. Green runs print nothing extra (#6668: except two file-watchdog lines on stderr: "node
 # --test not found yet", which prints on a green run whenever node takes 5 s or more to start, at any limit, and
-# "could not make the file watchdog's flag file", when its flag file cannot be made).
+# "could not make the file watchdog's flag file", when its flag file cannot be made). On Windows (Git Bash) a green
+# run also prints the schtasks rule line (#7247), the chunk count (#7257) and that the per-file limit and the
+# leftover-process checks and stops do not run there (#9278).
 #
 # The suite itself is isolated by construction (every booted server takes
 # port 0, every store-using test sandboxes before requiring, every shell test
@@ -279,7 +281,8 @@ rt_wd_loop() {
       # Looks come every 0.2 s until node is found, so a short run is seen too. node starts right after this loop
       # does, so 25 looks (5 s or more: each look also runs ps) without it means it is not where this looks; a node
       # that slow to start under load can print this on a green run too.
-      if [ -z "$node" ] && [ "$looks" = 25 ]; then
+      # kosmos#9278: not on Windows, where it can never be found and rt_file_watchdog_start already said so.
+      if [ -z "$node" ] && [ "$looks" = 25 ] && [ "$_RT_WIN" != 1 ]; then
         echo "run-tests: node --test not found yet; the per-file limit is off until it is (#6668)" >&2
       fi
     elif ! kill -0 "$node" 2>/dev/null; then
@@ -355,9 +358,9 @@ rt_wd_loop() {
 rt_file_watchdog_start() {
   [ "$KOSMOS_TEST_PART" != shell ] || return 0
   # kosmos#9278: on Windows the watchdog cannot see node (Git Bash has no pgrep, and its ps lists no native process
-  # with -A -o), so a file stuck in a sync call is not stopped; the process leak check reads the same ps. Said once, at
-  # the start, rather than as a limit that may still begin.
-  if [ "$_RT_WIN" = 1 ]; then echo "run-tests: on Windows the per-file limit (#6668) and the leftover-process check (#4273) do not run: Git Bash has no pgrep and its ps cannot list Windows processes (kosmos#9278)" >&2; fi
+  # with -A -o), so a file stuck in a sync call is not stopped; the leftover-process check (#4273) and the stops at the
+  # end of a run (#8890, #9159) read the same ps. Said once, here; the watchdog's "not found yet" line is not said there.
+  if [ "$_RT_WIN" = 1 ]; then echo "run-tests: on Windows the per-file limit (#6668) and the leftover-process checks and stops (#4273, #8890, #9159) do not run: Git Bash has no pgrep and its ps cannot list Windows processes (kosmos#9278)" >&2; fi
   # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
   # run root exists it lands in TMPDIR itself, which the tests then share. A signal in the microseconds between mktemp
   # creating the file and this assignment leaves it behind (the traps remove only a flag they can name).

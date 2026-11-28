@@ -22,7 +22,7 @@ function line(re) {
   return hits[0];
 }
 const TEMP_LINE = line(/export TEMP="\$KOSMOS_RUN_TMPDIR" TMP="\$KOSMOS_RUN_TMPDIR"/);
-const SAY_LINE = line(/per-file limit \(#6668\) and the leftover-process check \(#4273\) do not run/);
+const SAY_LINE = line(/per-file limit \(#6668\) and the leftover-process checks and stops \(#4273, #8890, #9159\) do not run/);
 
 function runWith(win, body) {
   const script = '_RT_WIN=' + win + '; KOSMOS_RUN_TMPDIR=/run/root; TEMP=/orig; TMP=/orig\n' + body
@@ -47,7 +47,7 @@ test('#9278: the TEMP line sits right after the TMPDIR export, in the branch tha
   assert.ok(i >= 0, 'the TMPDIR export moved');
   const j = SRC.indexOf(TEMP_LINE, i);
   assert.ok(j > i && j - i < 600, 'the TEMP and TMP export is not just after the TMPDIR export');
-  assert.ok(SRC.indexOf('_RT_WIN=0 ') < i, 'the Windows flag must be set before the run root is made');
+  assert.ok(SRC.indexOf('\n_RT_WIN=0 ') >= 0 && SRC.indexOf('\n_RT_WIN=0 ') < i, 'the Windows flag must be set before the run root is made');
 });
 
 test('#9278: the Windows line is said only on Windows, once, from the watchdog start', { skip: !BASH && 'no bash' }, () => {
@@ -58,4 +58,17 @@ test('#9278: the Windows line is said only on Windows, once, from the watchdog s
   const fn = SRC.slice(SRC.indexOf('rt_file_watchdog_start() {'), SRC.indexOf('\n}\n', SRC.indexOf('rt_file_watchdog_start() {')));
   assert.ok(fn.includes(SAY_LINE), 'the line is not inside rt_file_watchdog_start');
   assert.ok(fn.indexOf('[ "$KOSMOS_TEST_PART" != shell ] || return 0') < fn.indexOf(SAY_LINE), 'a shell-only run (no node) would say it');
+});
+
+test('#9278: the watchdog\u2019s "not found yet" line is not said on Windows, and still is elsewhere', { skip: !BASH && 'no bash' }, () => {
+  const lines = SRC.split('\n');
+  const k = lines.findIndex((l) => l.includes('echo "run-tests: node --test not found yet'));
+  assert.ok(k > 0, 'the line moved');
+  const cond = lines[k - 1].trim();
+  assert.match(cond, /^if .*\[ "\$_RT_WIN" != 1 \]; then$/, 'the not-found line is not guarded off Windows');
+  const body = cond + '\n  echo said\nfi';
+  for (const [win, want] of [[1, ''], [0, 'said\n']]) {
+    const r = spawnSync('bash', ['-c', 'node=""; looks=25; _RT_WIN=' + win + '\n' + body], { encoding: 'utf8' });
+    assert.equal(r.stdout, want, 'with _RT_WIN=' + win);
+  }
 });
