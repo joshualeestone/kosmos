@@ -82,7 +82,7 @@ for (const [route, body, call, refusal] of GUARDED_ROUTES) {
       assert.deepEqual(calls, [], 'a request with only ' + name + ' reached the engine');
     }
   });
-  // kosmos#8378: /api/agent-token asks which agents run before issuing, and this file stages that through fake-tmux.sh.
+  // /api/agent-token asks which agents run before issuing; on Windows that read is served in process (faketmux-win, kosmos#9262).
   test(`#6595 CONTROL: the same ${route} request made locally is not refused for being remote`, async () => {
     calls.length = 0;
     const got = await post(route, PAGE, body);
