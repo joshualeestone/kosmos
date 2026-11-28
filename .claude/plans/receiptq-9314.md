@@ -13,7 +13,10 @@ comment, or another call before it does not decide it, and a patch built in a va
 quote there, `"` is assumed, as main did. The Begin Patch marks are found once, in order, so it is linear (20,000
 headers in 2.6 ms; the first version of this, keyed on `tools.apply_patch(`, took 1.6 s and misread a quoted key as `it`,
 review 1). A path that ran on into code (a quote then `)` `;` `+` `}` `,`, as a patch built in pieces does) or holds a
-template's `${` is left out, never shown as a file name.
+template's `${` is left out, never shown as a file name. Review 2: the path is consumed (the header search resumes
+after it), so a one-line script is not re-scanned per header (was 711 ms at 2,000 headers and out of memory at 32,000;
+now 22 ms at 100,000); and a header past the close of its Begin Patch's string uses main's `"`, never that string's quote
+(`'*** Begin Patch\n' + "*** Update File: it's.md"` read `it`).
 
 Rejected: stopping at every `'` and backtick (the card's own warning): a real file name can hold a `'`, and in a
 "-string it is written unescaped, so `bo's.md` would be cut to `bo`. Rejected after review 1: the first quote after
@@ -27,6 +30,8 @@ Rejected: stopping at every `'` and backtick (the card's own warning): a real fi
 - c2h one script: a quoted key (`q'key.md`), two calls with different quotes (`first.md`, `sec'ond.md`), a patch passed
   by name (`named.md`), a patch built in pieces and a template `${dir}` (both left out). On main: `named.md'; await ...`,
   `cat.md' +` and `${dir}/tpl.js` are listed.
+- c2i a split patch (`'...Begin Patch\n' + "...it's-split.md..."`): `it's-split.md`, not `it`.
+- A one-line script with 32,000 headers: read in under 3 s (about 20 ms here), one file.
 
 ## Weakest premise
 Neither case has been seen in a real Codex transcript (the card says so); both are reasoned from the script being a

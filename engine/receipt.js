@@ -324,20 +324,36 @@ const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
    or `\n` / `\r`) or at an unescaped copy of the quote that opened that string: a '-string ends at ' (so
    `{patch:'*** Update File: a.js'}` reads `a.js`, not `a.js'});`), and a "-string still reads `it's.md` whole. The
    opener is the character just before the nearest `*** Begin Patch` above the line, the start of the patch's own
-   string (a quoted key such as `{'patch': "..."}` comes before it and does not count). With no quote there (a patch
-   built in pieces or elsewhere), a " is assumed, as main did. Linear: the Begin Patch marks are found once, in order.
+   string (a quoted key such as `{'patch': "..."}` comes before it and does not count). With no quote there, or when
+   that string has already closed before the header (a patch built in pieces), a " is assumed, as main did. Linear: the Begin Patch marks are found once, in order.
    `end` is where the path stopped in src. */
 function codexPatchPaths(src) {
   const found = [];
   const begins = [];
   for (let b = src.indexOf('*** Begin Patch'); b >= 0; b = src.indexOf('*** Begin Patch', b + 1)) begins.push(b);
+  // Where the string a Begin Patch opens with `quote` closes: its first unescaped `quote` after it (Infinity if none).
+  const closeOf = (from, quote) => {
+    for (let i = from; i < src.length; i += 1) {
+      if (src[i] === '\\') { i += 1; continue; }
+      if (src[i] === quote) return i;
+    }
+    return Infinity;
+  };
   const head = /\*\*\* (?:Add|Update|Delete) File: /g;
   let k = -1;   // the last Begin Patch before the current header
+  let close = { k: -1, at: Infinity, quote: '' };
   for (let m = head.exec(src); m; m = head.exec(src)) {
     while (k + 1 < begins.length && begins[k + 1] < m.index) k += 1;
     const before = k >= 0 && begins[k] > 0 ? src[begins[k] - 1] : '';
-    const quote = before === "'" || before === '"' || before === '`' ? before : '"';
+    const opened = before === "'" || before === '"' || before === '`';
     let j = m.index + m[0].length;
+    if (opened && close.k !== k) {
+      // A later Begin Patch inside the same still-open string shares its close, so each stretch is scanned once.
+      close = { k, quote: before, at: close.quote === before && close.at > begins[k] ? close.at : closeOf(begins[k], before) };
+    }
+    /* The header lies past the end of the string its Begin Patch opened (another string, or code): that quote says
+       nothing about this path (review 2), so the " main assumed is used, and the ran-on rule drops a path it misreads. */
+    const quote = opened && close.at > m.index ? before : '"';
     let text = '';
     while (j < src.length) {
       const c = src[j];
@@ -349,10 +365,14 @@ function codexPatchPaths(src) {
       }
       text += c; j += 1;
     }
+    // Resume after the path, as a consuming regex would: a header inside the text just read is not read again (review 2,
+    // which measured a one-line script re-scanned per header: 2,000 headers 711 ms, 32,000 out of memory).
+    head.lastIndex = Math.max(head.lastIndex, j);
     if (text) found.push({ text, end: j, quote });
   }
   return found;
 }
+
 /* #9314: a path read past the end of its string into code (a quote, then `)` `;` `+` `}` or `,`: a patch built in pieces,
    or one the opener rule could not see) or holding a template's `${` is left out, never shown as a file name. */
 const CODEX_PATH_RAN_ON = /['"`]\s*[)};+,]|\$\{/;
