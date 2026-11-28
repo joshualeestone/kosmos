@@ -175,7 +175,7 @@ function refuseFollowedLink(tmp, fd) {
   const sameFile = (st) => known(made) && known(st) && st.dev === made.dev && st.ino === made.ino;
   let refuse = gone;
   if (named) {
-    if (named.isSymbolicLink() || !named.isFile() || named.nlink > 1n) refuse = true;
+    if (named.isSymbolicLink() || named.nlink > 1n) refuse = true;
     else if (known(made) && known(named) && !sameFile(named)) refuse = true;
   }
   if (!refuse) return false;
