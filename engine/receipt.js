@@ -403,7 +403,7 @@ async function providerWork(runner, dir, holds) {
                string holding no patch header (`{cwd:"x", patch:...}`) is skipped for the next member. A call whose
                argument is not one literal string (a variable, a concatenation) cannot be read that way, so the rest of
                the script (outside the literal strings already read) is read as well then. A call written inside an
-               earlier patch's string is not a call: the scan resumes after each string. */
+               earlier patch's string is not a call: the scan resumes after each call's whole value. */
             const bodies = [];
             let readWhole = false;
             let after = 0;
@@ -415,7 +415,8 @@ async function providerWork(runner, dir, holds) {
             for (const c of src.matchAll(/tools\.apply_patch\(\s*(?:\{\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*)?/g)) {
               if (c.index < after) continue;
               let open = c.index + c[0].length;
-              for (let member = 0; member < 16; member += 1) {
+              for (let member = 0; ; member += 1) {
+                if (member >= 16) { readWhole = true; break; }   // past 16 members the rest is read with the whole script (review 8)
                 /* One member's value, read as what it is: operands joined by `+`, each a string literal (read with its own
                    quote) or a name (a variable, a property, a call). The scan then resumes after the whole value, so a
                    `tools.apply_patch(` written inside any piece is never read as a call (review 5). A name among them

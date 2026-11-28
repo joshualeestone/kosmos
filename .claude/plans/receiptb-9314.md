@@ -104,3 +104,10 @@ hold one), and a call is dropped only when its whole string lies inside a real l
 b3e and b3f's misses (r.md, a"bq.md, left out by both readers) are no longer pinned by the exact list. Timing linear (the
 new checks: 128k unclosed quotes beside calls, 113 to 128 ms).
 Residual, accepted: a nested backtick inside `${...}` in a template patch ends the string early, leaving later names out.
+
+## Review 8 (sonnet, measuring; the cap)
+Fuzz, 30,000 scripts over three seeds: wrong names about 570 to 615 per 10,000 here against 4,510 to 4,565 on main;
+names main read right and this lost: 0; names listed here that main did not: 0 to 2 per 10,000, all the stated
+fallback-decoy residual. 27 hostile shapes linear to 128k. Fixed: a call with more than 16 object members lost its patch
+silently; past 16 members the whole script is read. Not every new case fails on main: b2y, b3b and b3g guard this
+branch's own earlier iterations (each fails on the commit before it); b2h, b2j, b2z, b3a, b3d and b3f fail on main.
