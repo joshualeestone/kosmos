@@ -1,0 +1,74 @@
+'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+/**
+ * kosmos#8378 group 5: test-support/faketmux-win.js, the Windows stand-in for fake tmux's reads, and its board-child
+ * preload. Pinned here, on every host:
+ *   - off Windows it does nothing, so macOS and Linux tests still run the script;
+ *   - asked to act as Windows, it answers what test-support/fake-tmux.sh answers, from the same files and defaults;
+ *   - server.js still wires the two factories the preload replaces (win32roster.make, win32capture.make), so a rename
+ *     there cannot make the preload silently stop applying in a board child.
+ *
+ *   node --test server.faketmux-win-8378.test.js
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-faketmux-win-8378-'));
+const PANES = path.join(SANDBOX, 'panes.txt');
+const SCREEN = path.join(SANDBOX, 'screen.txt');
+const win = require('./test-support/faketmux-win');
+
+test('off Windows it does nothing: no seam installed, and a board child keeps its argv', () => {
+  assert.equal(win.serveOnWindows('darwin'), false);
+  assert.equal(win.serveOnWindows('linux'), false);
+  assert.deepEqual(win.current(), { source: null, capture: null }, 'a seam was installed off Windows');
+  assert.deepEqual(win.childArgs('darwin'), []);
+  assert.deepEqual(win.childArgs('linux'), []);
+  const args = win.childArgs('win32');
+  assert.equal(args[0], '--require');
+  assert.ok(fs.existsSync(args[1]), 'the preload the Windows argv names does not exist: ' + args[1]);
+});
+
+test('asked to act as Windows, it answers what fake-tmux.sh answers, from the same files and defaults', () => {
+  const status = require('./engine/status');
+  const messages = require('./engine/messages');
+  const was = { panes: process.env.AGENT_WORKFORCE_FAKE_PANES, screen: process.env.AGENT_WORKFORCE_FAKE_SCREEN };
+  try {
+    delete process.env.AGENT_WORKFORCE_FAKE_PANES;
+    delete process.env.AGENT_WORKFORCE_FAKE_SCREEN;
+    assert.equal(win.serveOnWindows('win32'), true);
+    const { source, capture } = win.current();
+    assert.equal(source(), '', 'with no panes file the board is empty, as the script says');
+    assert.equal(capture('x:0.0'), '', 'with no screen file the screen is empty');
+    fs.writeFileSync(PANES, 'line one\nline two\n');
+    fs.writeFileSync(SCREEN, 'a screen');
+    process.env.AGENT_WORKFORCE_FAKE_PANES = PANES;
+    process.env.AGENT_WORKFORCE_FAKE_SCREEN = SCREEN;
+    assert.equal(source(), 'line one\nline two\n');
+    fs.writeFileSync(PANES, 'rewritten\n');
+    assert.equal(source(), 'rewritten\n', 'the panes file is read on every call, as the script reads it');
+    assert.equal(capture('any:0.0'), 'a screen');
+    process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'missing.txt');
+    assert.equal(source(), '', 'a missing file reads as an empty board, never a failure');
+    // The script answers display-message #{session_name} with fixture-discord for any pane.
+    assert.deepEqual(messages.paneSession('%9'), { ok: true, session: 'fixture-discord' }, 'the pane-session question is not answered as the script answers it');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+    messages.setRunner(null);
+    if (was.panes === undefined) delete process.env.AGENT_WORKFORCE_FAKE_PANES; else process.env.AGENT_WORKFORCE_FAKE_PANES = was.panes;
+    if (was.screen === undefined) delete process.env.AGENT_WORKFORCE_FAKE_SCREEN; else process.env.AGENT_WORKFORCE_FAKE_SCREEN = was.screen;
+  }
+});
+
+test('server.js still wires the two factories the board-child preload replaces', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /setPaneSource\(require\('\.\/engine\/win32roster'\)\.make\(\)\)/, 'the Windows roster is no longer wired as win32roster.make(): test-support/faketmux-win-preload.js would stop applying');
+  assert.match(src, /setPaneCapture\(require\('\.\/engine\/win32capture'\)\.make\(/, 'the Windows capture is no longer wired as win32capture.make(...): test-support/faketmux-win-preload.js would stop applying');
+  const preload = fs.readFileSync(path.join(__dirname, 'test-support', 'faketmux-win-preload.js'), 'utf8');
+  assert.match(preload, /require\('\.\.\/engine\/win32roster'\)\.make = /, 'CONTROL: the preload replaces win32roster.make');
+  assert.match(preload, /require\('\.\.\/engine\/win32capture'\)\.make = /, 'CONTROL: the preload replaces win32capture.make');
+});
