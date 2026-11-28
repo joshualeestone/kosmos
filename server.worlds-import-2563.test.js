@@ -35,6 +35,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 // real hazard the shipped meta-guard enforces). fleet.install sets the status
 // pane-source seam to a fixture, so this board reads the fixture, never real agents.
 const fleet = require('./test-support/fleet');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const srv = require('./server.js');
 const worlds = require('./engine/worlds.js');
 

@@ -191,10 +191,13 @@ test('kosmos#9057: a Windows resume long after a quit is reminded of its own wai
     const tok = sendertoken.mint('winana').token;
     try {
       assert.notEqual(liveness.alive('winana'), true, 'CONTROL: no heartbeat, as after a quit older than 3 minutes');
-      // CONTROL: on a Mac or Linux board this path does not exist, so the ask is refused exactly as before.
-      const mac = await ask(tok, 'as=waithook');
-      assert.equal(mac.code, 403);
-      assert.equal(mac.text, '', 'a refused caller gets the empty body, never {"pending":true}');
+      // CONTROL: on a Mac or Linux board this path does not exist, so the ask is refused exactly as before. On a Windows
+      // host (kosmos#8378) the board already is the Windows one the arm below pins, so the control has nothing to show.
+      if (process.platform !== 'win32') {
+        const mac = await ask(tok, 'as=waithook');
+        assert.equal(mac.code, 403);
+        assert.equal(mac.text, '', 'a refused caller gets the empty body, never {"pending":true}');
+      }
       serverMod._setStartedProofPlatformForTest('win32');
       const r = await ask(tok, 'as=waithook');
       assert.equal(r.code, 200, r.text);
