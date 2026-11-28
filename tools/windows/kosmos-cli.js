@@ -2941,7 +2941,7 @@ function heavySend(sub) {
       const nm = (x) => x.name || x.agent;
       const who = j.holder ? nm(j.holder) + ' has the turn (' + (j.holder.unchecked ? 'Kosmos could not check it just now' : j.holder.label + ', since ' + heavyWhen(j.holder.since)) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
       ctx.out('Not yet: you are ' + nth + ' in line; ' + who + (ahead.length > 1 || (j.holder && ahead.length) ? '. Ahead of you: ' + ahead.map(nm).join(', ') : '') + '. Ask again with kosmos heavy take to keep your place.');
-      return 10;   // a code no other verb uses: 3 is "maybe" (a timed-out take is 3, never "wait")
+      return 10;   // a code no other verb uses: here 3 is "maybe" (a timed-out take is 3, never "wait"); the Mac exits 1 then
     }
     if (ok && typeof j.left === 'number') {
       if (j.ended) ctx.out('Released: your turn has ended, and it no longer shows on the board.');

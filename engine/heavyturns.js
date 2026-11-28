@@ -70,8 +70,8 @@ function locked(root, fn) {
 
 const mine = (agent, p) => (e) => e.agent === agent && e.pid === p;
 const shown = (e) => ({ agent: e.agent, label: e.label, pid: e.pid, since: e.since });
-// A place is judged by the heavy-job rules: `since` is when it joined, `at` the last time it asked. A place the read could
-// not check ('hide') stays in the file and in its own agent's view of the line, but off the board, as a job does.
+// A place is judged by the heavy-job rules: `since` is when it joined, `at` the last time it asked. The idle limit keeps it
+// far inside heavyjobs' 12 h ceiling, so a place is only ever shown or dropped, never hidden.
 const judgePlace = (e, opts) => (opts.now - e.at > PLACE_IDLE_MS ? 'drop' : hj.judge(e, opts));
 const keeps = (e, opts) => judgePlace(e, opts) !== 'drop';
 
@@ -94,7 +94,7 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
   let out = null;
   const r = locked(root, () => {
     const opts = { now, startOf: others, agentAlive };
-    let line = readLine(root).filter((e) => mine(agent, p)(e) || keeps(e, opts));
+    let line = readLine(root).filter((e) => keeps(e, opts));   // the caller's own lapsed place too: it rejoins at the back
     // hidden: a job this read could not check still holds the turn, so the turn never looks free for want of a ps read.
     const jobs = hj.live({ root, now, startOf: others, agentAlive, hidden: true });
     const held = jobs.find((j) => j.agent === agent && j.pid === p);
