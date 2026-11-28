@@ -1154,7 +1154,7 @@ btutf=$(locale -a 2>/dev/null | grep -ixE 'en_US\.utf-?8' | head -n 1)
 [ -n "$btutf" ] || btutf=$(locale -a 2>/dev/null | grep -iE '\.utf-?8$' | head -n 1)
 "$REAL_NODE" - "$ROOT/engine/heavyjobs.js" > $S/bt-chars <<'JS'
 const hj = require(process.argv[2]);
-for (let cp = 0x80; cp <= 0xffff; cp++) {
+for (let cp = 0x01; cp <= 0xffff; cp++) {   // NUL cannot be in a bash string; round 6: the ASCII controls and DEL too
   if (cp >= 0xd800 && cp <= 0xdfff) continue;
   const c = String.fromCodePoint(cp);
   let kind = null;

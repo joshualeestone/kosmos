@@ -17,8 +17,11 @@
    normalizeLabel refuses now becomes a space before the cut to 80: the C1 controls, U+061C, U+200B/E/F,
    U+2028/2029, the direction marks and the BOM, matched as UTF-8 bytes so a C locale strips them too (round 1 measured [[:cntrl:]] alone missing them
    there), then the ASCII controls. The spaces it trims (NBSP, U+1680, U+2000-200A, U+202F, U+205F, U+3000) become plain spaces
-   too, so the empty and leading-dash checks see them (round 2). All of it is one function, _qh_board_text. An emoji that pushes past 80 UTF-16 units can still be refused (noted in the
-   comment, not fixed: the card asked for the likeliest refusal).
+   too, so the empty and leading-dash checks see them (round 2). All of it is one function, _qh_board_text. NOT DONE, and said so in the PR and on the card: a name of
+   emoji (or other characters outside the BMP) past 80 UTF-16 units is still refused while the line says "asked the
+   board", because bash cuts at 80 characters in a UTF-8 locale and an emoji is two units. The card scoped its fix to
+   the likeliest refusal (control characters); a UTF-16 count in bash is code nobody asked for. Under a C locale the
+   cut is by bytes, so it never exceeds 80 units.
 
 Tests (tools/test-queued-heavy-4977.sh, 217 -> 222): the real folder named with a trailing slash announces; a symlink
 to it announces; a tab, newline and escape are sent as spaces on one line; under a C locale a line separator, a direction mark and a
