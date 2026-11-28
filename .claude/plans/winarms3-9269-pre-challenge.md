@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: winarms3-9269
-diff_hash: ad882caa53f513f1312124f761123f6ae297c89afbee0fe3d309868b310cf233
-validation: GitHub windows-latest on this head's test file: filewho 16 pass / 4 skipped x3 (run 46133276100); with a mutant whose mount check always refuses, the Windows CONTROL red 3/3 (run 46133190515). Mac: 19 pass, the Windows-only arm skipped; the same mutant reds the macOS CONTROL. windows-tests-1777 24/24. Tests only, no production change. The full suite runs on the PR's CI.
+diff_hash: 8f8423969e7ae61748244647a4ebfdbf7c8259632a0a773eb66c7e4e086cf47a
+validation: rebased onto main after #9305 (only filewho's ALSO comment conflicted and keeps its UNC wording; filewho 19 pass + 1 skipped on the Mac, windows-tests-1777 24/24 after the rebase). Before it: GitHub windows-latest on this head's test file: filewho 16 pass / 4 skipped x3 (run 46133276100); with a mutant whose mount check always refuses, the Windows CONTROL red 3/3 (run 46133190515). Mac: 19 pass, the Windows-only arm skipped; the same mutant reds the macOS CONTROL. windows-tests-1777 24/24. Tests only, no production change. The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-28T10:05:16Z
 iterations: 2
