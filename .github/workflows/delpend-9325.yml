@@ -1,0 +1,18 @@
+# kosmos#9325 MEASUREMENT ONLY (never merged): a push to this branch runs the probe on GitHub's Windows runner.
+name: delpend-9325
+on:
+  push:
+    branches: ["delpend-9325-never-merge"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: delete-pending probe
+        run: node tools/delpend-9325.js

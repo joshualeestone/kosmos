@@ -1,0 +1,35 @@
+// kosmos#9325 MEASUREMENT ONLY (never merged): what a 'wx' create meets at a delete-pending name on Windows.
+const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'delpend-'));
+const probe = (label, name) => {
+  const p = path.join(dir, name);
+  const listed = fs.readdirSync(dir).includes(name);
+  let lst; try { fs.lstatSync(p); lst = 'ok'; } catch (e) { lst = e.code; }
+  let wx; try { const fd = fs.openSync(p, 'wx', 0o600); fs.closeSync(fd); wx = 'created'; } catch (e) { wx = e.code; }
+  console.log(`MEASURED ${label}: listed=${listed} lstat=${lst} wx=${wx}`);
+};
+// Control: a plain file, and a free name.
+fs.writeFileSync(path.join(dir, 'plain'), 'x'); probe('control plain file', 'plain');
+probe('control free name', 'free');
+// A: Node holds the file open, then unlinks it (DeleteFileW).
+const a = path.join(dir, 'held-unlinked'); fs.writeFileSync(a, 'x');
+const fa = fs.openSync(a, 'r');
+let un; try { fs.unlinkSync(a); un = 'ok'; } catch (e) { un = e.code; }
+console.log(`MEASURED A unlink while held: ${un}`);
+probe('A held then unlinked', 'held-unlinked');
+fs.closeSync(fa);
+probe('A after close', 'held-unlinked');
+// B: PowerShell opens with DeleteOnClose and holds it for 20 s.
+const b = path.join(dir, 'delete-on-close');
+const ps = `$f=[System.IO.File]::Open('${b}',[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]'ReadWrite, Delete'); $o=New-Object System.IO.FileStream($f.SafeFileHandle,[System.IO.FileAccess]::ReadWrite); Start-Sleep 20`;
+const ps2 = `$s=New-Object System.IO.FileStream('${b}',[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]'ReadWrite, Delete',4096,[System.IO.FileOptions]::DeleteOnClose); Start-Sleep 20; $s.Close()`;
+if (process.platform === 'win32') {
+  const child = cp.spawn('powershell', ['-NoProfile', '-Command', ps2], { stdio: 'inherit' });
+  const t0 = Date.now(); while (!fs.existsSync(b) && Date.now() - t0 < 15000) cp.execSync('ping -n 2 127.0.0.1 >NUL');
+  probe('B DeleteOnClose held (not yet deleted)', 'delete-on-close');
+  // Mark it for deletion through a second handle while the first stays open: Node unlink.
+  let un2; try { fs.unlinkSync(b); un2 = 'ok'; } catch (e) { un2 = e.code; }
+  console.log(`MEASURED B unlink of the held DeleteOnClose file: ${un2}`);
+  probe('B after unlink, still held by PowerShell', 'delete-on-close');
+  child.on('exit', () => { probe('B after PowerShell exits', 'delete-on-close'); console.log('MEASURED os ' + os.release() + ' node ' + process.version); });
+} else { console.log('MEASURED not win32: ' + process.platform); }
