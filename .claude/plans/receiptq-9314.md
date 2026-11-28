@@ -7,20 +7,28 @@ that holds on every host checks an escaped drive-letter absolute path is read as
 
 ## The change (engine/receipt.js)
 codexPatchPaths replaces the one regex that read a path up to a newline or a `"`. Inside a JavaScript string only its
-own quote must be escaped, so the opener (the first quote after the nearest `tools.apply_patch(` before the line) is the
-only quote that ends the path. With no opener there (a patch built elsewhere and passed by name), `"` is assumed, which
-is what main did. The next-line filter accepts the opener where it accepted `"`.
+own quote must be escaped, so the quote that opens the PATCH's own string is the only quote that ends a path. That quote
+is the character just before the nearest `*** Begin Patch` above the line, so a quoted key (`{'patch': "..."}`), a
+comment, or another call before it does not decide it, and a patch built in a variable keeps its own quote. With no
+quote there, `"` is assumed, as main did. The Begin Patch marks are found once, in order, so it is linear (20,000
+headers in 2.6 ms; the first version of this, keyed on `tools.apply_patch(`, took 1.6 s and misread a quoted key as `it`,
+review 1). A path that ran on into code (a quote then `)` `;` `+` `}` `,`, as a patch built in pieces does) or holds a
+template's `${` is left out, never shown as a file name.
 
 Rejected: stopping at every `'` and backtick (the card's own warning): a real file name can hold a `'`, and in a
-"-string it is written unescaped, so `bo's.md` would be cut to `bo`.
+"-string it is written unescaped, so `bo's.md` would be cut to `bo`. Rejected after review 1: the first quote after
+`tools.apply_patch(` (a quoted key or comment comes first).
 
 ## Tests (engine/receipt-5153.test.js, the Codex arm)
 - c2d `'`-string, c2e backtick string, each ending right after the path: read `single.md`, `tick.md`. On main they read
   `single.md'});` and ``tick.md`);`` (measured by running the test against main's receipt.js).
 - c2f a "-string with an unescaped `'`: `bo's.md` whole.
 - c2g an escaped `C:\Users\kay\drive.js`: one file, folders kept, never `C:` or the agent's folder, on every host.
+- c2h one script: a quoted key (`q'key.md`), two calls with different quotes (`first.md`, `sec'ond.md`), a patch passed
+  by name (`named.md`), a patch built in pieces and a template `${dir}` (both left out). On main: `named.md'; await ...`,
+  `cat.md' +` and `${dir}/tpl.js` are listed.
 
 ## Weakest premise
 Neither case has been seen in a real Codex transcript (the card says so); both are reasoned from the script being a
-JavaScript string. The opener rule can be wrong when a script holds two apply_patch calls and the patch text for the
-second was built before the first; that case falls back to the nearest call's quote.
+JavaScript string. A patch whose Begin Patch line is not at the start of its own string (it is built in pieces) gets the
+assumed `"`; such paths are usually caught by the ran-on rule and left out, not read wrong.

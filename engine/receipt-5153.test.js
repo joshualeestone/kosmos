@@ -305,6 +305,16 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     /* #9314: an escaped drive-letter absolute path, on every host (on Windows the src/new.js arm above is one too). */
     call('10:18', 'c2g', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: C:\\\\Users\\\\kay\\\\drive.js\\n+x\\n*** End Patch"});'),
     out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
+    /* #9314 review 1: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
+       key before it does not decide it, two calls in one script each keep their own, and a patch passed by name keeps its
+       own too. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
+    call('10:19', 'c2h', String.raw`await tools.apply_patch({'patch': "*** Begin Patch\n*** Update File: q'key.md\n+x\n*** End Patch"});`
+      + String.raw` await tools.apply_patch({patch:'*** Begin Patch\n*** Update File: first.md\n+x\n*** End Patch'});`
+      + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: sec'ond.md\n+x\n*** End Patch"});`
+      + String.raw` const p = '*** Begin Patch\n*** Update File: named.md'; await tools.apply_patch(p);`
+      + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n" + '*** Update File: cat.md' + "\n+x\n*** End Patch"});`
+      + ' await tools.apply_patch({patch:`*** Begin Patch\\n*** Update File: $' + '{dir}/tpl.js\\n+x\\n*** End Patch`});'),
+    out('10:19', 'c2h', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),
     tc('10:30', 1000, 400, 100),
@@ -321,7 +331,8 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
   const drive = a.files.filter((f) => f.includes('drive.js'));
-  assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md"],
+  assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
+    "q'key.md", 'first.md', "sec'ond.md", 'named.md'],
     'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
   // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
   assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
