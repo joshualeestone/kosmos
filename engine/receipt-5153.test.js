@@ -294,6 +294,37 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
        never a real file name, and a path naming the agent's own folder (`.`, in c2) is never listed as a file. */
     call('10:14', 'c2c', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: it\\\'s.md\\n+x\\n*** Update File: tab\\u0009.md\\n+x\\n*** End Patch"});'),
     out('10:14', 'c2c', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a path ends at the quote that closes ITS string: a '-string or a backtick string that ends right after the
+       path line reads the name without the quote, and a "-string still reads a name with an unescaped ' whole. */
+    call('10:15', 'c2d', "await tools.apply_patch({patch:'*** Begin Patch\\n*** Update File: single.md'});"),
+    out('10:15', 'c2d', 'Script completed\nWall time 1 seconds'),
+    call('10:16', 'c2e', 'await tools.apply_patch(`*** Begin Patch\\n*** Update File: tick.md`);'),
+    out('10:16', 'c2e', 'Script completed\nWall time 1 seconds'),
+    call('10:17', 'c2f', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: bo\'s.md\\n+x\\n*** End Patch"});'),
+    out('10:17', 'c2f', 'Script completed\nWall time 1 seconds'),
+    /* #9314: an escaped drive-letter absolute path, on every host (on Windows the src/new.js arm above is one too). */
+    call('10:18', 'c2g', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: C:\\\\Users\\\\kay\\\\drive.js\\n+x\\n*** End Patch"});'),
+    out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
+    /* #9314: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
+       key before it does not decide it, two calls in one script each keep their own, and a patch passed by name keeps its
+       own too. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
+    call('10:19', 'c2h', String.raw`await tools.apply_patch({'patch': "*** Begin Patch\n*** Update File: q'key.md\n+x\n*** End Patch"});`
+      + String.raw` await tools.apply_patch({patch:'*** Begin Patch\n*** Update File: first.md\n+x\n*** End Patch'});`
+      + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: sec'ond.md\n+x\n*** End Patch"});`
+      + String.raw` const p = '*** Begin Patch\n*** Update File: named.md'; await tools.apply_patch(p);`
+      + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n" + '*** Update File: cat.md' + "\n+x\n*** End Patch"});`
+      + ' await tools.apply_patch({patch:`*** Begin Patch\\n*** Update File: $' + '{dir}/tpl.js\\n+x\\n*** End Patch`});'),
+    out('10:19', 'c2h', 'Script completed\nWall time 1 seconds'),
+    /* #9314: in a string whose quote is known, a ' then , or ) is part of the name, never "code". */
+    call('10:19', 'c2j', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: notes 'a', b.md\n+x\n*** End Patch"});`),
+    out('10:19', 'c2j', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a patch string that opens with a newline still has its own quote found (`"\n*** Begin Patch`). */
+    call('10:19', 'c2k', String.raw`await tools.apply_patch("\n*** Begin Patch\n*** Update File: nl 'a', b.md\n+x\n*** End Patch");`),
+    out('10:19', 'c2k', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a header past the end of the string its Begin Patch opened (here a second, "-quoted piece) is read
+       with the " main assumed, never cut at the first piece's quote (it would read `it`). */
+    call('10:19', 'c2i', String.raw`await tools.apply_patch({patch:'*** Begin Patch\n' + "*** Update File: it's-split.md\n+x\n*** End Patch"});`),
+    out('10:19', 'c2i', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),
     tc('10:30', 1000, 400, 100),
@@ -309,10 +340,47 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const a = r.agents[0];
   assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
-  assert.deepEqual(a.files, [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md"], 'only the patches that completed; a backslashed path read whole, a cut one left out (#9263)');
+  const drive = a.files.filter((f) => f.includes('drive.js'));
+  assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
+    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
+    'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
+  // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
+  assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
+  assert.ok(/Users.kay.drive\.js$/.test(drive[0]), 'read whole, folders kept: ' + drive[0]);
+  assert.ok(!a.files.some((f) => f === 'C:' || f === '.' || f === '' || path.resolve(fs.realpathSync(kay), f) === fs.realpathSync(kay)), 'never C: or the agent\'s own folder: ' + JSON.stringify(a.files));
+  assert.ok(!a.files.includes('it'), 'a header past its Begin Patch string is not cut at that string\'s quote (#9314): ' + JSON.stringify(a.files));
   assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.equal(a.transcriptsWithWork, 1);
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
+});
+
+test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped openers, are read in linear time', async () => {
+  const project = 'p' + (++pn);
+  const lin9314 = worker('lin9314');
+  store.writeProfile('lin9314', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'lin9314' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
+  // No newline and no quote after the first header, so every later header sits inside the text the first path read.
+  const src = 'await tools.apply_patch({patch:"*** Begin Patch ' + '*** Update File: x'.repeat(32000) + '"});';
+  /* Begin Patch openers that alternate between ' and " with every quote escaped, so no string closes. One cached
+     close found each header's opener a miss and rescanned to the end (4,000 repeats 1.5 s, quadratic). */
+  const alt = 'await tools.exec(' + String.raw`\'*** Begin Patch\n*** Update File: a\n\"*** Begin Patch\n*** Update File: a\n`.repeat(8000) + ');';
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-lin9314.jsonl'), jl([
+    ev('10:00', 'session_meta', { cwd: fs.realpathSync(lin9314) }),
+    ev('10:05', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l1', input: src }),
+    ev('10:05', 'response_item', { type: 'custom_tool_call_output', call_id: 'l1', output: [{ type: 'input_text', text: 'Script completed' }] }),
+    ev('10:06', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l2', input: alt + ' tools.apply_patch(x);' }),
+    ev('10:06', 'response_item', { type: 'custom_tool_call_output', call_id: 'l2', output: [{ type: 'input_text', text: 'Script completed' }] }),
+  ]));
+  const t0 = process.hrtime.bigint();
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  const took = Number(process.hrtime.bigint() - t0) / 1e6;
+  // Generous: the per-header rescan took 711 ms at 2,000 headers and ran out of memory at 32,000; linear is about 10 ms.
+  assert.ok(took < 3000, 'reading the script took ' + Math.round(took) + ' ms');
+  // The one path it reads swallows every later header (no line end between them), so it is no file name and is left out.
+  assert.deepEqual(r.agents[0].files, [], 'no file from a path that swallowed further headers: ' + JSON.stringify(r.agents[0].files).slice(0, 200));
 });
 
 test('a Gemini CLI agent: a reply written twice counts once, an edit counts only when it succeeded', async () => {
