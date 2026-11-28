@@ -369,9 +369,11 @@ async function providerWork(runner, dir, holds) {
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
             /* A relative path is the session's own folder's (review 1), so the same file reads the same either way.
-               An escaped backslash (`C:\\Users\\kay`) is part of the path and is unescaped; any other backslash or a quote
-               ends it, so a path written with single backslashes (String.raw) is still cut there (#9263). */
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\\\|[^\n\\"])+)/g)]
+               An escaped backslash (`C:\\Users\\kay` as written in the script) is part of the path and is unescaped. A path
+               ends at a newline (`\n`, `\r`) or a quote; one stopped by any other backslash (a single-backslash path, as
+               String.raw keeps it) was cut partway, so it is left out rather than shown as a file it is not (#9263). */
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\\\|[^\n\\"])+)(\\[^nr]|\\$)?/g)]
+              .filter((x) => !x[2])
               .map((x) => x[1].replace(/\\\\/g, '\\').trim()).filter(Boolean)
               .map((f) => path.resolve(folder, f));
             if (paths.length) pendingPatches.set(id, paths);
