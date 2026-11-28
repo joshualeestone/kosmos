@@ -351,7 +351,7 @@ async function wordsAndPiped(ctx, verbed, hint) {
   if (!(await ctx.stdinHasText())) return undefined;
   ctx.err('Nothing was ' + verbed + ': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.');
   ctx.err(hint);
-  ctx.err('If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words.');
+  ctx.err('If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words (a loop fed by a pipe has lost the text this check read).');
   return 2;
 }
 

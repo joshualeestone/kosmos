@@ -628,8 +628,8 @@ _body_file_and_words() {
 
 # kosmos#9238: words on the command line AND text piped in. These verbs take the words and never read stdin, so a post
 # sent with its title typed bare (post '<title>' <<'END' ...) arrived as the title alone, and the verb said it was
-# queued. Now that is refused and nothing is sent. Whether stdin holds text is decided the same way as the Windows CLI's
-# stdinHasText: a regular file the shell has already removed (what zsh and bash write a heredoc or here-string to, with
+# queued. Now that is refused and nothing is sent. Whether stdin holds text is decided by the Windows CLI's stdinHasText
+# rule, except that here perl can tell how far a file has been read (Windows cannot): a regular file the shell has already removed (what zsh and bash write a heredoc or here-string to, with
 # no name left) is read at once, by position so nothing is taken from it, to its end or its first text, unless
 # something has already read part of it (a `while read` loop over a heredoc, a here-string or a file: perl tells), and a named
 # file is read on the same terms (`post '<title>' < body.md` is at its start; a loop's file is not), so a loop keeps
@@ -644,6 +644,7 @@ _body_file_and_words() {
 KOSMOS_PIPED_PEEK_MS=300   # never taken from the caller's environment
 _words_and_piped() {
   [ -t 0 ] && return 0
+  [ -c /dev/stdin ] && return 0   # /dev/null and other character devices: never read, so start nothing
   local _qn _rc=0 _off
   # A file already part read is the input of a loop around the command (a `while read` over a heredoc or here-string
   # has moved past its first line; a command's own heredoc is at 0, measured under zsh and bash 3.2): send the words.
@@ -676,7 +677,7 @@ _words_and_piped() {
   [ "$_rc" -eq 3 ] || return 0
   say "Nothing was $1: there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other."
   say "$2"
-  say "If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words."
+  say "If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words (a loop fed by a pipe has lost the text this check read)."
   exit 2
 }
 
