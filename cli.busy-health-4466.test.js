@@ -291,6 +291,13 @@ test('#9243 `kosmos msg --no-reply` cut twice: exit 3, do not send it again, nev
   assert.doesNotMatch(out.stdout, /wait for their answer/);
 }));
 
+test('#9243 `kosmos msg --no-reply` cut, then refused: exit 3, do not send it again', { skip: SKIP_POSIX_SHELL }, () => withBoard('cutthendie', async (port) => {
+  const out = await runCli(['msg', '--no-reply', 'mara', 'fyi'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /and you asked for no reply, so do not send it again\./);
+  assert.doesNotMatch(out.stdout, /wait for their answer/);
+}));
+
 test('#9243 `kosmos msg` that times out twice: exit 3, wait for their answer (no id), one retry', { skip: SKIP_POSIX_SHELL }, () => withBoard('msghang', async (port, firstFile) => {
   const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }), 45000);
   assert.equal(out.code, 3, out.stdout + out.stderr);
@@ -676,7 +683,8 @@ test('#4580 a post whose reply is CUT is asked once more too; a board that keeps
       const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
       assert.notEqual(out.code, 0, args[0]);
       // kosmos#9243: msg says wait for their answer (no id to check); post keeps its own sentence.
-      assert.match(out.stdout, args[0] === 'msg' ? /with no id, kosmos msg --status cannot check it/ : /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      assert.match(out.stdout, args[0] === 'msg' ? /did not answer when asked once more\. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again\./ : /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      if (args[0] === 'msg') assert.equal(out.code, 3, 'msg cut twice is a maybe (exit 3)');
       assert.doesNotMatch(out.stdout, /not running|Is it running/);
       assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, args[0] + ': one retry, then stop');
     });

@@ -35,3 +35,5 @@ That agents read the CLI's line right after their own send. It is the likeliest 
    a post's command says "whom it reached, or what happened to it" (a timed-out post says it is still delivering).
 
 8. Review 4: cli.refused-retry-6968 pinned the old Mac sentence for cut-then-refused (missed until review); it now pins exit 3 and the asked-once-more sentence. A Mac --no-reply send cut twice is run (red with the no_reply check broken). Every test that drives kosmos msg was run (23 files, 559 tests, 0 failed).
+
+9. Review 5: the Windows asked-once-more branch and the Mac cut-then-refused case are run with --no-reply; the cut-always msg arm pins exit 3 and the whole sentence. Deferred, both inherited and outside a direct message: a Mac timeout keeps no piped copy (Windows keeps none on any maybe), and post / task close still say "check before doing it again" (a room or a task, not a test message).
