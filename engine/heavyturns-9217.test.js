@@ -195,3 +195,13 @@ test('round 1: release says how many of the agent\'s own jobs are left (tied to 
   hj.start({ root: r, agent: 'renet', label: 'tied', pid: 4700, now: T0, startOf: () => 'P' });
   assert.deepEqual(ht.release({ root: r, agent: 'renet' }), { ok: true, left: 0, ended: 0, others: 1 });
 });
+
+test('round 2: a job this read could not check still holds the turn, so the turn never looks free for want of a ps read', () => {
+  const r = root();
+  const now = Date.now();
+  const H = 60 * 60 * 1000;
+  fs.writeFileSync(path.join(r, hj.FILE), JSON.stringify([{ agent: 'renet', label: 'overnight', pid: 4800, pidStart: 'A', since: now - 13 * H, at: now - 13 * H }]));
+  const t = ht.take({ root: r, agent: 'angel', label: 'v', now, othersOf: () => undefined, startOf: () => undefined });
+  assert.deepEqual([t.ok, t.turn, t.holder && t.holder.agent], [true, false, 'renet'], 'an unchecked overnight job was taken as a free turn');
+  assert.equal(hj.readAll(r).length, 1, 'control: the unchecked job is still in the file');
+});

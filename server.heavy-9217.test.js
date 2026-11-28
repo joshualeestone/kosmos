@@ -333,3 +333,25 @@ test('kosmos#9217 slice 2: a take alone starts a missing waiter\'s grace and, on
   assert.equal(r.turn, true, 'past the grace, the gone waiter still held the front');
   await asAgent(ta, { action: 'release' });
 });
+
+test('kosmos#9217 slice 2: one status read runs ps at most 8 times for the jobs and the line together', () => {
+  const rs = require('./engine/restoresink');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  let ps = 0;
+  rs.pidAlive = () => true;
+  rs.processStart = () => { ps += 1; return 'A'; };
+  const p = require('node:path');
+  const now = Date.now(), H = 60 * 60 * 1000;
+  const jobsFile = p.join(store.ROOT, require('./engine/heavyjobs').FILE), lineFile = p.join(store.ROOT, require('./engine/heavyturns').FILE);
+  try {
+    // Ten aged jobs and ten aged places, each tied to a process with a recorded start: every one wants a ps read.
+    fs.writeFileSync(jobsFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-j' + i, label: 'j', pid: 97100 + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H }))));
+    fs.writeFileSync(lineFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-w' + i, label: 'w', pid: 97200 + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H, front: null, missed: 0 }))));
+    heavyJobsNow(null, now);
+    assert.ok(ps <= 8, 'ps ran ' + ps + ' times in one read of the jobs and the line');
+    assert.ok(ps >= 1, 'control: the read asked ps at all');
+  } finally {
+    Object.assign(rs, was);
+    fs.rmSync(jobsFile, { force: true }); fs.rmSync(lineFile, { force: true });
+  }
+});
