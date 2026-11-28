@@ -10,7 +10,7 @@ opened file, the write throws ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it 
 the in-place fallback. Three failures with no such refusal fall back as before. (Review 2: "all three" was a hole: the
 temp names are guessable, so a plain file planted at one name made it two of three and opened the fallback.)
 
-Why: three such refusals are positive evidence that somebody is planting links in the config's folder, and on Windows
+Why: one such refusal is positive evidence that somebody is planting in the config's folder, and on Windows
 the fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back hands the same
 person a race at the config itself, easiest when the config does not exist yet. On no measured mount does an ordinary
 save see this refusal; on a share or sync client that removed or replaced a fresh temp three times running, the save
