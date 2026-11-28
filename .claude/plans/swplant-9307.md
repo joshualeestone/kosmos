@@ -19,7 +19,7 @@ reach the fallback, which is the #9285 review 2 gap again.
   failures still take the fallback and write. Fails on main ("three planted files did not refuse the save").
 - Moved to EPERM, since EEXIST now refuses: securewrite.fsync-5434 (wxFails), accounts.fsync-5434 (two tests),
   store.fsync-5434 (three). The #9285 mixed-plant atomicOnly test's last attempt is now a planted refusal.
-- Every test file naming EEXIST, writeSecret or securewrite (49) passes.
+- Every test file that mentions EEXIST, writeSecret or securewrite (49 found by grep) passes.
 
 ## Weakest premise
 That nothing legitimate leaves a file at a fresh temp name. The name carries pid, thread, start time and a sequence
@@ -45,3 +45,9 @@ above, and the #9285 doc's measured claim scoped to swap refusals.
 Mutation-checked by the reviewer: with the EEXIST refusal disabled, or with "refuse only when all three are plants", the
 new tests go red. Left open and carded (kosmos#9325): plant shapes that fail the create with another code (a Windows
 file held open and delete-pending fails EPERM, which is also the ordinary Windows fallback reason, so it cannot count).
+
+## Review 4
+Mutation-checked (three mutations, each red). Added: directory and dangling-link plant arms (any EEXIST counts; with the
+check narrowed to regular files the test goes red), and the doc says a caller now sees ERR_KOSMOS_TEMP_SWAPPED rather
+than the other attempts' own codes, which ride as `lastAttempt` (no caller branches on them; githubdevice.js shows the
+code to a person, and shows this one).

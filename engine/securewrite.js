@@ -186,14 +186,14 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     Windows that fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back
  *     would hand the same person a race at the config itself. On no measured mount does an ordinary save see a SWAP
  *     refusal (the Mac, GitHub's Windows runner, a Linux container); the plain-file case is not measured on a network
- *     mount (below). The cost is wider than three such refusals: ONE is enough when the other
- *     two attempts fail for any reason, so a sync client or antivirus that moved one fresh temp, with two renames
- *     failing EPERM (the usual reason Windows reaches the fallback), now fails that save rather than rewrite in
- *     place. And on a mount whose fstat and lstat
- *     answers disagree every time (another device or inode, or a link count above one), every attempt is refused,
- *     so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three failures with
- *     no such refusal fall back as before.
- *   - (kosmos#9307) a plain file already at a fresh temp name counts as such a refusal too: the create fails EEXIST.
+ *     mount (below). The cost is wider than three such refusals: ONE is enough when the other two attempts fail for
+ *     any reason, so a sync client or antivirus that moved one fresh temp, with two renames failing EPERM (the usual
+ *     reason Windows reaches the fallback), now fails that save rather than rewrite in place. And on a mount whose
+ *     fstat and lstat answers disagree every time (another device or inode, or a link count above one), every attempt
+ *     is refused, so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three
+ *     failures with no such refusal fall back as before.
+ *   - (kosmos#9307) anything already at a fresh temp name (a plain file, a directory, a dangling link on POSIX) counts
+ *     as such a refusal too: the create fails EEXIST.
  *     The name carries this process's pid, thread, start time and a sequence number, so there are three honest
  *     routes: a crashed earlier process with the same pid, thread AND start millisecond (the reaper cannot remove its
  *     temp: it reads it as this process's own); a second copy of this module loaded in the same thread and millisecond
@@ -201,7 +201,10 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     resends an exclusive create after a lost reply and answers EEXIST for the file it just made. All three are near
  *     impossible, and each fails that save only when the other two attempts fail too (one EEXIST and a clean next
  *     attempt still saves). So three plain files planted at the three names no longer reach the in-place fallback (or
- *     its Windows race at the config). The module's own tests reach the fallback with EPERM now.
+ *     its Windows race at the config). The module's own tests reach the fallback with EPERM now. A caller then sees
+ *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES), which ride along as `lastAttempt`:
+ *     no caller branches on those codes after a save (checked), and the one that shows a code to a person
+ *     (githubdevice.js) shows this one instead.
  *     NOT closed: plant shapes that fail the create with another code. On Windows a file held open and marked for
  *     deletion makes the create fail EPERM, not EEXIST, and EPERM is also the ordinary reason a Windows save reaches the
  *     fallback (antivirus, a sync client), so it cannot count as a plant; and on POSIX a temp unlinked between the

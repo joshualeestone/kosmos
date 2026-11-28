@@ -1159,7 +1159,8 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
 test('#9307: plain files planted at the temp names refuse the save, with no in-place fallback; EPERM still falls back', (t) => {
   const realOpen = fs.openSync;
   const planted = [];
-  t.after(() => { fs.openSync = realOpen; for (const p of planted) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  const dirs = [];
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...dirs]) { try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* fine */ } } });
   const run = (name, failFor, opts) => {
     const file = fresh(name);
     fs.writeFileSync(file, 'old config');
@@ -1170,6 +1171,8 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
         opens += 1;
         const how = failFor(opens);
         if (how === 'plant') { planted.push(String(p)); fs.writeFileSync(String(p), 'planted'); }   // the real open then fails EEXIST
+        else if (how === 'dir') { dirs.push(String(p)); fs.mkdirSync(String(p)); }   // a directory at the name: EEXIST too
+        else if (how === 'dangling') { dirs.push(String(p)); fs.symlinkSync(path.join(path.dirname(String(p)), 'nowhere-9307'), String(p)); }   // POSIX: EEXIST, never followed
         else if (how === 'eperm') throw Object.assign(new Error('refused'), { code: 'EPERM' });
       }
       if (String(p) === file) inPlace += 1;
@@ -1178,7 +1181,7 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
     let err = null;
     try { securewrite.writeSecret(file, 'secret-9307', 0o600, opts); } catch (e) { err = e; }
     fs.openSync = realOpen;
-    return { err, opens, inPlace, after: fs.readFileSync(file, 'utf8') };
+    return { err, opens, inPlace, file, after: fs.readFileSync(file, 'utf8') };
   };
   const all = run('plant3', () => 'plant');
   assert.equal(all.opens, 3, 'the atomic path did not try three names');
@@ -1201,6 +1204,16 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
   // A refusal never removes what was planted: the refusal comes before the write could call a temp its own.
   assert.ok(planted.length >= 7, 'CONTROL: the plants were made (' + planted.length + ')');
   for (const p of planted) assert.equal(fs.readFileSync(p, 'utf8'), 'planted', 'a planted file was removed or changed: ' + p);
+  // Every plant shape that fails the create EEXIST counts, not only a regular file: a directory, and on POSIX a dangling link.
+  const dir = run('plantdir', () => 'dir');
+  assert.equal(dir.err && dir.err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'directories at the names: ' + (dir.err && dir.err.code));
+  assert.equal(dir.after, 'old config');
+  if (process.platform !== 'win32') {
+    const dl = run('plantdangle', () => 'dangling');
+    assert.equal(dl.err && dl.err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'dangling links at the names: ' + (dl.err && dl.err.code));
+    assert.equal(dl.after, 'old config');
+    assert.ok(!fs.existsSync(path.join(path.dirname(dl.file), 'nowhere-9307')), 'a dangling link was followed');
+  }
   const ctl = run('eperm3', () => 'eperm');
   assert.equal(ctl.err, null, 'CONTROL: three EPERM failures should take the fallback and succeed: ' + (ctl.err && ctl.err.code));
   assert.ok(ctl.inPlace >= 1, 'CONTROL: the fallback did not open the config');
