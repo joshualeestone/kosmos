@@ -221,3 +221,12 @@ test('round 3: a place nobody has asked for in PLACE_IDLE_MS is gone, even one t
   ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 3 * ht.PLACE_IDLE_MS - 1 });
   assert.equal(ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 4 * ht.PLACE_IDLE_MS - 2 }).place, 1);
 });
+
+test('round 4: the caller\'s own lapsed place goes too: back after PLACE_IDLE_MS, it rejoins at the back', () => {
+  const r = root();
+  ht.take({ root: r, agent: 'renet', label: 'suite', now: T0 });
+  ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 10 });
+  ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + ht.PLACE_IDLE_MS - 60 * 1000 });
+  const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 11 + ht.PLACE_IDLE_MS });
+  assert.deepEqual([a.place, names(a.ahead)], [2, ['mona']], 'a place that stopped asking kept its old position');
+});

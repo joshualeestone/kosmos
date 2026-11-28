@@ -4028,7 +4028,7 @@ cmd_reply_channel() {
 #   kosmos heavy start "<label>" [--pid N] records yours (with --pid, it clears when that process ends; else with you)
 #   kosmos heavy end [--pid N]            ends it
 #   kosmos heavy take "<label>" [--pid N]  takes the turn, or keeps your place in line (slice 2; exit 0 = your turn, 10 = wait,
-#                                          a code no other verb uses: 3 is "maybe" elsewhere)
+#                                          a code no other verb uses: 3 is "maybe" in the Windows CLI)
 #   kosmos heavy release [--pid N]         ends your turn, or gives up your place
 # One copy of the usage, for the verb and for the global --help guard (bare `kosmos heavy` reads the board, so --help
 # cannot re-dispatch it bare the way the message verbs do).

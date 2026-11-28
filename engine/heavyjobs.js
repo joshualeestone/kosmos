@@ -227,10 +227,6 @@ function end({ root, agent, pid }) {
   return saved ? { ok: true, ended, others } : { ok: false, because: NOT_SAVED };
 }
 
-/* The live records, oldest first, each as { agent, label, pid, since }. With the option hidden: true, the hidden ones
-   too, each marked unchecked: true. Stale ones are removed from the file when its
-   lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
-   could not be saved changes nothing the reader is told. */
 /* One read's start-time reader: at most PS_PER_READ ps runs, none started once PS_MS_PER_READ is spent. Only a ps run
    spends the budget (a fresh cache hit costs none), and aged records are judged first, so the ones that need a read to
    be shown get it (kosmos#9222). Exported so the line of turns (engine/heavyturns.js) shares one budget with the jobs. */
@@ -247,6 +243,10 @@ function budgetedStartOf(now = Date.now()) {
   };
 }
 
+/* The live records, oldest first, each as { agent, label, pid, since }. With the option hidden: true, the hidden ones
+   too, each marked unchecked: true. Stale ones are removed from the file when its
+   lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
+   could not be saved changes nothing the reader is told. */
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null, hidden = false }) {
   if (startOf === defaultStartOf) startOf = budgetedStartOf(now);
   const all = readAll(root);
