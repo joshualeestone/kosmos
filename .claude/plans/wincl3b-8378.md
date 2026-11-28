@@ -37,15 +37,15 @@ pdfpreview (Linux stand-ins found by the POSIX execute bit; a `"` in a file name
 (build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), the shell report hook
 (install/kosmos-report-hook.sh), the macOS cwd-case arm of trust.canonical-spelling, tool-guard's two POSIX controls,
 and runnable-not-directory's tmux-key arm (machine.js does not probe tmux on Windows).
-**Owed, not lacking:** orgchartfile (4 arms) and teamcreate-structure-4557 (6 arms) check things that exist on
-Windows but set up with a `#!/bin/sh` fake claude, fake-tmux.sh and `/bin/echo`; their reason names #9272, which
-owes the Windows arms.
+**Not in this slice:** engine/orgchartfile.test.js and teamcreate-structure-4557.test.js. Mona Lisa owns both on
+#9272 (branch wincl-9272): she measured that #4660 and the teamcreate arms fail on Windows for path spelling and a
+roster seam, not a shell script, fixes those, and puts the sh-script orgchart arms beside node stand-ins. An earlier
+version of this slice skipped them naming #9272; that was dropped so two branches do not edit the same lines.
 
 ## Decided, and what I rejected
 
 - Rejected: skipping #9268's arm. It is the one place the runner showed a guarantee failing, not a setup gap.
-- Rejected: writing the orgchartfile and teamcreate Windows arms here. Each needs a Windows stand-in (a `.cmd` claude,
-  a roster served as Windows reads it) that I cannot check off the runner in one pass; #9272 owns them.
+- Rejected: touching orgchartfile and teamcreate here at all, once #9272 had an owner working both files.
 
 ## Weakest premise
 

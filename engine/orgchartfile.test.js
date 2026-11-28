@@ -7,7 +7,6 @@ require('../test-support/tmpscope');
  * the fixtures end to end; this file pins what a real export can throw at the reader. Synthetic names only.
  */
 const test = require('node:test');
-const SKIP_OWED_ARM = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (the org chart reader runs Claude Code there too), but it stands claude in with a #!/bin/sh script run by its shebang line, which Windows cannot run; the Windows arm is owed on kosmos#9272');   // kosmos#8378
 const assert = require('node:assert/strict');
 const zlib = require('node:zlib');
 const fs = require('node:fs');
@@ -391,7 +390,7 @@ test('an answer that leaves out sure is treated as unsure (fails closed)', () =>
   assert.match(r.rows[0].why || '', /not sure/);
 });
 
-test('the real runner reads a stream-json result from claude (a fake binary, no provider)', { skip: SKIP_OWED_ARM }, async () => {
+test('the real runner reads a stream-json result from claude (a fake binary, no provider)', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -458,7 +457,7 @@ test('#4559: a file with no manager column says so, rather than reading as every
   assert.ok(!withBoss.problems.includes(o.NO_MANAGER_COLUMN), 'CONTROL: a manager column, even with an empty top cell, is not flagged');
 });
 
-test('#4559: a Claude Code too old for these flags says so, instead of "did not answer" (a fake binary, no provider)', { skip: SKIP_OWED_ARM }, async () => {
+test('#4559: a Claude Code too old for these flags says so, instead of "did not answer" (a fake binary, no provider)', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -493,7 +492,7 @@ test('#4559: common HR headers for the manager column are recognised (Supervisor
   assert.equal(byId.rows[1].reportsTo, 0, JSON.stringify(byId));
 });
 
-test('#4660: the Claude reader carries whether its account runs on an API key (the consent line depends on it)', { skip: SKIP_OWED_ARM }, (t) => {
+test('#4660: the Claude reader carries whether its account runs on an API key (the consent line depends on it)', (t) => {
   const accounts = require('./accounts');
   const runners = require('./runners');
   const saved = { dir: process.env.CLAUDE_CONFIG_DIR, key: process.env.ANTHROPIC_API_KEY };
@@ -589,7 +588,7 @@ test('#4559: the heaviest workbook under the caps is read on the board thread in
   assert.ok(ms < 1500, `the read held the board's thread for ${Math.round(ms)}ms`);
 });
 
-test('#4559: the read runs claude on the default account with CLAUDE_CONFIG_DIR unset, as an agent on it runs; a board on its own account passes that one as set', { skip: SKIP_OWED_ARM }, async () => {
+test('#4559: the read runs claude on the default account with CLAUDE_CONFIG_DIR unset, as an agent on it runs; a board on its own account passes that one as set', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
