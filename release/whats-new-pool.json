@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.30",
+  "lastProd": "0.8.31",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -3065,7 +3065,8 @@
       "icon": "tasks",
       "rank": 10.95,
       "since": "0.8.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.31"
     },
     {
       "title": "A Windows agent is not started twice",
@@ -3096,7 +3097,43 @@
       "since": "0.8.31",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "since": "0.8.31",
+      "status": "pending",
+      "title": "Undo takes back a found Windows agent",
+      "icon": "tasks",
+      "rank": 164,
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ],
+      "line": "On Windows, Undo after adding a found agent now also deletes its Scheduled Task, so the agent can be added again."
+    },
+    {
+      "since": "0.8.31",
+      "status": "pending",
+      "title": "The Muse turn log keeps going after a cut",
+      "icon": "list",
+      "rank": 165,
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ],
+      "line": "On Windows, an agent's Muse turn log keeps logging after it is cut to size."
+    },
+    {
+      "since": "0.8.32",
+      "status": "pending",
+      "title": "A receipt names a Codex agent's files",
+      "icon": "tasks",
+      "rank": 166,
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ],
+      "line": "A task receipt now lists the files a Codex agent edited by a Windows path, never the agent's own folder."
     }
   ],
-  "lastProdWin": "0.8.30"
+  "lastProdWin": "0.8.31"
 }
