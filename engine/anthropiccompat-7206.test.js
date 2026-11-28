@@ -19,7 +19,6 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 const compat = require('./anthropiccompat');
 const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
-const NO_LAUNCH_ENV = require('../test-support/skip-on-win32').skipOnWin32('vendor providers are switched on only on macOS (anthropiccompat enabled() answers only on darwin), so on Windows launch-env answers exit 2. Linux would refuse the same way; skipped here for Windows only');   // kosmos#8378
 
 test.after(() => { compat.setFetcher(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -231,10 +230,20 @@ test('launchEnv refuses an account file that is a link', () => {
   assert.match(r.because, /is a link/);
 });
 
-test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', { skip: NO_LAUNCH_ENV }, () => {
+test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', () => {
   const script = nodePath.join(__dirname, 'anthropiccompat.js');
   const dataOn = nodePath.join(SANDBOX, 'cli-data-on'); require('../test-support/compat-switch').setAt(dataOn, true);   // slice 1b: launch-env obeys the switch
   const on = { ...process.env, AGENT_WORKFORCE_DATA: dataOn };
+  /* kosmos#9315: vendor providers are switched on only on macOS (enabled() answers only on darwin), so on any other host
+     the switch on still refuses: exit 2 and the refusal sentence, never the key's NAME=VALUE pairs. Pinned, not skipped. */
+  if (process.platform !== 'darwin') {
+    let rc = 0; let said = '';
+    try { execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on }); } catch (e) { rc = e.status; said = String(e.stdout); }
+    assert.equal(rc, 2, 'launch-env did not refuse off macOS');
+    assert.match(said, /, so this agent was not started on it$/);
+    assert.ok(!said.includes('\0') && !said.includes(KEY), 'the refusal carried the key');
+    return;
+  }
   const out = execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on });
   const pairs = out.split('\0').filter(Boolean);
   assert.ok(pairs.includes('ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic'));
