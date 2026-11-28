@@ -66,6 +66,7 @@ if (process.platform === 'win32') {
   /* Before each test, not once: fleet.install's restore (req 2) puts the seam back to null, which on a Mac falls through
      to fake-tmux.sh and on Windows to nothing (measured: the three tests after req 2 refused "we could not check"). */
   test.beforeEach(() => require('./engine/status').setPaneSource(() => ''));
+  test.afterEach(() => require('./engine/status').setPaneSource(null));   // as engine/create.apostrophe-8784.test.js
   require('./engine/win32create').setPark(() => {});
   win32job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
   win32job.setRunner((args) => {
