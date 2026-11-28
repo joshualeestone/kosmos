@@ -2,7 +2,8 @@
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
  * kosmos#9254: a test browser must never read the person's login keychain. On 2026-11-27 a Chrome for Testing asked
- * for "Chromium Safe Storage", and the dialog reached the person. Playwright adds --use-mock-keychain and
+ * for "Chromium Safe Storage", and the dialog reached the person. What launched that browser is not covered by any
+ * record we hold, so this guard does not prove that launch is fixed: it keeps this repo's own launches from being one. Playwright adds --use-mock-keychain and
  * --password-store=basic to every Chromium it launches (measured on this Mac: the browser process carries both, and
  * securityd logs no request), so the danger is a launch that turns those defaults off, or one that runs a Chrome
  * binary itself. This reads the repo's tracked source as text and refuses both shapes.
@@ -80,7 +81,7 @@ function unsafeDrop(value) {
 const DEFAULTS_OFF = /ignoreAllDefaultArgs\s*:\s*true|ignoreAllDefaultArgs\s*=(?!=)/;
 /* Running a Chrome or Chromium binary or app itself, not through Playwright's launch (case-insensitive). The keychain
    switch must be on the same call: that line or the three after it. */
-const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell\b|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^\s"'\\]*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)|['"]open['"]\s*,\s*\[[^\]]*?['"]-[a-z]*[ab][a-z]*['"]\s*,\s*['"](?:\/[^'"]*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)/i;
+const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell\b|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^\s"'\\]*\/)?(?:google chrome|chrome|chromium|com\.google\.chrome|org\.chromium)|['"]open['"]\s*,\s*\[[^\]]*?['"]-[a-z]*[ab][a-z]*['"]\s*,\s*['"](?:\/[^'"]*\/)?(?:google chrome|chrome|chromium|com\.google\.chrome|org\.chromium)/i;
 
 function offenders(list) {
   const bad = [];
@@ -124,7 +125,8 @@ test('#9254: every rule fires on the shape it names, and not on the safe shapes 
     "open -a 'google chrome'", 'open -b com.google.Chrome', 'open -a /Applications/Chromium.app/', "execFile('/x/chrome-headless-shell', [])",
     "spawnSync('/x/chrome-headless-shell', [])", "exec('/x/chrome-headless-shell --version')", 'open -b org.chromium.Chromium',
     'run("/x/Chromium.app/Contents/MacOS/Chromium")', 'execSync("open -a \\"Google Chrome\\" https://x")',
-    "execFileSync('open', ['-a', 'Google Chrome for Testing', '--args', '--new-window'])", "spawn('open', ['-na', '/Applications/Chromium.app'])"]) {
+    "execFileSync('open', ['-a', 'Google Chrome for Testing', '--args', '--new-window'])", "spawn('open', ['-na', '/Applications/Chromium.app'])",
+    'open -a Chrome https://x']) {
     assert.ok(RUNS_CHROME.test(l), 'missed: ' + l);
   }
   assert.ok(!RUNS_CHROME.test('chromium.launch({ headless: true })'), 'a Playwright launch is not a direct run');

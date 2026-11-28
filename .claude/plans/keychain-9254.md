@@ -54,3 +54,6 @@ A ternary must have both arms, and a value continues past a newline that starts 
 
 ## Review 4
 A file that only names the option (a comment, shorthand) is reported by name, never a crash; the argv form open, [-a, Chrome] is read; the header names the one direct run text cannot see (agentbrowser.js execP(exe, [--version])); the MCP config is asserted headless.
+
+## Review 5
+The header says the original launcher is not covered by any record we hold, so this guard keeps the repo safe and does not prove that launch fixed. open -a Chrome (the short name) is read.
