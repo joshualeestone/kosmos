@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: postfile-9242
-diff_hash: f5c2771bacfc6fca86eca28d95bf1e10a180a3cbc63587b0c5430c98921d1697
+diff_hash: 68bb495bb8d98f89451953e1b77c7678565e423c41708358f02531d5641ca054
 validation: local on the rebased head 01f4eefc16: the post, reply, Windows CLI, replyfile win32, windows-tests guard and fixture files, 233 tests, 166 pass, 0 fail (the rest need a real Windows host); the wider queued run was withdrawn before it started (it sat behind another suite and the rebase had to touch the worktree); the full suite runs on the PR's CI. One unexplained single failure of server.post-file-9242 in 9 runs on unchanged code (test name not captured), then 11 clean runs
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-28T00:00:49Z
@@ -31,6 +31,9 @@ converged: true
 #### Iteration 3
 - [STRENGTH] no defect found; every exit path after the copy checked
 - [WARNING] (design, raised as an observation) a room post could attach a file from another of the agent's projects, handing it to members not on that project --> FIXED: onlyProject (Files folder or the room's own folder); reply unchanged (measured both)
+
+#### CI (after iteration 4)
+- [WARNING] two existing tests pinned the old shape: server.agent-token-sender-570's wiring regex (the new spread sat before replyExpected and contains a }) and tools.windows-kosmos-cli-570's --file refusal --> FIXED: the spread moved after replyExpected; the arm now refuses --attach and sends --file (both 90/90 and 17/17 locally)
 
 #### Iteration 4
 - [NIT] the other-project sentence could show for a file refused for another reason (a .env there) --> FIXED: only when that project would take the file
