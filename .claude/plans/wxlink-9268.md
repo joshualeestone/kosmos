@@ -37,5 +37,5 @@ link, but an empty file is left there; the Windows run of trust.test.js's arm is
 - Windows, run 46118787881 (never-merged branch `wincl3-8378-never-merge`, with this branch merged in):
   engine/trust.test.js 51 pass, 0 fail, the planted-link arm included (it failed before this fix, run 46116329603);
   engine/securewrite.test.js: the new #9268 arm passes; 9 other arms fail there (the #1787 file-mode and #1793
-  foreign-pid arms), the same 9 a colleague measured on main (#8378 comment 7235424591, fail=9 pass=20), so this
+  foreign-pid arms); a colleague measured 9 failing there on main too (#8378 comment 7235424591, fail=9 pass=20), so this
   branch leaves them to that cluster.
