@@ -526,7 +526,7 @@ function isUnderTmpDir(folder) {
   const roots = new Set([os.tmpdir(), '/tmp'].map(canonicalPath).filter(Boolean));
   for (const root of roots) {
     if (target === root) return true;
-    const withSep = root.endsWith('/') ? root : root + '/';
+    const withSep = root.endsWith(path.sep) ? root : root + path.sep;   // kosmos#9267: a backslash on Windows
     if (target.startsWith(withSep)) return true;
   }
   return false;

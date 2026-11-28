@@ -153,6 +153,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/trust.canonical-spelling-2129c.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it pins the macOS behaviour that process.cwd() after a chdir returns the on-disk letter case; on Windows process.cwd() keeps the spelling it was handed, and Windows trust keys are matched case-blind (engine/trust.js runnerSpelling)',
   'engine/trust.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it checks a 0640 file mode survives a write, and Windows does not keep POSIX file modes',
   'engine/reporthook.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it checks a 0600 file mode survives a write, and Windows does not keep POSIX file modes',
   'engine/projects.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there',

@@ -2320,7 +2320,10 @@ test('the taught kosmos command resolves to a real file on this machine, never a
   const spaced = fs.mkdtempSync(path.join(os.tmpdir(), 'cli path-'));
   fs.mkdirSync(path.join(spaced, 'install'), { recursive: true });
   fs.writeFileSync(path.join(spaced, 'install', 'kosmos'), '#!/bin/sh\n');
-  assert.equal(kosmosCliShown(spaced), '"' + path.join(spaced, 'install', 'kosmos') + '"');
+  /* A path with a backslash (any Windows path) is never taught, by the rule below: the bare word, and the agent's
+     supervisor puts the CLI on its PATH there (engine/clipath.js, #570; kosmos#8378). */
+  const spacedCli = path.join(spaced, 'install', 'kosmos');
+  assert.equal(kosmosCliShown(spaced), spacedCli.includes('\\') ? 'kosmos' : '"' + spacedCli + '"');
   // Guarded: on a checkout whose own path carries a space, the quoting
   // arm is CORRECT and this assertion would fail environmentally.
   if (!/\s/.test(kosmosCli())) {
