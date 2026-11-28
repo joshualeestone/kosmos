@@ -45,6 +45,10 @@ function fileStdin(text, keepName) {
    long (the CLI's own exit time is taken from the shell, not from the pipeline's end); { socket: text } and
    { open: true } node's own stdin pipe, which is a socket pair, with text then closed or left open with nothing on it;
    { devnull: true } /dev/null. An open pipe is closed after the CLI exits, so it cannot leak. */
+/* kosmos#9264: run() puts each child in its own process group, so a group still running when this file ends (the run
+   was interrupted) is not taken down with it: end any that are left. */
+const LIVE_GROUPS = new Set();
+process.on('exit', () => { for (const pid of LIVE_GROUPS) { try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ } } });
 function run(args, port, stdin) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN };
@@ -77,6 +81,7 @@ function run(args, port, stdin) {
     const started = Date.now();
     // kosmos#9264: its own process group, so the 20 s kill below reaches the CLI and its peek under a /bin/sh parent too
     const child = spawn(cmd, argv, { env, detached: true, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
+    LIVE_GROUPS.add(child.pid);
     if (fd !== null) fs.closeSync(fd);
     let out = '', cliDone = null;
     child.stdout.on('data', (d) => { out += d; });
@@ -85,6 +90,7 @@ function run(args, port, stdin) {
     child.on('error', reject);
     child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
+      LIVE_GROUPS.delete(child.pid);
       if (child.stdin) { try { child.stdin.destroy(); } catch {} }
       const res = { code: exitCode, out, cliDone };
       if (typeof res.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + '): it hung. ' + out)); return; }
@@ -260,7 +266,8 @@ function peekProblems(cli) {
   const body = cli.slice(start, end);
   if (!/\bKOSMOS_PEEK_MS="?\$\{?KOSMOS_PIPED_PEEK_MS\}?"?(\s|$)/.test(body)) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
   if (!/setTimeout\([^;]*process\.env\.KOSMOS_PEEK_MS/.test(body)) problems.push('the peek timer does not read KOSMOS_PEEK_MS');
-  if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(body)) problems.push('the peek reaches the quiet read');
+  const code = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');   // a comment may name the quiet read
+  if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(code)) problems.push('the peek reaches the quiet read');
   return problems;
 }
 
