@@ -21,6 +21,7 @@ const fleet = require('./test-support/fleet');
 if (process.platform === 'win32') {
   require('./engine/win32job').setRunner((args) => (args && args[0] === '/Query'
     ? { ok: false, out: 'ERROR: The system cannot find the file specified.' } : { ok: true, out: '' }));
+  test.after(() => require('./engine/win32job').setRunner(null));
 }
 
 const SCRIPT = fs.readFileSync(require.resolve('./web/index.html'), 'utf8');

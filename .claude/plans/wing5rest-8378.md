@@ -61,3 +61,9 @@ tools/wincand-8378.js over the 81 files on windows-latest (full history, a 1200 
 - W: killedHard on Windows also needs an empty stderr, so a crash (exit 1, no signal) cannot pass as the kill; the
   outside-cwd arm sets USERPROFILE beside HOME; selfreport.history refuses a non-regular file as readTail does
   (pinned on the Mac by the /dev/null arm, reds without it, measured).
+
+## Review 4 (nits only): review stopped here, 4 rounds, no BLOCKER open
+- create.codex-wedge builds its sandbox with realpathSync.native, as create.js resolves folders (an 8.3 temp name
+  would otherwise differ on Windows once the folder exists); agent-sort resets its job-tool stand-in after the file.
+- Left, decided: pathRe is written in two files (each is a test-local helper); usagepoll-7152 line 497 is refused on
+  Windows for a drive difference, still the outside-the-home branch it names.
