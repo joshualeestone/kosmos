@@ -615,7 +615,10 @@ function readArgs() {
    else in the call (the flags, the env, stdin, reading the answer) stays real. Null puts the real launch back. */
 const realLaunch = (bin, args) => [bin, args];
 let claudeLaunch = realLaunch;
-function setClaudeLaunchForTest(fn) { claudeLaunch = typeof fn === 'function' ? fn : realLaunch; }
+function setClaudeLaunchForTest(fn) {
+  if (fn !== null && typeof fn !== 'function') throw new TypeError('setClaudeLaunchForTest takes a function, or null for the real launch');
+  claudeLaunch = fn || realLaunch;
+}
 
 /* The real call: Claude Code, headless, in an empty temporary folder, on the default account, or the board's own.
    Resolves { ok, structured } or { ok:false, because }. Replaceable for tests (setModelRunner). */

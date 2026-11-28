@@ -785,7 +785,8 @@ async function withNodeClaude(script, fn) {
 const nodeClaude = (then) => 'const fs = require("node:fs"), path = require("node:path");\n' +
   'let input = "";\nprocess.stdin.on("data", (d) => { input += d; }).on("end", () => {\n' +
   '  const ccd = Object.prototype.hasOwnProperty.call(process.env, "CLAUDE_CONFIG_DIR") ? process.env.CLAUDE_CONFIG_DIR : "UNSET";\n' +
-  '  fs.writeFileSync(path.join(__dirname, "seen.json"), JSON.stringify({ args: process.argv.slice(2), ccd, bytes: input.length }));\n' +
+  '  const spellings = Object.keys(process.env).filter((k) => k.toUpperCase() === "CLAUDE_CONFIG_DIR");\n' +
+  '  fs.writeFileSync(path.join(__dirname, "seen.json"), JSON.stringify({ args: process.argv.slice(2), ccd, spellings, bytes: input.length }));\n' +
   '  ' + then + '\n});\n';
 const seenIn = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'seen.json'), 'utf8'));
 
@@ -809,8 +810,9 @@ test('#9272: a Claude Code too old for these flags says so, on every platform (a
   const warn = console.warn; const warned = [];
   console.warn = (m) => warned.push(String(m));
   try {
-    await withNodeClaude(nodeClaude('process.stderr.write("error: unknown option \'--tools\'\\n"); process.exitCode = 1;'), async () => {
+    await withNodeClaude(nodeClaude('process.stderr.write("error: unknown option \'--tools\'\\n"); process.exitCode = 1;'), async (dir, started) => {
       const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.ok(started() === 1, 'CONTROL: the read went through the launch hook');
       assert.match(r.problems[0], /too old to read files/, JSON.stringify(r));
       assert.ok(warned.some((w) => /unknown option/.test(w)), 'the boundary logs what claude said');
     });
@@ -825,14 +827,23 @@ test('#9272: a Claude Code too old for these flags says so, on every platform (a
 test('#9272: the read runs claude with CLAUDE_CONFIG_DIR unset on the default account and set on the board\'s own, on every platform', async () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
   const answer = JSON.stringify({ type: 'result', is_error: false, structured_output: { people: [] } });
+  // Off Windows a name is case-sensitive, so another spelling is another variable, and the runner must remove every
+  // spelling (#5386), not only the one this test deletes. On Windows the spellings are one variable, so it is not set.
+  const variant = process.platform === 'win32' ? null : 'claude_config_dir';
   try {
-    await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(answer + '\n') + ');'), async (dir) => {
+    await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(answer + '\n') + ');'), async (dir, started) => {
       delete process.env.CLAUDE_CONFIG_DIR;
-      await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      if (variant) process.env[variant] = path.join(dir, 'another-spelling');
+      try {
+        await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      } finally { if (variant) delete process.env[variant]; }
+      assert.equal(started(), 1, 'CONTROL: the read went through the launch hook');
       assert.equal(seenIn(dir).ccd, 'UNSET', 'the default account must run with CLAUDE_CONFIG_DIR unset');
+      assert.deepEqual(seenIn(dir).spellings, [], 'no spelling of CLAUDE_CONFIG_DIR reaches a read on the default account');
       const own = path.join(dir, 'own-account');
       process.env.CLAUDE_CONFIG_DIR = own;
       await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.equal(started(), 2, 'CONTROL: the second read went through the launch hook too');
       assert.equal(seenIn(dir).ccd, own, 'a board on its own account passes that one');
     });
   } finally { if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved; }
