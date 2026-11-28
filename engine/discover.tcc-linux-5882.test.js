@@ -15,6 +15,7 @@ const path = require('node:path');
 
 const SB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-tcc5882-')));
 process.env.HOME = path.join(SB, 'home');
+process.env.USERPROFILE = process.env.HOME; // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 fs.mkdirSync(process.env.HOME, { recursive: true });

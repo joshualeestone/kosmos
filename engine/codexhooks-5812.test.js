@@ -24,6 +24,10 @@ const bridge = require(BRIDGE);
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-5812-')));
 
 const PINNED_VERSION = require('./runners').MANIFEST.openai.version;   // the Mac pin (kosmos#8593: 0.169.0)
+/* kosmos#8378: the pure arms below check the POSIX forms (a quoted sh command, a basic-string trust key), so they name
+   that platform: on a Windows host the default is the PowerShell form, tested in codexhooks.win32-8348.test.js. */
+const POSIX = { platform: 'darwin' };
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
 
 test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails here until the hash is re-measured', () => {
   // On a bump of engine/runners.js: run the real-Codex test below on the new build (it checks the record with a
@@ -45,7 +49,7 @@ test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails her
 
 test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cli 0.149.1, 10-16)', () => {
   // Measured: Codex's own "Trust all and continue" wrote this record for exactly this hooks.json (timeout 10 included).
-  const command = hooks.commandFor('/Applications/Some Place/bin/codex-report-bridge.js');
+  const command = hooks.commandFor('/Applications/Some Place/bin/codex-report-bridge.js', POSIX);
   assert.equal(command, "'/Applications/Some Place/bin/codex-report-bridge.js'");
   assert.equal(hooks.trustHash(command), 'sha256:55b913ed3075b80d916e32ce3d1a321f7b03c6d2e2f092c56edf256eec14dd39');
   assert.deepEqual(JSON.parse(hooks.hooksJson(command)),
@@ -53,7 +57,7 @@ test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cl
 });
 
 test('commandFor quotes a single quote in the path for the shell', () => {
-  assert.equal(hooks.commandFor("/a/it's/b.js"), "'/a/it'\\''s/b.js'");
+  assert.equal(hooks.commandFor("/a/it's/b.js", POSIX), "'/a/it'\\''s/b.js'");
 });
 
 test('nextConfig appends when absent, and leaves every other table byte-for-byte', () => {
@@ -93,13 +97,13 @@ test('nextConfig leaves a hand-edited record alone (enabled = false, a duplicate
 });
 
 test('stateHeading refuses a path a TOML basic string would need escapes for', () => {
-  assert.equal(hooks.stateHeading('/h/hooks.json'), '[hooks.state."/h/hooks.json:pre_tool_use:0:0"]');
-  assert.equal(hooks.stateHeading('/h"q/hooks.json'), null);
-  assert.equal(hooks.stateHeading('/h\\q/hooks.json'), null);
-  assert.equal(hooks.stateHeading('/h\nq/hooks.json'), null);
+  assert.equal(hooks.stateHeading('/h/hooks.json', POSIX.platform), '[hooks.state."/h/hooks.json:pre_tool_use:0:0"]');
+  assert.equal(hooks.stateHeading('/h"q/hooks.json', POSIX.platform), null);
+  assert.equal(hooks.stateHeading('/h\\q/hooks.json', POSIX.platform), null);
+  assert.equal(hooks.stateHeading('/h\nq/hooks.json', POSIX.platform), null);
 });
 
-test('install writes hooks.json and the trust record (0600), is a no-op the second time, and follows a moved bridge', () => {
+test('install writes hooks.json and the trust record (0600), is a no-op the second time, and follows a moved bridge', { skip: skipOnWin32('it checks POSIX file modes (0600), which Windows does not keep; the Windows install, with its PowerShell command and literal-string key, is tested in engine/codexhooks.win32-8348.test.js') }, () => {
   const h = home();
   fs.writeFileSync(path.join(h, 'config.toml'), '[projects."/w"]\ntrust_level = "trusted"\n', { mode: 0o600 });
   const firstInode = fs.statSync(path.join(h, 'config.toml')).ino;
@@ -139,7 +143,9 @@ test('review 2: the record is keyed on the home\'s canonical path, as Codex reso
 test('install creates config.toml when Codex has not written one yet', () => {
   const h = home();
   assert.deepEqual(hooks.install(h, '/k/codex-report-bridge.js', PINNED_VERSION), { ok: true });
-  assert.match(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), /^\[hooks\.state\."[^"]+:pre_tool_use:0:0"\]\ntrusted_hash = "sha256:[0-9a-f]{64}"\n$/);
+  /* On Windows install writes the key as a TOML literal string (single quotes), as measured on Codex there (kosmos#8348). */
+  const key = process.platform === 'win32' ? /'[^']+:pre_tool_use:0:0'/ : /"[^"]+:pre_tool_use:0:0"/;
+  assert.match(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), new RegExp(String.raw`^\[hooks\.state\.` + key.source + String.raw`\]\ntrusted_hash = "sha256:[0-9a-f]{64}"\n$`));
 });
 
 test('install refuses a relative path, a missing home, a home that is a link, and a hand-edited record', () => {
@@ -159,7 +165,9 @@ test('install refuses a relative path, a missing home, a home that is a link, an
   assert.equal(r.ok, false);
   assert.match(r.because, /by hand/);
   assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), mine);
-  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false, 'review 1: no hooks.json left whose record we cannot vouch for');
+  /* kosmos#8348: on Windows the home is the account's, shared by its Codex agents, so a refusal leaves the files as they
+     are (only a Codex of another version takes ours back); on the Mac and Linux a refusal removes ours. */
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), process.platform === 'win32', 'review 1: no hooks.json left whose record we cannot vouch for (Windows: left as it was)');
 });
 
 test('review 1: any Codex but the pinned version gets no hook, and an earlier hooks.json of ours is removed', () => {
@@ -190,7 +198,7 @@ test('review 1: a failed record write leaves no hooks.json', () => {
 test('removeOurs leaves a hooks.json that is not ours, and a link', () => {
   const h = home();
   // Review 7: a person's own hooks.json with ours merged in mentions the bridge but is not ours.
-  const ours = JSON.parse(hooks.hooksJson(hooks.commandFor('/k/codex-report-bridge.js')));
+  const ours = JSON.parse(hooks.hooksJson(hooks.commandFor('/k/codex-report-bridge.js', POSIX)));
   ours.hooks.PostToolUse = [{ matcher: '', hooks: [{ type: 'command', command: '/their/own.sh' }] }];
   fs.writeFileSync(path.join(h, 'hooks.json'), JSON.stringify(ours));
   assert.equal(hooks.removeOurs(h), false);
@@ -208,7 +216,7 @@ test('removeOurs leaves a hooks.json that is not ours, and a link', () => {
     assert.equal(hooks.removeOurs(h), false, JSON.stringify(other));
   }
   // Ours, from a bridge path that has since moved, is removed.
-  fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor("/old/it's/codex-report-bridge.js")));
+  fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor("/old/it's/codex-report-bridge.js", POSIX)));
   assert.equal(hooks.removeOurs(h), true);
   assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
   fs.writeFileSync(path.join(h, 'hooks.json'), '{"hooks":{}}');

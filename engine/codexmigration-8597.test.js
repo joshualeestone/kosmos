@@ -7,6 +7,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { pinModelMigration, migrationTarget, withMigration, configModel } = require('./codexupdate');
+const { skipOnWin32 } = require('../test-support/skip-on-win32.js');
+// kosmos#8378: the stand-in codex below is a #!/bin/sh script, and the product spawns the binary directly (no shell), so on
+// Windows the stand-in cannot be started; what these arms cover is the Mac and Linux supervisor launch step.
+const SKIP_SH_STAND_IN = skipOnWin32('its stand-in codex is a sh script run by its shebang line, which Windows cannot start without a shell, and the launch step it covers is the Mac and Linux supervisor one (a Windows Codex agent runs codex exec per turn, with no menu)');
+const SKIP_GROUP = skipOnWin32('its stalled stand-in is a sh script run by its shebang line, and it checks that a POSIX process group is killed, which Windows does not have');
 
 /**
  * kosmos#8597: Codex's model-migration menu at launch ("1. Try new model / 2. Use existing model") eats the first
@@ -39,7 +44,7 @@ function fakeCodex(catalog, { exit = 0 } = {}) {
 }
 const cfg = (d) => fs.readFileSync(path.join(d, 'config.toml'), 'utf8');
 
-test('#8597: with no cache, the bundled catalog names the target and the entry is written; control: a model with no upgrade writes nothing', async () => {
+test('#8597: with no cache, the bundled catalog names the target and the entry is written; control: a model with no upgrade writes nothing', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex(CATALOG);
   const d = home('model = "gpt-5.4"\n');
   assert.equal(await pinModelMigration(d, '', codex.bin), true);
@@ -50,7 +55,7 @@ test('#8597: with no cache, the bundled catalog names the target and the entry i
   assert.equal(cfg(d2), 'model = "gpt-5.5"\n', 'untouched');
 });
 
-test('#8597: the fetched catalog answers first when it lists the model, and the binary is not asked', async () => {
+test('#8597: the fetched catalog answers first when it lists the model, and the binary is not asked', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex({ models: [{ slug: 'gpt-5.4', upgrade: { model: 'gpt-9-bundled' } }] });
   const d = home('', { models: [{ slug: 'gpt-5.4', upgrade: { model: 'gpt-6-sol' } }] });
   assert.equal(await pinModelMigration(d, 'gpt-5.4', codex.bin), true);
@@ -67,7 +72,7 @@ test('#8597: the fetched catalog answers first when it lists the model, and the 
   assert.equal(codex.calls().length, 1);
 });
 
-test('#8597: it is idempotent, and a stale target is replaced in place', async () => {
+test('#8597: it is idempotent, and a stale target is replaced in place', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex(CATALOG);
   const d = home('model = "gpt-5.4"\n');
   assert.equal(await pinModelMigration(d, '', codex.bin), true);
@@ -108,7 +113,7 @@ test('#8597: it declines, never throws, on a failing binary, an unusable model i
   assert.equal(await migrationTarget(home(), 'gpt-5.4', ''), null, 'no cache and no binary: no target');
 });
 
-test('#8597: the model comes from the launch first, then config.toml\'s top-level key only', async () => {
+test('#8597: the model comes from the launch first, then config.toml\'s top-level key only', { skip: SKIP_SH_STAND_IN }, async () => {
   assert.equal(configModel('model = "gpt-5.4"\n[x]\nmodel = "other"\n'), 'gpt-5.4');
   assert.equal(configModel('[profiles.a]\nmodel = "other"\n'), null, 'a table\'s model is not the agent\'s');
   const codex = fakeCodex(CATALOG);
@@ -117,7 +122,7 @@ test('#8597: the model comes from the launch first, then config.toml\'s top-leve
   assert.match(cfg(d), /"gpt-5\.4" = "gpt-5\.6-terra"/);
 });
 
-test('#8597: the launch shim runs both steps and always exits 0', async () => {
+test('#8597: the launch shim runs both steps and always exits 0', { skip: SKIP_SH_STAND_IN }, async () => {
   const shim = path.join(__dirname, '..', 'bin', 'codex-dismiss-update.js');
   const d = home('model = "gpt-5.4"\n');
   fs.writeFileSync(path.join(d, 'version.json'), JSON.stringify({ latest_version: '0.150.1' }));
@@ -142,7 +147,7 @@ test('#8597: the supervisor passes the launch model (an endpoint\'s own -m first
   assert.equal(run([], 'gpt-5.5'), 'gpt-5.5', 'no endpoint: the agent\'s model');
 });
 
-test('#8597: it declines a file it would not edit cleanly: CRLF, a literal-string or bare key, an inline notice table', async () => {
+test('#8597: it declines a file it would not edit cleanly: CRLF, a literal-string or bare key, an inline notice table', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex(CATALOG);
   for (const text of [
     'model = "gpt-5.4"\r\n',
@@ -159,7 +164,7 @@ test('#8597: it declines a file it would not edit cleanly: CRLF, a literal-strin
   assert.equal(await pinModelMigration(d, '', codex.bin), true);
 });
 
-test('#8597: the shim never writes into the person\'s own codex home (its 4th argument is 1); control: 0 writes', () => {
+test('#8597: the shim never writes into the person\'s own codex home (its 4th argument is 1); control: 0 writes', { skip: SKIP_SH_STAND_IN }, () => {
   const shim = path.join(__dirname, '..', 'bin', 'codex-dismiss-update.js');
   const bin = fakeCodex(CATALOG).bin;
   const own = home('model = "gpt-5.4"\n');
@@ -170,7 +175,7 @@ test('#8597: the shim never writes into the person\'s own codex home (its 4th ar
   assert.match(cfg(priv), /"gpt-5\.4" = "gpt-5\.6-terra"/);
 });
 
-test('#8597: a stalled binary whose child holds the pipe is cut off at the bound, the whole group with it', async () => {
+test('#8597: a stalled binary whose child holds the pipe is cut off at the bound, the whole group with it', { skip: SKIP_GROUP }, async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ick-mig-stall-'));
   const pidf = path.join(d, 'grandchild.pid');
   const bin = path.join(d, 'codex');
@@ -201,7 +206,7 @@ test('#8597: a new config.toml is 0600 and an existing one keeps its mode', asyn
   assert.deepEqual(fs.readdirSync(kept).filter((f) => f.endsWith('.tmp')), [], 'no temp copy left');
 });
 
-test('#8597: a config.toml another Kosmos writer holds is left alone after the lock wait (no write, no throw)', async () => {
+test('#8597: a config.toml another Kosmos writer holds is left alone after the lock wait (no write, no throw)', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex(CATALOG);
   const d = home('model = "gpt-5.4"\n');
   fs.mkdirSync(path.join(d, 'config.toml.lock'));   // engine/filelock.js's lock, held (fresh, so it is not stale)
@@ -220,7 +225,7 @@ test('#8597: a literal-string model is read too, and the --model=X and -m=X laun
   assert.equal(run(['-m=gpt-5.4', '-c', 'a=b']), 'gpt-5.4');
 });
 
-test('#8597: installed layout: the supervisor runs launch prep through the engine path when its own folder has no shim', () => {
+test('#8597: installed layout: the supervisor runs launch prep through the engine path when its own folder has no shim', { skip: SKIP_SH_STAND_IN }, () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const from = src.indexOf('      DISMISS="$(cd "$(dirname "$0")" && pwd)/codex-dismiss-update.js"');
   const to = src.indexOf('unset _mig_model _mig_next _mig_shared _a', from);
@@ -243,7 +248,7 @@ test('#8597: installed layout: the supervisor runs launch prep through the engin
   assert.equal(cfg(c.d), 'model = "gpt-5.4"\n');
 });
 
-test('#8597: engine/codexupdate.js run as a script does both steps and exits 0, even on a missing home', () => {
+test('#8597: engine/codexupdate.js run as a script does both steps and exits 0, even on a missing home', { skip: SKIP_SH_STAND_IN }, () => {
   const mod = path.join(__dirname, 'codexupdate.js');
   const d = home('model = "gpt-5.4"\n');
   fs.writeFileSync(path.join(d, 'version.json'), JSON.stringify({ latest_version: '0.150.1' }));
@@ -252,7 +257,7 @@ test('#8597: engine/codexupdate.js run as a script does both steps and exits 0, 
   assert.equal(spawnSync(process.execPath, [mod, '/nonexistent/home', 'gpt-5.4', '/nonexistent/codex', '0']).status, 0);
 });
 
-test('#8597: the bundled-catalog probe gets ONE CODEX_HOME, the agent\'s, whatever spelling was inherited (#5386)', async () => {
+test('#8597: the bundled-catalog probe gets ONE CODEX_HOME, the agent\'s, whatever spelling was inherited (#5386)', { skip: SKIP_SH_STAND_IN }, async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ick-mig-env-'));
   const out = path.join(d, 'env.txt');
   const bin = path.join(d, 'codex');
@@ -266,7 +271,7 @@ test('#8597: the bundled-catalog probe gets ONE CODEX_HOME, the agent\'s, whatev
   assert.deepEqual(lines, ['CODEX_HOME=' + h], 'exactly one, the agent\'s home');
 });
 
-test('#8597: a cached upgrade in a shape this does not read falls through to the bundled catalog; control: a cached null is final', async () => {
+test('#8597: a cached upgrade in a shape this does not read falls through to the bundled catalog; control: a cached null is final', { skip: SKIP_SH_STAND_IN }, async () => {
   const codex = fakeCodex(CATALOG);
   for (const odd of ['gpt-5.6-terra', { to: 'gpt-5.6-terra' }, { model: 'acme/gpt-x' }]) {
     const d = home('', { models: [{ slug: 'gpt-5.4', upgrade: odd }] });
@@ -279,7 +284,7 @@ test('#8597: a cached upgrade in a shape this does not read falls through to the
   assert.equal(codex.calls().length, calls, 'a cached null is final: the binary is not asked');
 });
 
-test('#8597: launch prep never pins without a named home (a hand run would reach the person\'s own ~/.codex)', async () => {
+test('#8597: launch prep never pins without a named home (a hand run would reach the person\'s own ~/.codex)', { skip: SKIP_SH_STAND_IN }, async () => {
   const { launchPrep } = require('./codexupdate');
   const codex = fakeCodex(CATALOG);
   const own = home('model = "gpt-5.4"\n');

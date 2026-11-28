@@ -3,6 +3,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const pluginreach = require('./pluginreach');
 const {
   reachFrom,
@@ -12,14 +13,17 @@ const {
 
 // #5309 slice 2 evidence-gate tests use a fake fs that serves a fixed file map and COUNTS reads/stats,
 // so a test can prove the mtime cache stops a second poll from re-reading unchanged files.
+// The map keys are written with forward slashes; the product builds its paths with path.join, which uses backslashes
+// on Windows (kosmos#8378). A key matches the path it names in this platform's spelling; on the Mac that is the key itself.
 function fakeFs(files, mtimes) {
   const counts = { read: 0, stat: 0, readdir: 0 };
   const enoent = (m) => { const e = new Error(m); e.code = 'ENOENT'; return e; };
+  const at = (map, p) => (p in map ? p : Object.keys(map).find((k) => path.normalize(k) === p));
   const fs = {
     counts,
-    readFileSync(p) { counts.read++; if (!(p in files)) throw enoent('read ' + p); if (files[p] instanceof Error) throw files[p]; return files[p]; },
-    statSync(p) { counts.stat++; if (!(p in mtimes)) throw enoent('stat ' + p); return { mtimeMs: mtimes[p] }; },
-    readdirSync(p) { counts.readdir++; if (!(p in files)) throw enoent('readdir ' + p); const v = files[p]; if (v instanceof Error) throw v; return v; },
+    readFileSync(p) { counts.read++; const k = at(files, p); if (k === undefined) throw enoent('read ' + p); if (files[k] instanceof Error) throw files[k]; return files[k]; },
+    statSync(p) { counts.stat++; const k = at(mtimes, p); if (k === undefined) throw enoent('stat ' + p); return { mtimeMs: mtimes[k] }; },
+    readdirSync(p) { counts.readdir++; const k = at(files, p); if (k === undefined) throw enoent('readdir ' + p); const v = files[k]; if (v instanceof Error) throw v; return v; },
   };
   return fs;
 }

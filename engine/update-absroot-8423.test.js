@@ -31,7 +31,11 @@ test('kosmos#8423: a person\'s install under a root that is not absolute writes 
   const cwd = process.cwd();
   let children = [];
   try {
-    children = setUp('C:\\Users\\someone\\Kosmos');
+    // A root that is not absolute on THIS host: the Windows form on a Mac or Linux; on Windows that form IS absolute,
+    // so there it is the same folder with no drive and no leading separator (chosen by path.isAbsolute, not by platform).
+    const rel = ['C:\\Users\\someone\\Kosmos', 'Users\\someone\\Kosmos'].find((r) => !path.isAbsolute(r));
+    assert.equal(path.isAbsolute(rel), false, 'CONTROL: the fixture root is absolute here, so this shows nothing');
+    children = setUp(rel);
     process.chdir(box);
     update.beginInstall({});
     assert.equal(children.length, 1, 'CONTROL: the install did not launch, so this shows nothing');

@@ -36,14 +36,17 @@ const { _resetCache } = require('./engine/pluginreach');
 
 // A fake fs serving a fixed file map, counting reads/stats (so a test can prove the mtime cache stops a
 // second pass from re-reading unchanged files). Mirrors engine/pluginreach.test.js's fakeFs.
+// The map keys are written with forward slashes; the product builds its paths with path.join, which uses backslashes
+// on Windows (kosmos#8378). A key matches the path it names in this platform's spelling; on the Mac that is the key itself.
 function fakeFs(files, mtimes) {
   const counts = { read: 0, stat: 0, readdir: 0 };
   const enoent = (m) => { const e = new Error(m); e.code = 'ENOENT'; return e; };
+  const at = (map, p) => (p in map ? p : Object.keys(map).find((k) => nodePath.normalize(k) === p));
   return {
     counts,
-    readFileSync(p) { counts.read++; if (!(p in files)) throw enoent('read ' + p); if (files[p] instanceof Error) throw files[p]; return files[p]; },
-    statSync(p) { counts.stat++; if (!(p in mtimes)) throw enoent('stat ' + p); return { mtimeMs: mtimes[p] }; },
-    readdirSync(p) { counts.readdir++; if (!(p in files)) throw enoent('readdir ' + p); const v = files[p]; if (v instanceof Error) throw v; return v; },
+    readFileSync(p) { counts.read++; const k = at(files, p); if (k === undefined) throw enoent('read ' + p); if (files[k] instanceof Error) throw files[k]; return files[k]; },
+    statSync(p) { counts.stat++; const k = at(mtimes, p); if (k === undefined) throw enoent('stat ' + p); return { mtimeMs: mtimes[k] }; },
+    readdirSync(p) { counts.readdir++; const k = at(files, p); if (k === undefined) throw enoent('readdir ' + p); const v = files[k]; if (v instanceof Error) throw v; return v; },
   };
 }
 
@@ -170,19 +173,22 @@ test('#5309 p2 /api/status: a workerDir thunk that THROWS falls back to top-leve
    and unknown gives reach UNKNOWN (the board renders nothing). Review 5: every row uses the REAL card shape
    (accountForAgent gives the default account dir: <home>/.claude and isDefault: true, never a null dir). */
 const DEFAULT_ACCOUNT = { dir: '/person/.claude', isDefault: true };
+// kosmos#8378: the session read below is the Mac and Linux path (tmux); on Windows attachPluginReach skips it by design
+// (the last test here). These arms name a tmux host so they test that read on any host; on the Mac it is the default.
+const TMUX_HOST = process.platform === 'win32' ? 'linux' : process.platform;
 test('#6095: a default agent whose session is pinned to another folder is judged as that folder', () => {
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
   let asked = null;
   const rows = [{ runner: 'claude', account: { ...DEFAULT_ACCOUNT }, session: 'pinned' }];
-  attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: (n) => { asked = n; return new Map([['pinned', '/agent-sep']]); } });
+  attachPluginReach(rows, { personHome: '/person', fs, platform: TMUX_HOST, sessionDirs: (n) => { asked = n; return new Map([['pinned', '/agent-sep']]); } });
   assert.deepEqual(asked, ['pinned'], 'the real default shape IS asked about');
   assert.equal(rows[0].reach.reaches, false, 'it runs in /agent-sep, not the person\'s folder');
   assert.equal(rows[0].reach.reason, 'separate-account-folder');
   assert.deepEqual(rows[0].reach.missing.sort(), ['crm@acme', 'tickets']);
   // the legacy null-dir shape is the same case
   const legacy = [{ runner: 'claude', account: { dir: null }, session: 'pinned' }];
-  attachPluginReach(legacy, { personHome: '/person', fs, sessionDirs: () => new Map([['pinned', '/agent-sep']]) });
+  attachPluginReach(legacy, { personHome: '/person', fs, platform: TMUX_HOST, sessionDirs: () => new Map([['pinned', '/agent-sep']]) });
   assert.equal(legacy[0].reach.reaches, false);
 });
 
@@ -195,7 +201,7 @@ test('#6095: unknown for a running session (no answer, a failed read) is UNKNOWN
     ['the read threw', () => { throw new Error('tmux gone'); }],
   ]) {
     const rows = [{ runner: 'claude', account: { ...DEFAULT_ACCOUNT }, session: 'u' }];
-    attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: dirs });
+    attachPluginReach(rows, { personHome: '/person', fs, platform: TMUX_HOST, sessionDirs: dirs });
     assert.deepEqual(rows[0].reach, { reaches: null, reason: 'unknown' }, why);
   }
 });
@@ -232,7 +238,7 @@ test('#6095: one session read for every default agent; accounts of their own and
     { runner: 'claude', account: { dir: '/agent-sep', isDefault: false }, session: 'c' },
     { runner: 'codex', account: { dir: '/person/.codex', isDefault: true }, session: 'd' },
   ];
-  attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: (names) => { asked.push(names); return new Map(names.map((n) => [n, ''])); } });
+  attachPluginReach(rows, { personHome: '/person', fs, platform: TMUX_HOST, sessionDirs: (names) => { asked.push(names); return new Map(names.map((n) => [n, ''])); } });
   assert.deepEqual(asked, [['a', real.session]],'one call; the pane session, not the sessionName; only default Claude agents');
   assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
   assert.deepEqual(rows[1].reach, { reaches: true, reason: 'reaches' });

@@ -291,7 +291,7 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
       const args = topArgs(call.args);
       const start = args[2] || '';
       if (!names.some((n) => n.test(start))) continue;
-      const where = path.relative(repo, file) + ':' + call.line;
+      const where = path.relative(repo, file).split(path.sep).join('/') + ':' + call.line;   // engine/x.js on Windows too
       found.push(where);
       assert.ok(connectionsBodyOk(src, args[1] || ''), where + ' writes the Connections markers with a body other than the connections blockBody(): ' + (args[1] || '(none)'));
     }

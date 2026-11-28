@@ -400,10 +400,12 @@ function homeGemini(home) {
 // Part F test on a box that exports AGENT_WORKFORCE_HOME would otherwise route foundCodex to a real
 // <AGENT_WORKFORCE_HOME>/.codex.
 const HOME_CLEAR_VARS = ['AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'AGENT_WORKFORCE_HOME'];
-const HOME_DERIVED_VARS = ['HOME', ...HOME_CLEAR_VARS];
+// kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked, so both are pointed at the fixture.
+const HOME_DERIVED_VARS = ['HOME', 'USERPROFILE', ...HOME_CLEAR_VARS];
 function withHome(home, fn) {
   const prev = HOME_DERIVED_VARS.map((v) => [v, process.env[v]]);
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
   for (const v of HOME_CLEAR_VARS) delete process.env[v];
   try {
     assert.equal(os.homedir(), home, 'the HOME override did not take - the fixture sandbox is unsafe, aborting');
