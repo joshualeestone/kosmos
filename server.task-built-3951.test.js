@@ -12,7 +12,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.task-built-3951.test.js
  */
 const SKIP_MAC_CLI = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -30,6 +29,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#9262: fake tmux's reads, served in process on Windows
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
@@ -254,7 +254,7 @@ test('with the roster unreadable, a pane-named mark is 503, not an unnamed mark 
   }
 });
 
-test('a Mac agent with no token is named from its %N pane, as /api/post names it (review round 13)', { skip: SKIP_FAKE_TMUX }, async () => {
+test('a Mac agent with no token is named from its %N pane, as /api/post names it (review round 13)', async () => {
   const n = newTask('Pane named');
   const r = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'from the pane', from_pane: '%7' });
   assert.equal(r.status, 200, JSON.stringify(r.json));

@@ -9,7 +9,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * The runner resolver is mocked (never the machine's codex) and the live check runs through setFetcher (never a
  * real endpoint), the harness server.provider-accounts-3296 uses.
  */
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -26,6 +25,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-qwen-launch-');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#9262: fake tmux's reads, served in process on Windows
 
 const qwen = require('./engine/qwenaccounts');
 const runners = require('./engine/runners');
@@ -123,7 +123,7 @@ test('GET /api/accounts carries the Qwen rows, badged from the live check, witho
   assert.equal(JSON.stringify(b).includes('sk-company-key-7777'), false);
 });
 
-test('check and delete: a live check answers; forget sets it aside; delete removes it; unknown folders are refused', { skip: SKIP_FAKE_TMUX }, async () => {
+test('check and delete: a live check answers; forget sets it aside; delete removes it; unknown folders are refused', async () => {
   const dir = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'company');
   qwen.setFetcher(async () => ({ status: 401, body: null }));
   const c = await post('/api/accounts/qwen/check', { dir });

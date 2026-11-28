@@ -20,8 +20,8 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#9262: fake tmux's reads, served in process on Windows
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
 
@@ -82,8 +82,8 @@ for (const [route, body, call, refusal] of GUARDED_ROUTES) {
       assert.deepEqual(calls, [], 'a request with only ' + name + ' reached the engine');
     }
   });
-  // kosmos#8378: /api/agent-token asks which agents run before issuing, and this file stages that through fake-tmux.sh.
-  test(`#6595 CONTROL: the same ${route} request made locally is not refused for being remote`, { skip: route === '/api/agent-token' && SKIP_FAKE_TMUX }, async () => {
+  // /api/agent-token asks which agents run before issuing; on Windows that read is served in process (faketmux-win, kosmos#9262).
+  test(`#6595 CONTROL: the same ${route} request made locally is not refused for being remote`, async () => {
     calls.length = 0;
     const got = await post(route, PAGE, body);
     assert.equal(got.status, 200, route + ' answered ' + JSON.stringify(got.body));

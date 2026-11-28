@@ -7,7 +7,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.signedout-accounts-5948.test.js
  */
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -29,6 +28,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(HOME, '.grok');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(HOME, '.gemini');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#9262: fake tmux's reads, served in process on Windows
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
@@ -98,7 +98,7 @@ test('#5948 review 9: with a shared Grok key in this computer\'s secrets/env doo
   assert.deepEqual([row.signedOut, row.sharedKey, row.connection.badge], [false, true, 'unlisted']);
 });
 
-test('#5948 review 14: when the profiles cannot be read, unlistedComplete is false and kosmos accounts does not say none are set up', { skip: SKIP_FAKE_TMUX }, async () => {
+test('#5948 review 14: when the profiles cannot be read, unlistedComplete is false and kosmos accounts does not say none are set up', async () => {
   const register = require('./engine/register');
   const real = register.known;
   register.known = () => ({ ok: false, names: [] });
