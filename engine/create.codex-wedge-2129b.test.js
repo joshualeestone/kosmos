@@ -21,6 +21,10 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const create = require('./create');
+/* kosmos#8378: the [projects."<folder>"] header as create.js renders it. A POSIX path is the double-quoted form;
+   a Windows backslash path is a TOML literal string ('...'), because raw backslashes are not valid in a basic string (#3439). */
+const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const projectHeader = (dir) => new RegExp(reEsc(`[projects.${create.tomlProjectKeyString(dir)}]`));
 
 const ENVKEYS = ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME'];
 let saved;
@@ -57,7 +61,7 @@ test('trustCodexFolder(agentDefaultAccount) writes into the agent home ~/.codex,
   create.trustCodexFolder(folder, null, true);
 
   const agentToml = fs.readFileSync(path.join(agentCodex, 'config.toml'), 'utf8');
-  assert.match(agentToml, new RegExp('\\[projects\\."' + folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\]'),
+  assert.match(agentToml, projectHeader(folder),
     'the codex trust lands in the home the default agent reads (AGENT_WORKFORCE_HOME/.codex)');
   assert.match(agentToml, /trust_level = "trusted"/);
   assert.equal(fs.existsSync(path.join(engineCodex, 'config.toml')), false,
@@ -67,7 +71,7 @@ test('trustCodexFolder(agentDefaultAccount) writes into the agent home ~/.codex,
   const folder2 = path.join(SANDBOX, 'w-openai-ctrl');
   create.trustCodexFolder(folder2, null);
   assert.match(fs.readFileSync(path.join(engineCodex, 'config.toml'), 'utf8'),
-    new RegExp('\\[projects\\."' + folder2.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\]'),
+    projectHeader(folder2),
     'CONTROL: without agentDefaultAccount the codex trust DOES follow the engine CODEX_HOME');
 });
 

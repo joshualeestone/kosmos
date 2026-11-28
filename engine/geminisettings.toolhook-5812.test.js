@@ -15,10 +15,13 @@ let n = 0;
 const fresh = () => path.join(TMP, 'h' + (n++), 'settings.json');
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const BRIDGE = '/opt/k/bin/gemini-report-bridge.js';
+/* kosmos#8378: the arms that pin the POSIX command (node "<bridge>") name that platform; on a Windows host the default
+   is the PowerShell form, which the win32 arm below checks. */
+const POSIX = { platform: 'darwin' };
 
 test('a fresh settings file gets the BeforeTool hook with its matcher, beside the five lifecycle hooks', () => {
   const f = fresh();
-  assert.equal(gs.ensurePrepared(f, BRIDGE).prepared, true);
+  assert.equal(gs.ensurePrepared(f, BRIDGE, POSIX).prepared, true);
   const h = read(f).hooks;
   assert.deepEqual(h.BeforeTool, [{ matcher: '^(write_file|replace)$', hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] }]);
   for (const e of gs.HOOK_EVENTS) assert.equal(h[e].length, 1, e + ' still has exactly one entry');
@@ -35,8 +38,8 @@ test('a second run changes nothing', () => {
 
 test('a moved bridge repoints the tool hook too', () => {
   const f = fresh();
-  gs.ensurePrepared(f, BRIDGE);
-  assert.equal(gs.ensurePrepared(f, '/new/place/bin/gemini-report-bridge.js').changed, true);
+  gs.ensurePrepared(f, BRIDGE, POSIX);
+  assert.equal(gs.ensurePrepared(f, '/new/place/bin/gemini-report-bridge.js', POSIX).changed, true);
   const t = read(f).hooks.BeforeTool;
   assert.equal(t.length, 1);
   assert.equal(t[0].hooks[0].command, 'node "/new/place/bin/gemini-report-bridge.js"');
@@ -50,7 +53,7 @@ test('ours with no matcher (it would start the bridge for every tool) is replace
     { hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] },
     { hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] },
   ] } }));
-  assert.equal(gs.ensurePrepared(f, BRIDGE).changed, true);
+  assert.equal(gs.ensurePrepared(f, BRIDGE, POSIX).changed, true);
   assert.deepEqual(read(f).hooks.BeforeTool, [{ matcher: '^(write_file|replace)$', hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] }]);
 });
 

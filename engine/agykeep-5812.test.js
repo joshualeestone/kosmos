@@ -26,9 +26,16 @@ const dir = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), '
 const pre = (o) => ({ conversationId: 'c1', workspacePaths: ['/w/agent'],
   toolCall: { name: 'write_to_file', args: { TargetFile: '/w/agent/a.txt', CodeContent: 'x', Overwrite: true } }, ...o });
 
+/* The fixture is the POSIX shape agy 1.2.17 sends on a Mac, so the in-process arm names that platform through the
+   seam (on win32 a path with no drive is refused, as the win32 arm below pins). The arm that runs the bridge as a
+   child cannot use the seam, so it sends the host's own shape. */
+const NATIVE = process.platform === 'win32'
+  ? { cwd: 'C:\\w\\agent', path: 'C:\\w\\agent\\a.txt' }
+  : { cwd: '/w/agent', path: '/w/agent/a.txt' };
+
 test('the keep is made from what agy 1.2.17 sends: TargetFile, workspacePaths[0] as cwd, conversationId as session', () => {
-  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({})), { path: '/w/agent/a.txt', cwd: '/w/agent', session: 'c1' });
-  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({ toolCall: { name: 'replace_file_content', args: { TargetFile: '/p/proj/b.md' } } })),
+  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({}), 'darwin'), { path: '/w/agent/a.txt', cwd: '/w/agent', session: 'c1' });
+  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({ toolCall: { name: 'replace_file_content', args: { TargetFile: '/p/proj/b.md' } } }), 'darwin'),
     { path: '/p/proj/b.md', cwd: '/w/agent', session: 'c1' });
 });
 
@@ -92,10 +99,11 @@ function runBridge(port, eventName, payload) {
 test('run as agy runs it: PreToolUse for a file tool answers ASK and posts the keep', async () => {
   const board = await stubBoard(false);
   try {
-    const r = await runBridge(board.port, 'PreToolUse', pre({}));
+    const native = pre({ workspacePaths: [NATIVE.cwd], toolCall: { name: 'write_to_file', args: { TargetFile: NATIVE.path, CodeContent: 'x', Overwrite: true } } });
+    const r = await runBridge(board.port, 'PreToolUse', native);
     assert.equal(r.err, null);
     assert.equal(r.stdout.trim(), bridge.ASK, 'the same answer as for every tool but ask_question');
-    assert.deepEqual(board.seen, [{ path: '/w/agent/a.txt', cwd: '/w/agent', session: 'c1' }]);
+    assert.deepEqual(board.seen, [{ path: NATIVE.path, cwd: NATIVE.cwd, session: 'c1' }]);
   } finally { board.close(); }
 });
 

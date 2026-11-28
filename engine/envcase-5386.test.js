@@ -147,7 +147,8 @@ worldTest('#5386: a named world applied to a copy derives from, records and rest
   worlds.applyAgentWorldEnv(env);
   const data = Object.keys(env).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA');
   assert.deepEqual(data, ['AGENT_WORKFORCE_DATA'], 'one data root key: ' + data.join(','));
-  assert.ok(env.AGENT_WORKFORCE_DATA.startsWith('/sandbox/data'), 'the world hangs off the sandbox root: ' + env.AGENT_WORKFORCE_DATA);
+  // path.join is the separator the product builds with: \sandbox\data on Windows, /sandbox/data elsewhere.
+  assert.ok(env.AGENT_WORKFORCE_DATA.startsWith(require('node:path').join('/sandbox/data')), 'the world hangs off the sandbox root: ' + env.AGENT_WORKFORCE_DATA);
   assert.equal(JSON.parse(env.KOSMOS_PRE_WORLD_ROOTS).roots.AGENT_WORKFORCE_DATA, '/sandbox/data', 'the marker recorded the root');
   assert.equal(worlds.preWorldEnv(env).AGENT_WORKFORCE_DATA, '/sandbox/data', 'leaving the world gives the root back');
 });

@@ -377,7 +377,7 @@ test('#2811: a codex agent with NO CODEX_HOME falls back to ~/.codex, never ~/.c
     [100, { ppid: 1, command: '/bin/zsh' }],
     [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
   ]);
-  const r = runningAs('subzero-discord', {
+  const r = runningAs('subzero-discord', { platform: DARWIN,   // kosmos#8378: the darwin arm, named (#570)
     panes, procs, envOf: () => '', identityOf: () => null,
   });
   assert.equal(r.runner, 'codex');
@@ -391,7 +391,7 @@ test('#2811: runningAs reports a codex agent with its CODEX_HOME, not a synthesi
     [100, { ppid: 1, command: '/bin/zsh' }],
     [101, { ppid: 100, command: '/opt/homebrew/bin/codex -m gpt-5.6' }],
   ]);
-  const r = runningAs('subzero-discord', {
+  const r = runningAs('subzero-discord', { platform: DARWIN,   // kosmos#8378: the darwin arm, named (#570)
     panes, procs,
     envOf: () => 'CODEX_HOME=/Users/agent1/.codex-work2\n',
     identityOf: () => { throw new Error('identityOf must NOT be asked about a codex dir'); },
@@ -416,7 +416,7 @@ test('#2811: the codex answer SAYS which half of the question it did not answer'
     [100, { ppid: 1, command: '/bin/zsh' }],
     [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
   ]);
-  const out = runningAs('subzero-discord', {
+  const out = runningAs('subzero-discord', { platform: DARWIN,   // kosmos#8378: the darwin arm, named (#570)
     panes, procs,
     envOf: () => 'CODEX_HOME=/Users/agent1/.codex\n',
     identityOf: () => { throw new Error('identityOf must NOT be asked about a codex dir'); },
@@ -434,7 +434,7 @@ test('#2811: the model is read in BOTH spellings, because the product writes bot
      `engine/win32launch.js` pushes `--model` for both. Every codex arm here once
      used `--model`, a shape the DARWIN product never writes, so it asserted an
      impossible input and a `--model`-only reader looked correct. */
-  const read = (cmd) => runningAs('s', {
+  const read = (cmd) => runningAs('s', { platform: DARWIN,   // kosmos#8378: the darwin arm, named (#570)
     panes: new Map([['s', 100]]),
     procs: new Map([
       [100, { ppid: 1, command: '/bin/zsh' }],
@@ -464,7 +464,7 @@ test('#2811: a longer AGENT_WORKFORCE_ twin does not win the config-dir read', (
      unanchored match takes whichever comes FIRST in the environment block, which
      is insertion order, so the bug is not even reliably reproducible. Both arms
      are asserted because both had the hole. */
-  const read = (cmd, env) => runningAs('s', {
+  const read = (cmd, env) => runningAs('s', { platform: DARWIN,   // kosmos#8378: the darwin arm, named (#570)
     panes: new Map([['s', 100]]),
     procs: new Map([
       [100, { ppid: 1, command: '/bin/zsh' }],
@@ -499,7 +499,7 @@ test('#2811 CONTROL: a CLAUDE agent is unchanged, and still reads CLAUDE_CONFIG_
     [100, { ppid: 1, command: '/bin/zsh' }],
     [101, { ppid: 100, command: '/Users/x/.local/bin/claude --model claude-opus-5' }],
   ]);
-  const r = runningAs('angel-discord', {
+  const r = runningAs('angel-discord', { platform: DARWIN,   // kosmos#8378: the darwin arm, named (#570)
     panes, procs,
     envOf: () => 'CLAUDE_CONFIG_DIR=/Users/agent1/.claude-account-c\n',
     identityOf: (dir) => ({ email: 'joshua@stonesyndicate.com', organization: 'Stone Syndicate', dir }),
@@ -514,7 +514,7 @@ test('#2811 CONTROL: a CLAUDE agent is unchanged, and still reads CLAUDE_CONFIG_
 test('#2811: the refusal no longer says only "Claude Code" when nothing is running', () => {
   const panes = new Map([['empty-discord', 100]]);
   const procs = new Map([[100, { ppid: 1, command: '/bin/zsh' }]]);
-  const r = runningAs('empty-discord', { panes, procs, envOf: () => '', identityOf: () => null });
+  const r = runningAs('empty-discord', { platform: DARWIN, panes, procs, envOf: () => '', identityOf: () => null });
   assert.equal(r.ok, false);
   assert.match(r.because, /Claude Code or Codex/,
     'the refusal still names only Claude, which is the sentence that lied about a running codex agent');

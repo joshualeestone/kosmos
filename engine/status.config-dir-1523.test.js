@@ -55,7 +55,8 @@ function rootsIn(h, env) {
     ['-e', `console.log(JSON.stringify(require(${JSON.stringify(STATUS)}).configRoots()));`],
     {
       encoding: 'utf8',
-      env: { ...process.env, HOME: h, AGENT_WORKFORCE_DATA: path.join(h, 'data'),
+      /* kosmos#8378: USERPROFILE too, because os.homedir() reads it on Windows, not HOME. */
+      env: { ...process.env, HOME: h, USERPROFILE: h, AGENT_WORKFORCE_DATA: path.join(h, 'data'),
              AGENT_WORKFORCE_CONFIG_ROOT: '', CLAUDE_CONFIG_DIR: '', ...env },
     }
   );

@@ -53,7 +53,7 @@ test('an agent is found from its files, with nothing running', () => {
   const anna = r.agents.find((a) => a.name === 'Anna');
   assert.ok(anna, `Anna was not found: ${JSON.stringify(r.agents)}`);
   assert.equal(anna.role, 'copywriter');
-  assert.match(anna.dir, /work\/anna$/);
+  assert.match(anna.dir, /work[\\/]anna$/);
 });
 
 test('a CLAUDE.md that introduces nobody is not an agent', () => {

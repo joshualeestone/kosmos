@@ -260,9 +260,11 @@ test('#9105 review 1: a name holds no backslash (it could carry a Windows path);
   assert.match(refused(n, { by: 'mona', files: [{ name: 'C:\\Users\\josh\\secret.pdf', fingerprint: A }] }), /without its folder/);
   assert.match(refused(n, { by: 'mona', files: [{ name: 'odd\\name.txt', fingerprint: A }] }), /without its folder/);
   const m = freshTask();
-  mark(m, { by: 'mona', fingerprint: A, filePath: path.join(SANDBOX, 'odd\\name.txt') });
+  /* A Mac path, whatever computer runs this: on Windows the sandbox is a drive path, where a backslash IS a folder. */
+  const macPath = process.platform === 'win32' ? path.posix.join('/w', 'out', 'odd\\name.txt') : path.join(SANDBOX, 'odd\\name.txt');
+  mark(m, { by: 'mona', fingerprint: A, filePath: macPath });
   assert.equal(get(m).builtFiles[0].name, '', 'a Mac path was named after a part of its file name');
-  assert.equal(get(m).builtFilePath, path.join(SANDBOX, 'odd\\name.txt'), 'CONTROL: the path itself is still kept');
+  assert.equal(get(m).builtFilePath, macPath, 'CONTROL: the path itself is still kept');
   const w = freshTask();
   mark(w, { by: 'mona', fingerprint: A });
   projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => { if (x.number !== w) return x; const y = { ...x, builtFilePath: 'C:\\Users\\me\\out\\deck.pdf' }; delete y.builtFiles; return y; }) }));

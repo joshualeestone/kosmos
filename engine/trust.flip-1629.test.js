@@ -43,11 +43,15 @@ function acct(name, projects) {
 function folder(name) {
   const d = nodePath.join(SANDBOX, name);
   fs.mkdirSync(d, { recursive: true });
-  return fs.realpathSync(d);
+  /* kosmos#8378: the native realpath, as trust.js keys it. On Windows the JS realpath keeps an 8.3 temp name
+     (RUNNER~1) that the native one expands; on macOS the two agree here, since SANDBOX is already resolved. */
+  return fs.realpathSync.native(d);
 }
+/* #2281: trust keys are spelled with forward slashes, as Claude Code spells them; the identity on POSIX. */
+const K = (p) => String(p).split(nodePath.sep).join('/');
 const readTrust = (dir, key) => {
   const d = JSON.parse(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'));
-  const e = (d.projects || {})[key];
+  const e = (d.projects || {})[K(key)];
   return e === undefined ? 'ENTRY-ABSENT' : (KEY in e ? e[KEY] : 'KEY-ABSENT');
 };
 
@@ -64,7 +68,7 @@ test('#1629: the flip CREATES the entry when the account has none', () => {
 
 test('#1629: the flip FLIPS an entry that exists and says false', () => {
   const work = folder('worker-b');
-  const target = acct('acct-false', { [work]: { [KEY]: false } });
+  const target = acct('acct-false', { [K(work)]: { [KEY]: false } });
   assert.equal(readTrust(target, work), false, 'the fixture is not in the false state this cell needs');
 
   const r = trust.trustFolder(work, { configDir: target });
@@ -125,7 +129,7 @@ test('#1629: an explicit configDir beats CLAUDE_CONFIG_DIR', () => {
    manufacture an undo record for a change it did not make. */
 test('#1629: an account that already trusts the folder reports already, not a fresh write', () => {
   const work = folder('worker-f');
-  const target = acct('acct-true', { [work]: { [KEY]: true } });
+  const target = acct('acct-true', { [K(work)]: { [KEY]: true } });
   const r = trust.trustFolder(work, { configDir: target });
   assert.equal(r.ok, true);
   assert.equal(r.already, true, 'a second flip reports a fresh write, which would leave a false undo record');

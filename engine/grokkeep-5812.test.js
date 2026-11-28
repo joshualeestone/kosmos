@@ -25,9 +25,16 @@ const dir = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), '
 const pre = (o) => ({ hook_event_name: 'PreToolUse', tool_name: 'search_replace', cwd: '/w/agent', session_id: 's1',
   tool_input: { file_path: 'a.txt', old_string: 'x', new_string: 'y' }, ...o });
 
+/* The fixture is the POSIX shape grok 1.0.41 sends on a Mac, so the in-process arms name that platform through the
+   seam (on win32 a folder with no drive is not one grok sends; the win32 shape has its own arm below). The arm that
+   runs the bridge as a child cannot use the seam, so it sends the host's own shape. */
+const NATIVE = process.platform === 'win32'
+  ? { cwd: 'C:\\w\\agent', path: 'C:\\w\\agent\\a.txt' }
+  : { cwd: '/w/agent', path: '/w/agent/a.txt' };
+
 test('the bridge makes a keep for search_replace (relative to cwd) and write (absolute), as grok 1.0.41 sends them', () => {
-  assert.deepEqual(bridge.keepRequestFor(pre({})), { path: '/w/agent/a.txt', cwd: '/w/agent', session: 's1' });
-  assert.deepEqual(bridge.keepRequestFor(pre({ tool_name: 'write', tool_input: { file_path: '/p/proj/b.md', content: 'z' } })),
+  assert.deepEqual(bridge.keepRequestFor(pre({}), 'darwin'), { path: '/w/agent/a.txt', cwd: '/w/agent', session: 's1' });
+  assert.deepEqual(bridge.keepRequestFor(pre({ tool_name: 'write', tool_input: { file_path: '/p/proj/b.md', content: 'z' } }), 'darwin'),
     { path: '/p/proj/b.md', cwd: '/w/agent', session: 's1' });
 });
 
@@ -54,7 +61,7 @@ test('on win32 the bridge resolves a Windows path and refuses a UNC path or fold
 test('main posts the keep to the board (and nothing to /api/report), and never throws on a board that is down', async () => {
   const seen = [];
   const fetchImpl = async (url, init) => { seen.push({ url, body: JSON.parse(init.body) }); return { text: async () => '' }; };
-  await bridge.main({ input: JSON.stringify(pre({})), env: { KOSMOS_PORT: '5556' }, readBoardToken: () => '', fetchImpl });
+  await bridge.main({ input: JSON.stringify(pre({})), env: { KOSMOS_PORT: '5556' }, readBoardToken: () => '', fetchImpl, platform: 'darwin' });
   assert.deepEqual(seen, [{ url: 'http://127.0.0.1:5556/api/undo/keep', body: { path: '/w/agent/a.txt', cwd: '/w/agent', session: 's1' } }]);
   await bridge.main({ input: JSON.stringify(pre({})), env: {}, readBoardToken: () => '', fetchImpl: async () => { throw new Error('down'); } });
   // A lifecycle event still reports, through the same post.
@@ -95,10 +102,10 @@ function runBridge(port, stdinText, endStdin) {
 test('run as grok runs it, the bridge posts the keep and prints nothing', async () => {
   const board = await stubBoard(false);
   try {
-    const r = await runBridge(board.port, JSON.stringify(pre({})), true);
+    const r = await runBridge(board.port, JSON.stringify(pre({ cwd: NATIVE.cwd })), true);
     assert.equal(r.err, null);
     assert.equal(r.stdout, '', 'grok runs the tool when the hook says nothing');
-    assert.deepEqual(board.seen, [{ path: '/w/agent/a.txt', cwd: '/w/agent', session: 's1' }]);
+    assert.deepEqual(board.seen, [{ path: NATIVE.path, cwd: NATIVE.cwd, session: 's1' }]);
   } finally { board.close(); }
 });
 
