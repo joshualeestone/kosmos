@@ -795,7 +795,12 @@ function attach(sessionName, given, { roster, platform = process.platform, scope
   const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win, onlyProject });
   /* kosmos#9242 review 3: a room post reaches the room's other agents, not only the person, so a file from another of the
      agent's projects would hand that project's files to members who are not on it. Said plainly when that is the reason. */
-  if (!where && onlyProject && allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win })) {
+  // Review 4: only when another of its projects would really take the file (a root, not a refusal of its own), so a
+  // `.env` there is not told it is "another project". RESIDUAL, stated: on Windows another of its projects on an
+  // unnamed network folder can make a file in the room's own folder refused as unplaced (the safe direction, as any
+  // other agent's such folder already does).
+  const elsewhere = !where && onlyProject ? allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win }) : null;
+  if (elsewhere && elsewhere.root && !elsewhere.refused) {
     return { ok: false, because: 'that file is in another of your projects, and a room post can attach only from your Files folder or this room\'s own project folder' };
   }
   if (!where) return { ok: false, because: NOT_YOURS };
