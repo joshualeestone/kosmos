@@ -515,10 +515,11 @@ function canonicalPath(p) {
 }
 
 /**
- * Is `folder` the system temp directory or inside it? Compared on canonical
- * paths and on a PATH BOUNDARY, so `/var/folders/…/T` does not match a sibling
- * `…/Tea`, and a folder symlinked into temp is caught by its resolved target.
- * `os.tmpdir()` plus `/tmp` cover the roots a fixture or sandbox actually uses.
+ * Is `folder` the system temp directory or inside it? Compared on a PATH
+ * BOUNDARY, so `/var/folders/…/T` does not match a sibling `…/Tea`, and a folder
+ * symlinked into temp is caught by its resolved target. The roots are
+ * `os.tmpdir()`, plus `/tmp` off Windows, each in its given and its canonical
+ * spelling; on Windows the comparison is case-blind (kosmos#9267).
  */
 function isUnderTmpDir(folder) {
   // kosmos#9267: case-blind on Windows, as its file system is (a folder typed in lower case that does not exist yet).

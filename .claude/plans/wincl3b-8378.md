@@ -94,3 +94,7 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
   before this the arm wrote its seed secret file into the runner's real profile. redisable's reason reads plainly.
   Measured on the Windows runner after the change (run 46137410555): plus-signin-2036 29 pass, 0 skipped; redisable 18
   pass, its 3 launchd arms skipped.
+- Review 7: plus-signin-2036 and tool-guard-4326 join ALSO_ROOT and remove.redisable-7409 joins ALSO, each measured
+  green on the runner (29, 11 and 18 pass), so what was fixed in them to hold on Windows is kept green by the job. The
+  comment above isUnderTmpDir says what its roots are now. Owed, unchanged: the full Windows job on this PR is the first
+  run in which the #525 refusal can fire on Windows for every file it selects.
