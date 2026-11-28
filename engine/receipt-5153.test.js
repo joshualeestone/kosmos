@@ -284,10 +284,11 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     out('10:05', 'c1', 'Script completed\nWall time 1 seconds'),
     /* #9263: a path with a backslash in it, as a Windows Codex writes one, read whole on any host. */
     call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: lib\\deep.js')),
-    /* #9263: a path with a SINGLE backslash cannot be read whole, so it is left out, never shown as `C:` or the folder. */
-    call('10:12', 'c2b', 'await tools.apply_patch({patch:String.raw`*** Begin Patch\n*** Update File: C:\\Users\\kay\\cut.js\n+x\n*** End Patch`});'),
-    out('10:12', 'c2b', 'Script completed\nWall time 1 seconds'),
     out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
+    /* #9263: a path with a SINGLE backslash cannot be read whole, so it is left out, never shown as `C:` or the folder;
+       a path the same patch writes with an ordinary escape (`\'`) is still read. */
+    call('10:12', 'c2b', 'await tools.apply_patch({patch:String.raw`*** Begin Patch\n*** Update File: C:\\Users\\kay\\cut.js\n+x\n*** Update File: it\\\'s.md\n+x\n*** End Patch`});'),
+    out('10:12', 'c2b', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),
     tc('10:30', 1000, 400, 100),
@@ -303,7 +304,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const a = r.agents[0];
   assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
-  assert.deepEqual(a.files, [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js'], 'only the patches that completed; a backslashed path read whole, a cut one left out (#9263)');
+  assert.deepEqual(a.files, [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md"], 'only the patches that completed; a backslashed path read whole, a cut one left out (#9263)');
   assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.equal(a.transcriptsWithWork, 1);
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');

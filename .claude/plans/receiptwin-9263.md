@@ -19,17 +19,23 @@ was cut to `C:`, and `path.resolve(folder, 'C:')` gave back the agent's own fold
   and the existing end-to-end test can carry a host-independent red arm.
 - Normalising shown paths to `/`: changes what every receipt shows on Windows, beyond this card.
 
-## Encodings not covered
-A path with SINGLE backslashes is still cut at the first one. In a JavaScript string or template literal an unescaped
-`\U` is a syntax error (or a different character), so a script that runs carries the path escaped; only `String.raw`
-keeps single backslashes, and such a path cannot be read whole, because a single backslash cannot be told apart from the
-start of an escape. Round 3: the cut piece was then SHOWN as a file (`C:`, which on Windows resolves to the agent's own
-folder). A path line ends at a newline (`\n`/`\r`) or a quote, so a match stopped by any other backslash is now left
-out of the receipt instead; the test carries a String.raw arm for it. Raised by review round 2; the comment at the code says this plainly.
+## How a path is read
+The path is a JavaScript string's text, so it is decoded as one: it ends at an escaped newline (`\n`, `\r`), a real
+newline, or a bare quote, and its escapes are decoded (`\\`, `\'`, `\"`, `\t`, `\uXXXX`...). An escape a string
+cannot hold (`\U`) is what a single-backslash path (String.raw) looks like; such a path cannot be read whole and is left
+out. A path that resolves to the agent's own folder is never listed: that is the card's symptom, and no patch line
+names the folder itself.
+
+Not covered: a single-backslash path whose next character happens to make a real escape (`C:\new.js` in String.raw
+reads as `C:` then a newline). The folder filter still keeps it from showing as the folder on Windows; on macOS and
+Linux it would show as a file named `C:`. A real Codex script was not measured writing String.raw.
+
+Design note: review rounds 2, 3 and 4 each reworked the same rule (what ends or cuts a path). Decoding the text as the
+string it is replaced the stop-rule patches.
 
 ## Weakest premise
 How a real Windows Codex writes an absolute path in its exec script (escaped `\\`) is reasoned from the script
 being a JavaScript string, not measured on a Windows Codex session. A path written with forward slashes already read fine.
 
 ## Validation
-Measured: receipt tests 43/43 with the fix; without the fix the new arm reads `['src/new.js','notes.md','lib']`.
+Measured (round 0): `node --test engine/receipt*.test.js` 43/43 with the fix; without the fix the new arm reads `['src/new.js','notes.md','lib']`.
