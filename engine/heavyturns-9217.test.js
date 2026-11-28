@@ -236,3 +236,13 @@ test('round 4: the caller\'s own lapsed place goes too: back after PLACE_IDLE_MS
   const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 11 + ht.PLACE_IDLE_MS });
   assert.deepEqual([a.place, names(a.ahead)], [2, ['mona']], 'a place that stopped asking kept its old position');
 });
+
+test('round 6: an agent holding a job of its own (no pid) is not made to wait behind itself by a take with --pid', () => {
+  const r = root();
+  const startOf = () => 'W';
+  assert.equal(ht.take({ root: r, agent: 'renet', label: 'first', now: T0 }).turn, true);
+  const t = ht.take({ root: r, agent: 'renet', label: 'wrapper', pid: 5100, now: T0 + 5, startOf });
+  assert.equal(t.turn, true, 'the agent waited behind its own job: ' + JSON.stringify(t));
+  const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 6 });
+  assert.deepEqual([a.turn, a.holder && a.holder.agent], [false, 'renet'], 'control: another agent still waits behind it');
+});
