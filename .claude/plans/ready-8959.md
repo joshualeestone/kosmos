@@ -33,3 +33,7 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (plan 7158390965). St
 - M1 kept: a failed re-read shows "could not check", as the page's ("A failed read always paints").
 - M2 a refused Community or Prompter save now also reads the rows again (a save with no answer may have landed).
 - M3 to watch on the first UI run: the identifier on a DisclosureGroup whose label is combined.
+
+### Round 3 (sonnet, 04:2x CST 11-28): the CI-found UI red (PR #9292). No BLOCKER, no MAJOR, 4 MINOR.
+- The fix: AutomationUITests line 17 read the board row with a bare .exists, but that row now sits five rows below Automation (Global skills, AI policies, Usage, Updates came between), so in the lazy List it was off screen and not built. The test reveals it, asserts it, and reveals Automation back (the helper gained up:, as its siblings have). UI-test typecheck 0 errors.
+- Kept, all four: isHittable can be true for a row at the screen edge (only existence is asserted; the tap hits the centre of a partly clipped row); the scroll back only swipes when needed; the sample's launch auto-scroll is covered by the loop's re-check. The reviewer found the assertion can still fail and that existing calls are unchanged.
