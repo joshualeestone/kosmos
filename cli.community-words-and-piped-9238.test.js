@@ -81,7 +81,7 @@ function run(args, port, stdin) {
     const started = Date.now();
     // kosmos#9264: its own session and process group, so the 20 s kill below reaches the CLI and its peek under a /bin/sh parent too
     const child = spawn(cmd, argv, { env, detached: true, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
-    LIVE_GROUPS.add(child.pid);
+    if (child.pid) LIVE_GROUPS.add(child.pid);
     if (fd !== null) fs.closeSync(fd);
     let out = '', cliDone = null;
     child.stdout.on('data', (d) => { out += d; });
@@ -256,13 +256,15 @@ for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoId
 /* kosmos#9264: the peek's length, read from the CLI instead of timed, so a busy machine cannot trip it and a peek made
    as long as the quiet read cannot pass. Returns the reasons the given CLI text fails, [] when it passes.
    It reads these lines only: a wait added anywhere else is not seen (the plan says where). */
+const codeOf = (text) => text.split(/\r?\n/).filter((l) => !/^\s*(#|\/\/)/.test(l)).join('\n');   // comment lines are not code
 function peekProblems(cli) {
   const problems = [];
-  const sets = cli.match(/^\s*(export\s+)?KOSMOS_PIPED_PEEK_MS=/gm) || [];
+  const sets = codeOf(cli).match(/(?<![$\w{])KOSMOS_PIPED_PEEK_MS=/g) || [];
   if (sets.length > 1) problems.push('KOSMOS_PIPED_PEEK_MS is set ' + sets.length + ' times');
-  const m = cli.match(/^KOSMOS_PIPED_PEEK_MS=(\d+)\b/m);
-  if (!m) problems.push('no KOSMOS_PIPED_PEEK_MS line');
+  const m = cli.match(/^KOSMOS_PIPED_PEEK_MS=(\d+)(?=\s|$)/m);
+  if (!m) problems.push('no KOSMOS_PIPED_PEEK_MS line of a plain number');
   else if (Number(m[1]) >= 1000) problems.push('KOSMOS_PIPED_PEEK_MS is ' + m[1] + ' ms, not under 1 s');
+  else if (Number(m[1]) < 100) problems.push('KOSMOS_PIPED_PEEK_MS is ' + m[1] + ' ms, too short to look');
   const start = cli.search(/\r?\n_words_and_piped\(\) \{/);
   const rel = start < 0 ? -1 : cli.slice(start).search(/\r?\n\}\r?\n/);
   const end = rel < 0 ? -1 : start + rel;
@@ -270,9 +272,9 @@ function peekProblems(cli) {
   const body = cli.slice(start, end);
   if (!/\bKOSMOS_PEEK_MS="?\$\{?KOSMOS_PIPED_PEEK_MS\}?"?(\s|$)/.test(body)) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
   if (!/setTimeout\([^,;]*,\s*Number\(\s*process\.env\.KOSMOS_PEEK_MS\s*\)\s*\)/.test(body)) problems.push('the peek timer is not exactly KOSMOS_PEEK_MS');
-  const timers = (body.match(/\bsetTimeout\(/g) || []).length;
+  const code = codeOf(body);
+  const timers = (code.match(/\bsetTimeout\(/g) || []).length;
   if (timers !== 1) problems.push('the peek has ' + timers + ' timers, not one');
-  const code = body.split(/\r?\n/).filter((l) => !/^\s*(#|\/\/)/.test(l)).join('\n');   // a comment line may name the quiet read
   if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(code)) problems.push('the peek reaches the quiet read');
   return problems;
 }
@@ -288,6 +290,8 @@ test('#9264 the peek for words alone is under a second and is not the quiet read
   only(cli.replace(/(\r?\n_words_and_piped\(\) \{\r?\n)/, '$1  _read_stdin_quiet 1\n'), /reaches the quiet read/);
   only(cli.replace('process.stdin.on("end"', 'setTimeout(() => {}, 3000); process.stdin.on("end"'), /timers, not one/);
   only(cli.replace(/^(KOSMOS_PIPED_PEEK_MS=\d+.*)$/m, '$1\nKOSMOS_PIPED_PEEK_MS=3000'), /is set 2 times/);
+  only(cli.replace(/^(KOSMOS_PIPED_PEEK_MS=\d+.*)$/m, '$1\n[ -n "$X" ] || KOSMOS_PIPED_PEEK_MS=5000 true'), /is set 2 times/);
+  only(cli.replace(/^KOSMOS_PIPED_PEEK_MS=\d+/m, 'KOSMOS_PIPED_PEEK_MS=0'), /too short to look/);
 });
 
 for (const v of [
