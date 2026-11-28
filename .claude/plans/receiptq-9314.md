@@ -16,7 +16,10 @@ review 1). A path that ran on into code (a quote then `)` `;` `+` `}` `,`, as a 
 template's `${` is left out, never shown as a file name. Review 2: the path is consumed (the header search resumes
 after it), so a one-line script is not re-scanned per header (was 711 ms at 2,000 headers and out of memory at 32,000;
 now 22 ms at 100,000); and a header past the close of its Begin Patch's string uses main's `"`, never that string's quote
-(`'*** Begin Patch\n' + "*** Update File: it's.md"` read `it`).
+(`'*** Begin Patch\n' + "*** Update File: it's.md"` read `it`). Review 3: the close of each Begin Patch's string is
+cached per quote kind, so openers that alternate between ' and " stay linear (one shared entry took 6.3 s at 8,000
+repeats; now 6 ms); the ran-on rule applies only where the quote was assumed, so `notes 'a', b.md` in a "-string is
+kept as main kept it; and a path that swallowed further headers is left out.
 
 Rejected: stopping at every `'` and backtick (the card's own warning): a real file name can hold a `'`, and in a
 "-string it is written unescaped, so `bo's.md` would be cut to `bo`. Rejected after review 1: the first quote after
@@ -31,7 +34,9 @@ Rejected: stopping at every `'` and backtick (the card's own warning): a real fi
   by name (`named.md`), a patch built in pieces and a template `${dir}` (both left out). On main: `named.md'; await ...`,
   `cat.md' +` and `${dir}/tpl.js` are listed.
 - c2i a split patch (`'...Begin Patch\n' + "...it's-split.md..."`): `it's-split.md`, not `it`.
-- A one-line script with 32,000 headers: read in under 3 s (about 20 ms here), one file.
+- c2j `notes 'a', b.md` in a "-string: kept.
+- One-line scripts, 32,000 headers and 16,000 alternating escaped openers: read in under 3 s (about 60 ms here); the
+  32,000-header path swallowed every later header, so no file is listed.
 
 ## Weakest premise
 Neither case has been seen in a real Codex transcript (the card says so); both are reasoned from the script being a

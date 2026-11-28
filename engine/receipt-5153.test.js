@@ -317,6 +317,12 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     out('10:19', 'c2h', 'Script completed\nWall time 1 seconds'),
     /* #9314 review 2: a header past the end of the string its Begin Patch opened (here a second, "-quoted piece) is read
        with the " main assumed, never cut at the first piece's quote (it would read `it`). */
+    /* #9314 review 3: in a string whose quote is known, a ' then , or ) is part of the name, never "code". */
+    call('10:19', 'c2j', String.raw`await tools.apply_patch({patch:"*** Begin Patch
+*** Update File: notes 'a', b.md
++x
+*** End Patch"});`),
+    out('10:19', 'c2j', 'Script completed\nWall time 1 seconds'),
     call('10:19', 'c2i', String.raw`await tools.apply_patch({patch:'*** Begin Patch\n' + "*** Update File: it's-split.md\n+x\n*** End Patch"});`),
     out('10:19', 'c2i', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
@@ -336,7 +342,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
   const drive = a.files.filter((f) => f.includes('drive.js'));
   assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
-    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "it's-split.md"],
+    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "it's-split.md"],
     'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
   // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
   assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
@@ -348,7 +354,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
 });
 
-test('#9314 review 2: a one-line exec script with 32,000 patch headers is read in linear time, not once per header', async () => {
+test('#9314 reviews 2 and 3: a one-line script of 32,000 headers, and 16,000 alternating escaped openers, are read in linear time', async () => {
   const project = 'p' + (++pn);
   const lin9314 = worker('lin9314');
   store.writeProfile('lin9314', { provider: 'openai' });
@@ -358,17 +364,23 @@ test('#9314 review 2: a one-line exec script with 32,000 patch headers is read i
   const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
   // No newline and no quote after the first header, so every later header sits inside the text the first path read.
   const src = 'await tools.apply_patch({patch:"*** Begin Patch ' + '*** Update File: x'.repeat(32000) + '"});';
+  /* Review 3: Begin Patch openers that alternate between ' and " with every quote escaped, so no string closes. One cached
+     close found each header's opener a miss and rescanned to the end (4,000 repeats 1.5 s, quadratic). */
+  const alt = 'await tools.exec(' + String.raw`\'*** Begin Patch\n*** Update File: a\n\"*** Begin Patch\n*** Update File: a\n`.repeat(8000) + ');';
   fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-lin9314.jsonl'), jl([
     ev('10:00', 'session_meta', { cwd: fs.realpathSync(lin9314) }),
     ev('10:05', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l1', input: src }),
     ev('10:05', 'response_item', { type: 'custom_tool_call_output', call_id: 'l1', output: [{ type: 'input_text', text: 'Script completed' }] }),
+    ev('10:06', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l2', input: alt + ' tools.apply_patch(x);' }),
+    ev('10:06', 'response_item', { type: 'custom_tool_call_output', call_id: 'l2', output: [{ type: 'input_text', text: 'Script completed' }] }),
   ]));
   const t0 = process.hrtime.bigint();
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   const took = Number(process.hrtime.bigint() - t0) / 1e6;
   // Generous: the per-header rescan took 711 ms at 2,000 headers and ran out of memory at 32,000; linear is about 10 ms.
   assert.ok(took < 3000, 'reading the script took ' + Math.round(took) + ' ms');
-  assert.equal(r.agents[0].files.length, 1, 'one path line, read once: ' + JSON.stringify(r.agents[0].files).slice(0, 200));
+  // The one path it reads swallows every later header (no line end between them), so it is no file name and is left out.
+  assert.deepEqual(r.agents[0].files, [], 'no file from a path that swallowed further headers: ' + JSON.stringify(r.agents[0].files).slice(0, 200));
 });
 
 test('a Gemini CLI agent: a reply written twice counts once, an edit counts only when it succeeded', async () => {
