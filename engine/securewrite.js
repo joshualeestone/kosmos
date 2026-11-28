@@ -184,7 +184,7 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     Windows runner, a Linux container); a share or a sync client that removed or replaced a fresh temp three times
  *     running would now fail that save rather than rewrite in place. Three failures with no such refusal fall back as
  *     before, and that includes a plain file planted at all three names (each create fails EEXIST): not closed here,
- *     and as it was before #9268. EEXIST is what this module's own tests use to reach the fallback, so counting it as
+ *     as it was before #9268, and carded as kosmos#9307 (the same race at the config applies). EEXIST is what this module's own tests use to reach the fallback, so counting it as
  *     planting would change what the fallback is for every caller; that is its own change, not this one.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */

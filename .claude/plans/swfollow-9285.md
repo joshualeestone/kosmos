@@ -55,6 +55,6 @@ Review 3 measured that a plain file planted at all three temp names (each create
 reaches the in-place fallback, as it did before #9268. Counting EEXIST as planting would close it, and I did not:
 EEXIST on every create is how this module's own tests (securewrite.fsync-5434, settingswrite, accounts, sendertoken and
 others) reach the fallback on purpose, so it would change what the fallback is for every caller, which is a change of
-its own with its own review, not a follow-up wording fix. The comments that claimed otherwise now say this. What would
-change my mind: a measured route by which a plain-file plant leaks a secret through the fallback, rather than costing
-an atomic write.
+its own with its own review, not a follow-up wording fix. The comments that claimed otherwise now say this. This is
+not only an atomicity cost: the same Windows race at the config that made me refuse in the swap case applies here, so it
+is carded as #9307 rather than called harmless.
