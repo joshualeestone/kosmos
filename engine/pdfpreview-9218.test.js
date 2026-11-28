@@ -40,6 +40,21 @@ function realPng(w = 3, h = 2) {
 function fakePdf(dir, name = 'design.pdf') { const p = path.join(dir, name); fs.writeFileSync(p, '%PDF-1.4\n%fake\n'); return p; }
 /* A folder holding one executable stand-in per name, for onPath. It is never run: the run seam answers instead. */
 function pathWith(names) { const d = fresh(); for (const nm of names) { fs.writeFileSync(path.join(d, nm), '#!/bin/sh\nexit 99\n', { mode: 0o755 }); } return d; }
+/* kosmos#8378: the refusals and the --out handling are the same on every platform, so their arms run for each renderer:
+   the Windows one (PowerShell through the run seam) on every host, and the Linux one (stand-ins found on PATH by the
+   POSIX execute bit) off Windows only. A successful draw writes where that renderer leaves its page. */
+const RENDERERS = SKIP_POSIX_STANDIN ? ['win32'] : ['linux', 'win32'];
+function rendererDeps(kind, d, run) {
+  return kind === 'win32'
+    ? { platform: 'win32', env: { SystemRoot: 'D:\\Win', PATH: '' }, tmpdir: d, run }
+    : { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run };
+}
+function draws(kind, png) {
+  return async (cmd, args, opts) => {
+    fs.writeFileSync(kind === 'win32' ? path.join(opts.env.KOSMOS_PREVIEW_DIR, 'page.png') : args[args.length - 1] + '.png', png);
+    return { code: 0, stdout: kind === 'win32' ? 'ok 1\r\n' : '' };
+  };
+}
 
 test('parseArgs: page 1 by default; --page and --out in both spellings; -- ends the options', () => {
   assert.deepEqual(pdfpreview.parseArgs(['a.pdf']), { ok: true, file: 'a.pdf', page: 1, out: null });
@@ -60,10 +75,10 @@ test('parseArgs refuses: no file, two files, an unknown option, a bad or repeate
   }
 });
 
-test('the file is refused before any renderer runs: missing, a folder, not a PDF, over the size limit; each exits 2', { skip: SKIP_POSIX_STANDIN }, async () => {
+for (const kind of RENDERERS) test(`the file is refused before any renderer runs: missing, a folder, not a PDF, over the size limit; each exits 2 (${kind})`, async () => {
   const d = fresh();
   let ran = 0;
-  const deps = { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, run: async () => { ran++; return { code: 0, stdout: '' }; }, tmpdir: d };
+  const deps = rendererDeps(kind, d, async () => { ran++; return { code: 0, stdout: '' }; });
   fs.writeFileSync(path.join(d, 'notes.pdf'), 'just text, named .pdf');
   const big = path.join(d, 'big.pdf');
   fs.writeFileSync(big, '%PDF-1.4\n');
@@ -76,7 +91,8 @@ test('the file is refused before any renderer runs: missing, a folder, not a PDF
   }
   /* The control: the limit itself is allowed, so the size test is not refusing every file. */
   fs.truncateSync(big, pdfpreview.MAX_BYTES);
-  const ok = await pdfpreview.main([big], { ...deps, run: async (cmd, args) => { ran++; fs.writeFileSync(args[args.length - 1] + '.png', realPng()); return { code: 0, stdout: '' }; } });
+  const draw = draws(kind, realPng());
+  const ok = await pdfpreview.main([big], { ...deps, run: async (...a) => { ran++; return draw(...a); } });
   assert.equal(ok.code, 0, ok.err.join('\n'));
   assert.equal(ran, 1, 'a refused file reached a renderer');
 });
@@ -204,15 +220,15 @@ test('Windows: ERR range names the page count (exit 2); an empty picture, a fail
   assert.deepEqual(fs.readdirSync(d).filter((x) => x.startsWith('kosmos-preview-')), [], 'a failed draw left its folders behind');
 });
 
-test('--out over an existing PNG replaces it whole; a failed draw leaves it as it was and nothing beside it', { skip: SKIP_POSIX_STANDIN }, async () => {
+for (const kind of RENDERERS) test(`--out over an existing PNG replaces it whole; a failed draw leaves it as it was and nothing beside it (${kind})`, async () => {
   const d = fresh();
   const src = fakePdf(d);
   const out = path.join(d, 'keep.png');
   fs.writeFileSync(out, 'the old picture');
-  const failed = await pdfpreview.main([src, '--out', out], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => ({ code: 1, stdout: '' }) });
+  const failed = await pdfpreview.main([src, '--out', out], rendererDeps(kind, d, async () => ({ code: 1, stdout: '' })));
   assert.equal(failed.code, 1);
   assert.equal(fs.readFileSync(out, 'utf8'), 'the old picture');
-  const ok = await pdfpreview.main([src, '--out', out], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async (c, args) => { fs.writeFileSync(args[args.length - 1] + '.png', realPng(6, 7)); return { code: 0, stdout: '' }; } });
+  const ok = await pdfpreview.main([src, '--out', out], rendererDeps(kind, d, draws(kind, realPng(6, 7))));
   assert.equal(ok.code, 0, ok.err.join('\n'));
   assert.ok(fs.readFileSync(out).equals(realPng(6, 7)));
   assert.deepEqual(fs.readdirSync(d).filter((x) => x.startsWith('.kosmos-preview-') || x.endsWith('.part')), [], 'a staging file was left beside --out');
@@ -223,12 +239,12 @@ test('--out over an existing PNG replaces it whole; a failed draw leaves it as i
   const odd = fakePdf(d, 'odd.png');
   const upper = path.join(d, 'ODD.PNG');
   if (fs.existsSync(upper)) {
-    const self = await pdfpreview.main([odd, '--out', upper], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => assert.fail('ran') });
+    const self = await pdfpreview.main([odd, '--out', upper], rendererDeps(kind, d, async () => assert.fail('ran')));
     assert.equal(self.code, 2);
     assert.match(self.err[0], /the PDF itself/);
     assert.ok(fs.readFileSync(odd, 'latin1').startsWith('%PDF-'), 'the PDF was overwritten');
   } else test.diagnostic('this disk tells case apart; the ODD.PNG arm did not run');
-  const linked = await pdfpreview.main([src, '--out', link], { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, tmpdir: d, run: async () => assert.fail('ran') });
+  const linked = await pdfpreview.main([src, '--out', link], rendererDeps(kind, d, async () => assert.fail('ran')));
   assert.equal(linked.code, 2);
   assert.match(linked.err[0], /is a link/);
 });

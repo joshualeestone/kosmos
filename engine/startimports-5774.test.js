@@ -69,7 +69,7 @@ DEPS.userShellDirs = USERDIRS;
 DEPS.homebrewPrefixes = [];   // review 12: this host's own Homebrew is not read either (tests that need one pass theirs)
 const si = require('./startimports');
 
-test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spaces, the path shapes); code and comments in a paragraph are not, in a list item they are', { skip: POSIX_GUARD }, () => {
+test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spaces, the path shapes); code and comments in a paragraph are not, in a list item they are', () => {
   const f = path.join(SANDBOX, 'p', 'CLAUDE.md');
   const home = '/h';
   const got = si.importsIn([
@@ -90,7 +90,7 @@ test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spac
   // Review 3: a list item's raw text (its code spans and comments) is scanned by Claude Code, and this does not model
   // lists, so code and comments are scanned everywhere: the result is a superset, never a subset.
   // Review 5: a superset by design, so the test names what MUST be there and what must NOT.
-  for (const w of [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), '/h/c.md,', '/abs/d.md', path.join(dir, 'j.md'),
+  for (const w of [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), path.join(home, 'c.md,'), path.resolve('/abs/d.md'), path.join(dir, 'j.md'),   // kosmos#8378: as this host spells them
     path.join(dir, 'my file.md'), path.join(dir, 'indented.md')]) assert.ok(got.includes(w), `${w} missing from ${JSON.stringify(got)}`);
   // Review 7: in a PARAGRAPH, code (spans, fences) and comments are skipped by Claude Code, so they are not imports here
   // either (the raw pass reads list items only).

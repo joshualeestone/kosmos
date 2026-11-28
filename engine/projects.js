@@ -521,11 +521,13 @@ function canonicalPath(p) {
  * `os.tmpdir()` plus `/tmp` cover the roots a fixture or sandbox actually uses.
  */
 function isUnderTmpDir(folder) {
-  const target = canonicalPath(folder);
+  // kosmos#9267: case-blind on Windows, as its file system is (a folder typed in lower case that does not exist yet).
+  const fold = (p) => (p && process.platform === 'win32' ? p.toLowerCase() : p);
+  const target = fold(canonicalPath(folder));
   if (!target) return false;
   /* kosmos#9267: each root in its given spelling too, because a folder that does not exist yet cannot be resolved,
      and on Windows the temp folder's given spelling can be a short 8.3 name, such as JOHNSM~1, that resolves long. */
-  const roots = new Set([os.tmpdir(), '/tmp'].flatMap((r) => [path.resolve(r), canonicalPath(r)]).filter(Boolean));
+  const roots = new Set([os.tmpdir(), '/tmp'].flatMap((r) => [path.resolve(r), canonicalPath(r)]).filter(Boolean).map(fold));
   for (const root of roots) {
     if (target === root) return true;
     const withSep = root.endsWith(path.sep) ? root : root + path.sep;   // kosmos#9267: a backslash on Windows

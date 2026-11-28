@@ -11,10 +11,16 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
   JavaScript string carries one) is now part of the path; any other escape still ends it. A new arm, a patched name
   `a\b.md`, fails on the old reader (it read `a`) and passes now, on the Mac.
 - **#9267, fixed here.** engine/projects.js `isUnderTmpDir` joined the boundary with `/`, so on Windows no folder in
-  `%TEMP%` read as temp and the #525 temp-folder refusal never fired. It joins with `path.sep` now.
+  `%TEMP%` read as temp and the #525 temp-folder refusal never fired. It joins with `path.sep` now, compares each temp
+  root both as given and resolved (an 8.3 name), and on Windows compares case-blind. engine/projects.test.js moves from
+  HOST_BRANCH_EXCLUDED into the Windows job's ALSO list (it passed there in full: run 46118283614, 162 pass, 0 fail),
+  so the fix is guarded where it matters; on the Mac `path.sep` is `/` and no arm could see it. Note for Windows: a
+  folder under `C:\tmp` now reads as temp too (`/tmp` resolves there), as `/tmp/anything` already did on the Mac.
 - **#9268, carded, not fixed, and its arm left red.** securewrite's create-exclusive (`'wx'`) temp file follows a
   planted dangling symbolic link on Windows (engine/trust.test.js "a file planted at the temp path"). A skip would
-  hide a guarantee that does not hold, so the test stays red until #9268 is fixed.
+  hide a guarantee that does not hold, so the test is not skipped. It is red only where somebody runs trust.test.js
+  on Windows (the never-merged measurement branch here): the file is in HOST_BRANCH_EXCLUDED, so the Windows CI job
+  does not run it, and card #9268 (PR #9289, which fixes it) is what tracks it.
 
 ## Test fixes (the test assumed a POSIX host)
 
@@ -33,26 +39,33 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
 ## Skips, each naming its mechanism
 
 update.marker (the run-setup shell line through /bin/sh), remove.redisable (launchd's own disable record),
-pdfpreview (Linux stand-ins found by the POSIX execute bit; a `"` in a file name), the release and fleet tools
+pdfpreview's two Linux renderer arms (stand-ins found by the POSIX execute bit; a `"` in a file name; its refusal and
+--out arms run for the Windows renderer on every host and for Linux off Windows), the release and fleet tools
 (build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), the shell report hook
 (install/kosmos-report-hook.sh), the macOS cwd-case arm of trust.canonical-spelling, tool-guard's two POSIX controls,
-and runnable-not-directory's tmux-key arm (machine.js does not probe tmux on Windows).
-**Owed, not lacking:** orgchartfile (4 arms) and teamcreate-structure-4557 (6 arms) check things that exist on
-Windows but set up with a `#!/bin/sh` fake claude, fake-tmux.sh and `/bin/echo`; their reason names #9272, which
-owes the Windows arms.
+and the 7 startimports arms that run the macOS guard (its parser arm runs everywhere, with host-resolved paths).
+runnable-not-directory skips nothing: its installedCheck arm checks claude and codex on Windows, where machine.js does
+not probe tmux.
+**Not in this slice:** engine/orgchartfile.test.js and teamcreate-structure-4557.test.js. Mona Lisa owns both on
+#9272 (branch wincl-9272): she measured that #4660 and the teamcreate arms fail on Windows for path spelling and a
+roster seam, not a shell script, fixes those, and puts the sh-script orgchart arms beside node stand-ins. An earlier
+version of this slice skipped them naming #9272; that was dropped so two branches do not edit the same lines.
 
 ## Decided, and what I rejected
 
 - Rejected: skipping #9268's arm. It is the one place the runner showed a guarantee failing, not a setup gap.
-- Rejected: writing the orgchartfile and teamcreate Windows arms here. Each needs a Windows stand-in (a `.cmd` claude,
-  a roster served as Windows reads it) that I cannot check off the runner in one pass; #9272 owns them.
+- Rejected: touching orgchartfile and teamcreate here at all, once #9272 had an owner working both files.
 
 ## Weakest premise
 
-That the reporthook shell-form arms, asked for `darwin`, accept a Windows sandbox path (backslashes, `~` in an 8.3
-name) as a script path; ensureWired refuses shell-special characters. The Windows run after this slice decides it.
+That a skip which names a Mac or Linux script hides nothing Windows ships. Each was checked from the script and its
+callers (setup.sh refuses other systems; the release tools run on the release Mac), not from a Windows install.
 
 ## Checked
 
 - Every edited file passes on the Mac, with engine/windows-tests-1777.test.js green.
-- The Windows run after this slice is the control that the fixed arms pass there and the skipped ones skip.
+- Windows, all 62 files, run 46118072144: 4 failing tests (99 before this slice), 59 of 62 files green. Two were
+  reporthook's shell-form arms (the shell form rightly refuses a backslash, so they now use POSIX literals) and one
+  was isUnderTmpDir comparing a not-yet-made folder in the temp folder's 8.3 spelling (each root is now compared both
+  as given and resolved; added to #9267). Run 46118283614 on those three files: projects and reporthook green; the
+  one red left in the cluster is #9268's arm, on purpose.
