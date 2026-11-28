@@ -523,7 +523,9 @@ function canonicalPath(p) {
 function isUnderTmpDir(folder) {
   const target = canonicalPath(folder);
   if (!target) return false;
-  const roots = new Set([os.tmpdir(), '/tmp'].map(canonicalPath).filter(Boolean));
+  /* kosmos#9267: each root in its given spelling too, because a folder that does not exist yet cannot be resolved,
+     and on Windows the temp folder's given spelling can be a short 8.3 name, such as JOHNSM~1, that resolves long. */
+  const roots = new Set([os.tmpdir(), '/tmp'].flatMap((r) => [path.resolve(r), canonicalPath(r)]).filter(Boolean));
   for (const root of roots) {
     if (target === root) return true;
     const withSep = root.endsWith(path.sep) ? root : root + path.sep;   // kosmos#9267: a backslash on Windows

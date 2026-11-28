@@ -205,10 +205,12 @@ test('#1582 refinement: an ephemeral script in an ephemeral settings file is NOT
    exists to heal, and reported that it had. `setup.sh` re-runs this on every
    update, which is why a stale hook survived all of them. */
 
-const STALE = path.join(SANDBOX, 'elsewhere', 'kosmos-report-hook.sh');
+const STALE = '/elsewhere/kosmos-report-hook.sh';   // a shell-form entry's path, POSIX on every host (kosmos#8378)
 /* kosmos#8378: these arms are about the shell-form entry (`bash "<script>"`), so they ask for it on every host; the
    win32 exec form is pinned in the #570 arms below. */
 const POSIX = { platform: 'darwin' };
+/* ...with a POSIX script path: the shell form rightly refuses a backslash, so a Windows sandbox path cannot be one. */
+const POSIX_SCRIPT = '/opt/kosmos/bin/kosmos-report-hook.sh';
 const staleEntry = () => ({
   matcher: '',
   hooks: [{ type: 'command', command: 'bash "' + STALE + '"', timeout: 15 }],
@@ -220,7 +222,7 @@ test('#1467: an entry aimed at another copy of the script is REPOINTED, not skip
   for (const e of reporthook.HOOK_EVENTS) hooks[e] = [staleEntry()];
   fs.writeFileSync(p, JSON.stringify({ hooks }));
 
-  const got = reporthook.ensureWired(p, SCRIPT, POSIX);
+  const got = reporthook.ensureWired(p, POSIX_SCRIPT, POSIX);
   assert.equal(got.wired, true);
   assert.equal(got.changed, true, 'it reported success while changing nothing, which is the whole defect');
 
@@ -229,7 +231,7 @@ test('#1467: an entry aimed at another copy of the script is REPOINTED, not skip
   assert.equal(all.includes(STALE), false, 'a stale copy is still wired, so an update cannot fix a machine');
   for (const e of reporthook.HOOK_EVENTS) {
     assert.equal(oursIn(data, e), 1, `event ${e} should carry exactly one entry of ours`);
-    assert.equal(data.hooks[e][0].hooks[0].command.includes(SCRIPT), true, `event ${e} points at the wrong script`);
+    assert.equal(data.hooks[e][0].hooks[0].command.includes(POSIX_SCRIPT), true, `event ${e} points at the wrong script`);
   }
 });
 
@@ -252,12 +254,12 @@ test('#1467 CONTROL: somebody else hook in the same event survives repointing', 
   const theirs = { matcher: '', hooks: [{ type: 'command', command: 'bash /somebody/else/thing.sh' }] };
   fs.writeFileSync(p, JSON.stringify({ hooks: { SessionStart: [theirs, staleEntry()] } }));
 
-  reporthook.ensureWired(p, SCRIPT, POSIX);
+  reporthook.ensureWired(p, POSIX_SCRIPT, POSIX);
   const data = readJson(p);
   const cmds = data.hooks.SessionStart.map((e) => e.hooks[0].command);
   assert.equal(cmds.filter((c) => c.includes('/somebody/else/thing.sh')).length, 1,
     'a hook that is not ours was destroyed by repointing');
-  assert.equal(cmds.some((c) => c.includes(SCRIPT)), true);
+  assert.equal(cmds.some((c) => c.includes(POSIX_SCRIPT)), true);
   assert.equal(cmds.some((c) => c.includes(STALE)), false);
 });
 
