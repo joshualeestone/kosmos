@@ -1066,7 +1066,7 @@ _qh_board_text() {
 # kosmos#9246: a caller that names the real folder itself (a launchd job, a pinning wrapper) is on the real markers
 # too, so it announces: the folder is compared with the real one as physical paths (so a trailing slash, `..` or a
 # symlink does not matter); this script made the folder near its start (mkdir -p "$(_qh_marker_dir_raw)"), so it
-# normally exists; where that failed (it says the folder is not writable), only the exact spelling or unset announces.
+# normally exists; where that failed (it says so, except when it has no git), only the exact spelling or unset announces.
 # Any other folder is a private one, and stays quiet as before. "Real" is $HOME's folder, as queued-heavy itself uses:
 # a sandbox HOME that names its own folder explicitly counts as real too (as unset markers under a sandbox HOME
 # already did), so a test still sets QUEUED_HEAVY_ANNOUNCE=0, as run-tests.sh and test-queued-heavy-4977.sh do.
