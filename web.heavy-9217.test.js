@@ -17,8 +17,9 @@ function board() {
   const t = makeDom();
   const slot = t.add('heavy-slot');
   // eslint-disable-next-line no-new-func
-  const paint = new Function('document', 'jobs', BODY + '\npaintHeavyJobs(jobs);');
-  return { slot, paint: (jobs) => paint(t.document, jobs) };
+  const paint = new Function('document', 'jobs', 'line', 'now', BODY + '\npaintHeavyJobs(jobs, line, now);');
+  // kosmos#9217 slice 2: "today" is pinned to the day the fixtures use, so a run on another day prints the same.
+  return { slot, paint: (jobs, line, now = new Date(2026, 10, 27, 23, 0).getTime()) => paint(t.document, jobs, line, now) };
 }
 
 // Local wall-clock times, so the HH:MM the page prints is known whatever zone the runner is in.
@@ -104,5 +105,31 @@ test('the page wires it: a #heavy-slot hidden when empty, and tick() paints it f
   assert.match(html, /#heavy-slot:empty[^{]*\{ display: none; \}/);
   assert.match(html, /^\.utoast\.heavy \{ --utone: var\(--label-2\); \}/m, 'the heavy note has no neutral tone rule');
   const tick = page.lift(SCRIPT, 'tick');
-  assert.match(tick, /paintHeavyJobs\(data\.heavyJobs\)/);
+  assert.match(tick, /paintHeavyJobs\(data\.heavyJobs, data\.heavyLine\)/);
+});
+
+test('kosmos#9217 slice 2: the line of turns follows the running job, in order, by display name', () => {
+  const b = board();
+  b.paint([{ agent: 'renet', name: 'Renet', label: 'suite', since: at(14, 5) }],
+    [{ agent: 'angel', name: 'Angel', label: 'v', since: at(14, 6) }, { agent: 'mona', label: 'cut', since: at(14, 7) }]);
+  assert.equal(b.slot.textContent, 'A heavy job is running on this computer: suite (Renet, since 14:05). Next: Angel, then mona.');
+});
+
+test('kosmos#9217 slice 2: a free turn with a line still shows, so the person sees who is next', () => {
+  const b = board();
+  b.paint([], [{ agent: 'angel', name: 'Angel', label: 'v', since: at(14, 6) }]);
+  assert.equal(b.slot.textContent, 'No heavy job is running; next in line: Angel.');
+  const e = board();
+  e.paint([], []);
+  assert.equal(e.slot.textContent, '', 'control: no job and no line leaves the slot empty');
+});
+
+test('kosmos#9217 slice 2: a job not started today says its day (Baron, 0.8.29 review); today\'s does not', () => {
+  const b = board();
+  b.paint([{ agent: 'renet', label: 'overnight', since: new Date(2026, 10, 26, 22, 30).getTime() }]);
+  const day = new Date(2026, 10, 26).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  assert.equal(b.slot.textContent, 'A heavy job is running on this computer: overnight (renet, since ' + day + ' 22:30).');
+  const c = board();
+  c.paint([{ agent: 'renet', label: 'today', since: at(1, 0) }]);
+  assert.match(c.slot.textContent, /since 01:00\)/);
 });

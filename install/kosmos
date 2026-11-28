@@ -4013,10 +4013,12 @@ cmd_reply_channel() {
 #   kosmos heavy                          lists what is running here
 #   kosmos heavy start "<label>" [--pid N] records yours (with --pid, it clears when that process ends; else with you)
 #   kosmos heavy end [--pid N]            ends it
+#   kosmos heavy take "<label>" [--pid N]  takes the turn, or keeps your place in line (slice 2; exit 0 = your turn, 3 = wait)
+#   kosmos heavy release [--pid N]         ends your turn, or gives up your place
 # One copy of the usage, for the verb and for the global --help guard (bare `kosmos heavy` reads the board, so --help
 # cannot re-dispatch it bare the way the message verbs do).
 heavy_usage() {
-  say 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid)'
+  say 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N] | kosmos heavy take "<what the job is>" [--pid N] | kosmos heavy release [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid. take is the turn when nobody has one and nobody is ahead of you, else it keeps your place in line and exits 3: ask again to keep it, and take a free turn within 2 minutes or lose your place. release ends your turn or gives up your place)'
 }
 cmd_heavy() {
   local sub="${1:-}" label="" pid="" _tok="" _bt _n body ans rc=0 _pq
@@ -4034,27 +4036,30 @@ cmd_heavy() {
         let j; try { j = JSON.parse(s); } catch { j = null; }
         if (j && typeof j.error === "string") { console.log("Kosmos could not list heavy jobs: " + j.error + "."); process.exit(1); }
         if (!j || !Array.isArray(j.jobs)) { console.log("Kosmos gave an answer we could not read."); process.exit(1); }
-        if (!j.jobs.length) { console.log("No heavy job is running on this computer."); return; }
+        const at = (v) => { const t = new Date(v); return String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0"); };
+        const line = Array.isArray(j.line) ? j.line : [];
+        if (!j.jobs.length) console.log("No heavy job is running on this computer.");
         for (const x of j.jobs) {
-          const t = new Date(x.since); const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0");
-          console.log(x.label + " (" + (x.name || x.agent) + ", since " + hh + ":" + mm + (x.pid ? ", process " + x.pid : "") + ")"
+          console.log(x.label + " (" + (x.name || x.agent) + ", since " + at(x.since) + (x.pid ? ", process " + x.pid : "") + ")"
             + (x.unchecked ? ": Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid " + x.pid : ""));
         }
+        // kosmos#9217 slice 2: the line of turns, in order
+        line.forEach((x, i) => console.log("Waiting " + (i + 1) + ": " + (x.name || x.agent) + ", " + x.label + " (in line since " + at(x.since) + (x.pid ? ", process " + x.pid : "") + ")"));
       });' 2>/dev/null || { token_refused_hint "$_tok" "$ans"; exit 1; }
     exit 0
   fi
   case "$sub" in
-    start|end) shift ;;
+    start|end|take|release) shift ;;
     *) heavy_usage; exit 2 ;;
   esac
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --pid) [ "$#" -ge 2 ] && [ -n "$2" ] || { heavy_usage; exit 2; }; pid="$2"; shift 2 ;;
       --pid=*) pid="${1#--pid=}"; [ -n "$pid" ] || { heavy_usage; exit 2; }; shift ;;
-      *) if [ "$sub" = start ] && [ -z "$label" ]; then label="$1"; shift; else heavy_usage; exit 2; fi ;;
+      *) if { [ "$sub" = start ] || [ "$sub" = take ]; } && [ -z "$label" ]; then label="$1"; shift; else heavy_usage; exit 2; fi ;;
     esac
   done
-  [ "$sub" = end ] || [ -n "$label" ] || { heavy_usage; exit 2; }
+  [ "$sub" = end ] || [ "$sub" = release ] || [ -n "$label" ] || { heavy_usage; exit 2; }
   case "$pid" in ''|*[!0-9]*) [ -z "$pid" ] || { say "Kosmos did not record that: a process id is a whole number above 1."; exit 1; } ;; esac
   if ! healthy; then say_not_up "it cannot record that"; exit 1; fi
   _n="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to send this."; exit 1; }
@@ -4066,6 +4071,20 @@ cmd_heavy() {
   printf '%s' "$ans" | "$_n" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { j = null; }
+      const at = (v) => { const t = new Date(v); return String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0"); };
+      const nth = (n) => n + (n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th");
+      const how = j && j.job && j.job.pid ? " --pid " + j.job.pid : "";
+      if (j && j.ok === true && j.turn === true && j.job) { console.log("Your turn: " + j.job.label + " is recorded as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy release" + how + " when it is done."); return; }
+      if (j && j.ok === true && j.turn === false && Number.isSafeInteger(j.place)) {
+        const ahead = Array.isArray(j.ahead) ? j.ahead : [];
+        const who = j.holder ? j.holder.agent + " has the turn (" + j.holder.label + ", since " + at(j.holder.since) + ")" : "the turn is free for " + (ahead[0] ? ahead[0].agent : "the agent ahead of you") + ", who has 2 minutes to take it";
+        console.log("Not yet: you are " + nth(j.place) + " in line; " + who + (ahead.length > 1 || (j.holder && ahead.length) ? ". Ahead of you: " + ahead.map((x) => x.agent).join(", ") : "") + ". Ask again with kosmos heavy take to keep your place.");
+        process.exit(3);
+      }
+      if (j && j.ok === true && typeof j.left === "number") {
+        if (j.ended) { console.log("Released: your turn has ended, and it no longer shows on the board."); return; }
+        console.log(j.left ? "Released: you gave up your place in line." : "You had no turn and no place in line" + (process.argv[1] ? " for that process" : "") + "."); return;
+      }
       if (j && j.ok === true && j.job) { console.log("Recorded: " + j.job.label + ". It shows on the board as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy end" + (j.job.pid ? " --pid " + j.job.pid : "") + " when it is done."); return; }
       if (j && j.ok === true && typeof j.ended === "number") {
         const left = typeof j.others === "number" ? j.others : 0;
@@ -4075,7 +4094,7 @@ cmd_heavy() {
       }
       if (j && typeof j.error === "string") { console.log("Kosmos did not record that: " + j.error + "."); process.exit(1); }
       console.log("Kosmos gave an answer we could not read."); process.exit(1);
-    });' "$pid" 2>/dev/null || { token_refused_hint "$_tok" "$ans"; exit 1; }
+    });' "$pid" 2>/dev/null || { rc=$?; [ "$rc" -eq 3 ] && exit 3; token_refused_hint "$_tok" "$ans"; exit 1; }
 }
 
 # ---- kosmos connections      (#4451)
@@ -6563,7 +6582,7 @@ kosmos_command_list() {
   printf '  kosmos post          post in a project room (--how: what a room shows)\n'
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
-  printf '  kosmos heavy         say a heavy job (a long test run) is running on this computer, or list them\n'
+  printf '  kosmos heavy         say a heavy job (a long test run) is running on this computer, take turns on one, or list them\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
   printf '  kosmos away          what reached you while you were not running\n'
   printf '  kosmos file-notices  take the notices Kosmos kept for you when another agent was about to change a file of yours\n'

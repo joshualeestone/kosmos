@@ -149,3 +149,61 @@ test('kosmos#9222: a job Kosmos could not check is listed with how to end it', {
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid 4242$/m);
   }));
+
+// kosmos#9217 slice 2: take and release. The Windows twin (tools.windows-kosmos-cli-heavy-9217.test.js) expects the same words.
+const S = Date.UTC(2026, 10, 27, 15, 5);
+const turnAnswers = {
+  turn: { ok: true, turn: true, job: { label: 'suite', pid: 4242, since: S } },
+  behind: { ok: true, turn: false, place: 2, holder: { agent: 'ada', label: 'cut', pid: null, since: S }, ahead: [{ agent: 'bo', label: 'v', pid: null, since: S }] },
+  free: { ok: true, turn: false, place: 2, holder: null, ahead: [{ agent: 'bo', label: 'v', pid: null, since: S }] },
+  ended: { ok: true, left: 0, ended: 1 },
+  left: { ok: true, left: 1, ended: 0 },
+  none: { ok: true, left: 0, ended: 0 },
+};
+
+test('kosmos heavy take: the turn exits 0 and says how to release it; it sends take with the label and pid', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => turnAnswers.turn, async (port, hits) => {
+    const r = await runCli(['heavy', 'take', 'suite', '--pid', '4242'], envFor(port));
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^Your turn: suite is recorded as running while process 4242 runs\. kosmos heavy release --pid 4242 when it is done\.$/m);
+    assert.deepEqual(JSON.parse(hits.find((h) => h.method === 'POST').body), { action: 'take', label: 'suite', pid: 4242, from_pane: '%42' });
+  }));
+
+test('kosmos heavy take: a kept place exits 3 and says the place, the holder and who is ahead', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => turnAnswers.behind, async (port) => {
+    const r = await runCli(['heavy', 'take', 'suite'], envFor(port));
+    assert.equal(r.code, 3, r.out);
+    assert.match(r.out, /^Not yet: you are 2nd in line; ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: bo\. Ask again with kosmos heavy take to keep your place\.$/m);
+  }));
+
+test('kosmos heavy take: behind a free turn, it names who has 2 minutes to take it', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => turnAnswers.free, async (port) => {
+    const r = await runCli(['heavy', 'take', 'suite'], envFor(port));
+    assert.equal(r.code, 3, r.out);
+    assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/m);
+  }));
+
+test('kosmos heavy release: an ended turn, a given-up place, and nothing to release each say so and exit 0', { skip: SKIP_POSIX_SHELL }, async () => {
+  for (const [k, want] of [['ended', /^Released: your turn has ended, and it no longer shows on the board\.$/m], ['left', /^Released: you gave up your place in line\.$/m], ['none', /^You had no turn and no place in line\.$/m]]) {
+    await withBoard(() => turnAnswers[k], async (port, hits) => {
+      const r = await runCli(['heavy', 'release'], envFor(port));
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, want, k);
+      assert.equal(JSON.parse(hits.find((h) => h.method === 'POST').body).action, 'release');
+    });
+  }
+});
+
+test('kosmos heavy take needs a label; release takes none', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => turnAnswers.turn, async (port, hits) => {
+    assert.equal((await runCli(['heavy', 'take'], envFor(port))).code, 2);
+    assert.equal((await runCli(['heavy', 'release', 'words'], envFor(port))).code, 2);
+    assert.equal(hits.filter((h) => h.method === 'POST').length, 0);
+  }));
+
+test('a bare kosmos heavy lists the line of turns after what is running', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => ({ ok: true, jobs: [], line: [{ agent: 'bo', name: 'Bo', label: 'v', pid: null, since: S }] }), async (port) => {
+    const r = await runCli(['heavy'], envFor(port));
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^No heavy job is running on this computer\.\nWaiting 1: Bo, v \(in line since \d\d:\d\d\)$/m);
+  }));

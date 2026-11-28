@@ -3377,7 +3377,10 @@ function sweepRoster(now = Date.now()) {
    newly missing, and only a grace already run out on an earlier read clears. */
 const HEAVY_AGENT_GRACE_MS = 90 * 1000;
 const heavyMissingSince = new Map();
-function heavyJobsNow(roster, now = Date.now(), { hidden = false } = {}) {
+function heavyJobsNow(roster, now = Date.now(), opts = {}) { return heavyNow(roster, now, opts).jobs; }
+/* kosmos#9217 slice 2: the jobs and the line of turns in front of them (engine/heavyturns.js), judged with one agentAlive,
+   so a waiter missing from the roster runs the same HEAVY_AGENT_GRACE_MS as a holder does. Never throws. */
+function heavyNow(roster, now = Date.now(), { hidden = false } = {}) {
   try {
     const running = (roster && Array.isArray(roster.running)) ? roster.running : [];
     const rows = running.concat((roster && Array.isArray(roster.offline)) ? roster.offline : []);   // names only
@@ -3394,10 +3397,13 @@ function heavyJobsNow(roster, now = Date.now(), { hidden = false } = {}) {
       return since !== undefined && now - since >= HEAVY_AGENT_GRACE_MS ? false : null;
     };
     const jobs = require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive, hidden });
-    const holders = new Set(jobs.map((j) => j.agent));
-    for (const n of [...heavyMissingSince.keys()]) if (!holders.has(n)) heavyMissingSince.delete(n);   // a mark lives only as long as a job
-    return jobs.map((j) => ({ ...j, name: display.get(j.agent) || j.agent }));
-  } catch { return []; }
+    let line = [];
+    try { line = require('./engine/heavyturns').waiting({ root: store.ROOT, now, agentAlive }); } catch { line = []; }
+    const holders = new Set(jobs.concat(line).map((j) => j.agent));
+    for (const n of [...heavyMissingSince.keys()]) if (!holders.has(n)) heavyMissingSince.delete(n);   // a mark lives only as long as a job or a place
+    const named = (j) => ({ ...j, name: display.get(j.agent) || j.agent });
+    return { jobs: jobs.map(named), line: line.map(named) };
+  } catch { return { jobs: [], line: [] }; }
 }
 function safeRoster() {
   try {
@@ -9534,7 +9540,10 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#9217: the heavy jobs agents said are running on this computer (`kosmos heavy start`), for the top
            note. engine/heavyjobs.js clears a record whose process or agent is gone, or past its age ceiling; a process
            with a recorded start time is judged by it instead (kosmos#9222). */
-        heavyJobs: heavyJobsNow({ running: agents, offline, complete: !couldNotAccount }),
+        ...(() => {   // kosmos#9217: one read for the jobs and the line of turns (slice 2), so both judge agents alike
+          const h = heavyNow({ running: agents, offline, complete: !couldNotAccount });
+          return { heavyJobs: h.jobs, heavyLine: h.line };
+        })(),
         /* And the two facts the overlay needs even when the attempt record
            is gone with the old server: the diary's path (from the engine's
            root, never guessed by the page) and THIS server's boot identity,
@@ -28551,9 +28560,9 @@ const server = http.createServer(async (req, res) => {
     try { fromPane = new URL(req.url, ROUTING_BASE).searchParams.get('from_pane') || ''; } catch { fromPane = ''; }   // GET has no body
     const caller = isViaScreen(req, {}) ? { card: null } : processCaller(req, { from_pane: fromPane }, roster, false, 'nothing was listed');
     const me = (caller && caller.card && caller.card.sessionName) || null;
-    const jobs = heavyJobsNow(roster ? { running: roster, offline: [], complete: false } : null, Date.now(), { hidden: Boolean(me) })
-      .filter((j) => !j.unchecked || j.agent === me);
-    sendJson(res, 200, { ok: true, jobs });
+    const h = heavyNow(roster ? { running: roster, offline: [], complete: false } : null, Date.now(), { hidden: Boolean(me) });
+    const jobs = h.jobs.filter((j) => !j.unchecked || j.agent === me);
+    sendJson(res, 200, { ok: true, jobs, line: h.line });   // kosmos#9217 slice 2: the line of turns, oldest place first
     return;
   }
   if (pathname === '/api/heavy' && req.method === 'POST') {
@@ -28562,7 +28571,7 @@ const server = http.createServer(async (req, res) => {
       try { body = JSON.parse(raw || '{}'); } catch { body = null; }
       if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       if (isViaScreen(req, body)) { sendJson(res, 403, { error: 'only an agent records a heavy job, with kosmos heavy start' }); return; }
-      if (body.action !== 'start' && body.action !== 'end') { sendJson(res, 400, { error: 'say start or end' }); return; }
+      if (!['start', 'end', 'take', 'release'].includes(body.action)) { sendJson(res, 400, { error: 'say start, end, take or release' }); return; }
       const roster = safeRoster();
       const caller = processCaller(req, body, roster, false, 'the heavy job was not recorded');
       if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
@@ -28570,6 +28579,29 @@ const server = http.createServer(async (req, res) => {
       if (!name && roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the heavy job was not recorded' }); return; }
       if (!name) { sendJson(res, 403, { error: 'run this as an agent: Kosmos could not tell which agent you are' }); return; }
       const hj = require('./engine/heavyjobs');
+      if (body.action === 'take' || body.action === 'release') {
+        // kosmos#9217 slice 2: a turn (engine/heavyturns.js). take never waits: it is the turn, or a kept place.
+        const ht = require('./engine/heavyturns');
+        let alive = null;
+        if (body.action === 'take') {
+          const up = new Set((roster || []).map((a) => a && a.sessionName).filter(Boolean));
+          alive = (n) => {   // the same marks the board's reads keep: only a grace already run out judges a waiter gone
+            if (up.has(n)) return true;
+            const since = heavyMissingSince.get(n);
+            return since !== undefined && Date.now() - since >= HEAVY_AGENT_GRACE_MS ? false : null;
+          };
+        }
+        const t = body.action === 'take'
+          ? ht.take({ root: store.ROOT, agent: name, label: body.label, pid: body.pid, agentAlive: alive })
+          : ht.release({ root: store.ROOT, agent: name, pid: body.pid });
+        if (!t.ok) { sendJson(res, t.refused ? 400 : 503, { error: t.because }); return; }
+        heavyMissingSince.delete(name);   // it just answered as itself: not missing
+        const brief = (j) => (j ? { agent: j.agent, label: j.label, pid: j.pid, since: j.since } : null);
+        sendJson(res, 200, body.action === 'release' ? { ok: true, left: t.left, ended: t.ended }
+          : t.turn ? { ok: true, turn: true, job: brief(t.job) }
+            : { ok: true, turn: false, place: t.place, holder: brief(t.holder), ahead: t.ahead.map(brief) });
+        return;
+      }
       const out = body.action === 'start'
         ? hj.start({ root: store.ROOT, agent: name, label: body.label, pid: body.pid })
         : hj.end({ root: store.ROOT, agent: name, pid: body.pid });
