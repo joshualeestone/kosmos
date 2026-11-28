@@ -14,7 +14,14 @@ final class AutomationUITests: XCTestCase {
         let row = app.buttons["settings-automation"]
         reveal(app, row, swipes: 10)
         XCTAssertTrue(row.waitForExistence(timeout: 20), "no Automation row in Settings")
-        XCTAssertTrue(app.buttons["Settings on your computer's board"].exists, "the board row went before the rest is native")
+        // The board row sits five rows below Automation (Global skills, AI policies, Usage and Updates came between),
+        // so in the lazy List it can be past the screen's edge and not built yet: a bare .exists read it as gone
+        // (red on PR #9292, flaky on #9223). Scroll to it, then back up to Automation.
+        let board = app.buttons["Settings on your computer's board"]
+        reveal(app, board, swipes: 6)
+        XCTAssertTrue(board.waitForExistence(timeout: 5), "the board row went before the rest is native")
+        reveal(app, row, swipes: 6, up: true)
+        XCTAssertTrue(row.waitForExistence(timeout: 5) && row.isHittable, "the Automation row did not come back on screen")
         row.tap()
 
         XCTAssertTrue(app.navigationBars["Automation"].waitForExistence(timeout: 10), "the native Automation screen did not open")
@@ -123,8 +130,8 @@ final class AutomationUITests: XCTestCase {
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: p, object: e)], timeout: timeout) == .completed
     }
 
-    private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) {
-        for _ in 0..<swipes where !(element.exists && element.isHittable) { app.swipeUp() }
+    private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8, up: Bool = false) {
+        for _ in 0..<swipes where !(element.exists && element.isHittable) { if up { app.swipeDown() } else { app.swipeUp() } }
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
