@@ -10,25 +10,35 @@ path the module is ABOUT to write ..." failed with "the config was written throu
 
 ## The fix
 
-Right after the open, `refuseFollowedLink(tmp, fd)`: if the temp name is now a link, the open followed it. Close the
-file, remove the file the open just made (only when it is the same device and inode as the open's, and still empty),
-leave the link, and throw an EEXIST-coded error so the existing three-attempt loop takes a fresh name. `created` is
-still false at that point, so the loop's cleanup never unlinks the temp name (which is the planted link).
+Right after the open, `refuseFollowedLink(tmp, fd)` asks whether the temp name is still the file the open made: a
+regular file with the same device and inode as the fd (both read as bigints, so a large Windows file index is exact).
+If not, the write refuses that name: it closes the fd, removes the file the open made when the name is still a link
+to it (same device and inode, still empty), never touches the name itself, and throws ERR_KOSMOS_SYMLINK (the code
+refuseSymlinkTarget raises) so the existing three-attempt loop takes a fresh name. `created` is still false at that
+point, so the loop's cleanup never unlinks the name, which may be the planted link.
 
-A POSIX exclusive open refuses a link itself, so on the Mac and Linux the check costs one lstat and never fires.
+Review 1 found the first version asked only "is the name a link now", which a name swapped after the open defeats
+(measured with a probe: the link removed, or replaced by another file, and the secret went to the link's target).
+The same-file question closes both; a test arm now swaps the name after the open and fails on the first version.
+
+A POSIX exclusive open refuses a link itself, so there the name is the opened file unless someone swaps it after the
+open, and then the write moves to a fresh name as on Windows.
 
 ## Decided, and what I rejected
 
 - Rejected: a pre-open lstat. The plant can land between the lstat and the open (the test plants inside openSync).
 - Rejected: leaving the created target in place. It is empty and ours (the exclusive open made it), and leaving it
   would leave a file where somebody else chose, which the test pins as the failure.
-- Rejected: a Windows-only branch. The check is the same question on every platform; only Windows can answer yes.
+- Rejected: a Windows-only branch. The check is the same question on every platform.
+- It fails closed: a name or fd that cannot be read is refused, and three refusals reach the existing in-place
+  fallback, which checks the target file itself (refuseSymlinkTarget).
 
 ## Weakest premise
 
-That `fstat` on the open fd and `lstat` on the resolved target agree on device and inode on Windows (Node's file
-index and volume serial). If they do not, the target is not removed, the config is still not written through the
-link, but an empty file is left there; the Windows run of trust.test.js's arm is the check.
+That `fstat` on the open fd and `lstat` on the temp name agree on device and inode on Windows for an ordinary file.
+If they do not, every write there is refused three times and takes the in-place fallback, which is safe but not
+atomic. The first Windows run showed fstat and lstat agree on the link's target (the cleanup removed it); the run
+after review 1 checks the ordinary write.
 
 ## Checked
 
