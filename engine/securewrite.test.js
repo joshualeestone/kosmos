@@ -837,7 +837,7 @@ test('#9268: an open that FOLLOWS a link planted at the temp name writes nothing
     }
     return realOpen.call(fs, p, flags, ...rest);
   };
-  t.after(() => { fs.openSync = realOpen; try { fs.rmSync(planted, { force: true }); } catch { /* fine */ } });
+  t.after(() => { fs.openSync = realOpen; try { fs.rmSync(planted, { force: true }); fs.rmSync(elsewhere, { force: true }); } catch { /* fine */ } });
   securewrite.writeSecret(file, 'secret-9268', 0o600);
   fs.openSync = realOpen;
   assert.ok(planted, 'the plant never happened, so this tests nothing');
@@ -850,7 +850,8 @@ test('#9268: an open that FOLLOWS a link planted at the temp name writes nothing
 
 /* kosmos#9268 review 1: the name swapped AFTER the open (the link replaced by an ordinary file). "Is the name a
    link now" would say no and write the secret through the fd to the link's target, then rename the planted file over
-   the config. The check is "is the name the file this open made", so this is refused too. */
+   the config. The check is "is the name the file this open made", so a swap between the open and the check is
+   refused too (one after the check is the rename's own window; see refuseFollowedLink). */
 test('#9268: a temp name swapped for another file after the open is refused, and neither the target nor the config gets the planted bytes', (t) => {
   const file = fresh('swapped');
   const elsewhere = fresh('attacker2');
@@ -920,3 +921,60 @@ test('#9268: a temp name that is a second hard link to the opened file is refuse
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268c', 'the save did not land');
   assert.notEqual(fs.statSync(file).ino, fs.statSync(elsewhere).ino, 'the config is a second name of the attacker\'s file');
 });
+
+/* kosmos#9268 review 3: the planted link is RE-POINTED after the open, at somebody's existing file. The cleanup must
+   remove only the file the open made (same device and inode, still empty), so the other file keeps its bytes. */
+test('#9268: a link re-pointed after the open at another file never gets that file removed', (t) => {
+  const file = fresh('repointed');
+  const elsewhere = fresh('attacker4');
+  const theirs = fresh('theirs');
+  fs.writeFileSync(theirs, 'their bytes');
+  const realOpen = fs.openSync;
+  let planted = null;
+  fs.openSync = function (p, flags, ...rest) {
+    if (planted === null && flags === 'wx' && String(p).includes('.kosmos-')) {
+      planted = String(p);
+      fs.symlinkSync(elsewhere, planted);
+      const fd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+      fs.unlinkSync(planted);
+      fs.symlinkSync(theirs, planted);                          // and the link now points at somebody's file
+      return fd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [planted, elsewhere, theirs]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  securewrite.writeSecret(file, 'secret-9268d', 0o600);
+  fs.openSync = realOpen;
+  assert.ok(planted, 'the plant never happened, so this tests nothing');
+  assert.equal(fs.readFileSync(theirs, 'utf8'), 'their bytes', 'the cleanup removed or changed a file the open did not make');
+  assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to the file the open made');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268d', 'the save did not land');
+});
+
+/* kosmos#9268 review 3: the name REMOVED after the open (and, separately, a folder put there). Neither is the file the
+   fd holds: without the "gone" and "not a regular file" rules the secret is written through the fd to where the link
+   pointed, and the rename then fails and the loop retries, leaving the secret behind. */
+for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by a folder', (p) => { fs.unlinkSync(p); fs.mkdirSync(p); }]]) {
+  test(`#9268: a temp name ${label} after the open is refused, and the secret never reaches where the link pointed`, (t) => {
+    const file = fresh('gone');
+    const elsewhere = fresh('attacker5');
+    const realOpen = fs.openSync;
+    let planted = null;
+    fs.openSync = function (p, flags, ...rest) {
+      if (planted === null && flags === 'wx' && String(p).includes('.kosmos-')) {
+        planted = String(p);
+        fs.symlinkSync(elsewhere, planted);
+        const fd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+        swap(planted);
+        return fd;
+      }
+      return realOpen.call(fs, p, flags, ...rest);
+    };
+    t.after(() => { fs.openSync = realOpen; for (const p of [planted, elsewhere]) { try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* fine */ } } });
+    securewrite.writeSecret(file, 'secret-9268e', 0o600);
+    fs.openSync = realOpen;
+    assert.ok(planted, 'the plant never happened, so this tests nothing');
+    assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to where the link pointed');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
+  });
+}
