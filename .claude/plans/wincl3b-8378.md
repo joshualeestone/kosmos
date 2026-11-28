@@ -83,3 +83,6 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
   29, receipt 32, usageagy 14, pdfpreview 11, projects 163 with the case arm, runnable 22, board-proof 18,
   trust.canonical-spelling 5, live-execution 3; 0 fail). The case arm can fail: with the fold removed (a never-merged
   mutant build, run 46136503594) it, and only it, fails.
+- Review 4: heavy-gate's reason says what each skipped arm does (ps and lsof, /tmp fixtures, or the script run against
+  this host); redisable's names reapplyAtBoardStart's timer; the #9267 comment sits on projects.test.js in ALSO.
+  Deferred, already measured: the case arm ran on Windows (run 46136406318) and can fail there (run 46136503594).

@@ -13,7 +13,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test tools.heavy-gate-3805.test.js
  */
 const test = require('node:test');
-const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/heavy-gate.sh, the fleet heavy-run gate for its Mac and Linux hosts, which reads the process table with ps and lsof and keeps its fixtures under /tmp by an absolute POSIX path; Windows is not a fleet test or release host');   // kosmos#8378
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it tests tools/heavy-gate.sh, the heavy-run gate for the fleet Mac and Linux hosts, and each skipped arm reads the process table with ps and lsof, keeps its fixtures under /tmp by an absolute POSIX path, or runs the script against this host; Windows is not a fleet test or release host');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
