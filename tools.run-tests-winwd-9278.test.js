@@ -28,6 +28,15 @@ test('#9278: the Windows loop is started only on Windows, and the Mac loop every
   assert.match(SRC, /\n_RT_WIN=0 [^\n]*\ncase "\$\(uname -s/, 'the Windows flag must be reset before the uname case');
 });
 
+test('#9278: a red run names an empty Windows snapshot after the start and found checks, and the marker is cleaned up', () => {
+  const i = SRC.indexOf('_rt_wd_said="per-file limit: off (the watchdog could not start)"');
+  const j = SRC.indexOf('_rt_wd_said="per-file limit: off (node --test not found before the run ended)"');
+  const k = SRC.indexOf('_rt_wd_said="per-file limit $RT_FILE_TIMEOUT_LABEL, but off while the Windows process snapshot came back empty');
+  assert.ok(i > 0 && j > i && k > j, 'the summary must check started, then found, then the empty snapshot');
+  assert.equal(SRC.split('rm -f "$_rt_wd_flag" "$_rt_wd_flag.node" "$_rt_wd_flag.blind"').length - 1, 3, 'the .blind marker must go wherever the flag does (the stop and both EXIT traps)');
+  assert.match(SRC, /\n_rt_wd_blind=0\n/, '_rt_wd_blind must start at 0');
+});
+
 /* The runner as the Windows CI job would run it, inside this test: without its own NODE_TEST_CONTEXT dropped, the inner
    node --test reports to this one and exits 0 (measured on the Windows runner: a stopped file and a green run), so it
    is dropped with the runner's other settings, as tools.run-tests-file-timeout-6668 does. */
