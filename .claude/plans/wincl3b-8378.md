@@ -69,3 +69,6 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
   was isUnderTmpDir comparing a not-yet-made folder in the temp folder's 8.3 spelling (each root is now compared both
   as given and resolved; added to #9267). Run 46118283614 on those three files: projects and reporthook green; the
   one red left in the cluster is #9268's arm, on purpose.
+- After review 1, on the Windows runner: runnable-not-directory 22 of 22 (10 failed before), projects 162 pass and
+  pdfpreview 11 pass (run 46135356176); startimports 8 pass, its 7 macOS-guard arms skipped (run 46135446761, after
+  its parser arm was corrected to resolve a rooted path on the file's own drive).
