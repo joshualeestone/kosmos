@@ -9,7 +9,7 @@
  * does on every platform) answers 200.
  *
  * serveOnWindows() does, on Windows only, what fake-tmux.sh does for the two reads engine/status makes of it, from the
- * same files and with the same defaults:
+ * same files and with the same defaults (only these; see below):
  *   list-panes    the lines in AGENT_WORKFORCE_FAKE_PANES, or none (an empty board), read on every call so a test that
  *                 rewrites the file sees it, as the script does;
  *   capture-pane  the text in AGENT_WORKFORCE_FAKE_SCREEN, or empty;
@@ -19,11 +19,18 @@
  * to them (current()) instead of to "none", so a test that installs and restores a fleet keeps a board it can read.
  * On macOS and Linux it does nothing, so the script stays what those tests run.
  *
- * ⚠️ What it does not stand in for: fake tmux's WRITES (send-keys, new-session, kill-session), its display-message
- * answer to anything but messages.js's session question (chat.js asks its own), and a messages.resetForTests(), which
- * clears that runner. On Windows the board delivers through the agent's supervisor, not tmux, so a test that checks a delivery
- * through tmux still needs a Windows arm, and skips on Windows under kosmos#9262. Nor does it make a Windows board read
- * tmux: on Windows the product's own roster is engine/win32roster; this only lets a route test reach the route.
+ * ⚠️ What it does not stand in for, so nobody reads more into a green than it holds:
+ *   - fake tmux's WRITES (send-keys, new-session, kill-session). On Windows the board delivers through the agent's
+ *     supervisor, not tmux, so a test that checks a delivery through tmux needs a Windows arm (kosmos#9262 is the card
+ *     for that class; no test in this group needed it).
+ *   - its other reads: list-sessions (AGENT_WORKFORCE_FAKE_SESSIONS), the pane_current_path folder read
+ *     (AGENT_WORKFORCE_FAKE_PANE_FOLDERS), and chat.js's three-field display-message.
+ *   - messages.resetForTests() clears the pane-session runner; a file that calls it falls back to the script after.
+ *   - In a board child (test-support/faketmux-win-preload.js) only the roster and screen are switched to the fixture:
+ *     the board's other Windows roster calls (win32roster.cachedRun's read problem, refreshAsync, which the known-agent
+ *     check uses) still run the real `claude agents --json` read, against whatever AGENT_WORKFORCE_CLAUDE_BIN names.
+ *   - It does not make a Windows board read tmux: on Windows the product's own roster is engine/win32roster; this only
+ *     lets a route test reach the route.
  */
 const fs = require('node:fs');
 

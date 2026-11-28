@@ -225,7 +225,7 @@ test('#3745: an agent\'s in_reply_to is kept on its post as replyTo, so the room
 });
 
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
-test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', { skip: skipOnWin32('it puts a folder where the message log is to make the record unreadable, and on Windows the reader reads that folder as an empty log (kosmos#9279), so the unreadable case this checks cannot be set up there') }, async () => {
+test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', { skip: skipOnWin32('what it checks exists on Windows and fails open there: with a folder where the message log goes, the reader reads an empty log, not an unreadable one (kosmos#9279, a real bug; this skip goes when it is fixed)') }, async () => {
   const b = room('Beta failclosed 3224');
   const seed = await post({ project: b.id, text: 'seed', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
   const mB = seed.json.delivery.id;
