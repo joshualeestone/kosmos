@@ -3,7 +3,7 @@
 // driven against a fake board. Temp dirs only; nothing reaches a real board or coordinator.
 require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
-const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('its one skipped arm checks that tools/plus-signin-fresh.js keeps the seed secret in a mode-600 file (fs.statSync mode bits), and Windows does not keep POSIX file modes; the seed itself needs no skip on Windows, in this file\'s other arms');   // kosmos#8378
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('the enrol arm leaves out one assertion on Windows, that tools/plus-signin-fresh.js keeps the seed secret at mode 600 (fs.statSync mode bits), because Windows does not keep POSIX file modes; the rest of that arm runs there, as do this file\'s other arms');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -172,7 +172,7 @@ function runner(args, env) {
 function env(dir) {
   const root = path.join(dir, 'root'); fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'board.token'), 'tok');
-  return { KOSMOS_SEED_EMAIL: 'seed+kosmos@example.com', KOSMOS_STORE_ROOT: root, KOSMOS_PLUS_VERIFY_DIR: path.join(dir, 'records'), KOSMOS_SEED_TOTP: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', HOME: dir, KOSMOS_PLUS_UP_MS: '300', KOSMOS_PLUS_UP_POLL_MS: '50' };
+  return { KOSMOS_SEED_EMAIL: 'seed+kosmos@example.com', KOSMOS_STORE_ROOT: root, KOSMOS_PLUS_VERIFY_DIR: path.join(dir, 'records'), KOSMOS_SEED_TOTP: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', HOME: dir, USERPROFILE: dir, KOSMOS_PLUS_UP_MS: '300', KOSMOS_PLUS_UP_POLL_MS: '50' };
 }
 async function both(b, e, ptr, finishArgs) {
   const s = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
@@ -307,7 +307,7 @@ test('#2036: a seed that owns an address registers to it; a start the coordinato
   } finally { b.server.close(); }
 });
 
-test('#2036: the seed\'s first run enrols an authenticator and keeps its secret in a mode-600 file that survives a reboot, never on screen', { skip: NO_POSIX_MODES }, async () => {
+test('#2036: the seed\'s first run enrols an authenticator and keeps its secret in a mode-600 file that survives a reboot, never on screen', async () => {
   const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
   const b = await fakeBoard({ stage: 'enrol_second_factor' });
   try {
@@ -316,7 +316,7 @@ test('#2036: the seed\'s first run enrols an authenticator and keeps its secret 
     assert.ok(!r.out.includes('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'), 'the authenticator secret was printed');
     const f = (/\/add-secret --migrate (\S+)/.exec(r.out) || [])[1];
     assert.ok(f && f.startsWith(path.join(dir, '.cache', 'claude-handoffs')), 'the secret file is not under ~/.cache/claude-handoffs: ' + f);
-    assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);
+    if (!NO_POSIX_MODES) assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);   // kosmos#8378: Windows keeps no POSIX modes
   } finally { b.server.close(); }
 });
 

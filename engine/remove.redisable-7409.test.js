@@ -9,7 +9,7 @@
  */
 require('../test-support/tmpscope');
 const test = require('node:test');
-const SKIP_LAUNCHD = require('../test-support/skip-on-win32').skipOnWin32('it re-applies launchd disables after a Mac move (launchctl, a tmux session, and process.getuid for the launchd domain); launchd keeps that disable record on macOS only, so off macOS reapplyRemovedDisables returns at once, and the timer reapplyAtBoardStart still sets runs it to no effect and logs nothing (a Windows agent is a Scheduled Task)');   // kosmos#8378
+const SKIP_LAUNCHD = require('../test-support/skip-on-win32').skipOnWin32('it re-applies launchd disables after a Mac move (launchctl, a tmux session, and process.getuid for the launchd domain); launchd keeps that disable record on macOS only, so off macOS reapplyRemovedDisables returns at once, and the timer reapplyAtBoardStart still sets fires, does nothing and logs nothing (a Windows agent is a Scheduled Task)');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
