@@ -436,6 +436,28 @@ async function providerWork(runner, dir, holds) {
               }
             }
             if (readWhole) {
+              /* A call's argument was not one literal string (a variable, a concatenation). A patch held elsewhere is still
+                 a literal somewhere, so every string literal whose text starts with `*** Begin Patch` (after whitespace or
+                 `\n` escapes) is read the same way, with its own quote, outside the strings already read. A literal counts
+                 only where JavaScript can start one (after `=` `(` `:` `,` `[` `+`, whitespace or the start), so the quote
+                 closing a shell heredoc's word (`<<'EOF'\n*** Begin Patch`) is not taken for an opener. */
+              const lit = /(^|[=(:,[+\s])(['"`])(?=(?:\\[nrt]|\s)*\*\*\* Begin Patch)/g;
+              const calls = spans.slice();   // in order, as the calls were read
+              let ci = 0;                    // the first call string that does not end before this literal (linear)
+              const inSpan = (i) => { while (ci < calls.length && calls[ci][1] < i) ci += 1; return ci < calls.length && i >= calls[ci][0]; };
+              let litAfter = 0;
+              for (const m of src.matchAll(lit)) {
+                const open = m.index + m[1].length;
+                if (open < litAfter || inSpan(open + 1)) continue;
+                const q = m[2];
+                let i = open + 1;
+                while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
+                const end = Math.min(i, src.length);
+                litAfter = end + 1;
+                bodies.push({ q, text: src.slice(open + 1, end) });
+                spans.push([open + 1, end]);
+              }
+              spans.sort((x, y) => x[0] - y[0]);
               // One pass: the text between the literal strings, each string replaced by spaces of its length.
               const parts = [];
               let at = 0;
@@ -451,7 +473,7 @@ async function providerWork(runner, dir, holds) {
               /* Inside a call's own string a header counts only at the start of a patch line (the string's start or after
                  a newline), never inside an added line that mentions one. The whole-script reading is unanchored, as the
                  #9263 reading was, and it cannot see which string a path is in, so pathsIn guards it below. */
-              const at = whole ? '' : '(?<=^|\\\\n|\\n)';
+              const at = whole ? '' : '(?<=(?:^|\\\\n|\\n)[ \\t]*)';   // a patch line may be indented (a template literal)
               return (patterns[key] = {
                 pathLine: new RegExp(`${at}\\*\\*\\* (?:Add|Update|Delete) File: ((?:\\\\[^nr\\n\\r]|[^\\n\\r\\\\${qe}])+)`, 'g'),
                 nextLine: new RegExp(`(?:(?:\\\\r)?\\\\n|\\r?\\n)?(?:[-+@* ${qe}]|$)`, 'y'),

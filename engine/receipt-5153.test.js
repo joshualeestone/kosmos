@@ -306,8 +306,8 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     call('10:18', 'c2g', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: C:\\\\Users\\\\kay\\\\drive.js\\n+x\\n*** End Patch"});'),
     out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
     /* #9314: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
-       key before it does not decide it, two calls in one script each keep their own; a '-string patch passed by name (named.md) is read only from the
-       whole script, where it ran on into code, so it is left out rather than listed wrong. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
+       key before it does not decide it, two calls in one script each keep their own; a '-string patch passed by name (named.md) is read from its own
+       literal, with its own quote. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
     call('10:19', 'c2h', String.raw`await tools.apply_patch({'patch': "*** Begin Patch\n*** Update File: q'key.md\n+x\n*** End Patch"});`
       + String.raw` await tools.apply_patch({patch:'*** Begin Patch\n*** Update File: first.md\n+x\n*** End Patch'});`
       + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: sec'ond.md\n+x\n*** End Patch"});`
@@ -342,7 +342,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
   const drive = a.files.filter((f) => f.includes('drive.js'));
   assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
-    "q'key.md", 'first.md', "sec'ond.md", "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
+    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
     'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
   // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
   assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
@@ -449,8 +449,8 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
     call('10:29', 'b2q', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Delete File: trunc.md'),
     out('10:29', 'b2q', 'Script completed\nWall time 1 seconds'),
     /* #9314 slice 2 review 1: a path that swallowed a second header lists nothing (it is no file name); a call whose first
-       member is not the patch is read at its next member, a '-string included; a '-string name holding a " that reaches
-       the whole-script reading is left out, never cut at the "; and a concatenation after a long run of spaces is seen. */
+       member is not the patch is read at its next member, a '-string included; a '-string name holding a " in a patch passed by name is read
+       whole from its own literal, never cut at the "; and a concatenation after a long run of spaces is seen. */
     call('10:30', 'b2r', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Delete File: s1.md *** Delete File: s2.md\n*** End Patch"});`),
     out('10:30', 'b2r', 'Script completed\nWall time 1 seconds'),
     call('10:31', 'b2s', String.raw`await tools.apply_patch({cwd:'x', patch:'*** Begin Patch\n*** Delete File: cwd2.md'});`),
@@ -459,12 +459,21 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
     out('10:32', 'b2t', 'Script completed\nWall time 1 seconds'),
     call('10:33', 'b2u', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Delete File: f1.md\n"` + ' '.repeat(70) + String.raw`+ "*** Delete File: f2.md\n*** End Patch"});`),
     out('10:33', 'b2u', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 2: an indented template patch is read (its lines start with spaces); a name holding a quote
+       and code characters in a patch passed by name is read whole from its own literal; and a shell heredoc beside a
+       variable call does not lend its word's closing quote to the patch after it. */
+    call('10:34', 'b2v', 'await tools.apply_patch(`\n  *** Begin Patch\n  *** Update File: indent.md\n  +y\n  *** End Patch`);'),
+    out('10:34', 'b2v', 'Script completed\nWall time 1 seconds'),
+    call('10:35', 'b2w', String.raw`const p = '*** Begin Patch\n*** Update File: x"}}_c.md\n+x\n*** End Patch'; await tools.apply_patch({patch:p});`),
+    out('10:35', 'b2w', 'Script completed\nWall time 1 seconds'),
+    call('10:36', 'b2x', String.raw`const sh = {cmd:"apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: hd.md\n+x\nEOF"}; const q = "*** Begin Patch\n*** Delete File: qv.md"; await tools.apply_patch({patch:q});`),
+    out('10:36', 'b2x', 'Script completed\nWall time 1 seconds'),
   ]));
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   assert.deepEqual(r.agents[0].files, ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
     'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
-    'cwd2.md', 'f1.md', 'f2.md'], 'each path stops at its own patch string\'s quote (#9314)');
-  assert.ok(!r.agents[0].files.some((f) => f === 'a' || f.includes('s1.md') || f.includes('s2.md')), 'a cut or swallowed name was listed: ' + JSON.stringify(r.agents[0].files));
+    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md'], 'each path stops at its own patch string\'s quote (#9314)');
+  assert.ok(!r.agents[0].files.some((f) => f === 'a' || f === 'x' || f.includes('s1.md') || f.includes('s2.md') || /["'`]\}?\)\s*;/.test(f)), 'a cut, swallowed or run-on name (a quote, then `);` or `});`) was listed: ' + JSON.stringify(r.agents[0].files));
 });
 
 test('a Gemini CLI agent: a reply written twice counts once, an edit counts only when it succeeded', async () => {
