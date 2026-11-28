@@ -16,7 +16,10 @@ const fn = require('./filenotices');
 const fw = require('./filewriters');
 const projects = require('./projects');
 
-const real = fs.realpathSync(SB);
+/* kosmos#8378: the OS's own spelling (realpathSync.native), as the caller hands queue its path (filewriters.js) and as
+   queue compares the folder. On Windows the temp folder is a short name (C:\Users\RUNNER~1\...) that only the native
+   form expands, so with the JS realpath no notice was fingerprinted there at all. */
+const real = fs.realpathSync.native(SB);
 let seq = 0;
 const lines = (n, tag = 'line') => Array.from({ length: n }, (_, i) => `${tag} ${i + 1}`).join('\n') + '\n';
 function fileWith(text) {
@@ -175,7 +178,7 @@ test('kosmos#8464 review 2: a file that grows past the bounds says so; one never
   assert.match(fn.contextText(handed(b)), /So far: the file has not been made yet\./);
 });
 
-test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the board nor gets a scale', () => {
+test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the board nor gets a scale', { skip: require('../test-support/skip-on-win32').skipOnWin32('it makes a FIFO with mkfifo, which Windows does not have') }, () => {
   const f = fileWith(lines(3)); const who = owner();
   fn.queue(who, 'x', { file: f });
   fs.rmSync(f);

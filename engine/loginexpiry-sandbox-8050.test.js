@@ -37,8 +37,12 @@ afterEach(() => {
 });
 
 const asyncDate = async (service) => JSON.parse(await le.readCredAsync(service)).claudeAiOauth.refreshTokenExpiresAt;
+/* kosmos#8378: the two arms that read with the variable unset read the macOS Keychain through `security`, a #!/bin/sh
+   stand-in here. Off macOS the reader is the credentials file instead (kosmos#9097, loginexpiry-file-9097.test.js), so
+   on Windows there is no keychain read to run; the arms with the variable set never reach a reader and run there. */
+const KEYCHAIN = require('../test-support/skip-on-win32').skipOnWin32('it reads the macOS Keychain through security, a #!/bin/sh stand-in run by its shebang line; off macOS the reader is the credentials file (loginexpiry-file-9097.test.js)');
 
-test('CONTROL: with the variable unset, both readers run security', async () => {
+test('CONTROL: with the variable unset, both readers run security', { skip: KEYCHAIN }, async () => {
   assert.equal(le.refreshExpiryFor(undefined), FAKE_KEYCHAIN_DATE);
   assert.ok(fs.existsSync(marker), 'the sync reader did not run the fake, so the arms below prove nothing');
   fs.rmSync(marker);
@@ -117,7 +121,7 @@ for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity', '9'.repeat(400), '
   });
 }
 
-test('an empty value counts as unset', () => {
+test('an empty value counts as unset', { skip: KEYCHAIN }, () => {
   process.env[VAR] = '';
   assert.equal(le.refreshExpiryFor(undefined), FAKE_KEYCHAIN_DATE);
 });

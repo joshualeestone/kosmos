@@ -23,6 +23,7 @@ const path = require('node:path');
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-disconnect-'));
 process.env.HOME = path.join(SB, 'home');
+process.env.USERPROFILE = process.env.HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
@@ -41,7 +42,8 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
    reason. They are never executed: the runner below intercepts. */
 const BIN = path.join(SB, 'bin');
 fs.mkdirSync(BIN, { recursive: true });
-for (const b of ['claude', 'tmux']) fs.writeFileSync(path.join(BIN, b), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: writeRunnerStub, so Windows counts them as runnable too (there a file runs by its extension).
+for (const b of ['claude', 'tmux']) require('../test-support/runnerstub').writeRunnerStub(BIN, b);
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(BIN, 'claude');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(BIN, 'tmux');
 
@@ -49,8 +51,13 @@ const create = require('./create');
 const removal = require('./remove');
 /* ⚠️ The seam is launchctl and tmux, nothing else. Every command answers the way
    a working machine answers; the files these engines write are real. */
+/* kosmos#8378: on Windows the job is a Scheduled Task. useJobStore installs the stand-in Task Scheduler there (the
+   job's own files, in the sandbox), and win32Step answers the schtasks and taskkill steps a Windows act hands to this
+   runner from that same stand-in; on the Mac and Linux it answers nothing and the runner answers as before. */
+const jobfix = require('../test-support/jobfixture');
+jobfix.useJobStore();
 const RAN = [];
-const runner = (file, args) => { RAN.push([file, ...args].join(' ')); return { ok: true, stdout: '' }; };
+const runner = (file, args) => { RAN.push([file, ...args].join(' ')); return jobfix.win32Step(file, args) || { ok: true, stdout: '' }; };
 create.setRunner(runner); create.setDryRun(false);
 removal.setRunner(runner); removal.setDryRun(false);
 const discover = require('./discover');

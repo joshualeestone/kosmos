@@ -140,7 +140,7 @@ test('#3182 a THROWING removed read (the catch branch) also falls back to none-r
   assert.match(got.detail, /y/);
 });
 
-test('#3182 integration: a fake launchctl print-disabled threads through create.disabledJobsResult', () => {
+test('#3182 integration: a fake launchctl print-disabled threads through create.disabledJobsResult', { skip: require('../test-support/skip-on-win32').skipOnWin32('it drives the macOS arm (platform darwin, through its seam), which asks launchctl for this user\'s list by the user id (process.getuid), and Windows has no POSIX user id; the Windows row is left out, which its own arm checks') }, () => {
   // No opts.disabled, so the check reads through create.disabledJobsResult(runner);
   // the fake runner returns a print-disabled dump naming a disabled agent in the
   // (default) current world. This proves the seam threads to the real parser.

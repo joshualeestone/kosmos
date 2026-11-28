@@ -56,7 +56,12 @@ test('#6506 axis 4: gitFact reports branch, sha and clean/dirty inside a work tr
   assert.match(handoff.gitFact(d), /^branch `main` at `[0-9a-f]{40}`, uncommitted changes present$/, 'dirty work tree');
 });
 
-test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different answers', () => {
+/* kosmos#8378: the git-erroring arm puts a #!/bin/sh stub named git on PATH. Windows finds a command on PATH by its
+   extension (git.exe), so there the real git answers and the arm checks nothing it means to; it is skipped there, after
+   the two arms before it have run. */
+const STUB_GIT_ON_PATH = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (a git that errors is not called not-a-repo), but its stub git is a #!/bin/sh script found on PATH by name and run by its shebang line, which Windows cannot do; a Windows arm is owed on kosmos#9269');
+
+test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different answers', (t) => {
   const d = tmp('kosmos-handoff-nogit-');
   assert.equal(handoff.gitFact(d), 'not a git repository');
 
@@ -67,6 +72,7 @@ test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different
     assert.match(handoff.gitFact(d), /^git is not installed/, 'git missing must not read as not-a-repo');
   } finally { process.env.PATH = saved; }
 
+  if (STUB_GIT_ON_PATH) { t.skip(STUB_GIT_ON_PATH); return; }
   // git erroring (a failure that is NOT "not a git repository"): a stub git that exits non-zero.
   const bin = tmp('kosmos-handoff-stubbin-');
   fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\necho "fatal: detected dubious ownership in repository" 1>&2\nexit 128\n', { mode: 0o755 });

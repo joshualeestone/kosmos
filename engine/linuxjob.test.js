@@ -24,6 +24,11 @@ const path = require('node:path');
 
 const linuxjob = require('./linuxjob');
 const launchidentity = require('./launchidentity');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+// A unit's ExecStart and WorkingDirectory carry the Kosmos folder and the agent folder, and unitSafe refuses a backslash
+// in a systemd unit, which every Windows folder has; systemd itself is Linux only.
+const SKIP_SYSTEMD_UNIT = skipOnWin32('the systemd agent unit is Linux only, and linuxjob refuses a folder with a backslash in a systemd unit, which every Windows folder has');
+const NO_POSIX_UID = skipOnWin32('it checks the POSIX uid loginctl is given, and a Windows process has none (process.getuid is undefined there)');
 
 test.afterEach(() => {
   linuxjob.setRunnerForTests(null);
@@ -48,7 +53,7 @@ test('unitName and unitPath derive correct service names', () => {
   }
 });
 
-test('unitFor generates valid systemd unit with all parameters', () => {
+test('unitFor generates valid systemd unit with all parameters', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const content = linuxjob.unitFor(
     'subzero',
     '/usr/bin/claude',
@@ -73,7 +78,7 @@ test('unitFor generates valid systemd unit with all parameters', () => {
   assert.match(content, /^WantedBy=default\.target/m);
 });
 
-test('unitFor handles non-Claude runners (e.g. codex)', () => {
+test('unitFor handles non-Claude runners (e.g. codex)', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const content = linuxjob.unitFor(
     'raiden',
     '/usr/bin/codex',
@@ -87,7 +92,7 @@ test('unitFor handles non-Claude runners (e.g. codex)', () => {
   assert.match(content, /^Environment="CODEX_HOME=\/home\/user\/\.codex-home"/m);
 });
 
-test('unitFor quotes empty model argument for non-Claude runners to prevent argument shifting', () => {
+test('unitFor quotes empty model argument for non-Claude runners to prevent argument shifting', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const content = linuxjob.unitFor(
     'raiden',
     '/usr/bin/codex',
@@ -105,7 +110,7 @@ test('unitFor quotes empty model argument for non-Claude runners to prevent argu
   assert.equal(parsed.runner, 'codex');
 });
 
-test('readUnitJob accurately round-trips unit properties', () => {
+test('readUnitJob accurately round-trips unit properties', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const content = linuxjob.unitFor(
     'liukang',
     '/usr/local/bin/custom-runner',
@@ -197,7 +202,7 @@ test('lifecycle commands execute correct systemctl arguments', () => {
     const lingerCalls = calls.filter((c) => c.cmd === 'loginctl');
     assert.equal(lingerCalls[lingerCalls.length - 2].args[0], 'enable-linger');
     assert.equal(lingerCalls[lingerCalls.length - 1].args[0], 'show-user', 'linger is read back, not assumed (#4918 review 1)');
-    assert.equal(lingerCalls[lingerCalls.length - 2].args[1], String(process.getuid()), 'linger names the uid, not agent1 (#4918 review 22)');
+    if (!NO_POSIX_UID) assert.equal(lingerCalls[lingerCalls.length - 2].args[1], String(process.getuid()), 'linger names the uid, not agent1 (#4918 review 22)');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -210,7 +215,7 @@ test('loaded recognizes activating status even when runner returns non-zero code
   assert.equal(linuxjob.loaded('testagent', ''), true);
 });
 
-test('rewriteAgentJob succeeds on Linux using runnerBin and tmux fields', () => {
+test('rewriteAgentJob succeeds on Linux using runnerBin and tmux fields', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-rewrite-'));
   try {
     linuxjob.setSystemdDirForTests(() => tmp);
@@ -249,7 +254,7 @@ test('rewriteAgentJob succeeds on Linux using runnerBin and tmux fields', () => 
 });
 
 // #4918 review 1 (Ice Cream Kitty): the adopted PR's blockers and warnings.
-test('#4918 the agent and board units stop only their own process, never the shared tmux server (KillMode=process)', () => {
+test('#4918 the agent and board units stop only their own process, never the shared tmux server (KillMode=process)', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const linuxboard = require('./linuxboard');
   assert.match(linuxjob.unitFor('subzero', '/usr/bin/claude', '/usr/bin/tmux', null, null, 'claude'), /^KillMode=process$/m);
   assert.match(linuxboard.boardUnitFor('/tmp/kosmos-home-4918', 16180), /^KillMode=process$/m);
@@ -293,7 +298,7 @@ test('#4918 review 24: in a test process a faked Linger=no is never overruled by
 });
 
 /* #5445 (display parity): the unit folder listed as the Mac's LaunchAgents folder is, by name and world. */
-test('#5445 listUnits lists Kosmos agent units by name and world, and nothing else', () => {
+test('#5445 listUnits lists Kosmos agent units by name and world, and nothing else', { skip: skipOnWin32('it writes a named world\'s unit file, whose name carries systemd\'s \\x2b escape, and a backslash in a file name is a folder separator on Windows') }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-list-'));
   try {
     linuxjob.setSystemdDirForTests(() => tmp);
@@ -321,7 +326,7 @@ test('#5445 listUnits says it could not look, and a missing folder is none', () 
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('#5445 a masked unit (a link to /dev/null) reads as masked, with how to undo it', () => {
+test('#5445 a masked unit (a link to /dev/null) reads as masked, with how to undo it', { skip: skipOnWin32('it masks a unit with a symlink to /dev/null, an absolute POSIX path Windows does not have') }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-mask-'));
   try {
     linuxjob.setSystemdDirForTests(() => tmp);

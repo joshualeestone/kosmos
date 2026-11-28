@@ -21,7 +21,11 @@ test('sandbox: the store root is inside this test\'s temp dir', () => {
   assert.ok(path.resolve(store.ROOT).startsWith(fs.realpathSync(SB)) || path.resolve(store.ROOT).startsWith(SB), store.ROOT);
 });
 
-const real = fs.realpathSync(SB);
+/* kosmos#8378: the OS's own spelling (realpathSync.native), as filewriters.about resolves every path. On Windows the temp
+   folder is a short name (C:\Users\RUNNER~1\...) that only the native form expands, so a path built from the JS realpath
+   was never the one about() stats. */
+const real = fs.realpathSync.native(SB);
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
 let seq = 0;
 function room() {
   const id = 'who' + (++seq);
@@ -185,7 +189,7 @@ test('kosmos#7989 slice 2 review 2: a project made inside another\'s folder stil
   assert.equal(b.owner && b.owner.agent, 'kitty', 'the owner shown is not the one the notices use');
 });
 
-test('kosmos#7989 slice 2 review 4: a pipe is said to be no ordinary file, not a file that is gone', () => {
+test('kosmos#7989 slice 2 review 4: a pipe is said to be no ordinary file, not a file that is gone', { skip: skipOnWin32('it makes a pipe with mkfifo, which Windows does not have') }, () => {
   const r = room();
   require('node:child_process').execFileSync('mkfifo', [r.file('pipe')]);
   r.write('pipe', 'mona', T);
@@ -198,7 +202,7 @@ test('kosmos#7989 slice 2 review 4: a pipe is said to be no ordinary file, not a
   assert.equal(r.about('gone-for-sure.md').notFile, undefined, 'CONTROL: a missing file is not marked notFile');
 });
 
-test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is answered without touching it', () => {
+test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is answered without touching it', { skip: skipOnWin32('what it checks exists on Windows (a UNC share no project uses is answered as outside), but this arm names the macOS mount paths /net, /Volumes and /Network, absolute POSIX paths Windows does not have; a Windows arm with a UNC share is owed on kosmos#9269') }, () => {
   const r = room();
   const list = [{ id: r.id, folder: r.folder }];
   const native = fs.realpathSync.native;

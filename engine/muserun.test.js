@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { writeRunnerStub } = require('../test-support/runnerstub');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'muse-run-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
@@ -633,7 +634,11 @@ test('#4603 R7: runTurn tells onModel while Muse still runs, and a stopped turn 
 
 test('#4603 R7 review 1: output that arrives after a turn was stopped never reaches onModel', { timeout: 5000 }, async () => {
   gate.allowLiveExecution();
-  fakeMuse('exit 0');   // only so the turn sees Muse installed; runMuse below is the fake, so any platform runs it
+  /* Only so the turn sees Muse installed; runMuse below is the fake, so any platform runs it. kosmos#8378: named by
+     AGENT_WORKFORCE_MUSE_BIN (honoured on any platform, where the default place is a Mac's only) and written by
+     writeRunnerStub (a .cmd beside it on Windows), so Windows counts it as installed too. */
+  writeRunnerStub(path.dirname(BIN), path.basename(BIN));
+  process.env.AGENT_WORKFORCE_MUSE_BIN = BIN;
   let late = null;
   run.setForTests({ platform: 'darwin', runMuse: (bin, args, opts) => { late = () => opts.onOut(Buffer.from(TURN.split('\n')[1] + '\n')); return () => {}; } });
   try {
@@ -652,12 +657,13 @@ test('#4603 R7 review 1: output that arrives after a turn was stopped never reac
     stopIt();
     await p2;
     assert.deepEqual(named, ['muse-spark-1.3-contributor']);
-  } finally { gate.resetForTests(); run.resetForTests(); }
+  } finally { delete process.env.AGENT_WORKFORCE_MUSE_BIN; gate.resetForTests(); run.resetForTests(); }
 });
 
 test('#4603 R7 review 3: a turn that times out still carries the model its stream named; a repeat is told once', { timeout: 5000 }, async () => {
   gate.allowLiveExecution();
-  fakeMuse('exit 0');
+  writeRunnerStub(path.dirname(BIN), path.basename(BIN));   // kosmos#8378: as the test above, so Windows counts Muse as installed
+  process.env.AGENT_WORKFORCE_MUSE_BIN = BIN;
   const line = TURN.split('\n')[1] + '\n';
   run.setForTests({ platform: 'darwin', hardCapMs: 200, runMuse: (bin, args, opts) => { opts.onOut(Buffer.from(line + line)); return () => {}; } });
   try {
@@ -666,5 +672,5 @@ test('#4603 R7 review 3: a turn that times out still carries the model its strea
     assert.equal(r.because, run.TIMED_OUT);
     assert.equal(r.model, 'muse-spark-1.3-contributor', 'a timed-out turn dropped the model its stream named');
     assert.deepEqual(named, ['muse-spark-1.3-contributor'], 'the same model named twice was told twice');
-  } finally { gate.resetForTests(); run.resetForTests(); }
+  } finally { delete process.env.AGENT_WORKFORCE_MUSE_BIN; gate.resetForTests(); run.resetForTests(); }
 });

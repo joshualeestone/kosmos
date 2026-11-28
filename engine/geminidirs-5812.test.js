@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-geminidirs-5812-')));
 /* projects.json for the paths that read it for real (Windows, below): the store root lives in the
@@ -134,7 +135,7 @@ test('agentTrust: writes the agent its OWN trust file holding exactly its folder
   assert.equal(r.file, file);
   assert.deepEqual(r.folders, [a, b]);
   assert.deepEqual(readJson(file), { [a]: 'TRUST_FOLDER', [b]: 'TRUST_FOLDER' });
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'owner only, like gemini\'s own');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'owner only, like gemini\'s own');
   assert.equal(fs.readFileSync(theirTrust(home), 'utf8'), before, 'the person\'s trust file is untouched');
   dirs.agentTrust('gem', [b], home, { file });
   assert.deepEqual(readJson(file), { [b]: 'TRUST_FOLDER' }, 'rewritten whole: a project it left is no longer trusted');
@@ -192,7 +193,8 @@ test('agentTrust: an unreadable or non-object person trust file includes nothing
 test('agentTrust: a trust file with comments is read as gemini reads it (strip-json-comments)', () => {
   const deny = mk('t-cmt-deny');
   const ok = mk('t-cmt-ok');
-  const body = '{\n  // the person\'s own note\n  "' + deny + '": "DO_NOT_TRUST", /* a block\n comment */\n  "/x//y": "TRUST_FOLDER"\n}\n';
+  /* JSON.stringify, not '"' + deny + '"': a Windows folder's backslashes must be escaped to be JSON (kosmos#8378). */
+  const body = '{\n  // the person\'s own note\n  ' + JSON.stringify(deny) + ': "DO_NOT_TRUST", /* a block\n comment */\n  "/x//y": "TRUST_FOLDER"\n}\n';
   const home = trustHome('t-cmt', body);
   const r = dirs.agentTrust('gem', [deny, ok], home, { file: path.join(SANDBOX, 't-cmt-agent.json') });
   assert.deepEqual(r.folders, [ok], 'the marked folder is left out, the other kept: ' + JSON.stringify(r.leftOut));

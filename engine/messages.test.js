@@ -36,6 +36,7 @@ const limits = require('./limits');
 const PAIR_BUDGET = limits.DEFAULTS.perHour;
 const ROOM_BUDGET = limits.DEFAULTS.perHour * limits.ROOM_FACTOR;
 const fleet = require('../test-support/fleet');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 function withFleet(specs, fn) {
   const board = fleet.install(specs);
@@ -3988,7 +3989,7 @@ test('#4447: an Inbox whose marker was removed is refused with a reason that nam
    reaches writeSecret's in-place fallback with a link in place, and the link's target is untouched. Without the guard
    (the mutant), writeSecret cannot make its temp in the read-only folder, falls back to opening the NAME with
    O_TRUNC, and writes through the link: that is the path the guard closes. */
-test('#4447: a hard link planted at the next id in a read-only Inbox is never written through (the unlink guard keeps writeSecret\'s fallback off it)', { skip: process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder' : false }, () => {
+test('#4447: a hard link planted at the next id in a read-only Inbox is never written through (the unlink guard keeps writeSecret\'s fallback off it)', { skip: NO_POSIX_MODES || (process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder' : false) }, () => {   // kosmos#8378: the read-only Inbox is a chmod 0555
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');

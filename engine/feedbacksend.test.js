@@ -23,6 +23,7 @@ const feedback = require('./feedback');
 const feedbacksend = require('./feedbacksend');
 const store = require('./store');
 const projects = require('./projects');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 function fresh() {
   try { fs.rmSync(feedbacksend.FILE, { force: true }); } catch { /* absent is fine */ }
@@ -108,8 +109,11 @@ test('scrub covers an exotic own-home (custom $HOME) with a boundary - the fallb
   // arm, so the own-home fallback (the sole de-identifier for an exotic home
   // like /var/root or a custom $HOME) is otherwise never executed. Force it:
   // node's os.homedir() honors $HOME on POSIX.
+  // kosmos#8378: and USERPROFILE beside it, which is what os.homedir() reads on Windows (HOME is not asked there).
   const orig = process.env.HOME;
+  const origProfile = process.env.USERPROFILE;
   process.env.HOME = '/opt/exotic-home';
+  process.env.USERPROFILE = '/opt/exotic-home';
   try {
     assert.equal(feedbacksend.scrub('/opt/exotic-home/work/x'), '~/work/x');
     // A home that PREFIXES another dir must NOT be half-rewritten (the bounded
@@ -118,6 +122,7 @@ test('scrub covers an exotic own-home (custom $HOME) with a boundary - the fallb
     assert.equal(feedbacksend.scrub('at /opt/exotic-home end'), 'at ~ end');
   } finally {
     if (orig === undefined) delete process.env.HOME; else process.env.HOME = orig;
+    if (origProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = origProfile;
   }
 });
 
@@ -1038,7 +1043,7 @@ test('#5317 review 3: a re-send still in flight is not sent again by the next da
   assert.deepEqual(sent, ['2026-11-01', '2026-11-01', '2026-11-02'], 'the changed day went out twice in one tick');
 });
 
-test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', async () => {
+test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', { skip: NO_POSIX_MODES }, async () => {
   feedbacksend.setOn(true);
   const sent = [];
   feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });

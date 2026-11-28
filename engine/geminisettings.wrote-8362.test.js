@@ -13,6 +13,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const gs = require('./geminisettings');
 
@@ -36,7 +38,7 @@ test('a fresh file: the three values written are recorded, under the file, with 
   assert.deepEqual(readJSON(sb.ledger), { files: { [sb.file]: {
     'security.auth.selectedType': 'gemini-api-key', 'general.enableAutoUpdateNotification': false, 'general.enableAutoUpdate': false,
   } } });
-  assert.equal(fs.statSync(sb.ledger).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(sb.ledger).mode & 0o777, 0o600);
 });
 
 test('only what this call wrote is recorded: a value the person chose is not', () => {
@@ -89,7 +91,7 @@ test('undo: the recorded values come out, everything else stays, and the record 
   assert.deepEqual(s.general, { vimMode: true }, 'the person\'s own general setting went, or ours stayed');
   assert.equal(s.security, undefined, 'the security object Kosmos created (and emptied) was left');
   assert.deepEqual(s.hooks, hooksBefore, 'the hooks are not this undo\'s to touch');
-  assert.equal(fs.statSync(sb.file).mode & 0o777, 0o640, 'the file\'s mode changed');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(sb.file).mode & 0o777, 0o640, 'the file\'s mode changed');
   assert.equal(fs.existsSync(sb.ledger), false, 'a record with nothing left in it was kept');
 });
 
@@ -148,7 +150,7 @@ test('undo: a file that is gone has nothing to undo; no record at all is nothing
   assert.deepEqual(gs.undoWrites(sb.ledger), { done: true, restored: [], kept: [], left: [] });
 });
 
-test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: process.getuid && process.getuid() === 0 ? 'root reads every folder' : false }, () => {
+test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: skipOnWin32('it makes a folder unreachable with chmod 0o000, a POSIX file mode Windows does not keep') || (process.getuid && process.getuid() === 0 ? 'root reads every folder' : false) }, () => {
   const sb = sandbox();
   gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
   const folder = path.dirname(path.dirname(sb.file));

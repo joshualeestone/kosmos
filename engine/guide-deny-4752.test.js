@@ -34,6 +34,12 @@ const store = require('./store');
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
+/* kosmos#8378: the two arms that build rules from this sandbox's real folders read them back as POSIX paths
+   (Read(//<path>)), which a Windows folder (C:\...) is not; the Windows rules have their own test
+   (setup-assistant.winrules-4752.test.js). The second also makes a file named a*b, a name Windows does not allow. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const REAL_POSIX_FOLDERS = skipOnWin32('it reads rules built from real folders back as absolute POSIX paths (Read(//...)), which a Windows folder is not');
+
 const tokenish = (rules) => rules.filter((r) => /^Read\(\/\/(b|old)\b/.test(r));
 
 test('#4752 a guide in a named world denies its own store, the default world\'s token, every world\'s store and the older folders', () => {
@@ -128,7 +134,7 @@ test('#4752 when the extra folders cannot be worked out, the rules that were the
     'CONTROL: with the folder readable again the extra rules are back');
 });
 
-test('#4752 for a guide in a named world, every entry of the default world\'s store is named, except the worlds folder and its registry', () => {
+test('#4752 for a guide in a named world, every entry of the default world\'s store is named, except the worlds folder and its registry', { skip: REAL_POSIX_FOLDERS }, () => {
   const base = path.join(SANDBOX, 'base-entries');
   for (const d of ['sendertokens', 'secrets', 'chats', 'worlds/w1/workers/guide']) fs.mkdirSync(path.join(base, d), { recursive: true });
   for (const f of ['board.token', 'connect.json', 'github-app.json', 'messages.jsonl', 'worlds.json']) fs.writeFileSync(path.join(base, f), 'x');
@@ -158,7 +164,7 @@ test('#4752 when the base cannot be worked out (preWorldEnv throws), that is sai
   assert.match(said[0], /left out: no pre-world roots/);
 });
 
-test('#4752 the base\'s own passing files are not named one by one, a name the rule syntax would misread is left out, and a link gets both forms', () => {
+test('#4752 the base\'s own passing files are not named one by one, a name the rule syntax would misread is left out, and a link gets both forms', { skip: skipOnWin32('it reads rules built from real folders back as absolute POSIX paths (Read(//...)), which a Windows folder is not, and makes a file named a*b, which Windows does not allow') }, () => {
   const base = path.join(SANDBOX, 'base-odd');
   fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
   fs.mkdirSync(path.join(base, '.worlds.json.lock'));

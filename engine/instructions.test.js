@@ -22,6 +22,9 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_FIFO = skipOnWin32('it makes a fifo with mkfifo, and Windows has no fifos (Git Bash\'s mkfifo is an emulation Node does not see as one)');   // kosmos#8378
 
 // Relocate the workers root BEFORE requiring the module, so nothing here can
 // touch a real agent's instructions. instructions.js reads it at load.
@@ -37,6 +40,7 @@ process.env.AGENT_WORKFORCE_WORKERS = ROOT;
 // the real app data.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-home-'));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, not HOME
 const REGISTRY = path.join(HOME, '.claude', 'agent-registry');
 const PROJECTS = path.join(HOME, '.claude', 'projects', 'p');
 fs.mkdirSync(REGISTRY, { recursive: true });
@@ -286,7 +290,7 @@ test('#1777: with no O_NOFOLLOW (win32), the backup still refuses a planted syml
   }
 });
 
-test('a fifo at the backup path cannot wedge the save', (t) => {
+test('a fifo at the backup path cannot wedge the save', { skip: NO_FIFO }, (t) => {
   // ⚠️ `O_NOFOLLOW` closed the symlink route at this path and left the fifo
   // one open. Opening a fifo for WRITING blocks until a reader appears, so a
   // Save never returned and took every route on the single-threaded server
@@ -353,7 +357,7 @@ test('a HARD link at the backup path cannot redirect the write out of the root',
   }
 });
 
-test('a fifo with a live reader at the backup path is refused, not written into', (t) => {
+test('a fifo with a live reader at the backup path is refused, not written into', { skip: NO_FIFO }, (t) => {
   // The case `O_NONBLOCK` does not cover on its own: it only turns a READERLESS
   // fifo into ENXIO, so with a reader holding it open the open succeeds.
   //
@@ -409,7 +413,7 @@ test('a directory at the backup path is not reported as a kept version', () => {
   assert.equal(got.hasPrevious, false, 'a directory was reported as a kept version');
 });
 
-test('the kept version carries the live file permissions, not the ones it was created with', () => {
+test('the kept version carries the live file permissions, not the ones it was created with', { skip: NO_POSIX_MODES }, () => {
   // The `mode` argument to writeFileSync only applies when the file is CREATED,
   // so an existing backup kept whatever mode it was first made with: a file the
   // operator later locked to 0600 left its previous contents at 0644.
@@ -594,7 +598,7 @@ test('a file that exists but cannot be opened is never silently replaced', (t) =
   }
 });
 
-test('the original file permissions survive a save', () => {
+test('the original file permissions survive a save', { skip: NO_POSIX_MODES }, () => {
   // A fresh temp file is created at 0666 minus the umask and the rename carries
   // that mode onto the target, so a file deliberately locked to 0600 came out
   // 0644 after one save. Widening the permissions of the most sensitive file

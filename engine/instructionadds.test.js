@@ -10,6 +10,8 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 // Every root sandboxed BEFORE the requires, so nothing here can touch a real agent or real app data.
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-instradd-workers-'));
@@ -241,7 +243,7 @@ test('review 3: an apply whose record fails is finished by pressing Apply again,
   assert.equal(fileText('sally'), BASE, 'Undo after a finished retry did not restore the earlier text');
 });
 
-test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', () => {
+test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', { skip: skipOnWin32('it makes the store unreadable with chmod 0o000, a POSIX file mode Windows does not keep (there it only marks the file read-only)') }, () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   const good = fs.readFileSync(adds.FILE, 'utf8');
@@ -301,7 +303,7 @@ test('review 1: Undo is not offered when the earlier text is below the minimum a
   assert.equal(adds.state('tiny').last.undoable, false, 'the page would offer an Undo that can never work');
 });
 
-test('review 1: the store is private (mode 600): it holds the agent\'s earlier instructions', () => {
+test('review 1: the store is private (mode 600): it holds the agent\'s earlier instructions', { skip: NO_POSIX_MODES }, () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   assert.equal(fs.statSync(adds.FILE).mode & 0o777, 0o600);

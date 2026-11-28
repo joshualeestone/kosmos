@@ -78,8 +78,12 @@ const instructions = require('./instructions');
 const defaults = require('./defaults');
 
 /* The same trick create.test.js uses: real binaries that exist everywhere, so
-   the suite does not depend on what happens to be installed. */
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+   the suite does not depend on what happens to be installed.
+   kosmos#8378: stubs in the sandbox instead (test-support/runnerstub.js), since /bin/echo is a POSIX path Windows does not
+   have; and on Windows the job a create registers goes to the stand-in Task Scheduler (test-support/jobfixture.js). */
+const stub = (name) => require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), name);
+const BINS = { claudeBin: stub('claude'), tmuxBin: stub('tmux') };
+test.beforeEach(() => { require('../test-support/jobfixture').useJobStore(); });
 
 /** Instructions big enough that appending the defaults would cross the cap. */
 function hugeInstructions() {

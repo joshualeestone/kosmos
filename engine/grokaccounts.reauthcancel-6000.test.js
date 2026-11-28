@@ -34,6 +34,17 @@ fs.writeFileSync(FAKE, [
   'exec sleep 30',
 ].join('\n') + '\n', { mode: 0o755 });
 
+/* kosmos#8378: FAKE is a #!/bin/bash script that startGrokLogin spawns, so it runs by its shebang line, which Windows
+   cannot do (and a .sh name is not runnable there at all). The sign-in again and the remove and forget it races exist on
+   Windows, so those arms skip there until kosmos#9269 gives them a Windows stand-in. The arms whose stand-in traps
+   SIGTERM skip for that instead: Windows has no signals, so no Windows stand-in could make them. A start that is
+   refused before anything is spawned needs only a runner Windows counts as runnable, so it uses PRESENT and runs there. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in grok is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
+const SIGNALS = skipOnWin32('its stand-in grok traps SIGTERM to outlive a cancel, and Windows has no signals');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
+
 const OLD = (email) => JSON.stringify({ 'https://auth.x.ai::u1': { email, refresh_token: 'OLD' } });
 function account(name, email) {
   const d = nodePath.join(SANDBOX, name);
@@ -67,13 +78,13 @@ async function startHeldReauth(name, email) {
 
 test('#6000 premise: a new sign-in cannot stage into an existing account\'s folder', () => {
   const dir = account('.grok-taken9', 'taken9@example.com');
-  const r = grok.startGrokLogin({ grokBin: FAKE, label: 'taken9' });
+  const r = grok.startGrokLogin({ grokBin: PRESENT, label: 'taken9' });
   assert.equal(r.ok, false);
   assert.match(r.because, /already a Grok account by that name/);
   assert.equal(grok.removeAccount(dir, []).removed, true, 'the refused start left a hold on the account');
 });
 
-test('#6000: removeAccount cancels the account\'s own unfinished sign-in again and deletes it', async () => {
+test('#6000: removeAccount cancels the account\'s own unfinished sign-in again and deletes it', { skip: STANDIN }, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy', 'busy@example.com');
   const rm = grok.removeAccount(dir, []);
   assert.equal(rm.ok, true, rm.because);
@@ -83,7 +94,7 @@ test('#6000: removeAccount cancels the account\'s own unfinished sign-in again a
   assert.equal(fs.existsSync(dir), false, 'the late exit brought the account back');
 });
 
-test('#6000: a cancelled sign-in again that writes a valid sign-in as it dies does not promote into a folder now at that path', async () => {
+test('#6000: a cancelled sign-in again that writes a valid sign-in as it dies does not promote into a folder now at that path', { skip: SIGNALS }, async () => {
   process.env.FAKE_MODE = 'writeonterm';
   process.env.FAKE_EMAIL = 'back10@example.com';   // the SAME account, so a promote would be accepted
   try {
@@ -100,7 +111,7 @@ test('#6000: a cancelled sign-in again that writes a valid sign-in as it dies do
   }
 });
 
-test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again and moves it aside', async () => {
+test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again and moves it aside', { skip: STANDIN }, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy2', 'busy2@example.com');
   const f = grok.forgetAccount(dir, []);
   assert.equal(f.ok, true, f.because);
@@ -111,7 +122,7 @@ test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again a
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#6000: a REFUSED remove or forget (agents on the account: the #2570 pre-flight) cancels nothing', async () => {
+test('#6000: a REFUSED remove or forget (agents on the account: the #2570 pre-flight) cancels nothing', { skip: STANDIN }, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy3', 'busy3@example.com');
   const rm = grok.removeAccount(dir, ['ava']);
   assert.equal(rm.ok, false);
@@ -125,7 +136,7 @@ test('#6000: a REFUSED remove or forget (agents on the account: the #2570 pre-fl
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-test('#6000: the cancelled sign-in\'s late exit does not release a hold a NEW sign-in takes on the same path', async () => {
+test('#6000: the cancelled sign-in\'s late exit does not release a hold a NEW sign-in takes on the same path', { skip: SIGNALS }, async () => {
   process.env.FAKE_MODE = 'ignoreterm';   // keep the old child alive until its SIGKILL, so its exit comes AFTER the new start
   grok.setGrokTimers({ forceKill: 1500 });
   try {
@@ -150,7 +161,7 @@ test('#6000: the cancelled sign-in\'s late exit does not release a hold a NEW si
   }
 });
 
-test('#6000: a forget that FAILS at the move (no free name to move it to) cancels nothing', async () => {
+test('#6000: a forget that FAILS at the move (no free name to move it to) cancels nothing', { skip: STANDIN }, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy6', 'busy6@example.com');
   const taken = [nodePath.join(SANDBOX, '.removed-grok-busy6')];
   for (let n = 2; n < 500; n += 1) taken.push(nodePath.join(SANDBOX, `.removed-grok-busy6-${n}`));
@@ -169,8 +180,9 @@ test('#6000: a forget that FAILS at the move (no free name to move it to) cancel
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-// chmod does not stop root, so these two skip there (as #5994's do).
-const AS_ROOT = { skip: typeof process.getuid === 'function' && process.getuid() === 0 };
+// chmod does not stop root, so these two skip there (as #5994's do). kosmos#8378: and chmod is all they lock with, so
+// they skip on Windows, which does not keep POSIX file modes.
+const AS_ROOT = { skip: NO_POSIX_MODES || (typeof process.getuid === 'function' && process.getuid() === 0) };
 
 test('#6000: a forget whose MOVE itself fails (the home cannot be written) cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy10', 'busy10@example.com');
@@ -224,7 +236,7 @@ test('#6000: a delete that fails while the account is still WHOLE cancels nothin
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-test('#6000: an account already gone from the disk still has its own unfinished sign-in again cancelled', async () => {
+test('#6000: an account already gone from the disk still has its own unfinished sign-in again cancelled', { skip: STANDIN }, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-gone7', 'gone7@example.com');
   fs.rmSync(dir, { recursive: true, force: true });   // removed outside Kosmos
   const rm = grok.removeAccount(dir, []);
@@ -234,7 +246,7 @@ test('#6000: an account already gone from the disk still has its own unfinished 
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#6000: forgetting an account already gone from the disk also cancels its own unfinished sign-in again', async () => {
+test('#6000: forgetting an account already gone from the disk also cancels its own unfinished sign-in again', { skip: STANDIN }, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-gone9', 'gone9@example.com');
   fs.rmSync(dir, { recursive: true, force: true });   // removed outside Kosmos
   const f = grok.forgetAccount(dir, []);
@@ -245,7 +257,7 @@ test('#6000: forgetting an account already gone from the disk also cancels its o
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#6000: a sign-in again cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
+test('#6000: a sign-in again cancelled a moment ago (its child still exiting) does not refuse the remove', { skip: SIGNALS }, async () => {
   grok.setGrokTimers({ forceKill: 1500 });   // the TERM-ignoring child lives until this SIGKILL
   try {
     process.env.FAKE_MODE = 'ignoreterm';
@@ -264,7 +276,7 @@ test('#6000: a sign-in again cancelled a moment ago (its child still exiting) do
   }
 });
 
-test('#6000: any OTHER hold still refuses (a new sign-in staging into that name)', async () => {
+test('#6000: any OTHER hold still refuses (a new sign-in staging into that name)', { skip: STANDIN }, async () => {
   const r = grok.startGrokLogin({ grokBin: FAKE, label: 'staging5' });
   assert.equal(r.ok, true, r.because);
   STARTED.push(r.sessionId);

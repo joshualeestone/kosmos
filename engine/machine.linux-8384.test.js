@@ -21,6 +21,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const machine = require('./machine');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+const NO_BIN_SH = skipOnWin32('it runs the command through /bin/sh by an absolute POSIX path, which Windows cannot run');
+const SKIP_SHEBANG_FAKES = skipOnWin32('its control fakes a Linux command (busctl, systemctl, loginctl) with a #!/bin/sh script run by its shebang line, which Windows cannot do, and without the control the absences it checks prove nothing');
 
 const { STATE } = machine;
 
@@ -283,6 +286,7 @@ test('sleep row: the admin field is a logind snippet for what fired, never prose
   /* Run for real with /etc/systemd/logind.conf.d swapped for a temp folder (no root): every file it writes is what logind
      reads, one [Login] section and one key a line. Idle, lid and docked all fire here, so all three files are made. */
   const cmd = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'suspend', battery: 'suspend', docked: 'suspend' } }).admin;
+  if (NO_BIN_SH) return;   // the strings above are pinned everywhere; running them needs /bin/sh
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-logind-'));
   try {
     const local = cmd.split('/etc/systemd/logind.conf.d').join(tmp);
@@ -326,7 +330,9 @@ test('linuxLid: an ACPI lid or the computer\'s own battery counts; a wireless mo
   try {
     fs.mkdirSync(sup, { recursive: true });
     assert.equal(machine.linuxLid(lid, sup).has, false, 'no lid folder, no supplies');
-    supply('hid-00:1f:20:aa:bb:cc-battery', { type: 'Battery', scope: 'Device' });
+    // kosmos#8378: a mouse's supply is named hid-<its address>-battery, with colons, which a Windows file name cannot
+    // hold; the name is never read (only type and scope are), so the address is written without them.
+    supply('hid-001f20aabbcc-battery', { type: 'Battery', scope: 'Device' });
     supply('AC', { type: 'Mains' });
     assert.equal(machine.linuxLid(lid, sup).has, false, 'a desktop with a Bluetooth mouse is not a laptop');
     supply('BAT0', { type: 'Battery' });
@@ -447,7 +453,7 @@ test('restart row: masked offers unmask for this board\'s unit, then a reinstall
   assert.match(r.detail, /Run the command under For IT admins from this account, then reinstall Kosmos \(Kosmos restarts for a moment\)\.$/);
 });
 
-test('restart reader: a test with a unit folder but no runner runs no host command (review 9)', () => {
+test('restart reader: a test with a unit folder but no runner runs no host command (review 9)', { skip: skipOnWin32('its control fakes systemctl and loginctl with #!/bin/sh scripts run by their shebang line, which Windows cannot do, and without the control the absence it checks proves nothing') }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-bin-'));
   const marker = path.join(dir, 'ran');
   for (const t of ['systemctl', 'loginctl']) fs.writeFileSync(path.join(dir, t), '#!/bin/sh\necho "$0" >> ' + JSON.stringify(marker) + '\necho UnitFileState=enabled\necho Linger=yes\n', { mode: 0o755 });
@@ -473,7 +479,7 @@ test('sleep row: a lid that sleeps only when docked (HandleLidSwitchDocked) is a
   assert.match(r.detail, /When the lid closes with another screen connected, this computer goes to sleep\./);
 });
 
-test('restart reader: a unit file replaced by a link to /dev/null (mask --force) reads as gone, and the row says reinstall', () => {
+test('restart reader: a unit file replaced by a link to /dev/null (mask --force) reads as gone, and the row says reinstall', { skip: skipOnWin32('it masks a unit with a symlink to /dev/null, an absolute POSIX path Windows does not have') }, () => {
   const got = withUnitDir(false, (dir) => {
     fs.symlinkSync('/dev/null', path.join(dir, require('./linuxboard').boardUnitName()));
     return machine.readLinuxBoardAutostart(() => ({ ok: true, stdout: 'UnitFileState=masked\n' }), { runner: () => ({ ok: true, stdout: 'UnitFileState=masked\n' }), installedRoot: BUNDLE });
@@ -586,7 +592,7 @@ test('sleepGate on linux gives the Mac\'s three answers from Linux\'s reading, w
   assert.ok(!asked.some((c) => /pmset/.test(c)), 'no pmset on Linux');
 });
 
-test('check() on linux reads sleep through the caller\'s runner, and with no runner and no reading in a test reads nothing', () => {
+test('check() on linux reads sleep through the caller\'s runner, and with no runner and no reading in a test reads nothing', { skip: SKIP_SHEBANG_FAKES }, () => {
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-'));
   try {
     const { runner, asked } = sleepRunner({ gsd: 'inactive' });
@@ -781,7 +787,7 @@ test('sleep row: sleep plus restart says both in the closing sentence', () => {
   assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'reboot', acMinutes: 5, battery: null, batteryMinutes: null } }).detail, /Your agents stop until it wakes or it has restarted\./);
 });
 
-test('restart: the linger command keeps every user name, single-quoted, and the quoting holds when run', () => {
+test('restart: the linger command keeps every user name, single-quoted, and the quoting holds when run', { skip: NO_BIN_SH }, () => {
   const at = (user) => row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user }).admin;
   assert.equal(at('pat'), "loginctl enable-linger 'pat'");
   assert.equal(at('pat@corp.example.com'), "loginctl enable-linger 'pat@corp.example.com'", 'a directory account keeps its name');
@@ -891,7 +897,8 @@ test('linuxRun: after one look times out, the rest fail at once, so a reading co
     assert.ok(Date.now() - t1 < 500, 'the second fails at once');
     assert.ok(t1 - t0 < 1500, 'the first stops at the timeout');
   } finally { machine.setLinuxTimeoutForTests(2000); }
-  assert.equal(machine.__linuxRunForTests('/bin/echo', ['ok']).stdout, 'ok\n', 'control: reset, it runs again');
+  // kosmos#8378: node prints the line, not /bin/echo (an absolute POSIX path Windows does not have).
+  assert.equal(machine.__linuxRunForTests(process.execPath, ['-e', "process.stdout.write('ok\\n')"]).stdout, 'ok\n', 'control: reset, it runs again');
 });
 
 test('sleep reader: a failed ExternalPower ask is not older systemd, and no lid fix is offered on a guess', () => {
@@ -1031,7 +1038,7 @@ test('sleep row: a lid that sleeps only when docked says so in the title', () =>
     'This computer can go to sleep when its lid closes with another screen connected');
 });
 
-test('the readers stand down in a child process a test spawns, not only in the test process', () => {
+test('the readers stand down in a child process a test spawns, not only in the test process', { skip: SKIP_SHEBANG_FAKES }, () => {
   // A busctl on PATH that says "suspend", so a host read would show on any machine (a Mac has no busctl of its own).
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-child-'));
   try {

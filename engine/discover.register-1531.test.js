@@ -35,10 +35,8 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
    claude binary is absent -- true on a boardless CI runner. Point the existing
    AGENT_WORKFORCE_CLAUDE_BIN seam at a stub executable so the presence check is
    hermetic (the sibling connect.install-997 test uses the same seam). */
-process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SB, 'bin', 'claude');
-fs.mkdirSync(path.dirname(process.env.AGENT_WORKFORCE_CLAUDE_BIN), { recursive: true });
-fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, '#!/bin/sh\nexit 0\n');
-fs.chmodSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, 0o755);
+// kosmos#8378: writeRunnerStub, so Windows counts the stub as runnable too (there a file runs by its extension).
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = require('../test-support/runnerstub').writeRunnerStub(path.join(SB, 'bin'), 'claude');
 
 const discover = require('./discover');
 const store = require('./store');
@@ -67,7 +65,13 @@ const status = require('./status');
  * tell them apart. The register arms therefore run with NOTHING injected, which is
  * what makes their negative real.
  */
+/* kosmos#8378: on Windows the job is a Scheduled Task, which win32job reaches through its own runner, not create's, and
+   every schtasks call is refused in a test; useJobStore installs the stand-in Task Scheduler there (task files in the
+   sandbox), from the first main-path arm on (it stays installed, and answers only from the sandbox). On the Mac and
+   Linux it does nothing. */
+const jobfix = require('../test-support/jobfixture');
 function noRealCommands(fn) {
+  jobfix.useJobStore();
   create.setRunner(async () => ({ ok: true, stdout: '', err: null }));
   try { return fn(); } finally { create.setRunner(null); }
 }

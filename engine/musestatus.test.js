@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'muse-status-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
@@ -275,14 +276,17 @@ test('#3939 3c-1: the refused credential is the one the turn STARTED with (round
 
 test('#3939 3c-1: a Muse file unread at the refusal, or a note body that cannot be read, never makes the file answer yes', () => withXdg((xdg) => {
   clean();
-  const f = writeAuth(xdg, { meta: { token: 't' } });
-  fs.chmodSync(f, 0o000);
-  let atStart;
-  try { atStart = muse.fileAtStart(); } finally { fs.chmodSync(f, 0o600); }
-  assert.equal(atStart.fileUnread, true, 'CONTROL: the failed read was seen');
-  muse.markSignedOut(T, atStart);
-  assert.equal(muse.signedIn().signedIn, false, 'the refused credential came back once the file read again');
-  clean();
+  // The unread half makes Muse's file unreadable with chmod 0o000, a POSIX file mode Windows does not keep (kosmos#8378).
+  if (!NO_POSIX_MODES) {
+    const f = writeAuth(xdg, { meta: { token: 't' } });
+    fs.chmodSync(f, 0o000);
+    let atStart;
+    try { atStart = muse.fileAtStart(); } finally { fs.chmodSync(f, 0o600); }
+    assert.equal(atStart.fileUnread, true, 'CONTROL: the failed read was seen');
+    muse.markSignedOut(T, atStart);
+    assert.equal(muse.signedIn().signedIn, false, 'the refused credential came back once the file read again');
+    clean();
+  }
   place('note', T, 'not json');
   assert.equal(muse.signedIn().signedIn, false, 'a garbled note let the file answer yes');
   assert.equal(muse.markTurnSignedIn(T + 10), true, 'CONTROL: a later completed turn still restores the answer');

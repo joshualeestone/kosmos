@@ -12,6 +12,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'guardstate-5668-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
@@ -58,7 +59,7 @@ test('#5668: each guard run records its result for that agent (ok, the reason, t
   assert.equal(w.ok, true); assert.ok(w.warning, JSON.stringify(w));
   rec = setup.readGuardState();
   assert.equal(rec['gs-ok'].warning, w.warning);
-  assert.equal(fs.statSync(stateFile('gs-ok')).mode & 0o777, 0o600, 'the record is not private to its owner');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(stateFile('gs-ok')).mode & 0o777, 0o600, 'the record is not private to its owner');
 });
 
 test('#5668 (Pete\'s step 3): the account\'s user-level settings file counts toward the size; the default account is ~/.claude', () => {
@@ -135,7 +136,8 @@ test('#5668 review 1: the record is denied to the agent in both layers, so it ca
   setup.guardTokenOnlyFolder(dir, 'gs-protect', { ...BASE, accountConfigDir: null });
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
   const rec = stateDir();
-  const ruleAbs = (p) => '//' + String(p).replace(/^\/+/, '');
+  // kosmos#8378: the guard's own spelling of a rule path, so a Windows path (c:\... written //c/...) is spelled as the rule is.
+  const ruleAbs = (p) => setup.ruleAbs(p);
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(rec)}/**)`), 'the records are not denied to the file tools');
   assert.ok(s.sandbox.filesystem.denyWrite.includes(real(rec)), 'the record is not denied to the sandboxed shell');

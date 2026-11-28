@@ -17,12 +17,16 @@ const { runBounded } = require('./devicedoor');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-door-4326-'));
 test.after(() => { fs.rmSync(DIR, { recursive: true, force: true }); });
 
+/* kosmos#8378: each probe is a node script, run as `node <script>` (STUB_BIN with [script]), not a #!/bin/sh script run
+   by its shebang line, which Windows cannot do; runBounded is plain Node and the same on every platform. Ignoring
+   SIGTERM is process.on('SIGTERM'), as `trap '' TERM` was. */
+const STUB_BIN = process.execPath;
 function script(name, body) {
   const p = path.join(DIR, name);
-  fs.writeFileSync(p, '#!/bin/sh\n' + body + '\n');
-  fs.chmodSync(p, 0o755);
+  fs.writeFileSync(p, body + '\n');
   return p;
 }
+const FOREVER = "process.on('SIGTERM', () => {});\nsetInterval(() => {}, 1000);";
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 /* #4656: `ms` counts from when the child has been spawned, not from before the spawn: a saturated box can take
    seconds to spawn a shell, and that time is the box's, not the probe's. (Only a spawn that THROWS answers inside
@@ -53,8 +57,8 @@ async function gone(pid, ms = 30000) {
 }
 
 test('#4326 a child that IGNORES SIGTERM is answered at the timeout and then SIGKILLed', async () => {
-  const stub = script('stubborn.sh', "trap '' TERM\nwhile :; do sleep 1; done");
-  const r = await run(stub, [], { timeoutMs: 400, graceMs: 300 });
+  const stub = script('stubborn.js', FOREVER);
+  const r = await run(STUB_BIN, [stub], { timeoutMs: 400, graceMs: 300 });
   try {
     assert.equal(r.code, -1, 'a timed-out probe must answer -1 (not connected), as execFile did');
     // #4656: "not before" is the claim (350 ms). The upper bound only has to catch a probe that ignores the
@@ -71,16 +75,16 @@ test('#4326 a child that IGNORES SIGTERM is answered at the timeout and then SIG
   }
 });
 
-test('#4326 the probe dies WITH the board: it stays in the board\'s process group', async () => {
+test('#4326 the probe dies WITH the board: it stays in the board\'s process group', { skip: require('../test-support/skip-on-win32').skipOnWin32('it kills a POSIX process group (a negative pid), which Windows does not have') }, async () => {
   // A "board" in its own process group starts a probe that ignores SIGTERM and never ends, then
   // its whole group is killed, as launchd does to a job that exits. A detached probe (its own
   // group) would survive that, and with the board gone nothing would ever kill it.
   const { spawn } = require('node:child_process');
-  const stub = script('forever.sh', "trap '' TERM\nwhile :; do sleep 1; done");
+  const stub = script('forever.js', FOREVER);
   const pidFile = path.join(DIR, 'probe.pid');
   const board = spawn(process.execPath, ['-e',
     `const { runBounded } = require(${JSON.stringify(require.resolve('./devicedoor'))});
-     const c = runBounded(${JSON.stringify(stub)}, [], { timeoutMs: 60000 }, () => {});
+     const c = runBounded(${JSON.stringify(STUB_BIN)}, [${JSON.stringify(stub)}], { timeoutMs: 60000 }, () => {});
      require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(c.pid));
      setInterval(() => {}, 1000);`], { detached: true, stdio: 'ignore' });
   let probe = 0;
@@ -101,12 +105,12 @@ test('#4326 the probe dies WITH the board: it stays in the board\'s process grou
 const NOT_A_SPEED_TEST = 30000;
 
 test('#4326 control: a probe that finishes answers its real exit code and output, untouched', async () => {
-  const ok = script('ok.sh', 'echo "Logged in to github.com account octo"; exit 0');
-  const r = await run(ok, [], { timeoutMs: NOT_A_SPEED_TEST });
+  const ok = script('ok.js', "process.stdout.write('Logged in to github.com account octo\\n');");
+  const r = await run(STUB_BIN, [ok], { timeoutMs: NOT_A_SPEED_TEST });
   assert.equal(r.code, 0);
   assert.match(r.text, /Logged in to github\.com account octo/);
-  const no = script('no.sh', 'echo "not logged in" >&2; exit 1');
-  const r2 = await run(no, [], { timeoutMs: NOT_A_SPEED_TEST });
+  const no = script('no.js', "process.stderr.write('not logged in\\n');\nprocess.exitCode = 1;");
+  const r2 = await run(STUB_BIN, [no], { timeoutMs: NOT_A_SPEED_TEST });
   assert.equal(r2.code, 1, 'a non-zero exit must pass through, as execFile\'s err.code did');
   assert.match(r2.text, /not logged in/, 'stderr must reach the answer, as before');
 });
@@ -117,7 +121,7 @@ const runSeen = (bin, opts) => new Promise((resolve, reject) => {
   const seen = [];
   let child = null;
   const guard = neverAnswered(opts, () => child, reject);
-  child = runBounded(bin, [], opts, (code, text) => { clearTimeout(guard); resolve({ code, text, first: seen[0] }); });
+  child = runBounded(STUB_BIN, [bin], opts, (code, text) => { clearTimeout(guard); resolve({ code, text, first: seen[0] }); });
   if (child) for (const name of ['stdout', 'stderr']) child[name].on('data', () => { if (!seen.includes(name)) seen.push(name); });
 });
 /* Runs `bin` until the stream `want` was SEEN to arrive first (at most 20 tries), checking the answer on every try. */
@@ -140,17 +144,16 @@ test('#4326 the answer is stdout THEN stderr, as execFile gave it, whatever orde
   // until it was seen to arrive first, so neither a slow box nor a lucky order can make this pass without testing it.
   // Both halves are checked the same way: an answer that puts the LAST stream to arrive first passes the
   // stderr-first half and is caught only by the stdout-first one (review 1).
-  await answerWhenFirst(script('both.sh', 'echo warning >&2; sleep 0.2; echo octo; exit 0'), 'stderr');
-  await answerWhenFirst(script('both-out-first.sh', 'echo octo; sleep 0.2; echo warning >&2; exit 0'), 'stdout');
+  await answerWhenFirst(script('both.js', "process.stderr.write('warning\\n');\nsetTimeout(() => process.stdout.write('octo\\n'), 200);"), 'stderr');
+  await answerWhenFirst(script('both-out-first.js', "process.stdout.write('octo\\n');\nsetTimeout(() => process.stderr.write('warning\\n'), 200);"), 'stdout');
 });
 
 test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s maxBuffer did', async () => {
-  // Prints ~2 MB (of NUL bytes: the tr only maps backslash and 0, which is fine, the size is what
-  // counts), then would hang: it must be answered and killed long before the timeout.
-  const flood = script('flood.sh', "trap '' TERM\nhead -c 2200000 /dev/zero | tr '\\\\0' 'x'\nwhile :; do sleep 1; done");
+  // Prints ~2 MB, then would hang: it must be answered and killed long before the timeout.
+  const flood = script('flood.js', "process.stdout.write('x'.repeat(2200000));\n" + FOREVER);
   // #4656: the claim is "stopped by the overflow, well before the timeout", so the bound is half of a long
   // timeout rather than a fixed speed a saturated box could miss.
-  const r = await run(flood, [], { timeoutMs: NOT_A_SPEED_TEST, graceMs: 300 });
+  const r = await run(STUB_BIN, [flood], { timeoutMs: NOT_A_SPEED_TEST, graceMs: 300 });
   try {
     assert.equal(r.code, -1, 'an overflow must answer -1');
     assert.ok(r.ms < NOT_A_SPEED_TEST / 2, `an overflow must stop the probe at once, not at the timeout: ${r.ms} ms`);
