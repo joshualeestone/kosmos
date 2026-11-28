@@ -56,12 +56,11 @@ fs.chmodSync(FAKE, 0o755);   // runnable on the Mac by its mode; Windows runs it
    node with the script as its first argument (engine/tunnelcommand.js), and Windows counts a .js file as runnable by
    its extension (PATHEXT) where the Mac needs its 0755 mode. So the sign-in again and the remove and forget it races
    run on Windows too. The arms whose stand-in catches SIGTERM still skip there: Windows has no signals (a kill there
-   ends the process outright), so no stand-in could outlive a cancel. The arms that lock with chmod skip there too.
-   A start that is refused before anything is spawned needs only a runner Windows counts as runnable, so it uses
+   ends the process outright), so no stand-in could outlive a cancel. The arms that lock with chmod run there with
+   the failing fs call stubbed instead (see failing() below). A start that is refused before anything is spawned needs only a runner Windows counts as runnable, so it uses
    PRESENT. */
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const SIGNALS = skipOnWin32('its stand-in grok traps SIGTERM to outlive a cancel, and Windows has no signals');
-const NO_CHMOD_FAIL = skipOnWin32('what it checks exists on Windows (a move or a delete that fails), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
 
 const OLD = (email) => JSON.stringify({ 'https://auth.x.ai::u1': { email, refresh_token: 'OLD' } });
@@ -199,13 +198,36 @@ test('#6000: a forget that FAILS at the move (no free name to move it to) cancel
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-// chmod does not stop root, so these three skip there (as #5994's do). kosmos#8378: and chmod is all they lock with, so
-// they skip on Windows, which does not keep POSIX file modes.
-const AS_ROOT = { skip: NO_CHMOD_FAIL || (typeof process.getuid === 'function' && process.getuid() === 0) };
+/* kosmos#9269: these three lock with chmod on the Mac and Linux. Windows does not enforce chmod, so there the one fs
+   call the chmod makes fail is made to fail instead, with the code the chmod gives it: fs.renameSync out of the home
+   (EACCES) for the forget, fs.rmSync of the account folder (ENOTEMPTY, what a recursive rmSync reports when an entry
+   inside cannot go) for the two deletes. grokaccounts reaches fs through the module object at call time, so the
+   stub is what it calls. Each arm asserts the same outcome either way. KOSMOS_TEST_CHMOD_STUB=1 takes the Windows
+   path on any platform, so it can be run (and broken) on the Mac. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+/* fs[name] throws `code` while `refuses(...args)` holds (after `before(...args)`, if given), and is the real call
+   otherwise. Returns the restore. */
+function failing(name, code, refuses, before) {
+  const orig = fs[name];
+  fs[name] = function stubbed(...args) {
+    if (refuses(...args)) {
+      if (before) before(orig, ...args);
+      throw Object.assign(new Error(code + ': ' + name + ' refused (a stand-in for chmod, kosmos#9269)'), { code });
+    }
+    return orig.apply(this, args);
+  };
+  return () => { fs[name] = orig; };
+}
+const same = (a, b) => nodePath.resolve(String(a)) === nodePath.resolve(String(b));
+// chmod does not stop root, so on the chmod path these three skip there (as #5994's do); the stub path does not care.
+const AS_ROOT = { skip: !CHMOD_VIA_STUB && typeof process.getuid === 'function' && process.getuid() === 0 };
 
 test('#6000: a forget whose MOVE itself fails (the home cannot be written) cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy10', 'busy10@example.com');
-  fs.chmodSync(SANDBOX, 0o555);   // the rename out of the home is refused; nothing in the account is touched
+  // The rename out of the home is refused; nothing in the account is touched.
+  const unlock = CHMOD_VIA_STUB
+    ? failing('renameSync', 'EACCES', (from, to) => same(nodePath.dirname(nodePath.resolve(String(from))), SANDBOX) || same(nodePath.dirname(nodePath.resolve(String(to))), SANDBOX))
+    : (fs.chmodSync(SANDBOX, 0o555), () => fs.chmodSync(SANDBOX, 0o755));
   try {
     const f = grok.forgetAccount(dir, []);
     assert.equal(f.ok, false);
@@ -213,7 +235,7 @@ test('#6000: a forget whose MOVE itself fails (the home cannot be written) cance
     const st = state(sessionId);
     assert.ok(st !== 'cancelled' && st !== 'error', 'a failed move cancelled the sign-in: ' + st);
   } finally {
-    fs.chmodSync(SANDBOX, 0o755);
+    unlock();
     grok.cancelGrokLogin(sessionId);
   }
   assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true);
@@ -225,9 +247,15 @@ test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the 
   const stuck = nodePath.join(dir, 'sessions');
   fs.mkdirSync(stuck, { recursive: true });
   fs.writeFileSync(nodePath.join(stuck, 'kept.jsonl'), '{}');
-  fs.chmodSync(stuck, 0o555);   // its file cannot be deleted, so rmSync throws after the rest is gone
+  // Its file cannot be deleted, so rmSync throws after the rest is gone. The stub does what the chmod leaves: every
+  // entry but sessions/ removed (auth.json among them), then the throw.
+  const unlock = CHMOD_VIA_STUB
+    ? failing('rmSync', 'ENOTEMPTY', (p) => same(p, dir), (orig) => {
+      for (const n of fs.readdirSync(dir)) if (n !== 'sessions') orig(nodePath.join(dir, n), { recursive: true, force: true });
+    })
+    : (fs.chmodSync(stuck, 0o555), () => fs.chmodSync(stuck, 0o755));
   let rm;
-  try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(stuck, 0o755); }
+  try { rm = grok.removeAccount(dir, []); } finally { unlock(); }
   assert.equal(rm.ok, false);
   assert.match(rm.because, /could not delete/);
   // rmSync walks entries in directory-listing order and stops at the first error, so on a filesystem that lists
@@ -244,9 +272,12 @@ test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the 
 
 test('#6000: a delete that fails while the account is still WHOLE cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-whole13', 'whole13@example.com');
-  fs.chmodSync(dir, 0o555);   // nothing inside can be deleted, so auth.json stays and the account is whole
+  // Nothing inside can be deleted, so auth.json stays and the account is whole.
+  const unlock = CHMOD_VIA_STUB
+    ? failing('rmSync', 'ENOTEMPTY', (p) => same(p, dir))
+    : (fs.chmodSync(dir, 0o555), () => fs.chmodSync(dir, 0o755));
   let rm;
-  try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(dir, 0o755); }
+  try { rm = grok.removeAccount(dir, []); } finally { unlock(); }
   assert.equal(rm.ok, false);
   assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true, 'fixture: auth.json was deleted');
   const st = state(sessionId);

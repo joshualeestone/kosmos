@@ -47,10 +47,24 @@ fs.chmodSync(FAKE, 0o755);   // runnable on the Mac by its mode; Windows runs it
 /* kosmos#9269: FAKE is a node script named .js, so it runs on every platform: startGrokLogin starts a .js grok as
    this node with the script as its first argument (engine/tunnelcommand.js), and Windows counts a .js file as
    runnable by its extension (PATHEXT) where the Mac needs its 0755 mode. So the arms that sign in again run on
-   Windows too; only the two that fail a rename with chmod skip there, since Windows does not enforce chmod. A start
-   refused before anything is spawned needs only a runner Windows counts as runnable: PRESENT. */
-const { skipOnWin32 } = require('../test-support/skip-on-win32');
-const NO_CHMOD_FAIL = skipOnWin32('what it checks exists on Windows (a rename that fails), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
+   Windows too. A start refused before anything is spawned needs only a runner Windows counts as runnable: PRESENT. */
+/* kosmos#9269: the two arms that fail a rename lock the account folder with chmod on the Mac and Linux. Windows does
+   not enforce chmod, so there the same call the chmod makes fail (fs.renameSync in promoteReauth, which reaches fs
+   through the module object at call time) is made to fail instead, with the code the chmod gives it (EACCES), for a
+   rename into or out of that folder only. Each arm asserts the same outcome either way.
+   KOSMOS_TEST_CHMOD_STUB=1 takes the Windows path on any platform, so it can be run (and broken) on the Mac. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function lockedFolder(dir) {
+  const locked = nodePath.resolve(dir);
+  if (!CHMOD_VIA_STUB) { fs.chmodSync(dir, 0o500); return () => fs.chmodSync(dir, 0o700); }
+  const orig = fs.renameSync;
+  const inside = (p) => nodePath.dirname(nodePath.resolve(String(p))) === locked;
+  fs.renameSync = function renameSync(from, to) {
+    if (inside(from) || inside(to)) throw Object.assign(new Error('EACCES: permission denied, rename (a stand-in for chmod 0500, kosmos#9269)'), { code: 'EACCES' });
+    return orig.apply(this, arguments);
+  };
+  return () => { fs.renameSync = orig; };
+}
 const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
 
 const OLD = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'me@example.com', refresh_token: 'OLD' } });
@@ -203,10 +217,10 @@ test('a sign-in again the watchdog ends leaves the live account and frees it', (
   }
 }));
 
-test('a rename that fails reports it and leaves the live account as it was', { skip: NO_CHMOD_FAIL }, () => withMode('approve', 'me@example.com', async () => {
+test('a rename that fails reports it and leaves the live account as it was', () => withMode('approve', 'me@example.com', async () => {
   const live = account('.grok-ro');
   const before = grokDirs();
-  fs.chmodSync(live, 0o500);   // the live dir cannot take a new file, so the rename fails
+  const unlock = lockedFolder(live);   // the live dir cannot take a new file, so the rename fails
   try {
     const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
     const s = await settled(out.sessionId);
@@ -215,7 +229,7 @@ test('a rename that fails reports it and leaves the live account as it was', { s
     assert.equal(auth(live), OLD);
     await waitFor(() => grokDirs().join() === before.join());
   } finally {
-    fs.chmodSync(live, 0o700);
+    unlock();
   }
 }));
 
@@ -280,10 +294,10 @@ test('a NAMED new sign-in is never merged, even with an email already here', () 
   fs.rmSync(s.account.dir, { recursive: true, force: true });
 }));
 
-test('a merge whose rename fails keeps the new sign-in as its own account', { skip: NO_CHMOD_FAIL }, () => withMode('approve', 'rofail@example.com', async () => {
+test('a merge whose rename fails keeps the new sign-in as its own account', () => withMode('approve', 'rofail@example.com', async () => {
   const BODY = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'rofail@example.com', refresh_token: 'OLD' } });
   const there = account('.grok-rofail', BODY);
-  fs.chmodSync(there, 0o500);
+  const unlock = lockedFolder(there);
   try {
     const out = grok.startGrokLogin({ grokBin: FAKE });
     const s = await settled(out.sessionId);
@@ -293,6 +307,6 @@ test('a merge whose rename fails keeps the new sign-in as its own account', { sk
     assert.equal(auth(there), BODY);
     fs.rmSync(s.account.dir, { recursive: true, force: true });
   } finally {
-    fs.chmodSync(there, 0o700);
+    unlock();
   }
 }));
