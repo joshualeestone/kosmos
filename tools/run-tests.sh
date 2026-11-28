@@ -366,7 +366,8 @@ rt_wd_loop() {
 # named by the longest entry of this run's list its command line ends with, else by its last word (a quoted path
 # with a space then keeps its closing quote). A file is named
 # only when taskkill stopped it (one that ended first is not). The snapshot runs in the foreground, so a stop waits
-# for the one in progress. Not covered: node behind a shim (the Mac loop's shim step has no Windows twin).
+# for the one in progress. Not covered: node behind a shim (the Mac loop's shim step has no Windows twin), and a pid
+# that ends and is reused by another process in the milliseconds between the snapshot and its taskkill /T.
 # A snapshot that hangs (a stuck WMI query) is cut at 20 s, so a stop at the end waits at most that long for it.
 # KOSMOS_TEST_WIN_SNAP_EMPTY=1 makes it print nothing, for tools.run-tests-winwd-9278's empty-snapshot arm.
 rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whole seconds, start time, command line
@@ -375,7 +376,9 @@ rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whol
 }
 rt_wd_loop_win() {
   local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key krc file f p w
-  [ "$RT_FILE_TIMEOUT_S" -lt 30 ] && tick=1
+  # Each look starts powershell and a full process query (0.3 s warm, 2.4 s cold), so the tick scales with the limit:
+  # a twentieth of it, from 1 s to 30 s (30 s at the default 30 min; a file is still stopped within about 5% of it).
+  tick=$(( RT_FILE_TIMEOUT_S / 20 )); [ "$tick" -lt 1 ] && tick=1; [ "$tick" -gt 30 ] && tick=30
   trap 'stop=1; [ -n "${sl:-}" ] && kill "$sl" 2>/dev/null' TERM
   while [ "$stop" = 0 ] && kill -0 "$parent" 2>/dev/null; do
     if [ -z "$nodew" ]; then
