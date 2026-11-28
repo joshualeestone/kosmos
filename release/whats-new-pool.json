@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.29",
+  "lastProd": "0.8.30",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -3038,7 +3038,8 @@
       "icon": "tasks",
       "rank": 10.9,
       "since": "0.8.30",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.30"
     },
     {
       "title": "kosmos post --file",
@@ -3057,7 +3058,36 @@
       "since": "0.8.30",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Agents take turns on heavy jobs",
+      "line": "The board's heavy-job note now says who is next in line for a turn, and gives the day for a job not started today.",
+      "icon": "tasks",
+      "rank": 10.95,
+      "since": "0.8.31",
+      "status": "pending"
+    },
+    {
+      "title": "A Windows agent is not started twice",
+      "line": "On Windows, an agent whose task ended while Kosmos was looking no longer starts again beside the new copy.",
+      "icon": "tasks",
+      "rank": 161,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "title": "Delivery checks point at the receipt",
+      "line": "A message's delivery check now points at its receipt, never at sending another probe.",
+      "icon": "chat",
+      "rank": 162,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.29"
+  "lastProdWin": "0.8.30"
 }
