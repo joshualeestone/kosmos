@@ -21054,6 +21054,8 @@ const server = http.createServer(async (req, res) => {
           note = selfreport.blockedOwnerNote(body.state, body.owner, { personName, agentNames });
         } catch { note = ''; }
         if (body.state === 'needs_you' && body.auto !== true) note = body.held === true ? selfreport.NEEDS_YOU_HELD_NOTE : selfreport.NEEDS_YOU_ASK_NOTE;   // #5943: an agent asking, not a hook
+        // kosmos#9320: say first when this report took an open question to the person off the board.
+        if (kept && typeof kept.replacedQuestion === 'string') note = selfreport.replacedQuestionNote(kept.replacedQuestion) + (note ? ' ' + note : '');
         sendJson(res, 200, note ? { recorded: true, note } : { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));

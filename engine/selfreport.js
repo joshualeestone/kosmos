@@ -410,6 +410,18 @@ function record(sessionName, entry) {
       };
     }
   }
+  /* kosmos#9320: a card holds one state, so an agent's own report of anything but needs_you replaces an open question
+     it asked the person, and that question leaves the board. It still lands (the agent decides what it reports), but
+     the answer says which question went, so the agent can ask it again if it still stands. Not for `clear`, which is
+     the agent saying its wait is answered, nor for an automatic write (refused over a deliberate wait above), nor over
+     an automatic permission prompt, which nobody asked. */
+  let replacedQuestion;
+  if (entry.auto !== true && entry.by !== 'operator' && state !== 'needs_you' && entry.clear !== true) {   // an operator clear means it
+    const standing = read(sessionName);
+    if (standing.found === true && standing.state === 'needs_you' && !isAutoPermissionWait(standing)) {
+      replacedQuestion = typeof standing.because === 'string' ? standing.because : '';
+    }
+  }
   const at = new Date().toISOString();
   const line = {
     v: 1,
@@ -502,7 +514,7 @@ function record(sessionName, entry) {
   } catch {
     return { recorded: false, because: 'we could not save that report' };
   }
-  return { recorded: true, at };
+  return replacedQuestion === undefined ? { recorded: true, at } : { recorded: true, at, replacedQuestion };
 }
 
 /* #6209 review 5: the record's tail as rows, shared by read() and lineUnderProviderBlock so both see one window.
@@ -794,6 +806,17 @@ const NEEDS_YOU_ASK_NOTE = 'Before a person has to answer this: can you undo it 
 const NEEDS_YOU_HELD_NOTE = 'Held: the board shows this question as held until the person is back, and nothing buzzes or chases it. '
   + 'When they next message you directly, you are told; ask it then by running kosmos report needs_you again without --held, '
   + 'or keep holding it if they say so. When it is settled, run: kosmos report clear.';
+/* kosmos#9320: said when a report replaced an open question to the person. The CLI reads `note` up to its first double
+   quote (install/kosmos), so the question is quoted with single quotes and cleaned of quotes, backslashes and line
+   breaks, and cut short. */
+function replacedQuestionNote(question) {
+  /* Control characters go first: JSON would escape them as backslash-u sequences, which the macOS CLI would print. The cut
+     keeps whole characters (#7108, cutUnits): a split emoji would be escaped the same way. */
+  const q = String(question || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/["\\]/g, "'").replace(/\s+/g, ' ').trim();
+  const shown = q.length > 120 ? cutUnits(q, 117).trimEnd() + '...' : q;
+  return 'This also took your open question to the person off the board' + (shown ? " ('" + shown + "')" : '')
+    + '. If it still stands, ask it again with kosmos report needs_you.';
+}
 const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
   + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you \'<your question>\'';
 function blockedOwnerNote(state, owner, opts) {
@@ -820,4 +843,4 @@ function withdrawnLine(question, why) {
 }
 
 module.exports = { TURN_START_TEXT, TURN_END_TEXT /* kosmos#8961 */, withdrawnLine, turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
-  blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE, NEEDS_YOU_HELD_NOTE /* #7915 */ };
+  blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE, NEEDS_YOU_HELD_NOTE /* #7915 */, replacedQuestionNote /* kosmos#9320 */ };
