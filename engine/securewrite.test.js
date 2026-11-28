@@ -1154,7 +1154,12 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
 /* kosmos#9307: a plain file planted at all three guessable temp names made each create fail EEXIST, and three EEXISTs
    reached the in-place fallback (on Windows, a race at the config itself). A file already at a FRESH temp name is a plant,
    so it refuses the save as a swapped name does; one is enough when the other attempts fail for another reason. CONTROL:
-   three EPERM failures still take the fallback and write, so the rule is about EEXIST, not about failing. A single plant
+   three EPERM failures still take the fallback and write, so the rule is about a name at the fresh temp name (EEXIST, or since #9325 any failure with the name present), not about failing. A single plant
+   followed by a clean attempt still saves: the #1787 retry test here and the #1761 ones in sendertoken.test.js cover that. */
+/* kosmos#9307: a plain file planted at all three guessable temp names made each create fail EEXIST, and three EEXISTs
+   reached the in-place fallback (on Windows, a race at the config itself). A file already at a FRESH temp name is a plant,
+   so it refuses the save as a swapped name does; one is enough when the other attempts fail for another reason. CONTROL:
+   three EPERM failures still take the fallback and write, so the rule is about a name at the fresh temp name (EEXIST, or since #9325 any failure with the name present), not about failing. A single plant
    followed by a clean attempt still saves: the #1787 retry test here and the #1761 ones in sendertoken.test.js cover that. */
 /* kosmos#9325: on Windows a delete-pending file (held open, marked for deletion the classic way) keeps its name and
    makes the create fail EPERM (measured on Windows build 26100). Simulated on any host: a file at the name and an EPERM
@@ -1163,14 +1168,14 @@ test('#9325: an EPERM on the temp create with a file at its name refuses the sav
   const realOpen = fs.openSync;
   const made = [];
   t.after(() => { fs.openSync = realOpen; for (const p of made) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
-  const run = (name, withName) => {
+  const run = (name, withName, code = 'EPERM') => {
     const file = fresh(name);
     fs.writeFileSync(file, 'old config');
     let inPlace = 0;
     fs.openSync = function (p, flags, ...rest) {
       if (flags === 'wx' && String(p).includes('.kosmos-')) {
         if (withName) { made.push(String(p)); fs.writeFileSync(String(p), 'pending'); }
-        throw Object.assign(new Error('access denied'), { code: 'EPERM' });
+        throw Object.assign(new Error('access denied'), { code });
       }
       if (String(p) === file) inPlace += 1;
       return realOpen.call(fs, p, flags, ...rest);
@@ -1186,6 +1191,10 @@ test('#9325: an EPERM on the temp create with a file at its name refuses the sav
   assert.equal(pend.inPlace, 0, 'the in-place fallback opened the config');
   assert.equal(pend.after, 'old config');
   for (const p of made) assert.equal(fs.readFileSync(p, 'utf8'), 'pending', 'a pending file was removed');
+  // Any code with a name present counts, not only EPERM (a link at the name into a missing folder fails ENOENT).
+  const noent = run('noent3', true, 'ENOENT');
+  assert.equal(noent.err && noent.err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'an ENOENT with the name present did not refuse: ' + (noent.err && noent.err.code));
+  assert.equal(noent.after, 'old config');
   const ctl = run('eperm3b', false);
   assert.equal(ctl.err, null, 'CONTROL: an EPERM with no name should fall back: ' + (ctl.err && ctl.err.code));
   assert.equal(ctl.after, 'secret-9325', 'CONTROL: the fallback did not write');
@@ -1255,6 +1264,7 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
   assert.ok(ctl.inPlace >= 1, 'CONTROL: the fallback did not open the config');
   assert.equal(ctl.after, 'secret-9307', 'CONTROL: the fallback did not write');
 });
+
 
 /* kosmos#9285 review 5: the swap rule runs BEFORE the atomicOnly exit, so an atomicOnly write with a mixed plant (links
    at two names, a plain file at the third) still gets ERR_KOSMOS_TEMP_SWAPPED, with the first swap as its cause and

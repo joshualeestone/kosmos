@@ -26,3 +26,11 @@ refuse"). The EPERM-based tests moved by #9307 inject EPERM with no name, so the
 That nothing honest leaves a name at a fresh temp name while its create fails EPERM: the four honest EEXIST routes of
 #9307 apply, and our own just-made temp cannot be held by a scanner before our own create returns. Not measured: older
 Windows builds and non-NTFS volumes.
+
+## Review 1 (opus)
+Widened: any failed create with a name present at the fresh temp name (lstat answers) is a plant, not only EPERM: the
+name's existence is the evidence, and a link at the name into a missing folder fails ENOENT (ENOENT arm added; with the
+rule narrowed back to EPERM it goes red). Scoped: lstat answering on a delete-pending file is measured on build 26100
+only; where it does not answer, the save falls back as before. Noted: the lstat runs after the failed open, so a holder
+letting go in between makes one attempt an ordinary failure (accepted, like the rename window). The test moved after
+the #9307 test, and now asserts three attempts and the EPERM kept on the cause.

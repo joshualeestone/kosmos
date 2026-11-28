@@ -210,12 +210,13 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     save refused this way is not retried at once (as for a swap since #9285). That is meant: somebody is planting,
  *     and a prompt retry would only draw three more guessable names. githubdevice.js shows the code to a person, and
  *     shows this one.
- *   - (kosmos#9325) on Windows a file held open and marked for deletion the classic way makes the create fail EPERM,
- *     not EEXIST, while its name still lists and lstat answers (measured on Windows build 26100). An EPERM on the
- *     create with the name present counts as a plant too; an ordinary EPERM (a folder that refuses the create, the
- *     usual reason a Windows save reaches the fallback) leaves no name there and still falls back. Not closed: on POSIX
- *     a temp unlinked between the create and the rename fails the rename ENOENT, a race in the rename window accepted
- *     above.
+ *   - (kosmos#9325) a create that fails with any other code while something is at the fresh name (lstat answers)
+ *     counts as a plant too: on Windows a file held open and marked for deletion the classic way fails the create
+ *     EPERM, not EEXIST, while its name lists and lstat answers (measured on Windows build 26100 only; where lstat of
+ *     such a file does not answer, the save falls back as before). An ordinary failure (a folder that refuses the
+ *     create, the usual reason a Windows save reaches the fallback) leaves no name and still falls back. Not closed:
+ *     plant shapes that leave no name lstat can see, and on POSIX a temp unlinked between the create and the rename
+ *     (the rename fails ENOENT), a race in the rename window accepted above.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -540,11 +541,14 @@ function writeSecret(file, data, mode, opts) {
            four near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
            the in-place fallback (on Windows, a race at the config itself). So it counts as a refusal, as a swapped name
            does. */
-        /* kosmos#9325: on Windows a file held open and marked for deletion the classic way stays at its name (it lists
-           and lstat answers) and makes the create fail EPERM, not EEXIST (measured, Windows build 26100). An EPERM with
-           the name present is that plant; an ordinary EPERM (a folder that refuses the create) leaves no name. */
-        const pendingPlant = e && e.code === 'EPERM' && (() => { try { fs.lstatSync(tmp); return true; } catch { return false; } })();
-        if (e && (e.code === 'EEXIST' || pendingPlant)) {
+        /* kosmos#9325: whatever the code, a create that failed while something is AT the fresh name is a plant: the
+           name's existence is the evidence. On Windows a file held open and marked for deletion the classic way keeps
+           its name (it lists, lstat answers) and fails the create EPERM, not EEXIST (measured on Windows build 26100
+           only; where lstat of such a file does not answer, this falls back as before). An ordinary failure (a folder
+           that refuses the create) leaves no name. The lstat runs after the failed open, so a holder that lets go in
+           between turns a plant back into an ordinary failure for that one attempt: accepted, as the rename window is. */
+        const present = e && e.code !== 'EEXIST' && (() => { try { fs.lstatSync(tmp); return true; } catch { return false; } })();
+        if (e && (e.code === 'EEXIST' || present)) {
           throw Object.assign(new Error('a file was already at a fresh temp name'), { code: 'ERR_KOSMOS_TEMP_SWAPPED', planted: true, cause: e });
         }
         throw e;
