@@ -1882,6 +1882,8 @@ _kosmos_beside_lock() {
             continue
           fi
           rm -f "$d.break/$tk" 2>/dev/null; rmdir "$d.break" 2>/dev/null || true   # declined: on to the sleep
+        else
+          rmdir "$d.break" 2>/dev/null || true   # kosmos#9300: the token could not be written, so its own empty dir goes too
         fi
       else
         t1=""; for t1 in "$d.break"/*; do break; done   # the name seen BEFORE the age is judged

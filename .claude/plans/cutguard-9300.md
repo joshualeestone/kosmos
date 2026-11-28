@@ -15,8 +15,13 @@ CI 11-28 09:59 UTC (PR #9299, run 46132477969): tools/test-cut-guard.sh's twenty
 tests) can produce exactly that on a loaded runner, and the dead-holder, 400 s and pid-0 checks run within 60 s after,
 so all three failed with beside-runs.log.lock.break left. Not reproduced by six plain local runs of the file.
 
+The old code had a second route to the same empty dir: an owner's final rmdir fails because a late taker's token
+has just landed; that taker counts two entries, removes its own token and backs off, and the dir stays empty. The same
+change closes it, so either route explains the CI leftover. A third (review 3): a taker whose mkdir succeeded but whose
+token write failed (a full disk) left its own empty dir; that fall-through now removes it too.
+
 ## The change
-One line on the back-off path: `rmdir "$d.break"`. rmdir removes only an empty dir, so while the other taker's token is
+Two lines: `rmdir "$d.break"` on the back-off path and on the failed-token fall-through. rmdir removes only an empty dir, so while the other taker's token is
 there it does nothing and that taker (now also running this line) removes it. If a third taker made a fresh dir after
 it emptied, a late rmdir can remove that one before its token lands; that taker's write then fails and it neither
 breaks nor leaks, and polls again.
@@ -30,3 +35,6 @@ leave no break dir. Measured: on the old code it fails, leaving beside-runs.log.
 ## Weakest premise
 That the CI failure came from two takers colliding in the twenty-writer tests. It fits the leftover and the timing, and
 the forced back-off reproduces the exact state, but the collision itself was not caught on CI.
+
+Not covered by a test: the failed-token fall-through. Nothing can step in between its mkdir and its token write, so
+it is reasoned from the code, as the one-line rmdir there is.

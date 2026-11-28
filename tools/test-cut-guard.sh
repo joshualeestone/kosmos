@@ -1523,6 +1523,7 @@ for _p in $bwp; do wait "$_p"; done   # the writers only: a bare wait would also
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end fold-before-count
 nl9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; nw9139="$(grep -c '^E w' "$MB/beside-runs.log")"
 { [ "$nl9139" -ge 400 ] && [ "$nl9139" -le 500 ] && [ "$nw9139" = 300 ]; } && pass "#9139 twenty writers at once lose no line across the trim" || fail "#9139 concurrent writers lost lines ($nl9139 lines, $nw9139 of 300 writer lines)"
+[ ! -e "$MB/beside-runs.log.lock.break" ] && pass "#9300 no break dir is left after the first twenty-writer run" || fail "#9300 a break dir was left after the first twenty-writer run"; rm -rf "$MB/beside-runs.log.lock.break"
 # #9139 follow-up (CI 11-26 19:06 UTC lost 1 of 300 above): a writer that cannot get the lock gives up after a COUNT of
 # polls, which load reaches; it then appended unlocked and a trim's rename could drop the line. Now its line goes to a
 # pending file, read by readers and folded in by the next writer that holds the lock.
@@ -1548,7 +1549,7 @@ nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 { [ "$ng9139" -ge 1 ] && [ "$nw9139" = 300 ] && [ -z "$(ls "$MB" | grep '^beside-runs\.log\.pending')" ]; } && pass "#9139 twenty writers that mostly give up lose no line once folded ($ng9139 had given up while the lock was held)" || fail "#9139 writers that give up lost lines ($nw9139 of 300, $ng9139 were pending)"
 # #9300: and no break dir outlives them. A taker that backed off used to leave it empty, which held off every break for
 # 60 s and failed the dead-holder, 400 s and pid-0 checks below together; this names that state where it starts.
-[ ! -e "$MB/beside-runs.log.lock.break" ] && pass "#9300 no break dir is left after the twenty-writer runs" || fail "#9300 a break dir was left after the twenty-writer runs ($(ls -a "$MB/beside-runs.log.lock.break" 2>/dev/null | tr '\n' ' '))"
+[ ! -e "$MB/beside-runs.log.lock.break" ] && pass "#9300 no break dir is left after the second twenty-writer run" || fail "#9300 a break dir was left after the second twenty-writer run ($(ls -a "$MB/beside-runs.log.lock.break" 2>/dev/null | tr '\n' ' '))"
 rm -rf "$MB/beside-runs.log.lock.break"
 # Review 6 (besidefix): a lock just taken names a LIVE holder, the one the release checks, and does not read as stale.
 # Taking the pid inside $( ) named the substitution's own subshell, gone at once, so the next writer broke a held lock
