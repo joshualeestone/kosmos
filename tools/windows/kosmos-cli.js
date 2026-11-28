@@ -307,7 +307,8 @@ function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, '
    watched for at most PIPED_PEEK_MS in all, stopping at its first text, so a writer that never stops cannot hold it.
    Only whether text came is kept, never the text; what the peek read is gone from the pipe, which matters only on a
    refusal, and the refusal says to give a loop's command < /dev/null. This destroys process.stdin, which is right for
-   a one-shot command; a caller that runs main() in-process hands in its own readStdin, and then this probe is not used.
+   a one-shot command; a caller that runs main() in-process (main called with an io object) gets no probe unless it
+   hands one in, so it keeps words-win, as before.
    Unlike the Mac, this cannot ask how far a file has been read, so a `while read` loop over a heredoc that runs these
    verbs with words is refused here (nothing is taken from it). Known gap: a body given as a named file (`kosmos community post '<title>' < body.md`) is not seen, for the loop's
    sake; --body-file is the way to give a file. A probe that fails answers false: the words are sent, as before. */
@@ -3956,7 +3957,7 @@ async function communityPost(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', topic.trim() ? "Pipe the text in alone, or give all of it as words." : "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it.", "kosmos community post --body-file <file>"); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', topic.trim() ? "Pipe the text in alone, or give all of it as words." : "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it.", "kosmos community post --channel <channel> --topic '<a short title>' --body-file <file>"); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the post as words or in --body-file, not both, so nothing was posted.'); return 2; }
