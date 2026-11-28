@@ -11,8 +11,9 @@ passes in full on the Mac (no skip there). engine/windows-tests-1777 (the coupli
 - Every failing test name per file from run 46116390634 (WINCAND_ALL_NAMES).
 
 ## The change
-- Each file gains `SKIP_POSIX_SHELL = skipOnWin32(<reason>)` and `{ skip: SKIP_POSIX_SHELL }` on exactly the tests that
-  failed on Windows, by name (a loop-built name by its line).
+- Each file that skips gains `SKIP_POSIX_SHELL = skipOnWin32(<reason>)` and `{ skip: SKIP_POSIX_SHELL }` on exactly the
+  tests that failed on Windows, by name (a loop-built name by its line); the exceptions are the fixes below and the
+  both-CLI files, where only the Mac calls are guarded.
 - A test that drives both CLIs keeps its Windows CLI half running on Windows: only the Mac calls are guarded, a count that
   adds both CLIs' requests expects one run there (a RUNS constant in agent-model and delete-leftovers), a control that needs one
   CLI uses the one the host runs, and task-who's fixtures that came from Mac-only tests are made with the Windows CLI on
@@ -25,10 +26,15 @@ passes in full on the Mac (no skip there). engine/windows-tests-1777 (the coupli
   4. it runs install/kosmos with a bare bash, which reaches Git Bash, where the Mac and Linux CLI's check for a running
      board does not read the test board as Kosmos; and a Windows computer never runs that CLI (it runs
      tools/windows/kosmos-cli.js) (unknown-flag, open-1957).
-- Two are fixes, not skips, measured on the runner: feedback-note's control matched /feedback/ with forward slashes only
+- Fixes, not skips: update-ifnewer's engine test (this node, not the runtime's symlink; a file URL from pathToFileURL;
+  not yet measured on Windows at the time of writing), and two measured on the runner: feedback-note's control matched /feedback/ with forward slashes only
   (path.join on Windows gives backslashes), and version's warning names the installed command as KOSMOS_HOME +
   "/bin/kosmos" (mixed slashes on Windows); both run on Windows now and need no Windows branch.
 - Each file that skips has its HOST_BRANCH_EXCLUDED entry in tools/windows-tests.js carrying that reason (23 files).
+
+- The seven both-CLI files are in ALSO_ROOT, so the Windows CI job runs their Windows halves; Mac-only setup at
+  load (the runtime symlink, the Mac CLI's home) is guarded so a Windows account without the symlink privilege can load
+  them.
 
 ## Rejected
 - Skipping whole files: most have tests that already pass on Windows, and the both-CLI tests' Windows halves are the

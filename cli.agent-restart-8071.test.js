@@ -200,7 +200,7 @@ test('kosmos#8071 review 2: when the board cannot say who is asking, an agent ca
     const wp = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes'], { env: {} });
     assert.equal(wp.code, 0, 'CONTROL (Windows): a person was refused: ' + wp.err);
   }, null);
-  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: Mac CLI only; this case has no Windows CLI half
     await withStub(RESTARTED, async (port, seen) => {
       const r = await cli(port, ['agent', 'restart', 'sally sales', '--yes']);
       assert.equal(r.code, 2, 'a differently cased own name was restarted: ' + r.out);
@@ -210,7 +210,7 @@ test('kosmos#8071 review 2: when the board cannot say who is asking, an agent ca
 });
 
 test('kosmos#8071 review 3: a person in tmux the board does not know goes on; a board that did not answer refuses an agent; a byte-order mark does not hide yourself', async () => {
-  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: Mac CLI only; this case has no Windows CLI half
     await withStub(RESTARTED, async (port, seen) => {
       const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
       assert.equal(r.code, 0, 'a person in a tmux pane the board does not know was refused: ' + r.out);
@@ -228,7 +228,7 @@ test('kosmos#8071 review 3: a person in tmux the board does not know goes on; a 
     assert.match(w.err, /could not say who is asking/, 'Windows misnamed a board that did not answer');
     assert.equal(seen.length, 0);
   }, 'DOWN');
-  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: Mac CLI only; this case has no Windows CLI half
     await withStub(RESTARTED, async (port, seen) => {
       const r = await cli(port, ['agent', 'restart', '\ufeffme-agent', '--yes']);
       assert.equal(r.code, 2, 'a leading byte-order mark let an agent restart itself: ' + r.out);
