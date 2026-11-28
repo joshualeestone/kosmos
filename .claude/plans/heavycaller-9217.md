@@ -42,3 +42,8 @@ The installed copy (~/.cache/claude-handoffs/queued-heavy.sh) is updated separat
 - A plain word such as "release" stays in the label, so an unanchored `pgrep -f release` sees it for those few seconds;
   breaking it would garble ordinary names. Measured 2026-11-27: no `pgrep -f` in tools/ outside the tests matches a
   bare word; each matches a script path (such as `run-tests\.sh`), a listener pattern or a sandbox path.
+
+## Review stop
+Eight blind rounds (opus and sonnet alternating), then stopped by Splinter's usage rule (Fleet Builders m510,
+2026-10-26). Round 8's WARNINGs are kosmos#9246: an explicitly set real marker folder stays silent, and a name the
+board refuses (a control character) is still reported as asked.
