@@ -10,7 +10,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert/strict');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-restartcite-8178-'));
@@ -174,7 +173,7 @@ test('kosmos#8178 round 2: a restored post keeps whose it was and whom it addres
   assert.equal(r.json.delivery.repliesToPerson, true, 'a reply to the person\'s restored post is not said to answer the person (the phone seam, #6254): ' + JSON.stringify(r.json.delivery));
 });
 
-test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again after a pause', { skip: skipOnWin32('what it checks exists on Windows and fails open there: with a folder where the message log goes, the reader reads an empty log, not an unreadable one (kosmos#9279, a real bug; this skip goes when it is fixed)') }, () => {
+test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again after a pause', () => {
   messages.resetForTests();
   const ids = messages._idsPathForTests();
   const log = path.join(path.dirname(ids), 'messages.jsonl');
