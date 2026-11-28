@@ -17,6 +17,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * that neither arm reproduces the silent-exit-0 the card is about.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); under Git Bash the check that CLI makes for a running board does not see the test board');   // kosmos#8378
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const http = require('node:http');
@@ -63,7 +64,7 @@ function runOpen(env) {
   });
 }
 
-test('#1957: `kosmos open` announces the dashboard and exits 0 when the browser opens', async () => {
+test('#1957: `kosmos open` announces the dashboard and exits 0 when the browser opens', { skip: SKIP_POSIX_SHELL }, async () => {
   const { server, port } = await fakeBoard();
   const { bin, marker, dir } = stubOpen(0);
   try {
@@ -79,7 +80,7 @@ test('#1957: `kosmos open` announces the dashboard and exits 0 when the browser 
   }
 });
 
-test('#1957: `kosmos open` names the failure and exits non-zero when the browser cannot open', async () => {
+test('#1957: `kosmos open` names the failure and exits non-zero when the browser cannot open', { skip: SKIP_POSIX_SHELL }, async () => {
   const { server, port } = await fakeBoard();
   const { bin, dir } = stubOpen(3);
   try {
@@ -125,7 +126,7 @@ function enforcingHome(token) {
   return { home, root };
 }
 
-test('#1979: on an enforcing board, `kosmos open` hands the browser a ?boot=<nonce>, never the durable token', async () => {
+test('#1979: on an enforcing board, `kosmos open` hands the browser a ?boot=<nonce>, never the durable token', { skip: SKIP_POSIX_SHELL }, async () => {
   const NONCE = 'abc123deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01'; // 64-hex, like a real nonce
   const TOKEN = 'durable-board-token-should-never-appear-on-argv';
   const { server, port, seen } = await nonceBoard(NONCE);
@@ -147,7 +148,7 @@ test('#1979: on an enforcing board, `kosmos open` hands the browser a ?boot=<non
   }
 });
 
-test('#1979: if the nonce mint fails, `kosmos open` falls back to the PLAIN url, still never the token', async () => {
+test('#1979: if the nonce mint fails, `kosmos open` falls back to the PLAIN url, still never the token', { skip: SKIP_POSIX_SHELL }, async () => {
   const TOKEN = 'durable-token-2';
   // A board that is healthy but REFUSES to mint (500), simulating an enforcing
   // board where the mint failed. cmd_open must fall back to the plain URL, not

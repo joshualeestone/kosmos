@@ -11,6 +11,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test cli.update-ifnewer-4382.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const SKIP_MAC_LAYOUT = require('./test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but its fixture builds the Mac installed layout (runtime/bin/node) and Windows reads the portable zip layout (runtime\\node.exe), so there the look answers source; its Windows arm is owed on kosmos#9280');   // kosmos#8378
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -29,7 +31,7 @@ const RUNNING = '1.0.0';
 
 function layout() {
   fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-  fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+  if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI runs it
   fs.mkdirSync(path.join(HOME, 'app', 'engine'), { recursive: true });
   fs.writeFileSync(path.join(HOME, 'app', 'package.json'), JSON.stringify({ version: RUNNING }) + '\n');
   fs.writeFileSync(path.join(HOME, 'app', 'server.js'), '');
@@ -108,7 +110,7 @@ function run(args, extra = {}) {
 }
 const ran = () => (fs.existsSync(RAN) ? fs.readFileSync(RAN, 'utf8') : '');
 
-test('#4382: nothing newer says current and runs nothing', async () => {
+test('#4382: nothing newer says current and runs nothing', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: RUNNING });
   const r = await run(['--if-newer']);
   assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -116,7 +118,7 @@ test('#4382: nothing newer says current and runs nothing', async () => {
   assert.equal(ran(), '');
 });
 
-test('#4382: newer with no Updates file (consent on, as on a connect Mac) installs, with the board\'s three variables', async () => {
+test('#4382: newer with no Updates file (consent on, as on a connect Mac) installs, with the board\'s three variables', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   const r = await run(['--if-newer']);
   assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -128,7 +130,7 @@ test('#4382: newer with no Updates file (consent on, as on a connect Mac) instal
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /installer output/);
 });
 
-test('#4382: Updates switched off offers and installs nothing; --install installs it', async () => {
+test('#4382: Updates switched off offers and installs nothing; --install installs it', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0', consent: '{"on":false}' });
   let r = await run(['--if-newer']);
   assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -139,7 +141,7 @@ test('#4382: Updates switched off offers and installs nothing; --install install
   assert.equal(ran(), 'installer=setup base=file://' + DIST + ' pointer=prod channel=prod\n');
 });
 
-test('#4382: an Updates file that cannot be read is OFF, never consent (autoupdate.js)', async () => {
+test('#4382: an Updates file that cannot be read is OFF, never consent (autoupdate.js)', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0', consent: 'not json' });
   const r = await run(['--if-newer']);
   assert.equal(r.last, 'newer 1.2.0');
@@ -149,7 +151,7 @@ test('#4382: an Updates file that cannot be read is OFF, never consent (autoupda
   assert.equal((await run(['--if-newer'])).last, 'updated 1.2.0');
 });
 
-test('#4382: a staging install follows its stamp, and takes a newer prod build while staying on staging (#2969)', async () => {
+test('#4382: a staging install follows its stamp, and takes a newer prod build while staying on staging (#2969)', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.1.0', staging: '1.3.0', stamp: 'staging' });
   let r = await run(['--if-newer']);
   assert.equal(r.last, 'updated 1.3.0');
@@ -163,7 +165,7 @@ test('#4382: a staging install follows its stamp, and takes a newer prod build w
   assert.equal((await run(['--if-newer'])).last, 'updated 1.1.0');
 });
 
-test('#4382: a failed installer is failed, exit 1, and its code is recorded', async () => {
+test('#4382: a failed installer is failed, exit 1, and its code is recorded', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   const r = await run(['--if-newer'], { FAKE_SETUP_RC: '7' });
   assert.equal(r.code, 1, r.stdout + r.stderr);
@@ -172,7 +174,7 @@ test('#4382: a failed installer is failed, exit 1, and its code is recorded', as
   assert.equal(fs.existsSync(path.join(HOME, 'logs', 'install.started')), false);
 });
 
-test('#4382: a host with no pointer, or an unreadable one, is unknown, never current', async () => {
+test('#4382: a host with no pointer, or an unreadable one, is unknown, never current', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({});
   let r = await run(['--if-newer']);
   assert.equal(r.code, 1, r.stdout + r.stderr);
@@ -184,7 +186,7 @@ test('#4382: a host with no pointer, or an unreadable one, is unknown, never cur
   assert.equal(ran(), '');
 });
 
-test('#4382: a running board updates itself; the verb does nothing', async () => {
+test('#4382: a running board updates itself; the verb does nothing', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   // A process whose command line carries app/server.js, as running_pid checks.
   const { spawn } = require('node:child_process');
@@ -202,7 +204,7 @@ test('#4382: a running board updates itself; the verb does nothing', async () =>
   }
 });
 
-test('#4382: a wrong call is a usage line and exit 2; --help is help', async () => {
+test('#4382: a wrong call is a usage line and exit 2; --help is help', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const args of [[], ['--install'], ['--if-newer', '--bogus']]) {
     const r = await run(args);
     assert.equal(r.code, 2, args.join(' ') + ': ' + r.stdout + r.stderr);
@@ -215,7 +217,7 @@ test('#4382: a wrong call is a usage line and exit 2; --help is help', async () 
   assert.equal(ran(), '', '--help must never install');
 });
 
-test('#4382: only a computer set to connect elsewhere, and only a person, may update this way', async () => {
+test('#4382: only a computer set to connect elsewhere, and only a person, may update this way', { skip: SKIP_POSIX_SHELL }, async () => {
   const MODE = path.join(HOME, 'mode');
   try {
     for (const [word, why] of [['run\n', 'run'], ['both\n', 'both'], ['connect-ish\n', 'not exactly connect'], [null, 'no mode file']]) {
@@ -240,7 +242,7 @@ test('#4382: only a computer set to connect elsewhere, and only a person, may up
   }
 });
 
-test('#4382: the look never starts the board\'s own install, even with Updates on', async () => {
+test('#4382: the look never starts the board\'s own install, even with Updates on', { skip: SKIP_MAC_LAYOUT }, async () => {
   reset({ prod: '1.2.0' });   // no Updates file: consent on
   const BEGAN = path.join(T, 'began.txt');
   fs.rmSync(BEGAN, { force: true });
@@ -250,11 +252,13 @@ test('#4382: the look never starts the board\'s own install, even with Updates o
     update.setInstallRunner(() => { require('fs').writeFileSync(${JSON.stringify(BEGAN)}, 'began'); return null; });
     require(${JSON.stringify(path.join(HOME, 'app', 'engine', 'update-ifnewer.js'))}).decide()
       .then((d) => { process.stdout.write(d.line.join(' ')); setTimeout(() => {}, 300); });`;
-  const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: 'file://' + DIST };
+  // kosmos#8378: a file URL built for the host (a Windows path needs file:///C:/...), not 'file://' + a path.
+  const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: require('node:url').pathToFileURL(DIST).href };
   for (const k of ['AGENT_WORKFORCE_RELEASE_BASE', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL', 'KOSMOS_SOURCE_CHANNEL']) delete env[k];
   const out = await new Promise((resolve, reject) => {
     // exit code not read (#3628): any failure, a non-zero exit included, rejects with the error and stderr.
-    execFile(path.join(HOME, 'runtime', 'bin', 'node'), ['-e', script], { env, timeout: 30000 }, (err, stdout, stderr) => {
+    // kosmos#8378: this node itself, not the runtime's symlink to it (a symlink needs a privilege on Windows).
+    execFile(process.execPath, ['-e', script], { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(err) + stderr)); else resolve(stdout);
     });
   });
@@ -262,7 +266,7 @@ test('#4382: the look never starts the board\'s own install, even with Updates o
   assert.equal(fs.existsSync(BEGAN), false, 'checkNow() reached beginInstall: the board\'s auto-install ran inside the look');
 });
 
-test('#4382: an install already under way here (a fresh logs/install.started) is not raced; an interrupted one is not in the way', async () => {
+test('#4382: an install already under way here (a fresh logs/install.started) is not raced; an interrupted one is not in the way', { skip: SKIP_POSIX_SHELL }, async () => {
   const MARK = path.join(HOME, 'logs', 'install.started');
   reset({ prod: '1.2.0' });
   fs.mkdirSync(path.dirname(MARK), { recursive: true });
@@ -281,7 +285,7 @@ test('#4382: an install already under way here (a fresh logs/install.started) is
 });
 
 /* #6468 ask 3: the installer runs only after the installed copy has checked it against the target's signed manifest. */
-test('#6468: an installer that does not match its signed release is not run: 97 recorded, failed, the reason logged', async () => {
+test('#6468: an installer that does not match its signed release is not run: 97 recorded, failed, the reason logged', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   publishSigned('1.2.0', 'setup', { setupSha: 'f'.repeat(64) });
   const r = await run(['--if-newer']);
@@ -291,7 +295,7 @@ test('#6468: an installer that does not match its signed release is not run: 97 
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.status'), 'utf8'), /^97 /);
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /does not match its signed release, so the installer was not run/);
 });
-test('#6468: a missing signature, or a manifest signed by another key, runs nothing', async () => {
+test('#6468: a missing signature, or a manifest signed by another key, runs nothing', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   fs.rmSync(path.join(DIST, 'kosmos-1.2.0-arm64.manifest.json.sig'));
   let r = await run(['--if-newer']);
@@ -306,7 +310,7 @@ test('#6468: a missing signature, or a manifest signed by another key, runs noth
   assert.equal(ran(), '');
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /not signed by the Kosmos release key/);
 });
-test('#6468: a signed manifest that records no installer runs NOTHING (a cut gone wrong is not a pass)', async () => {
+test('#6468: a signed manifest that records no installer runs NOTHING (a cut gone wrong is not a pass)', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   const m = path.join(DIST, 'kosmos-1.2.0-arm64.manifest.json');
   fs.writeFileSync(m, JSON.stringify({ manifest: 1, version: '1.2.0', arch: 'arm64', files: [] }) + '\n');
@@ -325,7 +329,7 @@ function pauseAnswer(body) {
   fs.writeFileSync(f, body);
   return 'file://' + f;
 }
-test('#6781: paused, a newer version answers paused and runs nothing; CONTROL: not paused, it installs', async () => {
+test('#6781: paused, a newer version answers paused and runs nothing; CONTROL: not paused, it installs', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0' });
   const held = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
   assert.equal(held.code, 0, held.stdout + held.stderr);
@@ -338,7 +342,7 @@ test('#6781: paused, a newer version answers paused and runs nothing; CONTROL: n
   const control = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": false}') });
   assert.equal(control.last, 'updated 1.2.0', control.stdout + control.stderr);
 });
-test('#6781: --install does not pass a pause, an unreachable coordinator does not hold, and a pause does not hide that nothing is newer', async () => {
+test('#6781: --install does not pass a pause, an unreachable coordinator does not hold, and a pause does not hide that nothing is newer', { skip: SKIP_POSIX_SHELL }, async () => {
   reset({ prod: '1.2.0', consent: '{"on":false}' });
   const forced = await run(['--if-newer', '--install'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
   assert.equal(forced.last, 'paused 1.2.0', forced.stdout + forced.stderr);
@@ -351,7 +355,7 @@ test('#6781: --install does not pass a pause, an unreachable coordinator does no
   assert.equal(current.last, 'current ' + RUNNING, 'a pause does not hide that nothing is newer');
 });
 
-test('#7935: on Linux the board cannot install, so a person runs this verb even with a board running and no connect mode', async () => {
+test('#7935: on Linux the board cannot install, so a person runs this verb even with a board running and no connect mode', { skip: SKIP_POSIX_SHELL }, async () => {
   const MODE = path.join(HOME, 'mode');
   const linux = { KOSMOS_PLATFORM: 'Linux' };
   const { spawn } = require('node:child_process');
@@ -399,7 +403,7 @@ test('#7935: on Linux the board cannot install, so a person runs this verb even 
   }
 });
 
-test('#7935: on Linux with the board stopped (mode run), the person running the verb installs; the Mac is still refused', async () => {
+test('#7935: on Linux with the board stopped (mode run), the person running the verb installs; the Mac is still refused', { skip: SKIP_POSIX_SHELL }, async () => {
   const MODE = path.join(HOME, 'mode');
   try {
     fs.writeFileSync(MODE, 'run\n');

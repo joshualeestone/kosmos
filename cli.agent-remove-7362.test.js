@@ -8,6 +8,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -20,7 +21,7 @@ const { earlyReaders } = require('./test-support/early-readers');
 
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agentrm-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -68,7 +69,7 @@ async function cli(port, args) {
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
 
-test('#7362 Mac: --yes reads the plan, then removes through the same route, never forced, and says it can be put back', () => withStub([200, PLAN], REMOVED, async (port, seen) => {
+test('#7362 Mac: --yes reads the plan, then removes through the same route, never forced, and says it can be put back', { skip: SKIP_POSIX_SHELL }, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.out);
   // kosmos#8109: the DELETE goes to the agent the plan resolved (PLAN.name), not the typed name again.
@@ -79,7 +80,7 @@ test('#7362 Mac: --yes reads the plan, then removes through the same route, neve
   assert.match(r.out, /It can be put back from the board/);
 }));
 
-test('#7362 Mac: a refused plan prints the board\'s reason and sends no DELETE', () => withStub(REFUSED_PLAN, REMOVED, async (port, seen) => {
+test('#7362 Mac: a refused plan prints the board\'s reason and sends no DELETE', { skip: SKIP_POSIX_SHELL }, () => withStub(REFUSED_PLAN, REMOVED, async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'nobody', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Kosmos will not remove nobody: we cannot find an agent called nobody\.$/m);
@@ -87,7 +88,7 @@ test('#7362 Mac: a refused plan prints the board\'s reason and sends no DELETE',
   assert.equal(deletes(seen).length, 0, 'a refused plan still sent the removal');
 }));
 
-test('#7362 Mac: a partial removal exits non-zero and says partly', () => withStub([200, PLAN], PARTIAL, async (port, seen) => {
+test('#7362 Mac: a partial removal exits non-zero and says partly', { skip: SKIP_POSIX_SHELL }, () => withStub([200, PLAN], PARTIAL, async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(r.code, 1, 'exit ' + r.code + ' (141 is SIGPIPE under pipefail); the CLI said: ' + r.out);   // #7946
   assert.equal(deletes(seen).length, 1);
@@ -95,14 +96,14 @@ test('#7362 Mac: a partial removal exits non-zero and says partly', () => withSt
   assert.doesNotMatch(r.out, /can be put back/);
 }));
 
-test('#7362 Mac: no --yes and no terminal is refused before anything is sent', () => withStub([200, PLAN], REMOVED, async (port, seen) => {
+test('#7362 Mac: no --yes and no terminal is refused before anything is sent', { skip: SKIP_POSIX_SHELL }, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales']);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /Nothing was removed: there is no terminal here to confirm on\. To remove Sally Sales without being asked, add --yes\./);
   assert.equal(seen.length, 0, 'a refused run still reached the board');
 }));
 
-test('#7362 Mac: an option-shaped name, a missing name, or an extra word is refused before any request', () => withStub([200, PLAN], REMOVED, async (port, seen) => {
+test('#7362 Mac: an option-shaped name, a missing name, or an extra word is refused before any request', { skip: SKIP_POSIX_SHELL }, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
   const opt = await cli(port, ['agent', 'remove', '--foo', '--yes']);
   assert.equal(opt.code, 2, opt.out);
   assert.match(opt.out, /--foo is not an option of kosmos agent remove, so nothing was done\./);
@@ -256,7 +257,7 @@ test('#7362 review 1: a connection dropped after the removal was sent says it MA
   } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });
 
-test('#7362 review 2 Mac: a removal that threw partway (500 {error, detail}) says it MAY be partly removed, exit 3', () => withStub([200, PLAN], [500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: 'boom' }], async (port, seen) => {
+test('#7362 review 2 Mac: a removal that threw partway (500 {error, detail}) says it MAY be partly removed, exit 3', { skip: SKIP_POSIX_SHELL }, () => withStub([200, PLAN], [500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: 'boom' }], async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(deletes(seen).length, 1, 'CONTROL: the removal was sent; the CLI exited ' + r.code + ' and said: ' + r.out);   // #7946
   assert.equal(r.code, 3, r.out);
@@ -264,7 +265,7 @@ test('#7362 review 2 Mac: a removal that threw partway (500 {error, detail}) say
   assert.doesNotMatch(r.out, /did not remove/);
 }));
 
-test('#7362 review 2 Mac: a connection dropped after the removal was sent says it MAY have been removed, exit 3', async () => {
+test('#7362 review 2 Mac: a connection dropped after the removal was sent says it MAY have been removed, exit 3', { skip: SKIP_POSIX_SHELL }, async () => {
   let deleted = 0;
   const srv = http.createServer((req, res) => {
     if (req.method === 'DELETE') { deleted++; req.socket.destroy(); return; }
@@ -289,7 +290,7 @@ for (const dot of ['.', '..']) {
     await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
     assert.equal(deletes(seen).length, 1, 'CONTROL: a plain name is sent');
   }));
-  test(`#7362 review 2 Mac: "${dot}" is refused as a name before any request (control: a plain name is sent)`, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
+  test(`#7362 review 2 Mac: "${dot}" is refused as a name before any request (control: a plain name is sent)`, { skip: SKIP_POSIX_SHELL }, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
     const m = await cli(port, ['agent', 'remove', dot, '--yes']);
     assert.equal(m.code, 2, m.out);
     assert.equal(seen.length, 0, 'nothing was sent');
@@ -324,7 +325,7 @@ test('#7946: install/kosmos agent remove\'s request code has no pipeline into an
 
 /* kosmos#8109: the removal goes to the agent the PLAN resolved (its folder name), not the typed name again, so a board
    that changed while the person answered cannot point the DELETE at another agent. */
-test('#8109 Mac: the DELETE goes to the name the plan resolved, not the name as typed', () => withStub(
+test('#8109 Mac: the DELETE goes to the name the plan resolved, not the name as typed', { skip: SKIP_POSIX_SHELL }, () => withStub(
   [200, { ...PLAN, name: 'cai', label: 'Cai' }], REMOVED, async (port, seen) => {
     const r = await cli(port, ['agent', 'remove', 'Cai', '--yes']);
     assert.equal(r.code, 0, r.out);
@@ -334,7 +335,7 @@ test('#8109 Mac: the DELETE goes to the name the plan resolved, not the name as 
     assert.match(seen[0].url, /\/api\/agent\/Cai\/removal\?resolve=1$/, 'the plan was not asked by the typed name, with resolve=1');
   }));
 
-test('#8109 Mac: a plan with no name (an older board) keeps the typed name for the DELETE', () => withStub(
+test('#8109 Mac: a plan with no name (an older board) keeps the typed name for the DELETE', { skip: SKIP_POSIX_SHELL }, () => withStub(
   [200, { ...PLAN, name: undefined }], REMOVED, async (port, seen) => {
     const r = await cli(port, ['agent', 'remove', 'sally-sales', '--yes']);
     assert.equal(r.code, 0, r.out);

@@ -21,6 +21,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs /bin/sh by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,7 +37,7 @@ function harness(file, args, opts) {
   });
 }
 
-test('#3628: a CLI killed by the harness timeout fails the test instead of returning a code', async () => {
+test('#3628: a CLI killed by the harness timeout fails the test instead of returning a code', { skip: SKIP_POSIX_SHELL }, async () => {
   await assert.rejects(harness('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 }), /no exit code \(SIGTERM\)/);
 });
 
@@ -44,12 +45,12 @@ test('#3628: a CLI that cannot be spawned fails the test instead of returning a 
   await assert.rejects(harness(path.join(__dirname, 'no-such-cli-3628'), [], {}), /no exit code \(ENOENT\)/);
 });
 
-test('#3628: real exit codes and success still come through', async () => {
+test('#3628: real exit codes and success still come through', { skip: SKIP_POSIX_SHELL }, async () => {
   assert.equal((await harness('/bin/sh', ['-c', 'exit 3'], {})).code, 3);
   assert.equal((await harness('/bin/sh', ['-c', 'echo hi; exit 0'], {})).code, 0);
 });
 
-test('#3628 CONTRAST: why the harness rejects rather than returning a sentinel', async () => {
+test('#3628 CONTRAST: why the harness rejects rather than returning a sentinel', { skip: SKIP_POSIX_SHELL }, async () => {
   const err = await new Promise((r) => execFile('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 }, (e) => r(e)));
   assert.equal(err.code, null);
   const ZERO = 0, ONE = 1;

@@ -63,6 +63,8 @@ test('#4892: a patched copy elsewhere says it is not the installed one, on stder
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, '9.9.9\n', 'stdout is no longer just the version');
   assert.match(r.err, /This kosmos command \(.*tmp-kosmos\) is not the one installed with Kosmos/);
-  assert.ok(r.err.includes(INSTALLED), 'the warning does not name the command to run instead');
+  // kosmos#8378 (measured on GitHub's Windows runner): the script names it as KOSMOS_HOME + "/bin/kosmos", so on Windows
+  // the last two separators are forward slashes; on the Mac it is the same string as INSTALLED.
+  assert.ok(r.err.includes(HOME_ + '/bin/kosmos'), 'the warning does not name the command to run instead: ' + r.err);
   assert.ok(!/—/.test(r.err));
 });

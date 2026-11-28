@@ -135,7 +135,7 @@ test('CONTROL: the report the CLI writes lands in the throwaway data folder', as
   const h = makeHome();
   await run(['feedback', 'write', 'report'], h);
   const found = [];
-  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\/feedback\/\d{4}-\d{2}-\d{2}\.md$/.test(p)) found.push(p); } };
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/[\\/]feedback[\\/]\d{4}-\d{2}-\d{2}\.md$/.test(p)) found.push(p); } };
   walk(h.data);
   assert.equal(found.length, 1, JSON.stringify(found));
 });

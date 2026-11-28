@@ -13,6 +13,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -160,7 +161,7 @@ test('#8905 the literal $(cat) appears in no Mac CLI command line any more, exce
   assert.deepEqual(bare.map(([n, l]) => n + ': ' + l.trim().slice(0, 120)), []);
 });
 
-test('#8905 review: with no node at all (no bundled one, none on PATH), a silent pipe is refused at once, never waited on', async (t) => {
+test('#8905 review: with no node at all (no bundled one, none on PATH), a silent pipe is refused at once, never waited on', { skip: SKIP_POSIX_SHELL }, async (t) => {
   const h = makeHome();
   fs.rmSync(path.join(h.home, 'runtime'), { recursive: true, force: true });   // no bundled node
   /* The CLI puts the chosen tmux's folder first on PATH (a system tmux in /opt/homebrew/bin brings that folder's node
