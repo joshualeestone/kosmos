@@ -33,6 +33,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
@@ -132,7 +133,8 @@ test('#9188 engine/tasklist.js: the compact list quotes a title with a mark word
 
 test('#9188 both CLIs: an open task\'s title cannot print a row mark; a plain one is unchanged (control)', async () => {
   MAC_HOME = MAC_HOME || macHome(true);
-  for (const [label, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a, MAC_HOME)]]) {
+  // kosmos#8378: on Windows only the Windows CLI's half runs (the Mac CLI runs install/kosmos by its shebang).
+  for (const [label, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a, MAC_HOME)]].filter(([l]) => !(SKIP_POSIX_SHELL && l === 'Mac'))) {
     const r = await run(['task', 'list', projectId]);
     assert.equal(r.code, 0, label + ': ' + r.out + (r.err || ''));
     assert.ok(!/^\{"tasks"/m.test(r.out), label + ': the list fell back to raw JSON, so the rendering was never run');
@@ -145,7 +147,7 @@ test('#9188 both CLIs: an open task\'s title cannot print a row mark; a plain on
   }
 });
 
-test('#9188 Mac: an install without engine/markwords.js prints the titles as before (no failure)', async () => {
+test('#9188 Mac: an install without engine/markwords.js prints the titles as before (no failure)', { skip: SKIP_POSIX_SHELL }, async () => {
   MAC_HOME_OLD = MAC_HOME_OLD || macHome(false);
   const r = await mac(['task', 'list', projectId], MAC_HOME_OLD);
   assert.equal(r.code, 0, r.out);
