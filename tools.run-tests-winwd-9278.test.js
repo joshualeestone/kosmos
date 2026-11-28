@@ -36,8 +36,15 @@ test('#9278: on Windows a file stuck in a sync call is stopped at the limit, nam
   fs.writeFileSync(hang, "require('node:test')('blocks', () => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 600000); });\n");
   fs.writeFileSync(quick, "require('node:test')('ends', () => {});\n");
   const started = Date.now();
+  /* As tools.run-tests-file-timeout-6668 does: without its own NODE_TEST_CONTEXT dropped, the inner node --test reports to
+     this one and exits 0 (measured on the Windows runner: a stopped file and a green run). */
+  const env = { ...process.env };
+  for (const k of ['NODE_TEST_CONTEXT', 'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'KOSMOS_SHELL_PLATFORM',
+    'KOSMOS_TEST_FILE_TIMEOUT_MIN', 'KOSMOS_TEST_TIMEOUT_MS', 'KOSMOS_RT_STOP_OWN_NODE', 'KOSMOS_MACHINE_CLAIM_COOKIE',
+    'KOSMOS_LIGHT_SIDE_COOKIE']) delete env[k];
+  Object.assign(env, { KOSMOS_TEST_FILE_TIMEOUT_S: '30', KOSMOS_WINWD_9278_INNER: '1', KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
   const r = spawnSync('bash', [RUNNER, '--only', hang, quick], {
-    env: { ...process.env, KOSMOS_TEST_FILE_TIMEOUT_S: '30', KOSMOS_WINWD_9278_INNER: '1' },
+    env,
     encoding: 'utf8', timeout: 240000,
   });
   const took = Date.now() - started;
