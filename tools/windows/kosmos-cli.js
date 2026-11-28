@@ -601,7 +601,8 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 
 /* kosmos#8961, as install/kosmos _say_msg_id: after a send, its id and the command that says later what happened to it. */
 function sayMsgId(ctx, d) {
-  if (d && d.duplicate !== true && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
+  // kosmos#9243, as install/kosmos: a duplicate prints its id too (the usual one is this CLI's own retry after a timeout).
+  if (d && typeof d.id === 'string' && /^m[1-9][0-9]{0,15}$/.test(d.id)) ctx.out('Its id is ' + d.id + ': kosmos msg --status ' + d.id + ' says later whether they answered or read it.');
 }
 const MSG_STATUS_USAGE = '   or: kosmos msg --status <id>  (whether they replied to a message you sent, read it without replying, or have not read it yet)';
 /* kosmos#8961, as install/kosmos _msg_status: `kosmos msg --status <id>` reads what happened to a direct message (answered

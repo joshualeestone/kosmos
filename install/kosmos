@@ -2988,7 +2988,8 @@ _msg_status() {
 # no answer, or not read yet). Silent when the answer carries no id (an older board).
 _say_msg_id() {
   local _mid
-  case "${1:-}" in *'"duplicate":true'*) return 0 ;; esac   # the first send already said it
+  # kosmos#9243: a duplicate prints its id too. The usual duplicate is the CLI's own retry after a timeout, whose first
+  # attempt printed nothing, and the not-confirmed line points at this id.
   _mid=$(printf '%s' "${1:-}" | sed -n 's/.*"delivery":{[^}]*"id":"\(m[123456789][0123456789]*\)".*/\1/p')
   [ -n "$_mid" ] && say "Its id is $_mid: kosmos msg --status $_mid says later whether they answered or read it."
   return 0
@@ -3137,8 +3138,10 @@ cmd_msg() {
   # #4580: a timeout or a cut reply may come AFTER the board delivered. The board keeps one copy of the
   # same send inside five minutes (engine/messages.js), so asking once more is safe, and turns "maybe"
   # into the board's real receipt.
+  local _retried=0
   case "$rc" in
     18|28|52|56)
+      _retried=1
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
       sleep 1   # not straight back into the same busy moment
       rc=0
@@ -3153,6 +3156,12 @@ cmd_msg() {
   esac
   if [ "$rc" -eq 28 ]; then
     say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again."
+    exit 3
+  elif [ "$_retried" = 1 ] && [ "$rc" -ne 0 ]; then
+    # kosmos#9243, as the Windows CLI: the first attempt was not refused, so it may have landed; a retry that also
+    # failed proves nothing, and there is no id to check.
+    say "Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again."
+    _keep_piped maybe   # a piped message keeps its copy, as before (the Windows CLI keeps none)
     exit 3
   elif [ "$rc" -ne 0 ]; then
     say_unreached "send that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
@@ -3180,7 +3189,8 @@ cmd_msg() {
           case "$body" in
             *'"queued":true'*|*'"queued": true'*) say "Queued with $to (it had arrived the first time; it was not sent twice)." ;;
             *) say "Placed with $to (it had arrived the first time; it was not sent twice)." ;;
-          esac ;;
+          esac
+          _say_msg_id "$body" ;;
         *'"queued":true'*|*'"queued": true'*) say "Queued with $to (they are mid-task, so they will not read this until it finishes)."; _say_msg_id "$body" ;;
         *) say "Placed with $to."; _say_msg_id "$body" ;;
       esac ;;
