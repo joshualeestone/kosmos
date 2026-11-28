@@ -999,27 +999,30 @@ test('kosmos#7621 item 4: a partial or unknown move tells the agent\'s thread wh
   assert.equal(cc.tells.filter(([, x]) => /could not tell|could not start/.test(x)).length, 0, 'CONTROL: a clean move said it did not finish');
 });
 
-test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tick, written or still waiting', async () => {
+test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tick, once its line is written', async () => {
   const file = fileFor();
   const run = automove.create({ file });
   const { d } = deps();
   await run.tick(d, NOW);
-  assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet');
-  automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 500, ON);
-  assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: the last tick has not read the person line');
-  assert.equal(run.leftAlone(NOW + 1000)('ada'), true, 'Settings would say Kosmos will move an agent a person just moved');
-  /* A person line the record could not take yet. Only this part needs a chmod lock that holds (kosmos#9315: not on
-     Windows); the written line above runs everywhere. */
-  if (!NO_CHMOD_LOCK) {
-    const dir = fs.mkdtempSync(path.join(TMP, 'la-'));
-    const f2 = path.join(dir, 'r.jsonl');
-    const r2 = automove.create({ file: f2 });
-    fs.chmodSync(dir, 0o555);
-    try {
-      assert.equal(automove.personMoved(f2, ['bo'], '/u/.claude-spare', NOW, ON), false, 'CONTROL: the line waits');
-      assert.equal(r2.leftAlone(NOW + 1000)('bo'), true, 'a person line still waiting was not seen');
-    } finally { fs.chmodSync(dir, 0o755); automove.resetUnwrittenPeopleForTests(); }
-  }
+  try {
+    assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet');
+    assert.equal(automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 500, ON), true, 'CONTROL: the person line was written');
+    assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: the last tick has not read the person line');
+    assert.equal(run.leftAlone(NOW + 1000)('ada'), true, 'Settings would say Kosmos will move an agent a person just moved');
+  } finally { automove.resetUnwrittenPeopleForTests(); }
+});
+
+/* kosmos#9315: the still-waiting half needs a folder chmod can make unwritable, which Windows does not enforce, so it
+   is its own test and its skip shows there. */
+test('kosmos#7621 item 2: Settings sees a person\'s move whose line is still waiting to be written', { skip: NO_CHMOD_LOCK }, () => {
+  const dir = fs.mkdtempSync(path.join(TMP, 'la-'));
+  const f2 = path.join(dir, 'r.jsonl');
+  const r2 = automove.create({ file: f2 });
+  fs.chmodSync(dir, 0o555);
+  try {
+    assert.equal(automove.personMoved(f2, ['bo'], '/u/.claude-spare', NOW, ON), false, 'CONTROL: the line waits');
+    assert.equal(r2.leftAlone(NOW + 1000)('bo'), true, 'a person line still waiting was not seen');
+  } finally { fs.chmodSync(dir, 0o755); automove.resetUnwrittenPeopleForTests(); }
 });
 
 test('kosmos#7621 item 7: the sweep and the mover share one tick\'s deps, so the agents are walked once a tick', () => {
