@@ -42,8 +42,9 @@
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
- * have. The three token-door call sites catch it directly; `sendertoken.writeTokens`
- * does NOT, and relies on `mint` and `retire` catching one level up, which is true at
+ * have, and (kosmos#9268) an atomicOnly write whose last of three attempts is refused this way raises
+ * ERR_KOSMOS_TEMP_SWAPPED, on which no caller branches. The three token-door call sites catch ERR_KOSMOS_SYMLINK
+ * directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
  * moved it onto this writer).
@@ -141,6 +142,75 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-t${THREAD}-${START
    only have written from the main thread). That suffix is unique to this module, so
    a match is by construction one of our temps and never a credential file. */
 const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
+
+/**
+ * kosmos#9268: did this open land somewhere other than the temp name? On Windows a create-exclusive open can FOLLOW a
+ * link planted at the name: Node maps `'wx'` to CREATE_NEW, and CreateFile follows a reparse point, so a dangling
+ * link is not an existing file to it and the open creates the link's TARGET (measured on GitHub's Windows runner,
+ * engine/trust.test.js). A POSIX O_CREAT|O_EXCL refuses a link itself.
+ *
+ * It refuses only on POSITIVE evidence that the name is not the file the fd holds, never because something could not
+ * be read, so a mount whose stat answers are unusual (a share, a FUSE file system) still writes as before:
+ *   - the name is gone, or is a link, or is not a regular file (where identities read, the two rules below refuse a
+ *     folder first, measured on the Mac and on Windows; this one is for a mount where they do not);
+ *   - the name has more than one hard link (a second name for the file would keep the secret readable there);
+ *   - both device and inode are readable and nonzero on both sides, and differ (a name swapped after the open).
+ * Compared as bigints, so a large Windows file index is exact.
+ *
+ * It only decides, and never closes the fd: the caller closes it at one place, then removeMadeFile removes the file
+ * this open made when the name is still a link to it (same device and inode, still empty): it holds nothing, and
+ * leaving it would leave a file where somebody else chose. After a swap the made file has no name this can find, so it stays where it is, empty; nothing is ever written
+ * to it. The temp name itself is never touched. Returns null to go on, or the verdict to refuse with.
+ *
+ * Not closed, and accepted:
+ *   - the check runs once, right after the open, so a name swapped between it and the rename still goes over the
+ *     config. That window is the rename's own (it takes a path) and was there before #9268 on every platform.
+ *   - on Windows, somebody who can write in the config's folder can plant the link, let the open follow it, and move
+ *     the made file back to the temp name before this check (Windows lets a file held open be renamed). The name is
+ *     then the opened file and passes, and the saved config keeps the access list it was created with where the link
+ *     pointed. Closing it needs the file's own access list set or checked at the open; that is not done here.
+ * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
+ */
+function refuseFollowedLink(tmp, fd) {
+  let made = null;
+  let named = null;
+  let gone = false;
+  try { made = fs.fstatSync(fd, { bigint: true }); } catch { made = null; }
+  // Only ENOENT says the name is gone; any other lstat error (EACCES, EPERM) is not evidence, so the write goes on.
+  try { named = fs.lstatSync(tmp, { bigint: true }); } catch (err) { gone = !!(err && err.code === 'ENOENT'); }
+  const known = (st) => st && st.dev !== 0n && st.ino !== 0n;
+  const sameFile = (st) => known(made) && known(st) && st.dev === made.dev && st.ino === made.ino;
+  let refuse = gone;
+  if (named) {
+    if (named.isSymbolicLink() || !named.isFile() || named.nlink > 1n) refuse = true;
+    else if (known(made) && known(named) && !sameFile(named)) refuse = true;
+  }
+  if (!refuse) return null;
+  /* The made file to remove, checked here while the fd still holds it open, so its inode cannot be freed and reused
+     under the comparison. A junction or a folder link at the name is a link to lstat too, so it is refused above. */
+  let target = null;
+  if (named && named.isSymbolicLink()) {
+    try {
+      const at = fs.realpathSync(tmp);
+      const there = fs.lstatSync(at, { bigint: true });
+      if (there.isFile() && sameFile(there) && there.size === 0n) target = at;
+    } catch { target = null; }
+  }
+  return { target, sameFile };
+}
+
+/* kosmos#9268: after the fd is closed, remove the file a refused open made, checked once more just before the unlink,
+   because the unlink takes a path: a different file renamed onto it after refuseFollowedLink's check fails this one.
+   A rename between this check and the unlink is not closed; only somebody who can already write where the link
+   pointed could make it. The emptiness test is defence in depth: on every path here the made file has had nothing
+   written to it. */
+function removeMadeFile(verdict) {
+  if (!verdict || !verdict.target) return;
+  try {
+    const still = fs.lstatSync(verdict.target, { bigint: true });
+    if (still.isFile() && verdict.sameFile(still) && still.size === 0n) fs.unlinkSync(verdict.target);
+  } catch { /* it stays; it holds nothing */ }
+}
 
 /* Directories already swept this process, so the reap runs once per directory per
    process rather than on every write. Cleared by nothing: a process lives once. */
@@ -393,8 +463,8 @@ function writeSecret(file, data, mode, opts) {
     let created = false;
     let flushError = null;   // #5434: set when the disk refused the flush (see flushOrThrow)
     try {
-      /* `wx` refuses rather than following or reusing anything already at the
-         temp path, which also refuses a symlink planted there. */
+      /* `wx` refuses rather than reusing anything already at the temp path. On POSIX it also refuses a
+         symlink planted there; on Windows it can follow one, which refuseFollowedLink catches (kosmos#9268). */
       /* 🛑 CREATE AND WRITE ARE TWO CALLS, ON PURPOSE. This was one
          `writeFileSync(tmp, data, { flag: 'wx', mode })` with `created = true`
          AFTER it, and that call both creates and writes: a write that fails after
@@ -403,9 +473,19 @@ function writeSecret(file, data, mode, opts) {
          attempts, three 0600 temps each holding the first bytes of the NEW secret,
          then the fallback succeeded and the caller saw a clean write. The header's
          "needs death in the window" claim was false until this: no death needed.
-         The flag flips the instant the inode exists, which is the only moment
-         "we created it" is a fact rather than a proxy. */
+         The flag flips the instant the open returns and the name is confirmed to be
+         the opened file (kosmos#9268), which is when "we created it" is a fact rather
+         than a proxy. */
       const tfd = fs.openSync(tmp, 'wx', createMode);
+      // kosmos#9268: refused, the next attempt takes a fresh name
+      let verdict;
+      try { verdict = refuseFollowedLink(tmp, tfd); }
+      catch (e) { try { fs.closeSync(tfd); } catch { /* the error stands */ } throw e; }   // it never closes, so this is the one close
+      if (verdict) {
+        try { fs.closeSync(tfd); } catch { /* the refusal stands */ }   // the one close on a refusal
+        removeMadeFile(verdict);
+        throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_TEMP_SWAPPED' });
+      }
       created = true;
       try {
         /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
@@ -458,7 +538,9 @@ function writeSecret(file, data, mode, opts) {
       lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
-         `created` is the FACT, and it is set the instant the open returns so a
+         `created` is the FACT, and it is set the instant the open returns and the
+         name is confirmed to be the opened file (kosmos#9268: on Windows a refused
+         name may be a planted link, never ours to unlink), so a
          failure in the write, the chmod or the rename all find it true; an
          `err.code !== 'EEXIST'` test is a PROXY for it and misses an EEXIST from
          the chmod or the rename. */
