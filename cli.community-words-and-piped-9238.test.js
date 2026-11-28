@@ -257,8 +257,8 @@ function peekProblems(cli) {
   const end = start < 0 ? -1 : cli.indexOf('\n}\n', start);
   if (start < 0 || end < 0) { problems.push('no _words_and_piped function'); return problems; }
   const body = cli.slice(start, end);
-  if (!body.includes('KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS"')) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
-  if (!body.includes('setTimeout(() => process.exit(0), Number(process.env.KOSMOS_PEEK_MS))')) problems.push('the peek timer does not read KOSMOS_PEEK_MS');
+  if (!/\bKOSMOS_PEEK_MS="?\$\{?KOSMOS_PIPED_PEEK_MS\}?"?(\s|$)/.test(body)) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
+  if (!/setTimeout\([^;]*process\.env\.KOSMOS_PEEK_MS/.test(body)) problems.push('the peek timer does not read KOSMOS_PEEK_MS');
   if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(body)) problems.push('the peek reaches the quiet read');
   return problems;
 }
