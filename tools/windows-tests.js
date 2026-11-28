@@ -59,6 +59,7 @@ const cp = require('node:child_process');
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
   'orgchartfile.test.js',   // kosmos#9272: the org chart reader's real runner, with a node stand-in for claude; its #!/bin/sh arms skip
+  'messages.notafile-9279.test.js',   // kosmos#9279: a folder in the message log's place reads as unreadable on Windows too
   'heavyjobs-9217.test.js',   // kosmos#9217: a heavy job's process is judged by signal 0 there, with no ps to read its start
   'loginexpiry-why-9107.test.js',   // kosmos#9107: the off-macOS refusal lines, on a real Windows runner
   'macrestart-8988.test.js',   // kosmos#8988: the Mac card's restart reader is plain file reading; only the arm that runs a bash function skips
