@@ -1026,13 +1026,14 @@ elif [ -n "$QH_BESIDE" ]; then
 else
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') TURN: running $WHAT (machine claimed, renewed every ${RENEW_SEC}s while it runs)"
 fi
-# kosmos#9246: the run's name as text the board accepts in a label (engine/heavyjobs.js normalizeLabel): what it refuses
-# (the C1 controls, U+061C, U+200B/E/F, U+2028/9, the direction marks U+202A-E and U+2066-9, the BOM) and the spaces it
-# trims or collapses (NBSP, U+1680, U+2000-200A, U+202F, U+205F, U+3000) become plain spaces, so the empty and leading -
-# checks below see them and the likeliest refusal no longer hides behind "asked the board". Matched as UTF-8 bytes, so a
-# C locale (a tmux run-shell or launchd job) does it too and bash 3.2 needs no \u; each is a whole sequence from its
-# lead byte, so no valid letter is cut. Then the ASCII controls. tools/test-queued-heavy-4977.sh checks every such
-# character against normalizeLabel itself. (An emoji that takes a name past 80 UTF-16 units can still be refused.)
+# kosmos#9246: the run's name as text the board accepts in a label (engine/heavyjobs.js normalizeLabel): what it
+# refuses (the C1 controls, U+061C, U+200B/E/F, U+2028/9, the direction marks U+202A-E and U+2066-9, the BOM) and the
+# spaces it trims or collapses (NBSP, U+1680, U+2000-200A, U+202F, U+205F, U+3000) become plain spaces, so the empty
+# and leading - checks below see them and the likeliest refusal no longer hides behind "asked the board". Matched as
+# UTF-8 bytes, so a C locale (a tmux run-shell or launchd job) does it too and bash 3.2 needs no \u; each is a whole
+# sequence from its lead byte, and a UTF-8 lead byte never appears inside another character, so no valid letter is
+# cut. Then the ASCII controls. tools/test-queued-heavy-4977.sh checks every such character against normalizeLabel
+# itself. (An emoji that takes a name past 80 UTF-16 units can still be refused.)
 _qh_board_text() {
   local t="$1" q
   for q in \
