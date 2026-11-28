@@ -35,7 +35,7 @@ function sandbox({ signedIn = true } = {}) {
 }
 
 function boot(box, extraEnv) {
-  const child = spawn(process.execPath, [path.join(REPO, 'server.js')], {
+  const child = spawn(process.execPath, [...require('./test-support/faketmux-win').childArgs(), path.join(REPO, 'server.js')], {   // kosmos#8378: fake tmux's reads on Windows
     env: {
       PATH: process.env.PATH,
       HOME: box.home,
@@ -46,7 +46,7 @@ function boot(box, extraEnv) {
       AGENT_WORKFORCE_LAUNCH: path.join(box.sb, 'launch'),
       AGENT_WORKFORCE_PROJECTS: path.join(box.sb, 'projects'),
       AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(box.sb, 'claude-config.json'),
-      AGENT_WORKFORCE_CLAUDE_BIN: '/bin/echo',
+      AGENT_WORKFORCE_CLAUDE_BIN: require('./test-support/runnerstub').writeRunnerStub(path.join(box.sb, 'bin'), 'claude'),   // kosmos#8378: runnable on Windows too
       AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
       AGENT_WORKFORCE_FAKE_PANES: path.join(box.sb, 'panes.txt'),
       AGENT_WORKFORCE_DRY_RUN: '1',
@@ -115,7 +115,7 @@ test('#3660: Giddy Up with a connected model creates the setup guide on that mod
     assert.match(String(flag.name), /^josh$/i);
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
 
@@ -133,7 +133,7 @@ test('#3660: a dry-run board creates no guide unless a test turns it on, even af
     assert.equal(fs.existsSync(flagFile(box)), false, 'a test board created a guide nobody asked for');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
 
@@ -155,6 +155,6 @@ test('#3660: a model connected AFTER Giddy Up is picked up by the sweep, and the
     assert.equal(flag.provider, 'anthropic');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });

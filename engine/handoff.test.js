@@ -12,12 +12,24 @@
  * And the whole point of the command: it changes no state.
  */
 require('../test-support/tmpscope');   // #4273: first, so every temp dir here is contained and removed
-const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+/* kosmos#9269: the unreadable-state arm takes read access away with chmod 0o000, which Windows does not enforce (it only
+   marks the file read-only). There the same EACCES is forced through the call selfreport opens it with (fs.openSync), for
+   that path only, everything else untouched. KOSMOS_TEST_CHMOD_STUB=1 runs the stub arm on a Mac or Linux. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function denyRead(file) {
+  const f = path.resolve(file);
+  const real = { openSync: fs.openSync, readFileSync: fs.readFileSync };
+  const hit = (p) => typeof p === 'string' && path.resolve(p) === f;
+  const eacces = (p) => Object.assign(new Error(`EACCES: permission denied, open '${p}'`), { code: 'EACCES', syscall: 'open', path: p });
+  fs.openSync = function (p, ...rest) { if (hit(p)) throw eacces(p); return real.openSync.call(this, p, ...rest); };
+  fs.readFileSync = function (p, ...rest) { if (hit(p)) throw eacces(p); return real.readFileSync.call(this, p, ...rest); };
+  return () => { fs.openSync = real.openSync; fs.readFileSync = real.readFileSync; };
+}
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
@@ -60,7 +72,7 @@ test('#6506 axis 4: gitFact reports branch, sha and clean/dirty inside a work tr
 /* kosmos#8378: the git-erroring arm puts a #!/bin/sh stub named git on PATH. Windows finds a command on PATH by its
    extension (git.exe), so there the real git answers and the arm checks nothing it means to; it is skipped there, after
    the two arms before it have run. */
-const STUB_GIT_ON_PATH = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (a git that errors is not called not-a-repo), but its stub git is a #!/bin/sh script found on PATH by name and run by its shebang line, which Windows cannot do; a Windows arm is owed on kosmos#9269');
+const STUB_GIT_ON_PATH = require('../test-support/skip-on-win32').skipOnWin32('its stub git is a #!/bin/sh script found on PATH by name and run by its shebang line, which Windows cannot do; the bad-config arm below checks the same answer there with the real git');
 
 test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different answers', (t) => {
   const d = tmp('kosmos-handoff-nogit-');
@@ -82,6 +94,23 @@ test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different
     process.env.PATH = bin + path.delimiter + saved2;
     assert.equal(handoff.gitFact(d), 'git could not read this folder: fatal: detected dubious ownership in repository', 'a git error must not read as not-a-repo');
   } finally { process.env.PATH = saved2; }
+});
+
+/* kosmos#9269: the git-erroring answer with the REAL git, so it runs on every platform (the stub-on-PATH arm above
+   cannot run on Windows, which finds a command by its .exe). A global config git cannot parse makes git stop with
+   "fatal: bad config line 1", which is not "not a git repository". The control is the first assertion of the arm above:
+   the same kind of folder, with a readable config, answers 'not a git repository'. */
+test('kosmos#9269: a git that errors on its own config is "could not read", not "not a git repository" (every platform)', () => {
+  const d = tmp('kosmos-handoff-badcfg-');
+  const cfg = path.join(tmp('kosmos-handoff-cfg-'), 'bad.gitconfig');
+  fs.writeFileSync(cfg, '[core\nthis is not config\n');
+  const saved = process.env.GIT_CONFIG_GLOBAL;
+  try {
+    process.env.GIT_CONFIG_GLOBAL = cfg;
+    assert.match(handoff.gitFact(d), /^git could not read this folder: fatal: bad config line 1/, 'a git error must not read as not-a-repo');
+  } finally {
+    if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = saved;
+  }
 });
 
 test('#6506 axis 4: a repository with no commits yet says so, not an error', () => {
@@ -312,17 +341,20 @@ test('#6506 axis 5: a path with a newline or backtick cannot inject lines or bre
 
 // ── #6506 follow-ups (Raiden's #6532 notes 1 and 2) ────────────────────────────
 
-test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', { skip: NO_CHMOD_READ }, () => {
+test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', () => {
   const session = 'handoffunread';
   const rec = selfreport.record(session, { state: 'working' });
   assert.ok(rec.recorded, 'precondition: self-report recorded: ' + (rec.because || ''));
   const f = selfreport.fileFor(session);
-  fs.chmodSync(f, 0o000);
-  let stillReadable = true;
-  try { fs.readFileSync(f); } catch { stillReadable = false; }
-  if (stillReadable) { fs.chmodSync(f, 0o600); return; }   // running as root: chmod 000 is ineffective; skip
+  const unblock = CHMOD_VIA_STUB ? denyRead(f) : (fs.chmodSync(f, 0o000), null);   // kosmos#9269: openSync's EACCES on Windows
+  const restore = () => { if (unblock) unblock(); else fs.chmodSync(f, 0o600); };
+  if (!CHMOD_VIA_STUB) {   // the stub cannot be bypassed by root, so this check is for the chmod arm only
+    let stillReadable = true;
+    try { fs.readFileSync(f); } catch { stillReadable = false; }
+    if (stillReadable) { restore(); return; }   // running as root: chmod 000 is ineffective; skip
+  }
   let fact;
-  try { fact = handoff.stateFact(session); } finally { fs.chmodSync(f, 0o600); }
+  try { fact = handoff.stateFact(session); } finally { restore(); }
   assert.match(fact, /could not read the self-report/, fact);
   assert.doesNotMatch(fact, /never reported/, 'an unreadable record must not read as never reported');
 });

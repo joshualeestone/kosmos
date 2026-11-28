@@ -1,7 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
-const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 
 /**
  * Tests for the instruction file.
@@ -27,6 +26,42 @@ const path = require('node:path');
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const NO_FIFO = skipOnWin32('it makes a fifo with mkfifo, and Windows has no fifos (Git Bash\'s mkfifo is an emulation Node does not see as one)');   // kosmos#8378
+/* kosmos#9269: two arms take read access away with chmod 0o000 (a file, then a folder), which Windows does not enforce
+   (it only marks them read-only). There the same EACCES is forced through the fs calls workerfile reads with instead, for
+   those paths only, everything else untouched. KOSMOS_TEST_CHMOD_STUB=1 runs the stub arm on a Mac or Linux. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+const eaccesAt = (syscall, p) => Object.assign(new Error(`EACCES: permission denied, ${syscall} '${p}'`), { code: 'EACCES', syscall, path: p });
+/* Wraps each named fs function so it throws EACCES when `denied(path, name)` says so; returns the restore. */
+function denyFs(names, denied) {
+  const real = {};
+  for (const [name, syscall] of names) {
+    real[name] = fs[name];
+    const wrapped = function (p, ...rest) {
+      if (typeof p === 'string' && denied(path.resolve(p), name)) {
+        if (name === 'existsSync') return false;
+        throw eaccesAt(syscall, p);
+      }
+      return real[name].call(this, p, ...rest);
+    };
+    if (real[name].native) wrapped.native = real[name].native;
+    fs[name] = wrapped;
+  }
+  return () => { for (const name of Object.keys(real)) fs[name] = real[name]; };
+}
+/* chmod 0o000 on a FILE: opening it (to read) fails; its own lstat and stat do not. */
+function denyFileRead(file) {
+  const f = path.resolve(file);
+  return denyFs([['openSync', 'open'], ['readFileSync', 'open']], (p) => p === f);
+}
+/* chmod 0o000 on a FOLDER: it cannot be listed or opened, and nothing inside it can be reached at all. Its own lstat and
+   stat still work (they ask its parent). */
+function denyFolder(dir) {
+  const d = path.resolve(dir);
+  const inside = (p) => p.startsWith(d + path.sep);
+  return denyFs([['lstatSync', 'lstat'], ['statSync', 'stat'], ['realpathSync', 'lstat'], ['existsSync', 'access'],
+    ['openSync', 'open'], ['readFileSync', 'open'], ['readdirSync', 'scandir']],
+  (p, name) => inside(p) || (p === d && (name === 'openSync' || name === 'readdirSync' || name === 'readFileSync')));
+}
 
 // Relocate the workers root BEFORE requiring the module, so nothing here can
 // touch a real agent's instructions. instructions.js reads it at load.
@@ -577,7 +612,7 @@ test('a file the read path refuses to show cannot be silently overwritten', () =
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'a refused-to-show file was overwritten anyway');
 });
 
-test('a file that exists but cannot be opened is never silently replaced', { skip: NO_CHMOD_READ }, (t) => {
+test('a file that exists but cannot be opened is never silently replaced', (t) => {
   // ⚠️ The one the first version of this guard missed. It checked a PARALLEL
   // predicate (regular file, within the ceiling) instead of asking `read`, so a
   // file that is perfectly ordinary but unopenable (mode 000, a bad mount, a
@@ -586,17 +621,19 @@ test('a file that exists but cannot be opened is never silently replaced', { ski
   // real agent's instructions. Reproduced before the fix: read().exists false,
   // write() succeeded, file replaced.
   const file = makeAgent('unreadable', 'INSTRUCTIONS THAT MUST SURVIVE A REFUSED SAVE');
-  fs.chmodSync(file, 0o000);
+  // kosmos#9269: on Windows the open itself is made to fail with EACCES, as mode 000 makes it fail here.
+  let unblock = CHMOD_VIA_STUB ? denyFileRead(file) : (fs.chmodSync(file, 0o000), null);
+  const restore = () => { if (unblock) { unblock(); unblock = null; } else fs.chmodSync(file, 0o644); };
   try {
-    if (instructions.read('unreadable').exists) {
+    if (!CHMOD_VIA_STUB && instructions.read('unreadable').exists) {   // the stub cannot be bypassed by root, so a read that worked there is a failure
       t.skip('running as root, so an unreadable file is still readable');
       return;
     }
     assert.throws(() => instructions.write('unreadable', REAL), /cannot safely replace/);
-    fs.chmodSync(file, 0o644);
+    restore();
     assert.equal(fs.readFileSync(file, 'utf8'), 'INSTRUCTIONS THAT MUST SURVIVE A REFUSED SAVE');
   } finally {
-    try { fs.chmodSync(file, 0o644); } catch { /* already restored */ }
+    try { restore(); } catch { /* already restored */ }
   }
 });
 
@@ -1313,7 +1350,7 @@ test('the status engine resolves worker files under the SAME root as this module
   assert.equal(id.derived, true);
 });
 
-test('a file we cannot get at is not reported as a file that is not there', { skip: NO_CHMOD_READ }, (t) => {
+test('a file we cannot get at is not reported as a file that is not there', (t) => {
   // ⚠️ Any `lstat` failure used to mean "no instruction file yet", and that
   // answer becomes `editable: true` upstream. So an unsearchable worker folder
   // (mode 000) holding real instructions was reported as "there is no
@@ -1323,10 +1360,11 @@ test('a file we cannot get at is not reported as a file that is not there', { sk
   const dir = path.join(ROOT, 'lockedagent');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'REAL INSTRUCTIONS INSIDE AN UNSEARCHABLE FOLDER');
-  fs.chmodSync(dir, 0o000);
+  // kosmos#9269: on Windows everything inside the folder is made to fail with EACCES, as mode 000 makes it fail here.
+  const unblock = CHMOD_VIA_STUB ? denyFolder(dir) : (fs.chmodSync(dir, 0o000), null);
   try {
     const got = instructions.read('lockedagent');
-    if (got.editable && got.exists) {
+    if (!CHMOD_VIA_STUB && got.editable && got.exists) {   // the stub cannot be bypassed by root, so a read that worked there is a failure
       t.skip('running as root, so an unsearchable directory is still readable');
       return;
     }
@@ -1335,7 +1373,7 @@ test('a file we cannot get at is not reported as a file that is not there', { sk
     assert.doesNotMatch(got.because, /no instruction file/,
       'claimed there is no file when it simply could not look');
   } finally {
-    fs.chmodSync(dir, 0o755);
+    if (unblock) unblock(); else fs.chmodSync(dir, 0o755);
   }
 });
 

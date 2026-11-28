@@ -15,6 +15,32 @@ const os = require('node:os');
 const path = require('node:path');
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+/* kosmos#9269: the unreachable-folder arm takes a folder away with chmod 0o000, which Windows does not enforce (it only
+   marks it read-only). There the same EACCES is forced through the fs calls instead, for paths inside that folder only
+   (and listing or opening the folder itself), everything else untouched: fs.realpathSync is the one the undo reaches.
+   KOSMOS_TEST_CHMOD_STUB=1 runs the stub arm on a Mac or Linux. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function denyFolder(dir) {
+  const d = path.resolve(dir);
+  const SELF = new Set(['openSync', 'readFileSync', 'readdirSync']);   // the folder's own lstat and stat still work
+  const names = [['realpathSync', 'lstat'], ['lstatSync', 'lstat'], ['statSync', 'stat'], ['existsSync', 'access'],
+    ['openSync', 'open'], ['readFileSync', 'open'], ['readdirSync', 'scandir']];
+  const real = {};
+  for (const [name, syscall] of names) {
+    real[name] = fs[name];
+    const wrapped = function (p, ...rest) {
+      const r = typeof p === 'string' ? path.resolve(p) : null;
+      if (r && (r.startsWith(d + path.sep) || (r === d && SELF.has(name)))) {
+        if (name === 'existsSync') return false;
+        throw Object.assign(new Error(`EACCES: permission denied, ${syscall} '${p}'`), { code: 'EACCES', syscall, path: p });
+      }
+      return real[name].call(this, p, ...rest);
+    };
+    if (real[name].native) wrapped.native = real[name].native;
+    fs[name] = wrapped;
+  }
+  return () => { for (const name of Object.keys(real)) fs[name] = real[name]; };
+}
 
 const gs = require('./geminisettings');
 
@@ -150,13 +176,13 @@ test('undo: a file that is gone has nothing to undo; no record at all is nothing
   assert.deepEqual(gs.undoWrites(sb.ledger), { done: true, restored: [], kept: [], left: [] });
 });
 
-test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: skipOnWin32('what it checks exists on Windows (an unreachable file is left and named), but it makes a folder unreachable with chmod 0o000, a POSIX file mode Windows does not keep; the Windows arm is owed on kosmos#9269') || (process.getuid && process.getuid() === 0 ? 'root reads every folder' : false) }, () => {
+test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: !CHMOD_VIA_STUB && process.getuid && process.getuid() === 0 ? 'root reads every folder' : false }, () => {
   const sb = sandbox();
   gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
   const folder = path.dirname(path.dirname(sb.file));
-  fs.chmodSync(folder, 0o000);
+  const unblock = CHMOD_VIA_STUB ? denyFolder(folder) : (fs.chmodSync(folder, 0o000), null);   // kosmos#9269: realpathSync's EACCES on Windows
   let r;
-  try { r = gs.undoWrites(sb.ledger); } finally { fs.chmodSync(folder, 0o755); }
+  try { r = gs.undoWrites(sb.ledger); } finally { if (unblock) unblock(); else fs.chmodSync(folder, 0o755); }
   assert.deepEqual(r.left, [sb.file], 'a file that could not be reached was dropped as if it were gone');
   assert.ok(readJSON(sb.ledger).files[sb.file], 'the record forgot a file it could not reach');
   assert.equal(readJSON(sb.file).security.auth.selectedType, 'gemini-api-key');

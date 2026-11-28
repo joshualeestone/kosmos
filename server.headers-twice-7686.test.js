@@ -39,6 +39,7 @@ const unhandled = [];
 process.on('unhandledRejection', (e) => { unhandled.push(e); });
 process.on('uncaughtException', (e) => { unhandled.push(e); });
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload } = require('./server');
 const attachments = require('./engine/attachments');
 const projects = require('./engine/projects');
@@ -59,6 +60,9 @@ async function until(fn, ms = 2000) {
   return fn();
 }
 /** How many of this process's open descriptors are on `file` (as server.attachment-stream-6734.test.js counts). */
+// kosmos#9276: the board's descriptors on a file are counted through /dev/fd, which Windows does not have; there the
+// counts (and the controls that show they can see one) are not checked, and the rest of each test still runs.
+const FD_COUNTS = fs.existsSync('/dev/fd');
 function fdsOn(file) {
   const st = fs.statSync(file);
   let n = 0;
@@ -117,7 +121,7 @@ test('#7686: a preview whose stream cannot open after its head closes the descri
   // The broken response is ended (cut), never left open and never answered with a second head.
   assert.equal(first, 'cut', 'the response after the failure was ' + first + ', not ended');
   // And the descriptor the stream never took is closed (review 1: surviving the failure must not leak one).
-  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the failed preview left ' + fdsOn(rec.file) + ' descriptor(s) open on the file');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0), 'the failed preview left ' + fdsOn(rec.file) + ' descriptor(s) open on the file');
   // And the board still answers.
   assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering after the failure');
 });
@@ -274,7 +278,7 @@ test('#7686: a project download whose stream cannot open after its head closes t
   assert.equal(thrown, 1, 'CONTROL: the failure was never injected, so this test proves nothing');
   assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'an exception escaped the download (it ends the board)');
   assert.equal(first, 'cut', 'the download after the failure was ' + first + ', not ended');
-  assert.ok(await until(() => fdsOn(file) === 0), 'the failed download left ' + fdsOn(file) + ' descriptor(s) open on the file');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(file) === 0), 'the failed download left ' + fdsOn(file) + ' descriptor(s) open on the file');
   assert.equal(await get(url), 200, 'the board stopped answering');
 });
 
@@ -327,7 +331,7 @@ test('#7686: a download the client cancels while the file is opened ends quietly
   try { await getAndAbort(url); await wait(400); } finally { fs.fstat = realFstat; }
   assert.equal(held, 1, 'CONTROL: the download never reached fstat, so this test proves nothing');
   assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'an exception escaped the cancelled download (it ends the board)');
-  assert.ok(await until(() => fdsOn(file) === 0), 'the cancelled download left ' + fdsOn(file) + ' descriptor(s) open');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(file) === 0), 'the cancelled download left ' + fdsOn(file) + ' descriptor(s) open');
   assert.equal(await get(url), 200, 'the board stopped answering');
 });
 
@@ -342,6 +346,6 @@ test('#7686: a preview the client cancels while it is drawn closes its descripto
   try { await getAndAbort(`/api/attachment/${rec.id}/preview`); await wait(400); } finally { attachments.previewFile = realPreview; }
   assert.equal(held, 1, 'CONTROL: the preview was never drawn, so this test proves nothing');
   assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the cancelled preview');
-  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the cancelled preview left ' + fdsOn(rec.file) + ' descriptor(s) open');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0), 'the cancelled preview left ' + fdsOn(rec.file) + ' descriptor(s) open');
   assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering');
 });

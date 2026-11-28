@@ -34,6 +34,7 @@ process.on('exit', () => {
   for (const d of [SANDBOX, SCRATCH]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const attachments = require('./engine/attachments');
 const projects = require('./engine/projects');
@@ -72,6 +73,9 @@ function parts() {
   return found;
 }
 /** How many of this process's descriptors are open on `file` (by device and inode, so a rename cannot hide one). */
+// kosmos#9276: the board's descriptors on a file are counted through /dev/fd, which Windows does not have; there the
+// counts (and the controls that show they can see one) are not checked, and the rest of each test still runs.
+const FD_COUNTS = fs.existsSync('/dev/fd');
 function fdsOn(file) {
   const st = fs.statSync(file);
   let n = 0;
@@ -146,7 +150,7 @@ test('#6734: a streamed download of a multi-MB file is byte-identical, with its 
   assert.equal(head.status, 200);
   assert.equal(head.headers.get('content-length'), String(bytes.length));
   assert.equal((await head.arrayBuffer()).byteLength, 0);
-  assert.equal(fdsOn(rec.file), 0, 'a whole download or a HEAD left the file open');
+  if (FD_COUNTS) assert.equal(fdsOn(rec.file), 0, 'a whole download or a HEAD left the file open');
 });
 
 /* kosmos#7302: readings over a SETTLED baseline. One forced collection is not enough: measured (review 1), a dropped
@@ -216,7 +220,7 @@ test('#6734: a download does not read the file into memory: a 64 MB file held by
     peak = await pausedPeak({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, before);
   } finally { fs.readFileSync = realRead; }
   assert.equal(readWhole.length, 0, 'the download read the whole file with readFileSync');
-  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the paused-then-dropped download left the file open');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0), 'the paused-then-dropped download left the file open');
   /* CONTROL 2: a server in this same process that DOES buffer the same file, measured the same way just after, holds
      most of it. So the instrument can see a buffered download on this run, and the board's figure is compared with it. */
   const buffering = http.createServer((req, res) => { res.end(fs.readFileSync(rec.file)); });
@@ -239,15 +243,15 @@ test('#6734: a download the client abandons part way releases its descriptor, an
   await new Promise((resolve, reject) => {
     const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, (res) => {
       res.once('data', () => {
-        openMid = fdsOn(rec.file);   // CONTROL: mid-download the board holds the file open, so the count can see one
+        openMid = (FD_COUNTS ? fdsOn(rec.file) : -1);   // CONTROL: mid-download the board holds the file open, so the count can see one
         req.destroy();
         resolve();
       });
     });
     req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
   });
-  assert.ok(openMid >= 1, 'CONTROL: no descriptor on the file was seen mid-download');
-  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the abandoned download still holds ' + fdsOn(rec.file) + ' descriptor(s) on the file');
+  if (FD_COUNTS) assert.ok(openMid >= 1, 'CONTROL: no descriptor on the file was seen mid-download');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0), 'the abandoned download still holds ' + fdsOn(rec.file) + ' descriptor(s) on the file');
   const again = await fetch(`http://127.0.0.1:${port()}/api/attachment/${rec.id}`, { method: 'HEAD' });
   assert.equal(again.status, 200, 'the board stopped serving after an abandoned download');
 });
@@ -275,7 +279,7 @@ test('#6734: a read that fails mid-file ends the download short, releases the de
     });
   } finally { fs.createReadStream = realCreate; }
   assert.ok(got < 8 * MB, 'the whole file arrived although the read failed (' + got + ' bytes, ended ' + ended + ')');
-  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the failed read left the file open');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0), 'the failed read left the file open');
   const again = await fetch(`http://127.0.0.1:${port()}/api/attachment/${rec.id}`);
   assert.equal(again.status, 200, 'the board stopped serving after a failed read');
   assert.equal((await again.arrayBuffer()).byteLength, 8 * MB);
@@ -392,7 +396,7 @@ test('#6734: a text file\'s snippet is read from its first bytes, not the whole 
   try { field = attachments.rowField(rec); } finally { fs.readFileSync = realRead; }
   assert.equal(readWhole.length, 0, 'the snippet read the whole file');
   assert.equal(field.preview, bytes.toString('utf8').slice(0, 2000));
-  assert.equal(fdsOn(rec.file), 0);
+  if (FD_COUNTS) assert.equal(fdsOn(rec.file), 0);
 });
 
 test('#6734: the page, the agent\'s instructions and the CLI name the route\'s own cap', () => {
@@ -560,7 +564,9 @@ test('#6734: a reply copy that cannot be written says Kosmos could not store it,
   const replyfile = require('./engine/replyfile');
   const src = path.join(fs.mkdtempSync(path.join(SCRATCH, 'wfail-')), 'fine.bin');
   fs.writeFileSync(src, Buffer.alloc(64 * 1024, 2));
-  const real = fs.realpathSync(src);
+  // kosmos#8378: the on-disk spelling, as replyfile.realOf resolves it (realpathSync.native); on Windows the plain
+  // realpathSync can keep a temp folder's short 8.3 name, which readOwn rightly reads as a different file.
+  const real = fs.realpathSync.native(src);
   const ro = path.join(SCRATCH, 'wfail-out-' + process.pid);
   fs.writeFileSync(ro, '');
   const out = fs.openSync(ro, 'r');   // a descriptor writes cannot go to
@@ -775,7 +781,7 @@ test('#6734: saveStream refuses a request that already went away instead of wait
   assert.equal((await kept).size, 2);
 });
 
-test('#6734: a download whose client stops reading is ended after the stall time, releasing its descriptor', async () => {
+test('#6734: a download whose client stops reading is ended after the stall time, releasing its descriptor', { skip: process.platform === 'win32' && 'kosmos#9276: every check here is the descriptor count (and its control), through /dev/fd, which Windows does not have' }, async () => {
   /* Measured on the board's side: a paused client never reads the board's close (the FIN sits unread), so the client
      cannot report it. What matters is that the board lets go of the file while that client is still connected. */
   const srv = require('./server');
@@ -787,13 +793,13 @@ test('#6734: a download whose client stops reading is ended after the stall time
     await new Promise((resolve, reject) => {
       req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, (res) => {
         res.pause();   // connected, reading nothing
-        openWhilePaused = fdsOn(rec.file);
+        openWhilePaused = (FD_COUNTS ? fdsOn(rec.file) : -1);
         resolve();
       });
       req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
     });
-    assert.ok(openWhilePaused >= 1, 'CONTROL: no descriptor on the file was seen once the download started');
-    assert.ok(await until(() => fdsOn(rec.file) === 0, 4000), 'the stalled download still holds the file open with its client connected');
+    if (FD_COUNTS) assert.ok(openWhilePaused >= 1, 'CONTROL: no descriptor on the file was seen once the download started');
+    if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0, 4000), 'the stalled download still holds the file open with its client connected');
   } finally {
     srv._setDownloadStallForTest(null);
     if (req) req.destroy();
