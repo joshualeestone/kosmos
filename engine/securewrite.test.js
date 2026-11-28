@@ -940,6 +940,7 @@ test('#9268: a temp name that is a second hard link to the opened file is refuse
   assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret was written into the file the attacker holds a name for');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268c', 'the save did not land');
   assert.notEqual(fs.statSync(file).ino, fs.statSync(elsewhere).ino, 'the config is a second name of the attacker\'s file');
+  assert.equal(fs.statSync(planted).ino, fs.statSync(elsewhere).ino, 'the planted second name was removed or replaced, which is not ours to do (kosmos#9285)');
 });
 
 /* kosmos#9268 review 3: the planted link is RE-POINTED after the open, at somebody's existing file. The cleanup must
@@ -998,6 +999,8 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.ok(planted, 'the plant never happened, so this tests nothing');
     assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to where the link pointed');
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
+    // kosmos#9285: a planted folder is left as it was
+    if (label === 'replaced by a folder') assert.equal(fs.lstatSync(planted).isDirectory(), true, 'the planted folder was removed or replaced');
   });
 }
 
@@ -1073,4 +1076,108 @@ test('#9268: a file renamed onto the made file\'s path after the close is never 
   assert.ok(planted, 'the plant never happened, so this tests nothing');
   assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'their bytes', 'the cleanup removed a file the open did not make');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268g', 'the save did not land');
+});
+
+/* kosmos#9285: a caller WITHOUT atomicOnly whose three atomic attempts all meet a followed link gets
+   ERR_KOSMOS_TEMP_SWAPPED, and the in-place fallback is NOT taken: three refusals mean somebody is planting links, and
+   on Windows the fallback has no O_NOFOLLOW, so it would hand them a race at the config. The config is left as it was,
+   and none of the planted links' targets gets the secret. */
+test('#9285: three followed links refuse an ordinary save too: no in-place fallback, the config left as it was', (t) => {
+  const file = fresh('nofallback');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let inPlace = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      const elsewhere = fresh('attacker8');
+      planted.push(String(p)); targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link, every time
+    }
+    if (String(p) === file) inPlace += 1;                    // the in-place fallback opens the config itself
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285', 0o600); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.equal(planted.length, 3, 'the atomic path did not try three fresh names');
+  assert.ok(err, 'three planted links did not refuse the save');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
+  assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the last attempt is not kept');
+  assert.equal(inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
+});
+
+/* kosmos#9285 review 2: the temp names are guessable, so somebody can plant links at two names and a plain file at the
+   third. That third attempt fails with EEXIST, not as a swap, and before this rule counted only swaps, two of three
+   let the save reach the in-place fallback. Any swap among the failures must refuse it. */
+test('#9285: links at two temp names and a plain file at the third still refuse the save, with no in-place fallback', (t) => {
+  const file = fresh('mixed');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let opens = 0;
+  let inPlace = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      planted.push(String(p));
+      if (opens === 3) { fs.writeFileSync(String(p), 'planted'); return realOpen.call(fs, p, flags, ...rest); }   // EEXIST
+      const elsewhere = fresh('attacker9');
+      targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+    }
+    if (String(p) === file) inPlace += 1;
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285b', 0o600); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.equal(opens, 3, 'the atomic path did not try three names');
+  assert.ok(err, 'a mix of planted links and a planted file did not refuse the save');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED');
+  assert.equal(inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  assert.equal(fs.readFileSync(planted[2], 'utf8'), 'planted', 'the planted file was touched');
+});
+
+/* kosmos#9285 review 5: the swap rule runs BEFORE the atomicOnly exit, so an atomicOnly write with a mixed plant (links
+   at two names, a plain file at the third, whose EEXIST is the last error) still gets ERR_KOSMOS_TEMP_SWAPPED, with
+   the first swap as its cause and the EEXIST kept beside it. */
+test('#9285: atomicOnly with a mixed plant raises ERR_KOSMOS_TEMP_SWAPPED, the first swap as its cause', (t) => {
+  const file = fresh('mixedatomic');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let opens = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      planted.push(String(p));
+      if (opens === 3) { fs.writeFileSync(String(p), 'planted'); return realOpen.call(fs, p, flags, ...rest); }   // EEXIST
+      const elsewhere = fresh('attacker10');
+      targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285c', 0o600, { atomicOnly: true }); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.ok(err, 'the write did not throw');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'atomicOnly took the last error (EEXIST) instead of the refusal');
+  assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'EEXIST', 'the last attempt\'s error was dropped');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
 });
