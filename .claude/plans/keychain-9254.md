@@ -1,0 +1,28 @@
+# kosmos#9254: a test browser asked the person for their login keychain password
+
+## What the records say
+- securityd, 20:54:39 and 20:54:40 CST: two denied requests for "Chromium Safe Storage" from
+  ~/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app (two processes).
+- The keychain item has existed since 2026-08-08, so a newer browser build (new code signature) asks again.
+- Measured: a Playwright launch of that same app runs with --use-mock-keychain and --password-store=basic and makes no
+  keychain request. Every installed Playwright puts both in its default switches.
+- The launcher is not covered by any record we hold: no script on disk, no Claude/Codex/Gemini transcript, and the
+  agent whose work was underway says it opened no browser.
+
+## Call
+A guard (browser-launch-keychain-9254.test.js) reads every launch site in the repo and refuses a launch that turns
+Playwright's defaults off (ignoreDefaultArgs: true), drops a keychain switch, or runs a Chrome binary or app
+(Contents/MacOS/..., open -a) without --use-mock-keychain. Every rule has a control; the repo scan is red with a bad
+line planted in mobile-shots.js.
+
+## Rejected
+- Adding the flags by hand to each launch: Playwright already adds them, and a second copy would only drift.
+- Asking the person what they opened (Splinter: do not ask Josh).
+
+## Proposed fleet rule (on the card; Splinter takes it into the shared instructions)
+Open a browser for a person only through Playwright, or with --use-mock-keychain --password-store=basic, and never
+open the Chrome for Testing app directly.
+
+## Weakest premise
+That the launcher was a launch site in a repo this guard reads. The guard cannot see a hand-typed command or a tool
+outside the repo, which is what the fleet rule is for.
