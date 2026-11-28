@@ -41,6 +41,9 @@ That a device and inode readable and nonzero on both sides mean the same thing t
 product writes to. Where they would disagree for an ordinary file, every save there is refused three times and takes
 the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac agree (the ordinary-save control).
 
+A second, of the same kind: that a fresh regular file reports one hard link. A mount that inflated the count would
+have every save there refused the same way.
+
 ## Checked
 
 - engine/securewrite.test.js #9268 arms, each with a control that removes the rule it pins: the followed link (fails
@@ -71,3 +74,6 @@ the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac a
   in the config's folder can move the made file back to the temp name before the check, so it passes, and the config
   keeps the access list it was created with where the link pointed. Closing that needs the access list set or checked
   at the open, which this does not do; it is reasoned from Windows semantics, not measured.
+- Review 6: the check's call is wrapped so an unexpected throw from it still closes the fd. Deferred, with reason: the
+  new code reaches only atomicOnly callers, none of which branches on it, and what it reports is the safe failure
+  (the config untouched).

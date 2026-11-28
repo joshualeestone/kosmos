@@ -474,7 +474,10 @@ function writeSecret(file, data, mode, opts) {
          than a proxy. */
       const tfd = fs.openSync(tmp, 'wx', createMode);
       // kosmos#9268: refused, the next attempt takes a fresh name
-      if (refuseFollowedLink(tmp, tfd)) {
+      let refused;
+      try { refused = refuseFollowedLink(tmp, tfd); }
+      catch (e) { try { fs.closeSync(tfd); } catch { /* already closed */ } throw e; }   // never leak the fd
+      if (refused) {
         throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_TEMP_SWAPPED' });
       }
       created = true;
