@@ -15,7 +15,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * unreachable from a require, and deliberately so.
  */
 
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -31,7 +30,7 @@ const { runUntilBanner } = require('./test-support/board-child');
 function boot(sandbox, extraEnv) {
   /* PORT=0 binds a free port, so a suite run cannot collide with a board the
      operator has open. The child is killed as soon as it has spoken. */
-  const child = spawn(process.execPath, [path.join(REPO, 'server.js')], {
+  const child = spawn(process.execPath, [...require('./test-support/faketmux-win').childArgs(), path.join(REPO, 'server.js')], {
     env: {
       ...process.env,
       PORT: '0',
@@ -81,7 +80,7 @@ test('an old copy is replaced, which is the whole point', async () => {
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
-test('a refresh it cannot do is said, and does not stop the board', { skip: SKIP_FAKE_TMUX }, async () => {
+test('a refresh it cannot do is said, and does not stop the board', async () => {
   /* ⚠️ THE FAILURE DIRECTION. A board that refuses to start because it could not
      refresh a script is strictly worse than one running with the previous copy,
      which is the state every install is in today. */
@@ -100,7 +99,7 @@ test('requiring the module writes nothing', () => {
   /* Same rule as the port: the routing tests require this module, and writing
      files as a side effect of an import is the same class as binding one. */
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sup-'));
-  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(REPO, 'server.js'))})`], {
+  const r = spawnSync(process.execPath, [...require('./test-support/faketmux-win').childArgs(), '-e',`require(${JSON.stringify(path.join(REPO, 'server.js'))})`], {
     env: {
       ...process.env,
       AGENT_WORKFORCE_DATA: path.join(sb, 'data'),

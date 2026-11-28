@@ -23,7 +23,6 @@
  */
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
@@ -117,7 +116,7 @@ function board(seed) {
     });
   `;
 
-  const out = execFileSync(process.execPath, ['-e', script], {
+  const out = execFileSync(process.execPath, [...require('./test-support/faketmux-win').childArgs(), '-e', script], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -146,7 +145,7 @@ function board(seed) {
   return { code: parsed.code, json, target, ctx };
 }
 
-test('#1689: a STOPPED agent on the account blocks removal', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1689: a STOPPED agent on the account blocks removal', () => {
   const r = board((ctx) => {
     const dir = codexAccount(ctx.home, 'busy');
     agentOn(ctx, 'sleeper', dir, 'codex', false);   // no pane: invisible to liveness
@@ -159,7 +158,7 @@ test('#1689: a STOPPED agent on the account blocks removal', { skip: SKIP_FAKE_T
     + JSON.stringify(r.json));
 });
 
-test('#1689 CONTROL: a RUNNING agent still blocks, so the fix did not trade one arm for the other', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1689 CONTROL: a RUNNING agent still blocks, so the fix did not trade one arm for the other', () => {
   const r = board((ctx) => {
     const dir = codexAccount(ctx.home, 'busy2');
     agentOn(ctx, 'awake', dir, 'codex', true);
@@ -169,14 +168,14 @@ test('#1689 CONTROL: a RUNNING agent still blocks, so the fix did not trade one 
   assert.ok(Array.isArray(r.json.usedBy) && r.json.usedBy.includes('awake'), JSON.stringify(r.json));
 });
 
-test('#1689 CONTROL: an account with NO agents is still removable', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1689 CONTROL: an account with NO agents is still removable', () => {
   /* Without this the refusals above could be a gate that refuses everything, which
      would be a worse product than the bug. */
   const r = board((ctx) => codexAccount(ctx.home, 'empty'));
   assert.equal(r.code, 200, 'an unused account must still be removable. body: ' + JSON.stringify(r.json));
 });
 
-test('#1689 CONTROL: a REMOVED agent does NOT block, so the union cannot resurrect one', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1689 CONTROL: a REMOVED agent does NOT block, so the union cannot resurrect one', () => {
   /**
    * 🛑 THE ARM FOR A DEFECT I INTRODUCED. My first version unioned the profile
    * names RAW. `safeRoster` drops agents the person has removed, and a profile
@@ -239,7 +238,7 @@ test('#1689 FAIL-CLOSED: an unreadable launch file REFUSES instead of proceeding
  * a labelled account loses no transcripts, so telling its owner they did would be
  * a false statement rather than a missing one.
  */
-test('#1659: disconnecting the DEFAULT openai account says the history stops appearing', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659: disconnecting the DEFAULT openai account says the history stops appearing', () => {
   const r = board((ctx) => codexAccount(ctx.home, 'default'));
   assert.equal(r.code, 200, 'the default account did not disconnect, so the sentence below '
     + 'is not being tested. body: ' + JSON.stringify(r.json));
@@ -248,7 +247,7 @@ test('#1659: disconnecting the DEFAULT openai account says the history stops app
     + 'NOT told their history stops appearing. body: ' + JSON.stringify(r.json));
 });
 
-test('#2941: a LABELLED openai account NOW claims the history loss too (codexsession reads every home since #2906)', { skip: SKIP_FAKE_TMUX }, () => {
+test('#2941: a LABELLED openai account NOW claims the history loss too (codexsession reads every home since #2906)', () => {
   const r = board((ctx) => codexAccount(ctx.home, 'sidecar'));
   assert.equal(r.code, 200, 'the labelled account did not disconnect. body: ' + JSON.stringify(r.json));
   // #2941: since #2906 status.readCodexSession reads each account's OWN home (job.configDir), a

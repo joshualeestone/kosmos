@@ -10,7 +10,6 @@
  */
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
@@ -55,7 +54,7 @@ function board(seed) {
     });
   `;
 
-  const out = execFileSync(process.execPath, ['-e', script], {
+  const out = execFileSync(process.execPath, [...require('./test-support/faketmux-win').childArgs(), '-e', script], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -134,7 +133,7 @@ function registeredNotRunning(ctx, name, configDir) {
   assert.ok(!ctx.panesFile, 'this fixture must not write a pane, or it cannot tell the two enumerations apart');
 }
 
-test('#1659 route: an unused Claude account is forgotten, and the answer says nothing was deleted', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route: an unused Claude account is forgotten, and the answer says nothing was deleted', () => {
   const r = board(({ home }) => account(home, 'lonely'));
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, true);
@@ -171,7 +170,7 @@ test('#1659 route: a request with no usable dir is refused before anything is en
     'and the real account beside it is untouched');
 });
 
-test('#1659 route CONTROL: a path that is not a Claude account is refused, and nothing moves', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route CONTROL: a path that is not a Claude account is refused, and nothing moves', () => {
   const r = board(({ home }) => {
     account(home, 'bystander');
     const outside = nodePath.join(home, 'not-an-account');
@@ -189,7 +188,7 @@ test('#1659 route CONTROL: a path that is not a Claude account is refused, and n
    <HOME>/.claude.json -- the `.claude` folder is KEPT (it is Claude Code's home
    and may hold other accounts' symlinked history). This replaces the old
    "the default is always refused" asymmetry with the OpenAI route. */
-test('#2684 route: the DEFAULT is removed by clearing its sign-in, and the folder is kept', { skip: SKIP_FAKE_TMUX }, () => {
+test('#2684 route: the DEFAULT is removed by clearing its sign-in, and the folder is kept', () => {
   const r = board(({ home }) => account(home, 'default'));
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, true);
@@ -200,7 +199,7 @@ test('#2684 route: the DEFAULT is removed by clearing its sign-in, and the folde
     'the oauth identity was cleared from <home>/.claude.json');
 });
 
-test('#1659 route: a missing account is a quiet success, not an error', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route: a missing account is a quiet success, not an error', () => {
   const r = board(({ home }) => nodePath.join(home, '.claude-neverexisted'));
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, false);
@@ -223,7 +222,7 @@ test('#1659 route FAIL-CLOSED: an unreadable launch file REFUSES instead of proc
   assert.ok(fs.existsSync(r.target), 'refusing means nothing moved');
 });
 
-test('#1659 route: an agent ON the account blocks removal and is NAMED', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route: an agent ON the account blocks removal and is NAMED', () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'busy');
     agentOn(ctx, 'marlowe', dir, 'claude');
@@ -244,7 +243,7 @@ test('#1659 route: an agent ON the account blocks removal and is NAMED', { skip:
    outcome never changed. So the guard was only half covered and the arm below
    is the missing half -- a CODEX agent whose recorded home IS the target
    directory, which the filter must skip. Delete the line and this goes red. */
-test('#1659 route: a CODEX agent on this directory does NOT block a Claude removal', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route: a CODEX agent on this directory does NOT block a Claude removal', () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'mixed');
     agentOn(ctx, 'codexer', dir, 'codex');
@@ -260,7 +259,7 @@ test('#1659 route: a CODEX agent on this directory does NOT block a Claude remov
    because every plist written before runners existed carries none. If that
    default ever changed, an OLD Claude agent would stop being seen and its
    account could be renamed out from under it. */
-test('#1659 route: an agent whose plist PREDATES runners still blocks (absent runner means claude)', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route: an agent whose plist PREDATES runners still blocks (absent runner means claude)', () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'legacy');
     agentOn(ctx, 'oldtimer', dir, null);
@@ -301,7 +300,7 @@ test('#1659 route: an agent whose plist PREDATES runners still blocks (absent ru
   assert.deepEqual(r.json.usedBy, ['oldtimer']);
 });
 
-test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block', () => {
   const r = board((ctx) => {
     const target = account(ctx.home, 'quiet');
     const other = account(ctx.home, 'elsewhere');
@@ -324,7 +323,7 @@ test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block'
    Every fixture wrote one because `agentOn` appends one, so the two
    implementations agreed on every case the suite could build, and I recorded a
    correct conclusion (uncovered) from a false mechanism, then stopped looking. */
-test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped agent keeps its launch file', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped agent keeps its launch file', () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'walk');
     account(ctx.home, 'default');
@@ -348,7 +347,7 @@ test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped 
    arm. The consequence is not abstract: without the filter this route answers 400
    with "departed is set up to run on this account", naming an agent that no longer
    exists and giving the person nothing they can act on. */
-test('#1697 CONTROL: a REMOVED agent does NOT block, so the union cannot resurrect one', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1697 CONTROL: a REMOVED agent does NOT block, so the union cannot resurrect one', () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'ghosted');
     account(ctx.home, 'default');

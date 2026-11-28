@@ -15,7 +15,6 @@
  */
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
-const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
@@ -60,7 +59,7 @@ function board(seed) {
     });
   `;
 
-  const out = execFileSync(process.execPath, ['-e', script], {
+  const out = execFileSync(process.execPath, [...require('./test-support/faketmux-win').childArgs(), '-e', script], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -101,7 +100,7 @@ function account(home, label) {
   return dir;
 }
 
-test('#1372 route: an unused account is forgotten, and the answer says nothing was deleted', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1372 route: an unused account is forgotten, and the answer says nothing was deleted', () => {
   const r = board(({ home }) => account(home, 'lonely'));
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, true);
@@ -124,7 +123,7 @@ test('#1372 route: an unused account is forgotten, and the answer says nothing w
     'the answer does not say WHERE the account went, so the removal is not recoverable by reading it');
 });
 
-test('#1372 route CONTROL: a path that is not an account is refused, and nothing moves', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1372 route CONTROL: a path that is not an account is refused, and nothing moves', () => {
   /* Without this, the arm above could pass on a route that forgets anything
      it is handed, including a directory that is not ours. */
   const r = board(({ home }) => {
@@ -140,7 +139,7 @@ test('#1372 route CONTROL: a path that is not an account is refused, and nothing
     'and the real account beside it is untouched');
 });
 
-test('#1372 route: a missing account is a quiet success, not an error', { skip: SKIP_FAKE_TMUX }, () => {
+test('#1372 route: a missing account is a quiet success, not an error', () => {
   const r = board(({ home }) => nodePath.join(home, '.codex-neverexisted'));
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, false);
