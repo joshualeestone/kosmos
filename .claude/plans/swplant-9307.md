@@ -65,3 +65,9 @@ Every reader of an error code on a writeSecret failure path was traced: backupst
 githubdevice (shows the code), and two others that read codes from other calls. Added: a backupstate test that a state
 save refused by a plant is not retry while three EPERMs still are (fails on main, where the plant case was retry), the
 `planted` flag in the module header, and an exact plant count in the #9307 test.
+
+## Reviews 7 and 8 (the cap)
+Review 7 (opus) mutation-checked four more mutations, each red; doc nits fixed (backupstate's own header names the
+not-retry exception, only the last attempt's error rides along, the retry tests' citation). Review 8 (sonnet): the
+module header said no caller branches on the code while the doc below names backupstate; both now say backupstate
+reads every code for its retry rule and this one is not a retry code. No code change after review 8, only comments.

@@ -44,10 +44,10 @@
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
  * have, and (kosmos#9268, #9285, #9307) any write whose three atomic attempts all fail, at least one of them refused
  * because its temp name was not the opened file or already held a file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or
- * not; its `planted` is true when an attempt found a file already at its temp name (kosmos#9307). No caller branches
- * on this code (grep; backupstate.js reads the code it carries, which is not one of its retry codes, so it does not
- * retry: refuseFollowedLink's doc); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they
- * already met. The three token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
+ * not; its `planted` is true when an attempt found a file already at its temp name (kosmos#9307). No caller names
+ * this code (grep). backupstate.js reads every code for its retry rule, and this one is not a retry code, so such a
+ * save is not retry (refuseFollowedLink's doc). That each caller's catch takes it is reasoned, as for ENOSPC and
+ * EACCES, which they already met. The three token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
  * `retire` catching one level up, which is true at one remove and worth knowing before you check the call site and
  * find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
@@ -201,7 +201,7 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     (a cleared require cache restarts the sequence) finding a temp a failed unlink left; a network mount that
  *     resends an exclusive create after a lost reply and answers EEXIST for the file it just made; or two containers
  *     with their own pid namespaces sharing the folder, the same small pid on thread 0 started in the same millisecond.
- *     All four are near impossible, and each fails that save only when the other two attempts fail too (one EEXIST and a clean next
+ *     All four are near impossible, and each fails that save only when the other two attempts also fail, for any reason (one EEXIST and a clean next
  *     attempt still saves). So three plain files planted at the three names no longer reach the in-place fallback (or
  *     its Windows race at the config). The module's own tests reach the fallback with EPERM now. A caller then sees
  *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES): only the last attempt's error rides
