@@ -153,7 +153,6 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
-  'cli.version-4892.test.js': 'its only win32 branch (kosmos#8378) accepts the Git Bash spelling of a path (/c/... with forward slashes) where the warning names the installed command; the file runs install/kosmos, the Mac and Linux CLI, with bash, which a Windows computer never runs, so it is not run there',
   'cli.sandbox-4636.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, or /bin/sh or /bin/bash by an absolute POSIX path, which Windows cannot do',
   'cli.update-ifnewer-4382.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'cli.exit-code-mapping-3628.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs /bin/sh by an absolute POSIX path, which Windows cannot run',

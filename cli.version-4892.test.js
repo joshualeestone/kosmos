@@ -63,8 +63,8 @@ test('#4892: a patched copy elsewhere says it is not the installed one, on stder
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, '9.9.9\n', 'stdout is no longer just the version');
   assert.match(r.err, /This kosmos command \(.*tmp-kosmos\) is not the one installed with Kosmos/);
-  // kosmos#8378: under Git Bash (Windows) the script names the path in its own spelling, /c/... with forward slashes.
-  const asBash = process.platform === 'win32' ? '/' + INSTALLED[0].toLowerCase() + INSTALLED.slice(2).replace(/\\/g, '/') : INSTALLED;
-  assert.ok(r.err.includes(INSTALLED) || r.err.includes(asBash), 'the warning does not name the command to run instead: ' + r.err);
+  // kosmos#8378 (measured on GitHub's Windows runner): the script names it as KOSMOS_HOME + "/bin/kosmos", so on Windows
+  // the last two separators are forward slashes; path.join's spelling is the same string on the Mac.
+  assert.ok(r.err.includes(INSTALLED) || r.err.includes(HOME_ + '/bin/kosmos'), 'the warning does not name the command to run instead: ' + r.err);
   assert.ok(!/—/.test(r.err));
 });
