@@ -286,8 +286,8 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: lib\\deep.js')),
     out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
     /* #9263: single-backslash paths (String.raw) cannot be trusted whole, so they are left out, never shown as `C:`,
-       the folder, or a name with a tab in it (`\t` from `C:\tools.js`). */
-    call('10:12', 'c2b', 'await tools.apply_patch({patch:String.raw`*** Begin Patch\n*** Update File: C:\\Users\\kay\\cut.js\n+x\n*** Update File: C:\\tools.js\n+x\n*** End Patch`});'),
+       the folder, a name with a tab in it (`\t` from `C:\tools.js`), or the `src` a raw `src\new.md` stops at. */
+    call('10:12', 'c2b', 'await tools.apply_patch({patch:String.raw`*** Begin Patch\n*** Update File: C:\\Users\\kay\\cut.js\n+x\n*** Update File: C:\\tools.js\n+x\n*** Update File: src\\new.md\n+x\n*** End Patch`});'),
     out('10:12', 'c2b', 'Script completed\nWall time 1 seconds'),
     /* #9263: an ordinary escape in a quoted string is decoded. */
     call('10:14', 'c2c', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: it\\\'s.md\\n+x\\n*** End Patch"});'),
