@@ -1017,3 +1017,40 @@ test('#9268: atomicOnly with a link followed at every attempt throws ERR_KOSMOS_
   assert.equal(opened.length, 3, 'the loop did not try three fresh names');
   opened.forEach((o, i) => assert.equal(o.closes, 1, `refused open ${i + 1} was closed ${o.closes} times, not once`));
 });
+
+/* kosmos#9268 review 7: a different file renamed onto the made file's path after the fd is closed and before the
+   cleanup's unlink. The unlink takes a path, so the cleanup checks the file again just before it; somebody's file put
+   there must survive. */
+test('#9268: a file renamed onto the made file\'s path after the close is never removed by the cleanup', (t) => {
+  const file = fresh('renamedonto');
+  const elsewhere = fresh('attacker7');
+  const theirs = fresh('theirs7');
+  const realOpen = fs.openSync;
+  const realClose = fs.closeSync;
+  let planted = null;
+  let followedFd = null;
+  fs.openSync = function (p, flags, ...rest) {
+    if (planted === null && flags === 'wx' && String(p).includes('.kosmos-')) {
+      planted = String(p);
+      fs.symlinkSync(elsewhere, planted);
+      followedFd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+      return followedFd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  fs.closeSync = function (fd) {
+    const r = realClose.call(fs, fd);
+    if (fd === followedFd) {
+      followedFd = null;
+      fs.writeFileSync(theirs, 'their bytes');
+      fs.renameSync(theirs, elsewhere);                           // somebody's file now sits at the made file's path
+    }
+    return r;
+  };
+  t.after(() => { fs.openSync = realOpen; fs.closeSync = realClose; for (const p of [planted, elsewhere, theirs]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  securewrite.writeSecret(file, 'secret-9268g', 0o600);
+  fs.openSync = realOpen; fs.closeSync = realClose;
+  assert.ok(planted, 'the plant never happened, so this tests nothing');
+  assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'their bytes', 'the cleanup removed a file the open did not make');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268g', 'the save did not land');
+});
