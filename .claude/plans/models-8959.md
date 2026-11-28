@@ -26,5 +26,8 @@ That `/held` carries enough to draw each row honestly. It is the disk's record (
 - **Screen:** Settings > AI Models, native: one row per account grouped by provider, the name (acctChosenName / email / key tail), the badge and its why as the row's detail, and one footer line "Sign in, add or change an account on your computer." No buttons. Read on open and on pull only.
 - **Tests:** ios/LogicTests/models + run-models.sh (`-Onone`), a fixture with a row for every badge case, the UI test with a screenshot; tmpscope first in the new node test; run every iOS node test file before validating.
 
+- **Inputs measured (web/index.html ~32254-32309):** ageStr = agoWords(connection.observedAgeMs) (function at ~27334); fromCheck = observedFrom === 'check' (the pill says "checked" instead of "active"); loginDate from connection.loginValidUntil, in the viewer's calendar, the year only when not this year; noneWhy / unknownWhy are connection.because or a fixed sentence.
+- **Decided: the phone shows the pill's words exactly, not the tooltips.** The tooltips (workingWhy, unverifiedWhy, loginOkWhy...) point at "Check now", a button the phone will not have. signed_out and unchecked are the exception, because their pill IS their sentence (connection.because). One footer: "To check, sign in, add or change an account, use Settings on your computer." Rejected: copying the tooltips with "Check now" swapped out (two wordings of one fact, and the parity test could not hold them).
+
 ## Still to measure before building D2a
 - Whether any AI Models row the page shows reads a route the phone token is refused.
