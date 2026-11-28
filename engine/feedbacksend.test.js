@@ -889,7 +889,7 @@ test('#5294 review 2: a retry under a minute after a FAILED send is "soon", and 
   assert.equal(calls, 2);
 });
 
-test('#5294 review 2: a data root under the temp directory counts as a test, even without the runner', () => {
+test('#5294 review 2: a data root under the temp directory counts as a test, even without the runner', { skip: require('../test-support/skip-on-win32').skipOnWin32('it checks the fixed POSIX temp roots (/tmp, /var/folders); feedbacksend.sandboxed() has none on Windows by design, never os.tmpdir() (#5294 review 3), so only the runner signal applies there') }, () => {
   // This file's data root is a mkdtemp sandbox, like every fixture's. With the runner signal removed, the temp-folder
   // rule alone must still say sandboxed, so a CLI test file run directly cannot reach installkosmos.com.
   const prev = process.env.NODE_TEST_CONTEXT;
