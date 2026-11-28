@@ -19,6 +19,8 @@ const assert = require('node:assert/strict');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-faketmux-win-8378-'));
 const PANES = path.join(SANDBOX, 'panes.txt');
 const SCREEN = path.join(SANDBOX, 'screen.txt');
+// fake tmux, so a pane-session question that falls through (a broken stand-in) never asks this Mac's real tmux
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 const win = require('./test-support/faketmux-win');
 
 test('off Windows it does nothing: no seam installed, and a board child keeps its argv', () => {
@@ -88,6 +90,7 @@ test('in a board child, installForChild has win32roster.make and win32capture.ma
   try {
     assert.equal(win.installForChild('darwin'), false, 'it acted off Windows');
     assert.equal(roster.make, was.make, 'win32roster.make was replaced off Windows');
+    assert.equal(cap.make, was.capMake, 'win32capture.make was replaced off Windows');
     assert.equal(win.installForChild('win32'), true);
     const { source, capture } = win.current();
     assert.equal(roster.make(), source, 'the board child would wire its own Windows roster, not the fixture');
@@ -104,7 +107,7 @@ test('in a board child, installForChild has win32roster.make and win32capture.ma
   }
 });
 
-test('reset() forgets what the helper installed, so fleet.restore() in this process goes back to none', () => {
+test('reset() forgets what the helper installed', () => {
   const status = require('./engine/status');
   const messages = require('./engine/messages');
   try {
@@ -113,6 +116,30 @@ test('reset() forgets what the helper installed, so fleet.restore() in this proc
     win.reset();
     assert.deepEqual(win.current(), { source: null, capture: null }, 'reset kept the helper state');
   } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+    messages.setRunner(null);
+    win.reset();
+  }
+});
+
+test('fleet.restore() returns to the stand-in once it is installed, and to none after reset()', () => {
+  const status = require('./engine/status');
+  const messages = require('./engine/messages');
+  const fleet = require('./test-support/fleet');
+  const real = status.setPaneSource;
+  const seen = [];
+  try {
+    assert.equal(win.serveOnWindows('win32'), true);
+    const { source } = win.current();
+    status.setPaneSource = (fn) => { seen.push(fn); return real(fn); };
+    fleet.restore();
+    assert.equal(seen.pop(), source, 'fleet.restore() dropped the stand-in (on Windows the board would read a tmux it cannot run)');
+    win.reset();
+    fleet.restore();
+    assert.equal(seen.pop(), null, 'CONTROL: with nothing installed, fleet.restore() still puts back none, as before');
+  } finally {
+    status.setPaneSource = real;
     status.setPaneSource(null);
     status.setPaneCapture(null);
     messages.setRunner(null);

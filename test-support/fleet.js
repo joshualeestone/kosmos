@@ -515,7 +515,7 @@ function refuses(message = 'tmux is not answering') {
   return { restore };
 }
 
-/** Put the engine back on the real tmux. Safe to call twice. */
+/** Put the engine back on the real tmux (on Windows, on fake tmux's reads when test-support/faketmux-win installed them). Safe to call twice. */
 function restore() {
   // kosmos#8378 group 5: on Windows, back to fake tmux's reads served in process (test-support/faketmux-win.js), when a
   // test file installed them, rather than to "none", which there means a tmux Windows cannot run. Elsewhere both are null.
