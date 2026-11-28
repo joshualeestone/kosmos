@@ -369,7 +369,9 @@ async function providerWork(runner, dir, holds) {
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
             /* A relative path is the session's own folder's (review 1), so the same file reads the same either way. */
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ([^\n\\"]+)/g)].map((x) => x[1].trim()).filter(Boolean)
+            /* kosmos#9263: the patch is a JavaScript string, so a path backslash (a Windows path) is written `\\`; any
+               other escape, such as `\n`, ends the path. */
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\\\|[^\n\\"])+)/g)].map((x) => x[1].replace(/\\\\/g, '\\').trim()).filter(Boolean)
               .map((f) => path.resolve(folder, f));
             if (paths.length) pendingPatches.set(id, paths);
           }

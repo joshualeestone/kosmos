@@ -11,6 +11,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test tools.pinned-keys-read.test.js
  */
 const test = require('node:test');
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs a line of tools/build-kosmos-bundle.sh, the Mac bundle build, through /bin/bash by an absolute POSIX path; bundles are built on the release Mac, never on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -48,7 +49,7 @@ let tmp;
 test.before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pinned-keys-')); });
 test.after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
-test('the build reads the pinned keys with the RELATIVE stage a real build uses (the 0.7.57 cut failure)', () => {
+test('the build reads the pinned keys with the RELATIVE stage a real build uses (the 0.7.57 cut failure)', { skip: SKIP_RELEASE_HOST }, () => {
   const cwd = fs.mkdtempSync(path.join(tmp, 'rel-'));
   stageIn(cwd);
   const r = run(cwd, readLines(), 'dist/kosmos-bundle');
@@ -57,7 +58,7 @@ test('the build reads the pinned keys with the RELATIVE stage a real build uses 
   assert.deepEqual(keys, require(VERIFIER).KEYS);
 });
 
-test('CONTROL: the line as it was in the 0.7.57 freeze fails on the same relative stage (the test can see the bug)', () => {
+test('CONTROL: the line as it was in the 0.7.57 freeze fails on the same relative stage (the test can see the bug)', { skip: SKIP_RELEASE_HOST }, () => {
   const cwd = fs.mkdtempSync(path.join(tmp, 'old-'));
   stageIn(cwd);
   const old = `KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).KEYS))' "$STAGE/app/engine/manifest-verify.js" 2>/dev/null)" || KM_PINNED_KEYS=""`;
@@ -65,7 +66,7 @@ test('CONTROL: the line as it was in the 0.7.57 freeze fails on the same relativ
   assert.match(r.stdout, /keys=\n?$/m, 'the old line read the keys from a relative stage, so this control cannot see the bug: ' + r.stdout);
 });
 
-test('a stage whose verifier will not load refuses the build AND shows why (the cause is no longer dropped)', () => {
+test('a stage whose verifier will not load refuses the build AND shows why (the cause is no longer dropped)', { skip: SKIP_RELEASE_HOST }, () => {
   const cwd = fs.mkdtempSync(path.join(tmp, 'bad-'));
   const stage = stageIn(cwd);
   fs.writeFileSync(path.join(stage, 'app', 'engine', 'manifest-verify.js'), 'module.exports = { KEYS: [] }; throw new Error("planted load failure");\n');

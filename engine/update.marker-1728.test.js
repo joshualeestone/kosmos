@@ -1,6 +1,7 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
+const SKIP_POSIX_UPDATE = require('../test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux update shell line (the run-setup wrapper) through /bin/sh by an absolute POSIX path; Windows updates through engine/win32update.js');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -73,7 +74,7 @@ test('#1728: a surviving marker with no status file surfaces as an interrupted a
   assert.match(view.because, /interrupted/i);
 });
 
-test('#1728: the shell removes the marker on finish -- a completed attempt leaves none (real command)', () => {
+test('#1728: the shell removes the marker on finish -- a completed attempt leaves none (real command)', { skip: SKIP_POSIX_UPDATE }, () => {
   const root = freshRoot();
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
   const marker = startedPath(root);
@@ -104,7 +105,7 @@ test('#1728: the spawn passes the marker path as the 4th positional ($4)', () =>
   assert.match(m[1], /statusFile, lastAttempt\.startedAt, startedMarker\]?/, 'startedMarker is the last positional ($4)');
 });
 
-test('#1728: with no install root ($4 = /dev/null) the shell does NOT unlink the sentinel and exits 0', () => {
+test('#1728: with no install root ($4 = /dev/null) the shell does NOT unlink the sentinel and exits 0', { skip: SKIP_POSIX_UPDATE }, () => {
   // When installedRoot() is null the marker falls back to /dev/null. The command
   // must NOT try to `rm /dev/null` (a destructive op if ever run as root) and must
   // exit 0 -- a non-zero exit here would reach wireChild's exit listener and record

@@ -57,7 +57,8 @@ test('each call is dated by its OWN step, not the user turn before it, and lands
   assert.equal(b.output_tokens, 325 + 60 + 478 + 119, 'thoughts are output');
   assert.equal(b.cache_creation_input_tokens, 0);
   assert.equal(b.rows, 2);
-  assert.equal(r.folders['2026-10-02']['/w/agyagent'].rows, 2, 'kept against the conversation\'s folder');
+  assert.equal(r.folders['2026-10-02'][path.resolve('/w/agyagent')].rows, 2,   // a drive letter on Windows (kosmos#8378)
+    'kept against the conversation\'s folder');
 });
 
 test('calls either side of UTC midnight land on their own days', async () => {

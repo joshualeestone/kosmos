@@ -11,7 +11,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test engine.live-execution-1598.test.js
  *
- * 🛑 SAFETY: EVERY run() call below uses /bin/echo, never launchctl or tmux, so
+ * 🛑 SAFETY: EVERY run() call below is node printing a word (ECHO), never launchctl or tmux, so
  * even the AUTHORIZED arm, which really executes, cannot touch a live job or
  * pane. That is deliberate: the authorized/inert arm of a destructive-guard test
  * is the one that does the real thing (a live launchd job was started this way on
@@ -23,6 +23,9 @@ const assert = require('node:assert/strict');
 const liveExec = require('./engine/live-execution');
 const remove = require('./engine/remove');
 const leftover = require('./engine/delete-leftover');
+/* A harmless command that prints LIVE_MARKER on every host: node itself, not /bin/echo, which Windows does not have
+   (kosmos#8378). */
+const ECHO = [process.execPath, ['-e', 'process.stdout.write("LIVE" + "_MARKER")']];
 
 test('#1598 live-execution: fail closed by default, opt-in flips it, reset closes it', () => {
   liveExec.resetForTests();
@@ -41,7 +44,7 @@ for (const [name, mod] of [['remove', remove], ['delete-leftover', leftover]]) {
     mod.resetForTests();
     liveExec.resetForTests();
     assert.throws(
-      () => mod.run('/bin/echo', ['LIVE_MARKER']),
+      () => mod.run(...ECHO),
       /test process|Refusing/,
       `${name}: an unseamed run in a test process did not refuse`,
     );
@@ -55,7 +58,7 @@ for (const [name, mod] of [['remove', remove], ['delete-leftover', leftover]]) {
     process.execArgv = [];
     process.stderr.write = (s) => { errs.push(String(s)); return true; };
     let prodRes;
-    try { prodRes = mod.run('/bin/echo', ['LIVE_MARKER']); }
+    try { prodRes = mod.run(...ECHO); }
     finally { process.execArgv = savedArgv; process.stderr.write = origWrite; }
     assert.equal(prodRes.dryRun, true, `${name}: a missed prod opt-in did not fail closed`);
     assert.ok(!(prodRes.stdout && String(prodRes.stdout).includes('LIVE_MARKER')), `${name}: executed the command while unauthorized`);
@@ -65,7 +68,7 @@ for (const [name, mod] of [['remove', remove], ['delete-leftover', leftover]]) {
     // is a real control, not an always-dry-run that would pass this test dead.
     mod.resetForTests();
     liveExec.allowLiveExecution();
-    const live = mod.run('/bin/echo', ['LIVE_MARKER']);
+    const live = mod.run(...ECHO);
     assert.match(String(live.stdout || ''), /LIVE_MARKER/, `${name}: the opt-in did not enable live execution`);
 
     // Runner injected: the test runner wins regardless of the gate.

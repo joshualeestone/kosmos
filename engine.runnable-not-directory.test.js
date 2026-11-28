@@ -154,6 +154,7 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const { test } = require('node:test');
+const SKIP_TMUX_KEY = require('./test-support/skip-on-win32').skipOnWin32('it checks the tmux key of installedCheck, which engine/machine.js does not probe on Windows, where Kosmos runs no tmux');   // kosmos#8378
 const assert = require('node:assert');
 
 const ENGINE = path.join(__dirname, 'engine');
@@ -516,7 +517,9 @@ function fixture(name) {
   const dir = mkTemp('runnable-1592-');
   const asDirectory = path.join(dir, name);
   fs.mkdirSync(asDirectory);
-  const realBin = path.join(dir, 'real-' + name);
+  /* kosmos#8378: Windows runs a file by its extension (PATHEXT), not by a mode bit, so there the stand-in is an .exe;
+     it is never run, only judged runnable. */
+  const realBin = path.join(dir, 'real-' + name + (process.platform === 'win32' ? '.exe' : ''));
   fs.writeFileSync(realBin, '#!/bin/sh\nexit 0\n');
   fs.chmodSync(realBin, 0o755);
   // The defect itself, asserted so every arm below argues with something real.
@@ -786,7 +789,7 @@ test('isRunnable rejects a directory and accepts a real executable', () => {
   } finally { f.cleanup(); }
 });
 
-test('machine.js installedCheck answers NOT PRESENT for a directory named like the binary', () => {
+test('machine.js installedCheck answers NOT PRESENT for a directory named like the binary', { skip: SKIP_TMUX_KEY }, () => {
   /* 🛑 THIS REPLACED A TOKEN SEARCH, AND THE MEASUREMENT THAT DEMANDED IT:
      machine.js KEEPS its accessSync and is correct only because
      `if (!st.isFile()) { ...; continue; }` sits above it. The old arm asserted

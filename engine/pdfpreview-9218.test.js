@@ -9,6 +9,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  *   node --test engine/pdfpreview-9218.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_STANDIN = require('../test-support/skip-on-win32').skipOnWin32('its Linux renderer arms find stand-in pdftoppm and mutool files by their POSIX execute bit, which Windows does not keep, and one names its PDF with a double quote, which a Windows file name cannot hold; the Windows renderer has its own arms here');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -59,7 +60,7 @@ test('parseArgs refuses: no file, two files, an unknown option, a bad or repeate
   }
 });
 
-test('the file is refused before any renderer runs: missing, a folder, not a PDF, over the size limit; each exits 2', async () => {
+test('the file is refused before any renderer runs: missing, a folder, not a PDF, over the size limit; each exits 2', { skip: SKIP_POSIX_STANDIN }, async () => {
   const d = fresh();
   let ran = 0;
   const deps = { platform: 'linux', env: { PATH: pathWith(['pdftoppm']) }, run: async () => { ran++; return { code: 0, stdout: '' }; }, tmpdir: d };
@@ -93,7 +94,7 @@ test('--out: its folder must exist, it must not be a folder, and it must not be 
   assert.equal(fs.readFileSync(pdf, 'utf8').startsWith('%PDF-'), true, 'the PDF was overwritten');
 });
 
-test('Linux: pdftoppm is handed the private copy, never the given path, and draws the one page asked for', async () => {
+test('Linux: pdftoppm is handed the private copy, never the given path, and draws the one page asked for', { skip: SKIP_POSIX_STANDIN }, async () => {
   const d = fresh();
   const src = fakePdf(d, 'it\'s "$HOME" `x`.pdf');
   let seen = null;
@@ -116,7 +117,7 @@ test('Linux: pdftoppm is handed the private copy, never the given path, and draw
   assert.deepEqual(fs.readdirSync(d).filter((x) => x.startsWith('kosmos-preview-work-')), [], 'the private copy was left behind');
 });
 
-test('Linux: mutool when pdftoppm is missing; with neither, one line naming the packages and exit 1; a page past the end exits 2', async () => {
+test('Linux: mutool when pdftoppm is missing; with neither, one line naming the packages and exit 1; a page past the end exits 2', { skip: SKIP_POSIX_STANDIN }, async () => {
   const d = fresh();
   const src = fakePdf(d);
   let seen = null;
@@ -203,7 +204,7 @@ test('Windows: ERR range names the page count (exit 2); an empty picture, a fail
   assert.deepEqual(fs.readdirSync(d).filter((x) => x.startsWith('kosmos-preview-')), [], 'a failed draw left its folders behind');
 });
 
-test('--out over an existing PNG replaces it whole; a failed draw leaves it as it was and nothing beside it', async () => {
+test('--out over an existing PNG replaces it whole; a failed draw leaves it as it was and nothing beside it', { skip: SKIP_POSIX_STANDIN }, async () => {
   const d = fresh();
   const src = fakePdf(d);
   const out = path.join(d, 'keep.png');

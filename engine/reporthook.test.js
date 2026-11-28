@@ -124,7 +124,7 @@ test('prepare on a dir that already has settings keeps them: the merge posture h
 });
 
 test('hookScriptPath finds the source-checkout script from the engine directory', () => {
-  const found = reporthook.hookScriptPath();
+  const found = reporthook.hookScriptPath('darwin');   // the shell script; the win32 .js has its own arms below (kosmos#8378)
   assert.ok(found && found.endsWith('kosmos-report-hook.sh'),
     'the probe found nothing; the script beside install/kosmos is missing');
   assert.ok(fs.existsSync(found));
@@ -206,6 +206,9 @@ test('#1582 refinement: an ephemeral script in an ephemeral settings file is NOT
    update, which is why a stale hook survived all of them. */
 
 const STALE = path.join(SANDBOX, 'elsewhere', 'kosmos-report-hook.sh');
+/* kosmos#8378: these arms are about the shell-form entry (`bash "<script>"`), so they ask for it on every host; the
+   win32 exec form is pinned in the #570 arms below. */
+const POSIX = { platform: 'darwin' };
 const staleEntry = () => ({
   matcher: '',
   hooks: [{ type: 'command', command: 'bash "' + STALE + '"', timeout: 15 }],
@@ -217,7 +220,7 @@ test('#1467: an entry aimed at another copy of the script is REPOINTED, not skip
   for (const e of reporthook.HOOK_EVENTS) hooks[e] = [staleEntry()];
   fs.writeFileSync(p, JSON.stringify({ hooks }));
 
-  const got = reporthook.ensureWired(p, SCRIPT);
+  const got = reporthook.ensureWired(p, SCRIPT, POSIX);
   assert.equal(got.wired, true);
   assert.equal(got.changed, true, 'it reported success while changing nothing, which is the whole defect');
 
@@ -249,7 +252,7 @@ test('#1467 CONTROL: somebody else hook in the same event survives repointing', 
   const theirs = { matcher: '', hooks: [{ type: 'command', command: 'bash /somebody/else/thing.sh' }] };
   fs.writeFileSync(p, JSON.stringify({ hooks: { SessionStart: [theirs, staleEntry()] } }));
 
-  reporthook.ensureWired(p, SCRIPT);
+  reporthook.ensureWired(p, SCRIPT, POSIX);
   const data = readJson(p);
   const cmds = data.hooks.SessionStart.map((e) => e.hooks[0].command);
   assert.equal(cmds.filter((c) => c.includes('/somebody/else/thing.sh')).length, 1,
