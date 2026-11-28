@@ -2939,7 +2939,7 @@ function heavySend(sub) {
       const nth = n + (n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th');
       const ahead = Array.isArray(j.ahead) ? j.ahead : [];
       const nm = (x) => x.name || x.agent;
-        const who = j.holder ? nm(j.holder) + ' has the turn (' + j.holder.label + ', since ' + heavyWhen(j.holder.since) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
+      const who = j.holder ? nm(j.holder) + ' has the turn (' + j.holder.label + ', since ' + heavyWhen(j.holder.since) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
       ctx.out('Not yet: you are ' + nth + ' in line; ' + who + (ahead.length > 1 || (j.holder && ahead.length) ? '. Ahead of you: ' + ahead.map(nm).join(', ') : '') + '. Ask again with kosmos heavy take to keep your place.');
       return 3;
     }

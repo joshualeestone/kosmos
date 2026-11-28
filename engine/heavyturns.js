@@ -16,7 +16,8 @@
  * way at most MAX_AGE_MS from the last time it asked. A place at the FRONT, with the turn free, must be taken within
  * GRACE_MS of another agent's take first finding the turn free for it (so in the waiter's favour, never less): past that
  * it goes to the back once, and out on the second miss, so an agent that stopped asking cannot hold the line. Every
- * start-time read in one take or one listing shares heavyjobs' ps budget (budgetedStartOf), as a status read does.
+ * start-time read in one take shares one heavyjobs ps budget (budgetedStartOf); server.js heavyNow shares one between
+ * the jobs and the line, and a take route hands its read's budget on to take().
  *
  * Weakest premise: that agents poll take. The line informs; it does not stop an agent that runs its job without it.
  */
@@ -73,7 +74,7 @@ const checked = (e, opts) => hj.judge(e, opts) === 'show';
 
 /* Take a turn, or keep a place. Returns { ok, turn: true, job } when the caller now holds the turn,
    { ok, turn: false, place, holder, ahead } when it waits (place is 1 for first in line), or { ok: false, because }. */
-function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultStartOf, agentAlive = null }) {
+function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultStartOf, agentAlive = null, othersOf = null }) {
   if (!agent) return { ok: false, because: 'Kosmos could not tell which agent you are' };
   let lab, p;
   try { lab = hj.normalizeLabel(label); p = hj.normalizePid(pid); }
@@ -84,12 +85,15 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
   }
-  const others = startOf === hj.defaultStartOf ? hj.budgetedStartOf(now) : startOf;   // one ps budget for the whole take
+  // One ps budget for every other read in this take (othersOf: a caller's reader, so the server shares one with the read
+  // it made just before); the caller's own process is read fresh, as start does.
+  const others = othersOf || (startOf === hj.defaultStartOf ? hj.budgetedStartOf(now) : startOf);
   let out = null;
   const r = locked(root, () => {
     const opts = { now, startOf: others, agentAlive };
     let line = readLine(root).filter((e) => mine(agent, p)(e) || keeps(e, opts));
-    const jobs = hj.live({ root, now, startOf: others, agentAlive });
+    // hidden: a job this read could not check still holds the turn, so the turn never looks free for want of a ps read.
+    const jobs = hj.live({ root, now, startOf: others, agentAlive, hidden: true });
     const held = jobs.find((j) => j.agent === agent && j.pid === p);
     if (held) {   // already the holder: asking again is not a place in its own line, and re-announces (a new label shows)
       line = line.filter((e) => !mine(agent, p)(e));

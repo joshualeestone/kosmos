@@ -3380,7 +3380,7 @@ const heavyMissingSince = new Map();
 function heavyJobsNow(roster, now = Date.now(), opts = {}) { return heavyNow(roster, now, opts).jobs; }
 /* kosmos#9217 slice 2: the jobs and the line of turns in front of them (engine/heavyturns.js), judged with one agentAlive,
    so a waiter missing from the roster runs the same HEAVY_AGENT_GRACE_MS as a holder does. Never throws. */
-function heavyNow(roster, now = Date.now(), { hidden = false } = {}) {
+function heavyNow(roster, now = Date.now(), { hidden = false, startOf = null } = {}) {
   try {
     const running = (roster && Array.isArray(roster.running)) ? roster.running : [];
     const rows = running.concat((roster && Array.isArray(roster.offline)) ? roster.offline : []);   // names only
@@ -3396,9 +3396,11 @@ function heavyNow(roster, now = Date.now(), { hidden = false } = {}) {
       const since = heavyMissingSince.get(n);
       return since !== undefined && now - since >= HEAVY_AGENT_GRACE_MS ? false : null;
     };
-    const jobs = require('./engine/heavyjobs').live({ root: store.ROOT, now, agentAlive, hidden });
+    const hjm = require('./engine/heavyjobs');
+    const reads = startOf || hjm.budgetedStartOf(now);   // one ps budget for the jobs and the line together
+    const jobs = hjm.live({ root: store.ROOT, now, agentAlive, hidden, startOf: reads });
     let line = [];
-    try { line = require('./engine/heavyturns').waiting({ root: store.ROOT, now, agentAlive }); } catch { line = []; }
+    try { line = require('./engine/heavyturns').waiting({ root: store.ROOT, now, agentAlive, startOf: reads }); } catch { line = []; }
     const holders = new Set(jobs.concat(line).map((j) => j.agent));
     for (const n of [...heavyMissingSince.keys()]) if (!holders.has(n)) heavyMissingSince.delete(n);   // a mark lives only as long as a job or a place
     const named = (j) => ({ ...j, name: display.get(j.agent) || j.agent });
@@ -28587,12 +28589,13 @@ const server = http.createServer(async (req, res) => {
       if (body.action === 'take' || body.action === 'release') {
         // kosmos#9217 slice 2: a turn (engine/heavyturns.js). take never waits: it is the turn, or a kept place.
         const ht = require('./engine/heavyturns');
-        let alive = null;
+        let alive = null, reads = null;
         if (body.action === 'take') {
           // The marks a status read keeps, refreshed by this read first (a complete roster starts a missing agent's
           // HEAVY_AGENT_GRACE_MS, as /api/status does), so a holder or waiter that left is judged gone after the grace
           // even when no page polls the board. Only a grace already run out judges anyone gone.
-          if (roster) heavyNow({ running: roster, offline: [], complete: roster.complete === true });
+          reads = require('./engine/heavyjobs').budgetedStartOf();   // one ps budget for this refresh and the take after it
+          if (roster) heavyNow({ running: roster, offline: [], complete: roster.complete === true }, Date.now(), { startOf: reads });
           const up = new Set((roster || []).map((a) => a && a.sessionName).filter(Boolean));
           alive = (n) => {
             if (up.has(n)) return true;
@@ -28601,7 +28604,7 @@ const server = http.createServer(async (req, res) => {
           };
         }
         const t = body.action === 'take'
-          ? ht.take({ root: store.ROOT, agent: name, label: body.label, pid: body.pid, agentAlive: alive })
+          ? ht.take({ root: store.ROOT, agent: name, label: body.label, pid: body.pid, agentAlive: alive, othersOf: reads })
           : ht.release({ root: store.ROOT, agent: name, pid: body.pid });
         if (!t.ok) { sendJson(res, t.refused ? 400 : 503, { error: t.because }); return; }
         heavyMissingSince.delete(name);   // it just answered as itself: not missing
