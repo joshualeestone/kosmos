@@ -58,6 +58,7 @@ const cp = require('node:child_process');
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
+  'orgchartfile.test.js',   // kosmos#9272: the org chart reader's real runner, with a node stand-in for claude; its #!/bin/sh arms skip
   'heavyjobs-9217.test.js',   // kosmos#9217: a heavy job's process is judged by signal 0 there, with no ps to read its start
   'loginexpiry-why-9107.test.js',   // kosmos#9107: the off-macOS refusal lines, on a real Windows runner
   'macrestart-8988.test.js',   // kosmos#8988: the Mac card's restart reader is plain file reading; only the arm that runs a bash function skips
@@ -186,7 +187,8 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'machine.agentautostart-4479.test.js'];   // kosmos#8378: the Windows autostart row runs there (through platform win32); the arms that drive the macOS arm through launchctl skip
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
-const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
+const ALSO_ROOT = ['teamcreate-structure-4557.test.js',   // kosmos#9272: making a team on Windows (where.exe binaries, the win32job seams, an empty roster)
+  'cli.world-outbox-1704.test.js','engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
   'test-support.remove-tree.test.js',
   'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
   'engine.reachable.test.js',   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
