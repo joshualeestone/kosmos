@@ -1,6 +1,5 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
-const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 /**
  * kosmos#5293: an agent proposes an addition to another agent's instructions; the person applies it on the page.
  * One pending per target (a second is refused, never replaced); apply appends under who asked and when; undo puts the
@@ -13,6 +12,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+/* kosmos#9269: two arms make a file unreadable with chmod 0o000, which Windows does not enforce (it only marks the file
+   read-only). There the same EACCES is forced through the fs calls the code reads it with instead: fs.readFileSync (the
+   store) and fs.openSync (the instructions, read through workerfile), for those paths only, everything else untouched.
+   KOSMOS_TEST_CHMOD_STUB=1 runs the stub arm on a Mac or Linux. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function denyRead(files) {
+  const deny = new Set(files.map((f) => path.resolve(f)));
+  const real = { openSync: fs.openSync, readFileSync: fs.readFileSync };
+  const hit = (p) => typeof p === 'string' && deny.has(path.resolve(p));
+  const eacces = (p) => Object.assign(new Error(`EACCES: permission denied, open '${p}'`), { code: 'EACCES', syscall: 'open', path: p });
+  fs.openSync = function (p, ...rest) { if (hit(p)) throw eacces(p); return real.openSync.call(this, p, ...rest); };
+  fs.readFileSync = function (p, ...rest) { if (hit(p)) throw eacces(p); return real.readFileSync.call(this, p, ...rest); };
+  return () => { fs.openSync = real.openSync; fs.readFileSync = real.readFileSync; };
+}
 
 // Every root sandboxed BEFORE the requires, so nothing here can touch a real agent or real app data.
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-instradd-workers-'));
@@ -244,14 +257,15 @@ test('review 3: an apply whose record fails is finished by pressing Apply again,
   assert.equal(fileText('sally'), BASE, 'Undo after a finished retry did not restore the earlier text');
 });
 
-test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', { skip: skipOnWin32('what it checks exists on Windows (a read error refuses and moves nothing), but it makes the store unreadable with chmod 0o000, a POSIX file mode Windows does not keep (there it only marks the file read-only); the Windows arm is owed on kosmos#9269') }, () => {
+test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   const good = fs.readFileSync(adds.FILE, 'utf8');
-  fs.chmodSync(adds.FILE, 0o000);   // unreadable to this process: a read error, not corruption
+  /* Unreadable to this process: a read error, not corruption. kosmos#9269: on Windows the same EACCES from readFileSync. */
+  const unblock = CHMOD_VIA_STUB ? denyRead([adds.FILE]) : (fs.chmodSync(adds.FILE, 0o000), null);
   let r;
-  try { r = adds.dismiss('sally'); } finally { fs.chmodSync(adds.FILE, 0o600); }
-  if (process.getuid && process.getuid() === 0) return;   // root reads it anyway; nothing to prove there
+  try { r = adds.dismiss('sally'); } finally { if (unblock) unblock(); else fs.chmodSync(adds.FILE, 0o600); }
+  if (!CHMOD_VIA_STUB && process.getuid && process.getuid() === 0) return;   // root reads it anyway; nothing to prove there
   assert.equal(r.ok, false, 'a write went ahead on a store it could not read');
   assert.equal(fs.readFileSync(adds.FILE, 'utf8'), good, 'the good store was changed or moved');
   assert.equal(fs.readdirSync(path.dirname(adds.FILE)).filter((f) => f.includes('.unreadable-')).length, 0, 'a good store was set aside');
@@ -600,15 +614,20 @@ test('review 11: an asker name that ARRIVES with a lone surrogate still leaves t
 });
 
 /* Review 12 (opus, blind). */
-test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', { skip: NO_CHMOD_READ }, () => {
+test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   unrecordedApply('sally');
   const f = path.join(ROOT, 'sally', 'CLAUDE.md');
-  fs.chmodSync(f, 0o000);
+  const unblock = CHMOD_VIA_STUB ? denyRead([f]) : (fs.chmodSync(f, 0o000), null);   // kosmos#9269: openSync's EACCES on Windows
   let d;
-  try { d = adds.dismiss('sally'); } finally { fs.chmodSync(f, 0o644); }
+  try { d = adds.dismiss('sally'); } finally { if (unblock) unblock(); else fs.chmodSync(f, 0o644); }
   assert.equal(d.ok, false, 'Dismiss went through on an unreadable file');
+  /* kosmos#9269: refused BECAUSE it could not read, not for the other reason this fixture offers (the unrecorded Apply put
+     the addition in the file, so a readable file is refused as 'applied'). Without this line the arm passed with the
+     file readable, so it could not fail on what it names. */
+  assert.notEqual(d.code, 'applied', 'refused as already applied, so the file was read after all');
+  assert.match(d.because, /cannot tell whether an earlier Apply already added this/, d.because);
   assert.equal(adds.pending('sally').text, ADD);
 });
 test('review 12: a proposal holding a line in Kosmos\'s own heading format is refused', () => {

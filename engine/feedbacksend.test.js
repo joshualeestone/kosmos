@@ -23,7 +23,6 @@ const feedback = require('./feedback');
 const feedbacksend = require('./feedbacksend');
 const store = require('./store');
 const projects = require('./projects');
-const NO_CHMOD_FAIL = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (a mark that cannot be saved), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 
 function fresh() {
   try { fs.rmSync(feedbacksend.FILE, { force: true }); } catch { /* absent is fine */ }
@@ -1043,7 +1042,25 @@ test('#5317 review 3: a re-send still in flight is not sent again by the next da
   assert.deepEqual(sent, ['2026-11-01', '2026-11-01', '2026-11-02'], 'the changed day went out twice in one tick');
 });
 
-test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', { skip: NO_CHMOD_FAIL }, async () => {
+/* kosmos#9269: the mark's folder is made unwritable with chmod 0500 on the Mac and Linux. Windows does not enforce
+   chmod, so there the call the chmod makes fail, writeSecret's fs.openSync of its temp beside the mark (securewrite
+   reaches fs through the module object at call time; the mark is saved atomic-only, so there is no other way in), is
+   made to fail instead with the code the chmod gives it (EACCES), for a file created in that folder only. The arm
+   asserts the same outcome either way. KOSMOS_TEST_CHMOD_STUB=1 takes the Windows path on any platform, so it can be
+   run (and broken) on the Mac. */
+const UNSAVED_MARK_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function unwritableFolder(dir) {
+  if (!UNSAVED_MARK_VIA_STUB) { fs.chmodSync(dir, 0o500); return () => fs.chmodSync(dir, 0o700); }
+  const locked = nodePath.resolve(dir);
+  const orig = fs.openSync;
+  const creates = (flags) => (typeof flags === 'string' ? /[wa]/.test(flags) : typeof flags === 'number' && (flags & fs.constants.O_CREAT) !== 0);
+  fs.openSync = function openSync(p, flags) {
+    if (creates(flags) && nodePath.dirname(nodePath.resolve(String(p))) === locked) throw Object.assign(new Error('EACCES: permission denied, open (a stand-in for chmod 0500, kosmos#9269)'), { code: 'EACCES' });
+    return orig.apply(this, arguments);
+  };
+  return () => { fs.openSync = orig; };
+}
+test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', async () => {
   feedbacksend.setOn(true);
   const sent = [];
   feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
@@ -1054,9 +1071,9 @@ test('#5317 review 3: when the new day\'s mark cannot be saved, the day before i
   feedback.write('the second report', { date: '2026-11-05', from: 'mara' });
   feedback.write('the new day', { date: '2026-11-06', from: 'leo' });
   const file = feedbacksend.FILE;
-  fs.chmodSync(nodePath.dirname(file), 0o500);
+  const unlock = unwritableFolder(nodePath.dirname(file));
   try {
     for (const h of ['00:10', '00:20', '00:30']) await feedbacksend.sendNow('2026-11-06', at('2026-11-06T' + h + ':00'));
-  } finally { fs.chmodSync(nodePath.dirname(file), 0o700); }
+  } finally { unlock(); }
   assert.deepEqual(sent, ['2026-11-05'], 'an unsaved mark still posted the day before');
 });

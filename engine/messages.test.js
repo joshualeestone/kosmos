@@ -36,7 +36,6 @@ const limits = require('./limits');
 const PAIR_BUDGET = limits.DEFAULTS.perHour;
 const ROOM_BUDGET = limits.DEFAULTS.perHour * limits.ROOM_FACTOR;
 const fleet = require('../test-support/fleet');
-const NO_CHMOD_FAIL = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (the hard-link guard on a read-only Inbox), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 
 function withFleet(specs, fn) {
@@ -3990,7 +3989,23 @@ test('#4447: an Inbox whose marker was removed is refused with a reason that nam
    reaches writeSecret's in-place fallback with a link in place, and the link's target is untouched. Without the guard
    (the mutant), writeSecret cannot make its temp in the read-only folder, falls back to opening the NAME with
    O_TRUNC, and writes through the link: that is the path the guard closes. */
-test('#4447: a hard link planted at the next id in a read-only Inbox is never written through (the unlink guard keeps writeSecret\'s fallback off it)', { skip: NO_CHMOD_FAIL || (process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder' : false) }, () => {   // kosmos#8378: the read-only Inbox is a chmod 0555
+/* kosmos#9269: the read-only Inbox is a chmod 0555 on the Mac and Linux. Windows does not enforce chmod, so there the
+   call the chmod makes fail first, spillInto's fs.unlinkSync of the planted name (messages.js reaches fs through the
+   module object at call time), is made to fail instead with the code the chmod gives it (EACCES), for a name in that
+   Inbox only. The arm asserts the same outcome either way. KOSMOS_TEST_CHMOD_STUB=1 takes the Windows path on any
+   platform, so it can be run (and broken) on the Mac. */
+const READONLY_INBOX_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function readOnlyInbox(dir) {
+  if (!READONLY_INBOX_VIA_STUB) { fs.chmodSync(dir, 0o555); return () => fs.chmodSync(dir, 0o755); }
+  const locked = path.resolve(dir);
+  const orig = fs.unlinkSync;
+  fs.unlinkSync = function unlinkSync(p) {
+    if (path.dirname(path.resolve(String(p))) === locked) throw Object.assign(new Error('EACCES: permission denied, unlink (a stand-in for chmod 0555, kosmos#9269)'), { code: 'EACCES' });
+    return orig.apply(this, arguments);
+  };
+  return () => { fs.unlinkSync = orig; };
+}
+test('#4447: a hard link planted at the next id in a read-only Inbox is never written through (the unlink guard keeps writeSecret\'s fallback off it)', { skip: !READONLY_INBOX_VIA_STUB && process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder' : false }, () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
@@ -4000,7 +4015,7 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
     fs.writeFileSync(victim, 'untouched\n');
     const nextId = messages._nextIdForTests();   // #4888: asked of the board, not read off the log
     fs.linkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
-    fs.chmodSync(inboxOf('mara'), 0o555);
+    const unlock = readOnlyInbox(inboxOf('mara'));
     try {
       armSender('leo-discord');
       arm([ok(), ok()]);
@@ -4008,7 +4023,7 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
       assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'the spill was not refused where the planted name could not be removed');
       assert.match(out.because, /could not write the file in/, out.because);
       assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the planted hard link was written through');
-    } finally { fs.chmodSync(inboxOf('mara'), 0o755); }
+    } finally { unlock(); }
   });
 });
 
