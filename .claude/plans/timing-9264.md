@@ -23,8 +23,6 @@ and a CLI that waits on stdin longer than the short peek still fails it.
 
 ## Measured
 - Real CLI: 29 pass, 0 fail, 1 skipped.
-- `KOSMOS_PIPED_PEEK_MS=300` -> `30000` (restored after): the open-pipe arm and the never-stopping writer of spaces
-  go red (killed at 20 s).
 - `KOSMOS_PIPED_PEEK_MS=300` -> `3000` (restored after): the new #9264 test goes red.
 - `KOSMOS_PIPED_PEEK_MS=300` -> `999999` (restored after): before the group kill the writer arms hung over 300 s;
   after it, the open-pipe and never-stopping-writer arms are red at 20 s (the `sleep 4` writer ends, so it passes).
