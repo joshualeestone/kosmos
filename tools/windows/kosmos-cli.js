@@ -632,9 +632,9 @@ async function verbMsg(ctx, args) {
     if (!r.reached && r.refused) r = first;
   }
   if (!r.reached) {
-    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.');
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.');
     // #4580: the first attempt was not refused, so it may have landed; a retry that also failed proves nothing.
-    if (retried) return maybe(ctx.err, 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; check with them before sending it again.');
+    if (retried) return maybe(ctx.err, 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.');
     const code = ctx.unreachable('send that');
     keepPiped();
     return code;
@@ -657,7 +657,7 @@ async function verbMsg(ctx, args) {
     sayMsgId(ctx, d);
     return 0;
   }
-  if (d.state === 'unconfirmed') { const code = maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.'); sayMsgId(ctx, d); return code; }
+  if (d.state === 'unconfirmed') { const code = maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not send it again: if an id is shown below, kosmos msg --status says later whether they read it; if not, wait for their answer.'); sayMsgId(ctx, d); return code; }
   // #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
   if (d.held === true && d.heldBy === 'limit' && d.behind === true && d.behindFor === 'input') {   // #6774
     ctx.out('Held for ' + to + ': it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or, after 2 hours with the box still full, drops it and tells you. Do not re-send.');   // kosmos#7936
