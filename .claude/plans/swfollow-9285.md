@@ -1,7 +1,7 @@
 # kosmos#9285: what a #9268 refusal leads to, decided and pinned (branch swfollow-9285)
 
 Follow-up from #9268 (PR #9289, merged), whose review stopped at the fleet's 8-round rule with two WARNINGs and three
-NITs open. One commit on main.
+NITs open. Built on main.
 
 ## The call on the first WARNING: three forced refusals reached the in-place fallback
 
@@ -21,7 +21,8 @@ What I first decided, and what changed my mind: the first version of this branch
 that #9268's refusals let an attacker force every save into that race on purpose. For a secret, a refused save is the
 smaller harm. Rejected now: keeping the fallback. Weakest premise of the new call: that no caller relies on a save
 always landing; a caller that cannot tolerate a refusal already has none to fall back on with atomicOnly, and no
-caller branches on ERR_KOSMOS_TEMP_SWAPPED (grep).
+caller branches on ERR_KOSMOS_TEMP_SWAPPED (grep); that each caller's catch takes it is reasoned from their already
+meeting ENOSPC and EACCES, not shown caller by caller.
 
 A new arm pins it: three followed links, no atomicOnly; the save throws ERR_KOSMOS_TEMP_SWAPPED, the in-place open is
 never made, the config keeps its old bytes, and no planted target holds the secret. It fails with the new rule removed.
@@ -47,3 +48,13 @@ Linux container on overlay; network shares, FUSE and OneDrive-style folders are 
 - Review 2: a mixed arm (links at two names, a plain file at the third) refuses the save with no in-place open, and
   fails with the old "all three" rule; the rule runs before the atomicOnly exit, so an atomicOnly write gets the same
   code; the header, the writeSecret doc and the leftovers sentence (a planted folder is never reaped) match the code.
+
+## Not closed, and said in the code
+
+Review 3 measured that a plain file planted at all three temp names (each create fails EEXIST, none is a swap) still
+reaches the in-place fallback, as it did before #9268. Counting EEXIST as planting would close it, and I did not:
+EEXIST on every create is how this module's own tests (securewrite.fsync-5434, settingswrite, accounts, sendertoken and
+others) reach the fallback on purpose, so it would change what the fallback is for every caller, which is a change of
+its own with its own review, not a follow-up wording fix. The comments that claimed otherwise now say this. What would
+change my mind: a measured route by which a plain-file plant leaks a secret through the fallback, rather than costing
+an atomic write.
