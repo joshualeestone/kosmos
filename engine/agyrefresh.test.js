@@ -165,6 +165,10 @@ test('#4353 a malformed Kosmos entry (null, a string, a list, no readable Stop c
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });
 
+/* kosmos#8378: the node's path as it appears inside hooks.json's text. A Windows path's backslashes are escaped there
+   as JSON writes them (C:\\...), so splitting the raw text on the plain path matched nothing on Windows and the entry kept its node. */
+const AS_JSON = (p) => JSON.stringify(p).slice(1, -1);
+
 test('#4353 an entry whose node or bridge no longer exists counts as absent, so it is written again', () => {
   const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agystale-'));
   try {
@@ -175,7 +179,7 @@ test('#4353 an entry whose node or bridge no longer exists counts as absent, so 
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true, 'CONTROL: a live entry must read as hooked');
     // The same entry after an upgrade removed the node it names: absent.
     const f = path.join(wd, '.agents', 'hooks.json');
-    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(process.execPath).join('/gone/node'));
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(AS_JSON(process.execPath)).join('/gone/node'));
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'an entry naming a missing node read as hooked');
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });
@@ -200,7 +204,7 @@ test('#4353 repairing a broken entry keeps its ask_question tool hooks, and adds
     for (const withTools of [true, false]) {
       // A current supervisor's entry (with or without the tool hooks), then an upgrade removes its node.
       agyhooks.ensureHooks(wd, process.execPath, bridge, withTools);
-      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(process.execPath).join('/gone/node'));
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(AS_JSON(process.execPath)).join('/gone/node'));
       assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'the broken entry read as hooked');
       const rows = await agyrefresh.refreshRunningAgyHooks(deps);
       assert.equal(rows[0].changed, true, rows[0].why);

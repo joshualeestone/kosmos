@@ -50,6 +50,21 @@ const connect = require('./connect');
 
 /** A real executable, because the probe runs a real subprocess. */
 function fakeClaude(name, body) {
+  /* kosmos#8378: on Windows a file is runnable only by a PATHEXT name (runners.runnableExactly), and a #!/bin/sh script
+     does not run. So there a launcher that should run (its body ends `exit 0`) is node.exe under an .exe name, which
+     answers --version and exits 0, and one that should not is a file that is no program, under the same name. */
+  if (process.platform === 'win32') {
+    const w = path.join(SB, name + '.exe');
+    if (/\bexit 0\s*$/.test(body)) {
+      try { fs.linkSync(process.execPath, w); } catch { fs.copyFileSync(process.execPath, w); }
+    } else if (/\bexit 1\s*$/.test(body)) {
+      fs.writeFileSync(w, body);
+    } else {
+      // Only the two outcomes are modelled here; a body ending any other way would get the wrong stand-in silently.
+      throw new Error(`fakeClaude on Windows models a body ending "exit 0" or "exit 1", not: ${body}`);
+    }
+    return w;
+  }
   const p = path.join(SB, name);
   fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
   fs.chmodSync(p, 0o755);
@@ -243,7 +258,7 @@ test('#1556 the cache is keyed on the BINARY, not just on time', async () => {
   const good = fakeClaude('claude-keyed-good', 'exit 0');
   const bad = fakeClaude('claude-keyed-bad', 'exit 1');
   connect.resetForTests();
-  connect.setRunner(async (file) => ({ ok: file.endsWith('claude-keyed-good'), stdout: '' }));
+  connect.setRunner(async (file) => ({ ok: String(file).endsWith(path.basename(good)), stdout: '' }));   // the name, with .exe on Windows
 
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = good;
   assert.equal(await connect.willInstall(), false, 'the working launcher was misread');

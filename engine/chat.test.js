@@ -50,6 +50,8 @@ const chat = require('./chat');
 const status = require('./status');
 const projects = require('./projects');
 const fleet = require('../test-support/fleet');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
+const NO_POSIX_STANDINS = require('../test-support/skip-on-win32').skipOnWin32('its stand-ins are absolute POSIX paths (/bin/sleep, /etc/hosts), which Windows does not have; what it checks exists on Windows (the classification) and needs Windows stand-ins (kosmos#9265)');   // kosmos#8378
 
 /**
  * Install a fleet, run the test against the REAL cards, and always put the
@@ -1690,7 +1692,7 @@ test('the note is kept WITH the message, so "why did nothing happen" is answerab
   assert.match(back.delivery.paneNote, /mid-task/);
 });
 
-test('a slow tmux and a missing tmux are told apart from what execFileSync REALLY throws', () => {
+test('a slow tmux and a missing tmux are told apart from what execFileSync REALLY throws', { skip: NO_POSIX_STANDINS }, () => {
   /**
    * ⚠️ AGAINST REAL ERRORS, not a fixture of what I remember Node throwing.
    * The whole three-state distinction rests on this one boolean, and both of
@@ -2465,7 +2467,7 @@ test('an unconfirmed send does not also assert WHERE the message is sitting', ()
   });
 });
 
-test('a file we cannot READ right now is not treated as a file that is DAMAGED', () => {
+test('a file we cannot READ right now is not treated as a file that is DAMAGED', { skip: NO_CHMOD_LOCK }, () => {
   /**
    * ⚠️ THE DESTRUCTIVE CONFLATION, and it was measured before it was fixed:
    * `chmod 000` on a healthy six-message thread plus one send renamed the good
@@ -2751,7 +2753,7 @@ test('a send that could NOT be delivered still carries what the agent was doing'
   });
 });
 
-test('an unwritable chats directory is a reported keeping-failure, never a throw at a delivered message', () => {
+test('an unwritable chats directory is a reported keeping-failure, never a throw at a delivered message', { skip: NO_CHMOD_LOCK }, () => {
   // withThreadLock's non-EEXIST arm holds appendMessage's never-throws
   // contract; replacing it with `throw err` was green (round 24). The
   // contract exists because a throw here reports a DELIVERED message as a
