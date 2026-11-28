@@ -131,7 +131,7 @@ test('a closed task: files, a command COUNT, tokens once per message, only insid
   assert.deepEqual(r.retries, { reopened: 0, handoffs: 1 });
   const a = r.agents.find((x) => x.who === 'ann');
   assert.equal(a.available, true);
-  assert.deepEqual(a.files, ['src/a.js', '/elsewhere/notes.md'], 'edits that succeeded inside the hold, by path in the agent folder when inside it; not a failed or unanswered one');
+  assert.deepEqual(a.files, [path.join('src', 'a.js'), '/elsewhere/notes.md'], 'edits that succeeded inside the hold, by path in the agent folder when inside it; not a failed or unanswered one');
   assert.equal(a.commands, 3, 'a count of commands, each tool call once though its message is restated');
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
   assert.deepEqual(a.models['claude-sonnet-5-5'], { input_tokens: 100 + 5 + 1, output_tokens: 50 + 5 + 2 + 1 + 1, cache_creation_input_tokens: 10, cache_read_input_tokens: 1000, rows: 5 });
@@ -275,13 +275,13 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const tc = (at, input, cached, output) => ev(at, 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output } } });
   const call = (at, id, src) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: src });
   const out = (at, id, text) => ev(at, 'response_item', { type: 'custom_tool_call_output', call_id: id, output: [{ type: 'input_text', text }] });
-  const patch = (...files) => 'const r = await tools.apply_patch({patch:"*** Begin Patch\\n' + files.map((f) => '*** ' + f + '\\n+x\\n').join('') + '*** End Patch"});';
+  const patch = (...files) => 'const r = await tools.apply_patch({patch:"*** Begin Patch\\n' + files.map((f) => '*** ' + f.replace(/\\/g, '\\\\') + '\\n+x\\n').join('') + '*** End Patch"});';
   fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-kay.jsonl'), jl([
     ev('10:00', 'session_meta', { cwd: fs.realpathSync(kay) }),
     ev('10:00', 'turn_context', { model: 'gpt-5.6-sol' }),
     call('10:05', 'c1', 'await tools.exec_command({cmd:"rm -rf secret"}); await tools.exec_command({cmd:"ls"});'),
     out('10:05', 'c1', 'Script completed\nWall time 1 seconds'),
-    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md')),
+    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: a\\b.md')),
     out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),
@@ -298,7 +298,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const a = r.agents[0];
   assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
-  assert.deepEqual(a.files, ['src/new.js', 'notes.md'], 'only the patch that completed');
+  assert.deepEqual(a.files, [path.join('src', 'new.js'), 'notes.md', 'a\\b.md'], 'only the patch that completed; a backslash in a path is kept, written escaped as a JavaScript string carries it (kosmos#9263)');
   assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.equal(a.transcriptsWithWork, 1);
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
@@ -492,14 +492,14 @@ test('files are shown by their short path under either spelling of a linked agen
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'rue' }, { at: '11:00', kind: 'closed' }]);
   const slug = path.join(SB, '.gemini', 'tmp', 'rue-slug');
   fs.mkdirSync(path.join(slug, 'chats'), { recursive: true });
-  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync(real) + '\n');   // the session records the real spelling
+  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync.native(real) + '\n');   // the session records the real spelling
   const write = (id, fp) => ({ id, name: 'write_file', args: { file_path: fp }, status: 'success', timestamp: T('10:15') });
   fs.writeFileSync(path.join(slug, 'chats', 'session-1.jsonl'), jl([{ id: 'r1', type: 'gemini', timestamp: T('10:15'), model: 'gemini-3.8-flash',
     tokens: { input: 1, output: 1, cached: 0, thoughts: 0, tool: 0 },
-    toolCalls: [write('w1', path.join(fs.realpathSync(real), 'in.md')), write('w2', fs.realpathSync(real) + '2/sibling.md'),
-      write('w3', path.join(fs.realpathSync(real), '..cache', 'x'))] }]));
+    toolCalls: [write('w1', path.join(fs.realpathSync.native(real), 'in.md')), write('w2', fs.realpathSync.native(real) + '2/sibling.md'),
+      write('w3', path.join(fs.realpathSync.native(real), '..cache', 'x'))] }]));
   const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
-  assert.deepEqual(a.files, ['in.md', fs.realpathSync(real) + '2/sibling.md', path.join('..cache', 'x')]);
+  assert.deepEqual(a.files, ['in.md', fs.realpathSync.native(real) + '2/sibling.md', path.join('..cache', 'x')]);
 });
 
 /* ---- slice 3: an agent's receipts ---- */
