@@ -277,6 +277,13 @@ test('#9243 `kosmos msg` not confirmed: exit 3, do not send it again, and its id
   assert.doesNotMatch(out.stdout, /check with them/);
 }));
 
+test('#9243 `kosmos msg --no-reply` not confirmed: do not send it again, never wait for an answer', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgunconfirmed', async (port) => {
+  const out = await runCli(['msg', '--no-reply', 'mara', 'fyi'], baseEnv(port, { TMUX_PANE: '%42' }));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /Not confirmed: the text may be in their composer\. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it\.\n/);
+  assert.doesNotMatch(out.stdout, /wait for their answer/);
+}));
+
 test('#9243 `kosmos msg` that times out twice: exit 3, wait for their answer (no id), one retry', { skip: SKIP_POSIX_SHELL }, () => withBoard('msghang', async (port, firstFile) => {
   const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }), 45000);
   assert.equal(out.code, 3, out.stdout + out.stderr);
@@ -620,6 +627,8 @@ test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'
   const msg = await runCli(['msg', 'mara', 'the lease is signed'], env);
   assert.equal(msg.code, 0, msg.stdout + msg.stderr);
   assert.match(msg.stdout, /Placed with mara \(it had arrived the first time; it was not sent twice\)/);
+  // kosmos#9243: the duplicate prints its id too (this retry's first attempt printed none).
+  assert.match(msg.stdout, /Its id is m1: kosmos msg --status m1 says later/);
   assert.match(msg.stderr, /asking once more/);
   assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'exactly one retry');
 }));

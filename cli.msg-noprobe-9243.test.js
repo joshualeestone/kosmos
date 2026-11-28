@@ -15,20 +15,22 @@ const path = require('node:path');
 const MAC = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
 const WIN = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
 
-const TIMEOUT = 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.';
-const RETRIED = 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.';
-const UNCONFIRMED = '. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer.';
+/* The two endings a maybe outcome can take: wait for their answer, or (a --no-reply send) do not send it again. Both CLIs
+   join them to the same openings; the run-level tests in cli.busy-health-4466 and tools.windows-kosmos-cli-busy-4466
+   check the whole sentences as printed. */
+const AFTER_WAIT = 'with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.';
+const AFTER_NOREPLY = 'with no id, kosmos msg --status cannot check it, and you asked for no reply, so do not send it again.';
+const OPEN_TIMEOUT = 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; ';
+const OPEN_RETRIED = 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; ';
+const UNCONFIRMED_WAIT = '. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer.';
+const UNCONFIRMED_NOREPLY = '. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it.';
 
-test('#9243: a timed-out direct message points at waiting for an answer, on both CLIs', () => {
-  assert.ok(MAC.includes(TIMEOUT), 'install/kosmos lost the timeout sentence');
-  assert.ok(WIN.includes(TIMEOUT), 'the Windows CLI lost the timeout sentence');
-  assert.ok(WIN.includes(RETRIED), 'the Windows CLI lost the asked-once-more sentence');
-  assert.ok(MAC.includes(RETRIED), 'install/kosmos lost the asked-once-more sentence (a cut reply and a cut retry)');
-});
-
-test('#9243: an unconfirmed direct message points at msg --status, on both CLIs', () => {
-  assert.ok(MAC.includes('Not confirmed: ${because:-the text may already be in their composer}' + UNCONFIRMED), 'install/kosmos lost the unconfirmed sentence');
-  assert.ok(WIN.includes("'" + UNCONFIRMED + "'"), 'the Windows CLI lost the unconfirmed sentence');
+test('#9243: both CLIs carry the same openings and both endings for a direct message that may have arrived', () => {
+  for (const [name, src] of [['install/kosmos', MAC], ['tools/windows/kosmos-cli.js', WIN]]) {
+    for (const part of [AFTER_WAIT, AFTER_NOREPLY, OPEN_TIMEOUT, OPEN_RETRIED, UNCONFIRMED_WAIT, UNCONFIRMED_NOREPLY]) {
+      assert.ok(src.includes(part), name + ' lost: ' + part);
+    }
+  }
 });
 
 test('#9243: no direct-message outcome tells the sender to check with them (the probe)', () => {
