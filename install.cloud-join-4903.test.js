@@ -9,6 +9,7 @@
  */
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const { test } = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -100,7 +101,7 @@ test('#4903 setup.sh carries the cloud-join block, called before the board start
   assert.ok(call > 0 && start > 0 && call < start, 'the join must run before the board first starts');
 });
 
-test('#4903 a cloud box joins: token on stdin, latch written, remote on, token removed from provision.env', () => {
+test('#4903 a cloud box joins: token on stdin, latch written, remote on, token removed from provision.env', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box();
   const r = join(b);
   assert.equal(rcOf(r), '0', r.stdout + r.stderr);
@@ -126,7 +127,7 @@ test('#4903 a cloud box joins: token on stdin, latch written, remote on, token r
   assert.equal(read(path.join(b.root, 'tunnel-args')), null, 'a joined box asked the tunnel again');
 });
 
-test('#4903 anywhere but a Linux cloud box, the block does nothing', () => {
+test('#4903 anywhere but a Linux cloud box, the block does nothing', { skip: SKIP_POSIX_SETUP }, () => {
   for (const [label, b, env] of [
     ['a Mac with the cloud flag', box({ os: 'Darwin' }), {}],
     ['Linux without the cloud flag', box(), { KOSMOS_CLOUD: '' }],
@@ -140,7 +141,7 @@ test('#4903 anywhere but a Linux cloud box, the block does nothing', () => {
   }
 });
 
-test('#4903 a lost answer is retried: one failure then success joins, with the same token each time', () => {
+test('#4903 a lost answer is retried: one failure then success joins, with the same token each time', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box({ failTimes: 1 });
   const r = join(b);
   assert.equal(rcOf(r), '0', r.stdout + r.stderr);
@@ -149,7 +150,7 @@ test('#4903 a lost answer is retried: one failure then success joins, with the s
   assert.ok(fs.existsSync(path.join(b.state, 'hosted')));
 });
 
-test('#4903 a failed join writes no latch, leaves remote off, and says where to look', () => {
+test('#4903 a failed join writes no latch, leaves remote off, and says where to look', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box({ tunnelRc: 3 });
   const r = join(b);
   assert.equal(rcOf(r), '1', r.stdout);
@@ -160,7 +161,7 @@ test('#4903 a failed join writes no latch, leaves remote off, and says where to 
   assert.ok(read(b.env).includes('KOSMOS_PROVISIONING_TOKEN'), 'a token that did not work was thrown away');
 });
 
-test('#4903 no token, a refused switch, or a link where the latch goes: each refuses with a sentence', () => {
+test('#4903 no token, a refused switch, or a link where the latch goes: each refuses with a sentence', { skip: SKIP_POSIX_SETUP }, () => {
   let b = box();
   let r = join(b, { KOSMOS_PROVISIONING_TOKEN: '' });
   assert.equal(rcOf(r), '1');
@@ -185,7 +186,7 @@ test('#4903 no token, a refused switch, or a link where the latch goes: each ref
   assert.equal(rcOf(r), '0', r.stdout);
 });
 
-test('#4903 a usage error from the tunnel is not retried: it would fail the same way', () => {
+test('#4903 a usage error from the tunnel is not retried: it would fail the same way', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box({ tunnelRc: 2 });
   const r = join(b);
   assert.equal(rcOf(r), '1', r.stdout + r.stderr);
@@ -197,7 +198,7 @@ test('#4903 a usage error from the tunnel is not retried: it would fail the same
   assert.equal(read(path.join(c.root, 'tunnel-tries')), 'xxx');
 });
 
-test('#4903 a rerun on a box that joined but never switched remote on switches it on', () => {
+test('#4903 a rerun on a box that joined but never switched remote on switches it on', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box();
   fs.mkdirSync(b.state, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n');
@@ -208,7 +209,7 @@ test('#4903 a rerun on a box that joined but never switched remote on switches i
   assert.equal(read(path.join(b.root, 'tunnel-args')), null, 'a joined box asked the tunnel again');
 });
 
-test('#4903 a box registered by a run that stopped before its latch is not registered again', () => {
+test('#4903 a box registered by a run that stopped before its latch is not registered again', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box();
   fs.mkdirSync(b.state, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n');   // registered; no latch; the spent token still in env
@@ -224,7 +225,7 @@ test('#4903 a box registered by a run that stopped before its latch is not regis
   assert.ok(read(path.join(c.root, 'tunnel-args')), 'an unregistered box did not ask the tunnel');
 });
 
-test('#4903 a box whose registration is still pending (its pending key kept) is asked to finish it', () => {
+test('#4903 a box whose registration is still pending (its pending key kept) is asked to finish it', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box();
   fs.mkdirSync(b.state, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n');
@@ -235,7 +236,7 @@ test('#4903 a box whose registration is still pending (its pending key kept) is 
   assert.equal(read(path.join(b.root, 'tunnel-stdin')), TOKEN, 'the retry did not carry the same token');
 });
 
-test('#7550 the join pins the coordinator keys the board pins, for the tunnel only', () => {
+test('#7550 the join pins the coordinator keys the board pins, for the tunnel only', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box({ keys: 'k1,k2' });
   const r = join(b);
   assert.equal(rcOf(r), '0', r.stdout + r.stderr);
@@ -243,14 +244,14 @@ test('#7550 the join pins the coordinator keys the board pins, for the tunnel on
   assert.equal(read(path.join(b.root, 'seton-keys')), '<unset>', 'the pin leaked past the tunnel into the rest of the install');
 });
 
-test('#7550 with no pin from the board, an inherited KOSMOS_EXPECT_COORDINATOR_KEYS is removed, as setupEnv does', () => {
+test('#7550 with no pin from the board, an inherited KOSMOS_EXPECT_COORDINATOR_KEYS is removed, as setupEnv does', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box({ keys: null });
   const r = join(b, { KOSMOS_EXPECT_COORDINATOR_KEYS: 'stale-from-the-caller' });
   assert.equal(rcOf(r), '0', r.stdout + r.stderr);
   assert.equal(read(path.join(b.root, 'tunnel-keys')), '<unset>');
 });
 
-test('#7550 an engine that cannot say which keys to trust stops the join before the token is sent', () => {
+test('#7550 an engine that cannot say which keys to trust stops the join before the token is sent', { skip: SKIP_POSIX_SETUP }, () => {
   const b = box({ setupEnvThrows: true });
   const r = join(b);
   assert.equal(rcOf(r), '1', r.stdout + r.stderr);
@@ -259,7 +260,7 @@ test('#7550 an engine that cannot say which keys to trust stops the join before 
   assert.equal(read(path.join(b.root, 'tunnel-stdin')), null, 'the tunnel ran anyway');
 });
 
-test('#7550 work setOn leaves running does not hold the installer open', () => {
+test('#7550 work setOn leaves running does not hold the installer open', { skip: SKIP_POSIX_SETUP }, () => {
   for (const pre of [false, true]) {
     const b = box({ setOnLingers: true });
     if (pre) { fs.mkdirSync(b.state, { recursive: true }); fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n'); fs.writeFileSync(path.join(b.state, 'hosted'), '', { mode: 0o600 }); }

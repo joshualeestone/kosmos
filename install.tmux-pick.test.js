@@ -24,6 +24,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * which is the clean-Mac case the export was written for.
  */
 const test = require('node:test');
+const SKIP_POSIX_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it runs the tmux pick in install/kosmos (the Mac and Linux CLI, a bash script) through /bin/sh by an absolute POSIX path; Kosmos runs no tmux on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -80,7 +81,7 @@ function pick({ path: PATH, sysExit, preset, picked, staleAs }) {
   return { chose, pickedAs, bundled, sb };
 }
 
-test('a tmux that can reach a running server is the one we look through', () => {
+test('a tmux that can reach a running server is the one we look through', { skip: SKIP_POSIX_TMUX }, () => {
   /* 🔑 THE CASE THAT WAS BROKEN. `exit 0` from `list-sessions` is the whole
      signal: something answered, so there is a server and this binary can read
      it. Her agents are in that server. */
@@ -90,7 +91,7 @@ test('a tmux that can reach a running server is the one we look through', () => 
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
 
-test('a machine with no tmux at all still gets the one we ship', () => {
+test('a machine with no tmux at all still gets the one we ship', { skip: SKIP_POSIX_TMUX }, () => {
   /* The clean Mac this export was added for, and the reason the bundle exists.
      A regression here means a brand-new user cannot create their first agent. */
   const r = pick({ sysExit: null, path: '/usr/bin:/bin' });
@@ -98,7 +99,7 @@ test('a machine with no tmux at all still gets the one we ship', () => {
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
 
-test('a tmux that cannot list a server establishes nothing, so ours stays', () => {
+test('a tmux that cannot list a server establishes nothing, so ours stays', { skip: SKIP_POSIX_TMUX }, () => {
   /* ⚠️ THE DIRECTION THAT MATTERS. A tmux with no server running, or one that
      refuses for any reason, has told us nothing about what it can see -- and
      preferring it on the strength of merely existing is how a clean install
@@ -108,7 +109,7 @@ test('a tmux that cannot list a server establishes nothing, so ours stays', () =
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
 
-test('an explicit choice beats both, because the harness makes one', () => {
+test('an explicit choice beats both, because the harness makes one', { skip: SKIP_POSIX_TMUX }, () => {
   const r = pick({ sysExit: 0, preset: '/somewhere/else/tmux' });
   assert.equal(r.chose, '/somewhere/else/tmux');
   fs.rmSync(r.sb, { recursive: true, force: true });
@@ -134,12 +135,12 @@ function pickLikeTheLauncher({ sysExit }) {
   const out = execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { PATH: `${bin}:/usr/bin:/bin`, KOSMOS_TMUX_KNOWN: '' } });
   return { chose: out, bundled, sys, sb };
 }
-test('#728: with the bundle first on PATH, a system tmux that can see the server is still found and chosen', () => {
+test('#728: with the bundle first on PATH, a system tmux that can see the server is still found and chosen', { skip: SKIP_POSIX_TMUX }, () => {
   const r = pickLikeTheLauncher({ sysExit: 0 });
   assert.equal(r.chose, r.sys, 'the picker probed the bundle it had just put first on PATH and never asked the system tmux');
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
-test('#728: with the bundle first on PATH and no server anywhere, the bundle still stays', () => {
+test('#728: with the bundle first on PATH and no server anywhere, the bundle still stays', { skip: SKIP_POSIX_TMUX }, () => {
   const r = pickLikeTheLauncher({ sysExit: 1 });
   assert.equal(r.chose, r.bundled);
   fs.rmSync(r.sb, { recursive: true, force: true });
@@ -161,14 +162,14 @@ function agentsWith(stderrLine, exit) {
   fs.rmSync(sb, { recursive: true, force: true });
   return { out, code };
 }
-test('#728: a tmux that cannot read the server is said as blindness, never as None', () => {
+test('#728: a tmux that cannot read the server is said as blindness, never as None', { skip: SKIP_POSIX_TMUX }, () => {
   const r = agentsWith('server exited unexpectedly', 1);
   assert.ok(!/None\./.test(r.out), 'a confident None through a blind binary: ' + r.out);
   assert.match(r.out, /Could not see/);
   assert.match(r.out, /AGENT_WORKFORCE_TMUX_BIN=/);
   assert.equal(r.code, 2);
 });
-test('#728: a genuinely absent server is still an honest None', () => {
+test('#728: a genuinely absent server is still an honest None', { skip: SKIP_POSIX_TMUX }, () => {
   const r = agentsWith('no server running on /private/tmp/tmux-501/default', 1);
   assert.match(r.out, /None\./);
   assert.equal(r.code, 1);
@@ -179,13 +180,13 @@ test('#728: a genuinely absent server is still an honest None', () => {
    launcher took it for a deliberate choice, so a Mac with a newer tmux stayed
    blind until a clean-env restart. A value marked as a previous launcher's
    pick is re-picked; an unmarked explicit value is still honoured. */
-test('#728: a previous launcher\'s pick (marked) is re-picked, so an update does not inherit blindness', () => {
+test('#728: a previous launcher\'s pick (marked) is re-picked, so an update does not inherit blindness', { skip: SKIP_POSIX_TMUX }, () => {
   const r = pick({ sysExit: 0, preset: '/previous/launcher/bundled/tmux', picked: true });
   assert.match(r.chose, /\/bin\/tmux$/);
   assert.notEqual(r.chose, '/previous/launcher/bundled/tmux', 'the inherited pick was taken for a person\'s choice');
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
-test('#728: an unmarked explicit choice is still honoured (the harness, or a person)', () => {
+test('#728: an unmarked explicit choice is still honoured (the harness, or a person)', { skip: SKIP_POSIX_TMUX }, () => {
   const r = pick({ sysExit: 0, preset: '/somewhere/else/tmux', picked: false });
   assert.equal(r.chose, '/somewhere/else/tmux');
   fs.rmSync(r.sb, { recursive: true, force: true });
@@ -193,7 +194,7 @@ test('#728: an unmarked explicit choice is still honoured (the harness, or a per
 
 /* #2955: the board switches tmux at runtime only over its launcher's own pick, and tells that pick from a value set
    later over an inherited marker by comparing it with the value the launcher recorded beside the marker. */
-test('#2955: the launcher records which value it picked; an explicit choice records none', () => {
+test('#2955: the launcher records which value it picked; an explicit choice records none', { skip: SKIP_POSIX_TMUX }, () => {
   const picked = pick({ sysExit: 0 });
   assert.equal(picked.pickedAs, picked.chose, 'the launcher\'s pick was not recorded beside its marker');
   fs.rmSync(picked.sb, { recursive: true, force: true });

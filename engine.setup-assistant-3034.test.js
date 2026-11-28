@@ -35,6 +35,7 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const test = require('node:test');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 
 const setupAssistant = require('./engine/setup-assistant');
@@ -654,7 +655,7 @@ test('ensureGuide: a create refused on the first model tries the NEXT connected 
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('ensureGuide: if the seeded flag cannot be written, the next tick still makes no second guide', async () => {
+test('ensureGuide: if the seeded flag cannot be written, the next tick still makes no second guide', { skip: NO_POSIX_MODES }, async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(true);
   const flag = setupAssistant.flagPath();
@@ -674,7 +675,7 @@ test('ensureGuide: if the seeded flag cannot be written, the next tick still mak
   } finally { fs.chmodSync(root, 0o755); fs.rmSync(flag, { recursive: true, force: true }); armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('#4405 explicit: a guide made this session whose record could not be written is not made a SECOND time', async () => {
+test('#4405 explicit: a guide made this session whose record could not be written is not made a SECOND time', { skip: NO_POSIX_MODES }, async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(true);
   const flag = setupAssistant.flagPath();

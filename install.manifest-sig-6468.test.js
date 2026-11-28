@@ -12,6 +12,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test install.manifest-sig-6468.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -134,13 +135,13 @@ function setupCheck(r, home, target, phases = ['pre', 'post'], env = {}) {
   return { code: p.status, out: p.stdout + p.stderr };
 }
 
-test('installer: a signed update is accepted by the installed verifier, and leaves nothing behind', () => {
+test('installer: a signed update is accepted by the installed verifier, and leaves nothing behind', { skip: SKIP_POSIX_SETUP }, () => {
   const r = setupCheck(release('1.2.3'), installedHome('1.2.0'), '1.2.3');
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /leftover=\n/);
 });
 
-test('installer: a tampered file is refused after unpacking, in a sentence', () => {
+test('installer: a tampered file is refused after unpacking, in a sentence', { skip: SKIP_POSIX_SETUP }, () => {
   const rel = release('1.2.3');
   fs.writeFileSync(path.join(rel.stage, 'bin/kosmos'), 'evil');
   const r = setupCheck(rel, installedHome('1.2.0'), '1.2.3');
@@ -149,7 +150,7 @@ test('installer: a tampered file is refused after unpacking, in a sentence', () 
   assert.match(r.out, /refused at post/);
 });
 
-test('installer: a tarball other than the signed one is refused BEFORE it is unpacked', () => {
+test('installer: a tarball other than the signed one is refused BEFORE it is unpacked', { skip: SKIP_POSIX_SETUP }, () => {
   const rel = release('1.2.3');
   fs.appendFileSync(rel.tarball, 'x');
   const r = setupCheck(rel, installedHome('1.2.0'), '1.2.3', ['pre']);
@@ -157,13 +158,13 @@ test('installer: a tarball other than the signed one is refused BEFORE it is unp
   assert.match(r.out, /refused at pre/);
 });
 
-test('installer: an older signed release is refused against a real-shaped install (VERSION is not a bare number)', () => {
+test('installer: an older signed release is refused against a real-shaped install (VERSION is not a bare number)', { skip: SKIP_POSIX_SETUP }, () => {
   const r = setupCheck(release('1.2.3'), installedHome('1.3.0'), '1.2.3', ['pre']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /older than the installed 1\.3\.0/);
 });
 
-test('installer: an install whose version cannot be read is refused, not waved through', () => {
+test('installer: an install whose version cannot be read is refused, not waved through', { skip: SKIP_POSIX_SETUP }, () => {
   const home = installedHome('1.2.0');
   fs.writeFileSync(path.join(home, 'app', 'package.json'), '{"name":"kosmos"}\n');
   let r = setupCheck(release('1.2.3'), home, '1.2.3', ['pre']);
@@ -177,7 +178,7 @@ test('installer: an install whose version cannot be read is refused, not waved t
   assert.doesNotMatch(r.out, /node:internal|^\s+at /m);
 });
 
-test('installer: a link the archive plants where a manifest might be written is never written through', () => {
+test('installer: a link the archive plants where a manifest might be written is never written through', { skip: SKIP_POSIX_SETUP }, () => {
   const rel = release('1.2.3');
   const victim = path.join(tmp, 'victim-' + process.pid);
   fs.writeFileSync(victim, 'untouched\n');
@@ -187,7 +188,7 @@ test('installer: a link the archive plants where a manifest might be written is 
   assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n');
 });
 
-test('installer: NODE_OPTIONS from the environment does not reach the verifier', () => {
+test('installer: NODE_OPTIONS from the environment does not reach the verifier', { skip: SKIP_POSIX_SETUP }, () => {
   const marker = path.join(tmp, 'preload-ran-' + process.pid);
   const pre = path.join(tmp, 'preload.js');
   fs.writeFileSync(pre, `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`);
@@ -196,14 +197,14 @@ test('installer: NODE_OPTIONS from the environment does not reach the verifier',
   assert.equal(fs.existsSync(marker), false);
 });
 
-test('installer: an install that pins no key is not checked, through BOTH phases, and says so', () => {
+test('installer: an install that pins no key is not checked, through BOTH phases, and says so', { skip: SKIP_POSIX_SETUP }, () => {
   const r = setupCheck(release('1.2.3'), installedHome('1.2.0', []), '1.2.3');
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /no release signing key is pinned/);
   assert.match(r.out, /leftover=\n/);
 });
 
-test('installer: a missing .sig is refused, not skipped', () => {
+test('installer: a missing .sig is refused, not skipped', { skip: SKIP_POSIX_SETUP }, () => {
   const rel = release('1.2.3');
   fs.rmSync(rel.sig);
   const r = setupCheck(rel, installedHome('1.2.0'), '1.2.3');
@@ -211,13 +212,13 @@ test('installer: a missing .sig is refused, not skipped', () => {
   assert.match(r.out, /signed manifest could not be downloaded/);
 });
 
-test('installer: no target version is refused when the install can check', () => {
+test('installer: no target version is refused when the install can check', { skip: SKIP_POSIX_SETUP }, () => {
   const r = setupCheck(release('1.2.3'), installedHome('1.2.0'), '');
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /could not read which version to install/);
 });
 
-test('installer: an install from before signing (no verifier) is not checked, and says so', () => {
+test('installer: an install from before signing (no verifier) is not checked, and says so', { skip: SKIP_POSIX_SETUP }, () => {
   const home = installedHome('1.2.0');
   fs.rmSync(path.join(home, 'app', 'engine', 'manifest-verify.js'));
   const rel = release('1.2.3');
@@ -269,6 +270,7 @@ test('release: needs-sig is yes only for a release that ships the verifier', () 
 
 // ---- the served check after a deploy: tools/verify-manifest.sh ----
 const VM = path.join(__dirname, 'tools', 'verify-manifest.sh');
+const SKIP_POSIX_RELEASE = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/verify-manifest.sh, the release host check after a deploy, through /bin/bash, and builds its fixture with /usr/bin/tar, both by an absolute POSIX path; releases are not cut or checked on Windows');   // kosmos#8378
 function servedDist({ sig }) {
   const dist = fs.mkdtempSync(path.join(tmp, 'served-'));
   const tree = fs.mkdtempSync(path.join(tmp, 'tree-'));
@@ -290,18 +292,18 @@ function servedDist({ sig }) {
 }
 const vm = (dist, env = {}) => spawnSync('/bin/bash', [VM, '1.2.3'], { encoding: 'utf8', env: { ...process.env, KOSMOS_BASE: 'file://' + dist, KOSMOS_REQUIRE_SIG: '', ...env } });
 
-test('served check: CONTROL: with no .sig and none required, the rest of the check runs and passes', () => {
+test('served check: CONTROL: with no .sig and none required, the rest of the check runs and passes', { skip: SKIP_POSIX_RELEASE }, () => {
   const r = vm(servedDist({ sig: null }));
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /no signature served/);
   assert.match(r.stdout, /every file matches the manifest/);
 });
-test('served check: a cut (KOSMOS_REQUIRE_SIG=1) with no .sig served fails', () => {
+test('served check: a cut (KOSMOS_REQUIRE_SIG=1) with no .sig served fails', { skip: SKIP_POSIX_RELEASE }, () => {
   const r = vm(servedDist({ sig: null }), { KOSMOS_REQUIRE_SIG: '1' });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /SIGNATURE: no kosmos-1\.2\.3-arm64\.manifest\.json\.sig served/);
 });
-test('served check: a .sig that is not a pinned key\'s fails, required or not', () => {
+test('served check: a .sig that is not a pinned key\'s fails, required or not', { skip: SKIP_POSIX_RELEASE }, () => {
   for (const req of ['', '1']) {
     const r = vm(servedDist({ sig: 'bad' }), { KOSMOS_REQUIRE_SIG: req });
     assert.equal(r.status, 1, r.stdout + r.stderr);
@@ -339,7 +341,7 @@ test('promote: verify-under checks a signature under the keys the CURRENT releas
   assert.equal(signRun('verify-under', rel.manifest, rel.sig, servedManifest({})).status, 2);
 });
 
-test('installer: a verifier with its runtime gone says so truly (not "predates signed releases")', () => {
+test('installer: a verifier with its runtime gone says so truly (not "predates signed releases")', { skip: SKIP_POSIX_SETUP }, () => {
   const home = installedHome('1.2.0');
   fs.rmSync(path.join(home, 'runtime', 'bin', 'node'));
   const r = setupCheck(release('1.2.3'), home, '1.2.3');

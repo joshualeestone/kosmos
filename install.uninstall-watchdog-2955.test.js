@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
 // orphan --uninstall exists to prevent. This drives the REAL install/setup.sh
 // --uninstall against a sandboxed install and asserts BOTH login jobs are gone.
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -16,7 +17,7 @@ const { execFileSync } = require('node:child_process');
 
 const SETUP = path.join(__dirname, 'install', 'setup.sh');
 
-test('#2955: --uninstall removes the board watchdog login job (and the board job)', () => {
+test('#2955: --uninstall removes the board watchdog login job (and the board job)', { skip: SKIP_POSIX_SETUP }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uninstall2955-'));
   try {
     const home = path.join(root, 'kosmos-home');

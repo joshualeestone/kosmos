@@ -9,6 +9,7 @@
  */
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273)
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -341,7 +342,7 @@ test('#7404 (review 2): the in-flight race (Kosmos+ kept it, the next read does 
 
 const pendingFiles = () => { try { return fs.readdirSync(path.join(require('./store').ROOT, 'backupkeys')).filter((n) => n.startsWith('pending-code-')); } catch { return []; } };
 
-test('#7404 (review 3): a pending code file that cannot be read is refused and left as it is, never overwritten', async () => {
+test('#7404 (review 3): a pending code file that cannot be read is refused and left as it is, never overwritten', { skip: NO_POSIX_MODES }, async () => {
   forget();
   const c = fakeCoordinator();
   let lose = true;

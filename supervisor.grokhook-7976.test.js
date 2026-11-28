@@ -7,6 +7,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -45,7 +46,7 @@ function run({ grokHome = null, runner = 'grok', model = 'grok-4.6', root = null
 }
 const hooksOf = (dir) => JSON.parse(fs.readFileSync(nodePath.join(dir, 'hooks', FILE), 'utf8')).hooks;
 
-test('a default grok agent with no hook file gets it at launch, with every event, pointing at the bridge', () => {
+test('a default grok agent with no hook file gets it at launch, with every event, pointing at the bridge', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run();
   assert.match(r.argv, /new-session/, r.out);
   const hooks = hooksOf(nodePath.join(r.home, '.grok'));
@@ -53,7 +54,7 @@ test('a default grok agent with no hook file gets it at launch, with every event
   assert.ok(hooks.UserPromptSubmit[0].hooks[0].command.includes(BRIDGE), hooks.UserPromptSubmit[0].hooks[0].command);
 });
 
-test('a per-account home gets it in that home, and not in the default one', () => {
+test('a per-account home gets it in that home, and not in the default one', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const account = nodePath.join(SANDBOX, `account-${++n}`);
   fs.mkdirSync(account, { recursive: true });
   const r = run({ grokHome: account });
@@ -62,7 +63,7 @@ test('a per-account home gets it in that home, and not in the default one', () =
   assert.equal(fs.existsSync(nodePath.join(r.home, '.grok', 'hooks', FILE)), false, 'not in the default home');
 });
 
-test('a file from before a later hook is brought up to date (the measured case: no PreToolUse)', () => {
+test('a file from before a later hook is brought up to date (the measured case: no PreToolUse)', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const root = nodePath.join(SANDBOX, `h${++n}`);
   const dir = nodePath.join(root, '.grok', 'hooks');
   fs.mkdirSync(dir, { recursive: true });
@@ -74,7 +75,7 @@ test('a file from before a later hook is brought up to date (the measured case: 
   assert.ok(hooks.PreToolUse && hooks.UserPromptSubmit, JSON.stringify(Object.keys(hooks)));
 });
 
-test('the person\'s other hook files in that folder are left exactly as they were', () => {
+test('the person\'s other hook files in that folder are left exactly as they were', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const root = nodePath.join(SANDBOX, `h${++n}`);
   const dir = nodePath.join(root, '.grok', 'hooks');
   fs.mkdirSync(dir, { recursive: true });
@@ -85,7 +86,7 @@ test('the person\'s other hook files in that folder are left exactly as they wer
   assert.ok(hooksOf(nodePath.join(root, '.grok')).Stop, 'and ours is there beside it');
 });
 
-test('a hook file that cannot be written never stops the launch, and says why', () => {
+test('a hook file that cannot be written never stops the launch, and says why', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const root = nodePath.join(SANDBOX, `h${++n}`);
   const dir = nodePath.join(root, '.grok', 'hooks');
   fs.mkdirSync(dir, { recursive: true });
@@ -97,7 +98,7 @@ test('a hook file that cannot be written never stops the launch, and says why', 
   assert.equal(fs.lstatSync(nodePath.join(dir, FILE)).isSymbolicLink(), true, 'the link is untouched');
 });
 
-test('CONTROL: another runner writes no grok hook file', () => {
+test('CONTROL: another runner writes no grok hook file', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run({ runner: 'gemini', model: 'gemini-2.5-flash' });
   assert.match(r.argv, /new-session/, r.out);
   assert.equal(fs.existsSync(nodePath.join(r.home, '.grok', 'hooks', FILE)), false);
@@ -114,7 +115,7 @@ function installed({ bridge = true } = {}) {
   return { sup: nodePath.join(dir, 'agent-supervisor.sh'), bridge: nodePath.join(fs.realpathSync.native(dir), 'grok-report-bridge.js') };
 }
 
-test('in the installed layout the hooks point at the installed bridge, and birth would change nothing', () => {
+test('in the installed layout the hooks point at the installed bridge, and birth would change nothing', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const settings = require('./engine/groksettings');
   const inst = installed();
   const r = run({ sup: inst.sup });
@@ -126,7 +127,7 @@ test('in the installed layout the hooks point at the installed bridge, and birth
   assert.deepEqual(settings.ensurePrepared(hookFile, BRIDGE).changed, true, 'control: another bridge path would change it');
 });
 
-test('with no bridge to point at, the launch goes on and says so, rather than reporting nothing with no sign', () => {
+test('with no bridge to point at, the launch goes on and says so, rather than reporting nothing with no sign', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const inst = installed({ bridge: false });
   const r = run({ sup: inst.sup });
   assert.match(r.argv, /new-session/, r.out);

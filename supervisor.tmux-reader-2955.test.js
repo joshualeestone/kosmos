@@ -10,6 +10,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * With no server, or any other answer, the baked path stays. Runs the shipped function, lifted out of the script.
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) functions through /bin/bash by an absolute POSIX path, with #!/bin/sh fake tmux run by their shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -58,7 +59,7 @@ function run(baked, known, own, noSocket, scriptPath, pathTmux) {
   return { bin, path: p };
 }
 
-test('#2955: at the version wall the supervisor reads through a tmux that can list the server, PATH included', () => {
+test('#2955: at the version wall the supervisor reads through a tmux that can list the server, PATH included', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   for (const baked of [t.wall, t.mismatch]) {
     const r = run(baked, [t.wall, t.lists]);
@@ -67,7 +68,7 @@ test('#2955: at the version wall the supervisor reads through a tmux that can li
   }
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
-test('#2955: a working tmux, no server, or any other refusal keeps the baked path (Kosmos keeps its own tmux)', () => {
+test('#2955: a working tmux, no server, or any other refusal keeps the baked path (Kosmos keeps its own tmux)', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   assert.equal(run(t.lists, [t.wall]).bin, t.lists, 'a tmux that reads the server was replaced');
   assert.equal(run(t.none, [t.lists]).bin, t.none, 'with no server, the bundle was swapped for a system tmux (a brew upgrade could then pull it)');
@@ -75,18 +76,18 @@ test('#2955: a working tmux, no server, or any other refusal keeps the baked pat
   assert.equal(run(t.wall, [t.mismatch, nodePath.join(t.sb, 'missing')]).bin, t.wall, 'a tmux that cannot list was taken');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
-test('#2955: Kosmos\'s own tmux is always a candidate, so a job baked with another follows the server back to it', () => {
+test('#2955: Kosmos\'s own tmux is always a candidate, so a job baked with another follows the server back to it', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   assert.equal(run(t.wall, [], t.lists).bin, t.lists, 'a server Kosmos\'s own tmux can read was left unread');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
-test('#2955: with no socket on disk, 3.5a\'s serverless words start no search (a clean Mac at every agent start)', () => {
+test('#2955: with no socket on disk, 3.5a\'s serverless words start no search (a clean Mac at every agent start)', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   assert.equal(run(t.wall, [t.lists], null, true).bin, t.wall, 'a clean Mac searched for and switched to another tmux');
   assert.equal(run(t.mismatch, [t.lists], null, true).bin, t.lists, 'the explicit protocol-mismatch wording needs no socket check');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
-test('#2955: with no seam, the installed supervisor finds Kosmos\'s own tmux through the engine-path pointer', () => {
+test('#2955: with no seam, the installed supervisor finds Kosmos\'s own tmux through the engine-path pointer', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   /* The layout as installed (measured on Agent1s): the copy that runs is Application Support/Kosmos/bin/agent-
      supervisor.sh with engine-path beside it naming <KOSMOS_HOME>/app/engine; the bundle is <KOSMOS_HOME>/tmux/bin/tmux.
      No KOSMOS_TMUX_OWN: this is the derivation production uses. */
@@ -110,7 +111,7 @@ test('#2955: the pointer the supervisor reads is the engine directory (what crea
   assert.match(create, /const ptrDest = path\.join\(path\.dirname\(dest\), 'engine-path'\);[\s\S]{0,200}fs\.writeFileSync\(ptrStaging, `\$\{__dirname\}\\n`\);/,
     'engine-path no longer names the engine directory, so <it>/../../tmux/bin/tmux is not Kosmos\'s own tmux');
 });
-test('#2955: a baked tmux that is gone (a removed Homebrew) is replaced: by one that can read the server, else by Kosmos\'s own', () => {
+test('#2955: a baked tmux that is gone (a removed Homebrew) is replaced: by one that can read the server, else by Kosmos\'s own', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   const gone = nodePath.join(t.sb, 'removed', 'tmux');
   assert.equal(run(gone, [t.wall, t.lists], t.none).bin, t.lists, 'a tmux that can read the server was not taken for a removed one');
@@ -118,7 +119,7 @@ test('#2955: a baked tmux that is gone (a removed Homebrew) is replaced: by one 
   assert.equal(run(gone, [t.wall], nodePath.join(t.sb, 'no-own')).bin, gone, 'control: with nothing runnable, the baked path stays');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
-test('#2955: the supervisor tries the board\'s order (known places, Kosmos\'s own, then its PATH tmux), so both take the same one', () => {
+test('#2955: the supervisor tries the board\'s order (known places, Kosmos\'s own, then its PATH tmux), so both take the same one', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   // A PATH tmux and a known one can both read the server: the known one wins, as on the board.
   const r = run(t.wall, [t.lists], null, false, null, t.lists);
@@ -126,7 +127,7 @@ test('#2955: the supervisor tries the board\'s order (known places, Kosmos\'s ow
   assert.ok(!r.bin.includes('supreader-path-'), 'the PATH tmux won');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
-test('#2955: a bare tmux name is looked up on PATH, not taken for a tmux that is gone', () => {
+test('#2955: a bare tmux name is looked up on PATH, not taken for a tmux that is gone', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const t = sandbox();
   // The PATH tmux works (it says there is no server); Kosmos's own could list. Taken for missing, the name would be
   // swapped for Kosmos's own: it must stay the PATH tmux.
@@ -151,7 +152,7 @@ function answer(body, withSocket) {
   fs.rmSync(sb, { recursive: true, force: true });
   return out.trim();
 }
-test('#2955: the end-of-run check reads the version wall as "wall", never as gone (a live agent keeps its token)', () => {
+test('#2955: the end-of-run check reads the version wall as "wall", never as gone (a live agent keeps its token)', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   assert.equal(answer('echo "server exited unexpectedly" >&2; exit 1', true), 'wall', 'the wall was read as the session gone');
   assert.equal(answer('echo "protocol version mismatch (client 8, server 7)" >&2; exit 1', false), 'wall');
   // Controls: a real "no such session", no server at all, and 3.5a's serverless voice with no socket are all 1.

@@ -19,6 +19,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -93,7 +94,7 @@ function runUninstall(sb) {
   }
 }
 
-test('the ping log goes and the person\'s files stay', () => {
+test('the ping log goes and the person\'s files stay', { skip: SKIP_POSIX_SETUP }, () => {
   const sb = sandbox();
   try {
     // control BEFORE: both exist, or the assertions below are vacuous
@@ -167,7 +168,7 @@ test('the ping log goes and the person\'s files stay', () => {
   }
 });
 
-test('a sweep that CANNOT remove something says so, names it, and does not claim it went', () => {
+test('a sweep that CANNOT remove something says so, names it, and does not claim it went', { skip: SKIP_POSIX_SETUP }, () => {
   /* 🛑 THE ONLY ARM ON THE FAILURE PATH, AND IT DID NOT EXIST. Both info sites were
      added in one commit; one had three assertions and the other had none, so the only
      new failure-reporting code in the change was the half nobody drove. Inserting an
@@ -198,7 +199,7 @@ test('a sweep that CANNOT remove something says so, names it, and does not claim
   }
 });
 
-test('a data folder with no ping log is left entirely alone', () => {
+test('a data folder with no ping log is left entirely alone', { skip: SKIP_POSIX_SETUP }, () => {
   /* The sweep must be conditional: a machine that never logged a would-ping
      should see no removal message and lose nothing. */
   const sb = sandbox();

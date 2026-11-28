@@ -36,6 +36,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 // `strict` (round 40): the loose default let `assert.equal(x, null)` pass
 // on undefined -- the exact class the blocked/exists assertions in this
 // file were individually hardened against in round 37. The file-level
@@ -341,7 +342,7 @@ test('a folder that disappears AFTER creation reads as missing, and the project 
   assert.match(after[0].folderState.because, /not there any more, or it was moved/);
 });
 
-test('a folder we are not allowed to read reads as unreadable, not as missing', () => {
+test('a folder we are not allowed to read reads as unreadable, not as missing', { skip: NO_POSIX_MODES }, () => {
   reset();
   const dir = folder('locked');
   projects.create({ name: 'Locked', folder: dir });
@@ -1075,7 +1076,7 @@ test('an agent with no worker folder is recorded as a member we COULD NOT tell',
   assert.deepEqual(projects.get(p.id, []).agents.map((a) => a.sessionName), ['claudebot']);
 });
 
-test('a write that fails partway is reported, not thrown', () => {
+test('a write that fails partway is reported, not thrown', { skip: NO_POSIX_MODES }, () => {
   reset();
   // ⚠️ This test exists because a mutation exposed that `tellAgent`'s catch
   // block was never reached by anything: the only failing case in the suite
@@ -1783,7 +1784,7 @@ test('folderPathFor makes NOTHING, so typing into a name box leaves no trail of 
   assert.ok(!fs.existsSync(p), 'asking where it would go must not put it there');
 });
 
-test('an unreadable parent leaves the asked-for spelling alone, rather than throwing', () => {
+test('an unreadable parent leaves the asked-for spelling alone, rather than throwing', { skip: NO_POSIX_MODES }, () => {
   // trueChildName's readdir-failure arm: mutation-verified uncovered in
   // round 14. An unreadable projects root must degrade to the name as
   // asked, not crash the preview.
@@ -1889,7 +1890,7 @@ test('the previewed path IS the path the act produces, case correction included'
   assert.strictEqual(previewed.blocked, null, 'an adoptable folder is not blocked');
 });
 
-test('a folder that cannot be made is refused in our words, with no errno and no machine path', () => {
+test('a folder that cannot be made is refused in our words, with no errno and no machine path', { skip: NO_POSIX_MODES }, () => {
   // ⚠️ makeFolder interpolated err.message raw (round 24): an EACCES put
   // an errno and an absolute /var path on the person's screen, the exact
   // shape the appendMessage sentence two files over pins absent.
@@ -2672,7 +2673,7 @@ test('listFiles: a huge subfolder cannot push a top-level file off, and the cut 
   assert.ok(out.total <= 2001 && out.total > 1, `total ${out.total} is outside the budget`);
 });
 
-test('listFiles: an unreadable subfolder is skipped and the rest still lists (#2245)', { skip: process.getuid && process.getuid() === 0 }, () => {
+test('listFiles: an unreadable subfolder is skipped and the rest still lists (#2245)', { skip: NO_POSIX_MODES || (process.getuid && process.getuid() === 0) }, () => {
   reset();
   const dir = folder('docs-locked-sub');
   fs.writeFileSync(path.join(dir, 'top.txt'), 'x');

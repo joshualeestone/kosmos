@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * the pane only as a launch secret; a file that cannot be used stops the launch; an OpenAI home is untouched.
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -51,7 +52,7 @@ function run(codexHome, model) {
 }
 const EP = { baseUrl: 'http://localhost:11434/v1', model: 'kosmos-qwen2.5-7b-16k:latest', contextWindow: 16384 };
 
-test('an endpoint home launches codex against the endpoint, with both measured settings and its own model', () => {
+test('an endpoint home launches codex against the endpoint, with both measured settings and its own model', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(EP) }), 'gpt-5.2');
   assert.match(r.argv, /new-session/, r.out);
   assert.match(r.argv, /-c model_provider="kosmos_endpoint"/);
@@ -65,7 +66,7 @@ test('an endpoint home launches codex against the endpoint, with both measured s
   assert.equal(/OpenAI account is not signed in/.test(r.out), false, 'an endpoint home is not an unsigned OpenAI account');
 });
 
-test('a key reaches the pane only as a launch secret, never in the argv or the supervisor output', () => {
+test('a key reaches the pane only as a launch secret, never in the argv or the supervisor output', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'kosmos-endpoint.json': JSON.stringify({ ...EP, baseUrl: 'https://q.example.com/v1', key: 'sk-endpoint-secret-4242' }) }));
   assert.match(r.argv, /-c model_providers\.kosmos_endpoint\.env_key="KOSMOS_ENDPOINT_KEY"/);
   assert.match(r.secrets, /^KOSMOS_ENDPOINT_KEY=sk-endpoint-secret-4242$/m);
@@ -73,7 +74,7 @@ test('a key reaches the pane only as a launch secret, never in the argv or the s
   assert.equal(r.out.includes('sk-endpoint-secret-4242'), false, 'the key is not in the supervisor output');
 });
 
-test('an endpoint file that cannot be used stops the launch, saying why', () => {
+test('an endpoint file that cannot be used stops the launch, saying why', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   for (const bad of [JSON.stringify({ ...EP, contextWindow: 4096 }), '{not json']) {
     const r = run(home({ 'kosmos-endpoint.json': bad }));
     assert.notEqual(r.code, 0);
@@ -82,14 +83,14 @@ test('an endpoint file that cannot be used stops the launch, saying why', () => 
   }
 });
 
-test('CONTROL: an OpenAI home (auth.json, no endpoint file) launches exactly as before', () => {
+test('CONTROL: an OpenAI home (auth.json, no endpoint file) launches exactly as before', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'auth.json': '{"OPENAI_API_KEY":null,"tokens":{}}' }, '.codex-h'), 'gpt-5.2');   // an OpenAI home's name
   assert.match(r.argv, /new-session/, r.out);
   assert.match(r.argv, /-m gpt-5\.2/);
   assert.equal(/model_provider|web_search|model_context_window/.test(r.argv), false, 'no endpoint arguments');
 });
 
-test('review 1: a folder named like a Qwen account stops the launch when its endpoint file is missing or a link', () => {
+test('review 1: a folder named like a Qwen account stops the launch when its endpoint file is missing or a link', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const missing = nodePath.join(SANDBOX, '.kosmos-qwen-missing');
   fs.mkdirSync(missing, { recursive: true });
   let r = run(missing);

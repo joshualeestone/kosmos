@@ -6,6 +6,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
    the kosmosInternal mark, the socket on every call, the signal half of the delivery rule, shell
    quoting, and forgetting the cached tmux path. */
 const test = require('node:test');
+const SKIP_POSIX_TMUX = require('../test-support/skip-on-win32').skipOnWin32('it stands in for tmux with /bin/echo and reads quoting back through /bin/sh, both by an absolute POSIX path; the tmux sign-ins (engine/tmuxsignin.js) do not run on Windows, where Kosmos runs no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -33,7 +34,7 @@ test('#4195 a tmux that cannot be found is marked as Kosmos\'s own failure (kosm
   });
 });
 
-test('#4195 every tmux call goes to the sign-in\'s own socket', () => {
+test('#4195 every tmux call goes to the sign-in\'s own socket', { skip: SKIP_POSIX_TMUX }, () => {
   /* /bin/echo stands in for tmux, so the call's argv comes back as its output (macOS or any Unix,
      like the tmux these sign-ins run). */
   withBinPaths(() => ({ tmuxBin: '/bin/echo' }), () => {
@@ -67,7 +68,7 @@ test('#4195 a timed-out or killed tmux call has unknown delivery; any other fail
   assert.equal(sig.deliveryUnknown(undefined), false);
 });
 
-test('#4195 shq quotes one argument so /bin/sh reads it back unchanged', () => {
+test('#4195 shq quotes one argument so /bin/sh reads it back unchanged', { skip: SKIP_POSIX_TMUX }, () => {
   for (const v of ['plain', 'with space', "it's", "'", "a'b'c", '$HOME `x` "q" \\ ;']) {
     const back = execFileSync('/bin/sh', ['-c', 'printf %s ' + sig.shq(v)], { encoding: 'utf8' });
     assert.equal(back, v, 'shq did not survive the shell: ' + JSON.stringify(v));
