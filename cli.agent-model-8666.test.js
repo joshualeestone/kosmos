@@ -9,6 +9,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -21,7 +22,7 @@ const create = require('./engine/create');
 
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agentmd-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: the Mac CLI's runtime; a symlink needs a privilege on Windows, and only the Mac half uses it
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -100,7 +101,11 @@ async function winRun(port, argv, seams) {
     ask: (q) => { asked.push(q); return Promise.resolve(s.answer || ''); } });
   return { code, out: out.join('\n'), err: err.join('\n'), asked };
 }
-const both = async (port, argv) => [await cli(port, argv), await winRun(port, argv)].map((r) => ({ code: r.code, text: r.out + (r.err ? '\n' + r.err : '') }));
+// kosmos#8378: on Windows only the Windows CLI runs (the Mac CLI runs install/kosmos by its shebang), so a count that
+// adds both CLIs' requests expects RUNS of them, and a control that needs one CLI uses the one this host runs.
+const RUNS = SKIP_POSIX_SHELL ? 1 : 2;
+const hostRun = (port, argv) => (SKIP_POSIX_SHELL ? winRun(port, argv) : cli(port, argv));
+const both = async (port, argv) => [...(SKIP_POSIX_SHELL ? [] : [await cli(port, argv)]), await winRun(port, argv)].map((r) => ({ code: r.code, text: r.out + (r.err ? '\n' + r.err : '') }));
 
 test('kosmos#8666: with no model, both CLIs show the card\'s model line and the menu, mark the job\'s model, and send nothing', () => withStub(MENU, CHANGED, async (port, seen) => {
   for (const r of await both(port, ['agent', 'model', ' Sally Sales '])) {
@@ -110,7 +115,7 @@ test('kosmos#8666: with no model, both CLIs show the card\'s model line and the 
     assert.match(r.text, /^ *opus55 {2}Claude Opus 5\.5$/m);
     assert.match(r.text, /^ *sonnet {2}Claude Sonnet 5 {2}\(its startup job starts it on this one\)$/m);
   }
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agent/Sally%20Sales/model?resolve=1', 'GET /api/agent/Sally%20Sales/model?resolve=1'], 'the name trimmed and resolved, and no switch');
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), Array(RUNS).fill('GET /api/agent/Sally%20Sales/model?resolve=1'), 'the name trimmed and resolved, and no switch');
 }));
 
 test('kosmos#8666: --yes switches through AI Settings\' route, by the menu key or the full id, in the route\'s words', () => withStub(MENU, CHANGED, async (port, seen) => {
@@ -121,7 +126,7 @@ test('kosmos#8666: --yes switches through AI Settings\' route, by the menu key o
       assert.match(r.text, /Claude Opus 5\.5 it is\. It is starting again now, and it will look idle until you say something to it\.$/m);
     }
   }
-  assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['opus55', 'opus55', 'claude-opus-5-5', 'claude-opus-5-5'], 'sent as given');
+  assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['opus55', 'claude-opus-5-5'].flatMap((m) => Array(RUNS).fill(m)), 'sent as given');
   // Review 5: switched by the agent's own name, which the read resolved, never by the name the list prints.
   assert.deepEqual([...new Set(posts(seen).map((s) => s.url))], ['/api/agent/sally-sales/model']);
 }));
@@ -136,7 +141,7 @@ test('kosmos#8666: a model not on the menu is refused with the list, and the job
     assert.match(r.text, /Sally Sales's startup job already names Claude Sonnet 5, so nothing was changed\. To start it again on that model, use kosmos agent restart "Sally Sales"\./);
   }
   assert.equal(posts(seen).length, 0, 'a refused or unneeded switch was sent');
-  assert.equal((await cli(port, ['agent', 'model', 'Sally Sales', 'haiku', '--yes'])).code, 0, 'CONTROL: a good switch was not sent');
+  assert.equal((await hostRun(port, ['agent', 'model', 'Sally Sales', 'haiku', '--yes'])).code, 0, 'CONTROL: a good switch was not sent');
   assert.equal(posts(seen).length, 1);
 }));
 
@@ -176,7 +181,7 @@ test('kosmos#8666: Gemini takes a model id; a refused list is said; the route\'s
       assert.equal(r.code, 1, r.text);
       assert.match(r.text, /Kosmos did not change Sally Sales's model: that is not a valid Gemini model name\.$/m);
     }
-    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['gemini 3', 'gemini 3'], 'a free id goes to the route, which checks it');
+    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), Array(RUNS).fill('gemini 3'), 'a free id goes to the route, which checks it');
   });
   await withStub(MUSE, CHANGED, async (port, seen) => {
     for (const r of await both(port, ['agent', 'model', 'Sally Sales'])) {
@@ -209,10 +214,10 @@ test('kosmos#8666 review 1: an OpenAI account\'s menu (rows with no full id) mar
       assert.match(r.text, /Sally Sales's startup job already names GPT 5, so nothing was changed\./);
     }
     assert.equal(posts(seen).length, 0, 'a switch to the model it is already set to was sent');
-    assert.equal((await cli(port, ['agent', 'model', 'Sally Sales', 'o3', '--yes'])).code, 0, 'CONTROL: a listed model is sent');
+    assert.equal((await hostRun(port, ['agent', 'model', 'Sally Sales', 'o3', '--yes'])).code, 0, 'CONTROL: a listed model is sent');
     // Review 2: the menu folds dated snapshots, and the route takes any id the account runs, so a miss goes to the route.
     for (const r of await both(port, ['agent', 'model', 'Sally Sales', 'gpt-5-2025-08-07', '--yes'])) assert.equal(r.code, 0, r.text);
-    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['o3', 'gpt-5-2025-08-07', 'gpt-5-2025-08-07']);
+    assert.deepEqual(posts(seen).map((s) => JSON.parse(s.body).model), ['o3', ...Array(RUNS).fill('gpt-5-2025-08-07')]);
   }));
 
 test('kosmos#8666 review 1: an empty Claude menu says the policy allows none, not the OpenAI sentence', () => withStub(
@@ -258,7 +263,7 @@ test('kosmos#8666 review 3: an agent the whole list does not name exits 1; a rea
     for (const argv of [['agent', 'model', ' --foo'], ['agent', 'model', 'Sally Sales', ' --opus ', '--yes']]) {
       for (const r of await both(port, argv)) assert.equal(r.code, 2, JSON.stringify(argv) + ': ' + r.text);
     }
-    assert.equal(seen.length, 2, 'only the two reads above reached the board: ' + JSON.stringify(seen.map((s) => s.url)));
+    assert.equal(seen.length, RUNS, 'only the reads above (one per CLI) reached the board: ' + JSON.stringify(seen.map((s) => s.url)));
   });
 });
 
@@ -292,7 +297,7 @@ test('kosmos#8666 review 6: a name two agents answer to exits 1 on both paths; a
   const w = await winRun(port, ['agent', 'model', 'Sal', 'opus55'], { tty: true, answer: 'n' });
   assert.match(w.out + w.err, /Switching Sal Folder \(sal\) to Claude Opus 5\.5/);
   assert.match(w.asked.join(' '), /Switch Sal Folder \(sal\) to Claude Opus 5\.5\? \[y\/N\]/);
-  assert.deepEqual(posts(seen).map((s) => s.url), ['/api/agent/sal/model', '/api/agent/sal/model']);
+  assert.deepEqual(posts(seen).map((s) => s.url), Array(RUNS).fill('/api/agent/sal/model'));
 }));
 
 test('kosmos#8666 review 7: no control character from any field the board sends reaches the terminal; a refused OpenAI pick gets the list', async () => {

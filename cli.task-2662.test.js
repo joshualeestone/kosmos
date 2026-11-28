@@ -23,6 +23,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *      the real curl so the list request still lands.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -45,7 +46,7 @@ function runCli(args, env) {
   });
 }
 
-test('#2662: a curl failure on `task add` is REPORTED, not a silent abort (set -e guard)', () => {
+test('#2662: a curl failure on `task add` is REPORTED, not a silent abort (set -e guard)', { skip: SKIP_POSIX_SHELL }, () => {
   const server = http.createServer((req, res) => {
     // Destroy the socket on the add POST so curl exits non-zero mid-request.
     if (req.method === 'POST' && req.url.startsWith('/api/project/')) { req.socket.destroy(); return; }
@@ -73,7 +74,7 @@ test('#2662: a curl failure on `task add` is REPORTED, not a silent abort (set -
   });
 });
 
-test('#2662: `task list` delivers the board token OFF argv, via a mode-600 file', () => {
+test('#2662: `task list` delivers the board token OFF argv, via a mode-600 file', { skip: SKIP_POSIX_SHELL }, () => {
   const seen = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url.startsWith('/api/tasks')) {

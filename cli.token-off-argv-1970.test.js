@@ -30,6 +30,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * cli.presents-token.test.js, which this borrows its stub shape from).
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const { eventually } = require('./test-support/eventually');
 const http = require('node:http');
@@ -69,7 +70,7 @@ function withStub(body) {
   });
 }
 
-test('#1970: the CLI delivers its token off argv, via a mode-600 file', () => withStub(async (port, seen) => {
+test('#1970: the CLI delivers its token off argv, via a mode-600 file', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-offargv-'));
   const binDir = path.join(sandbox, 'bin');
   const tmpDir = path.join(sandbox, 'tmp');
