@@ -17,7 +17,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.runners.test.js
  */
 
-const SKIP_UNKNOWN_WORDS = require('./test-support/skip-on-win32').skipOnWin32('on Windows an unknown runner name is refused as not supported on this computer instead of as unknown, so the sentence this arm checks is not given there (a product fix owed on kosmos#9287)');   // kosmos#8378
 const SKIP_ECHO_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the runner with /bin/echo, an absolute POSIX path Windows does not have; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const SKIP_INSTALL_WIN = require('./test-support/skip-on-win32').skipOnWin32('it installs claude from the board, which the board refuses on Windows by design (installing from here is not supported on this kind of computer; openai, gemini and grok do install there)');   // kosmos#8378
@@ -89,7 +88,7 @@ test('#979: GET /api/runners answers the documented shape, absent runner and hon
   assert.equal(r.openai.job, null, 'no install has run');
 });
 
-test('#979: a prototype-chain provider name in the URL is a refusal, not a job', { skip: SKIP_UNKNOWN_WORDS }, async () => {
+test('#979: a prototype-chain provider name in the URL is a refusal, not a job', async () => {
   const got = await post('/api/runners/constructor/install');
   assert.equal(got.status, 400);
   const j = json(got).job;
