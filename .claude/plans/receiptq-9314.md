@@ -34,7 +34,7 @@ Rejected: stopping at every `'` and backtick (the card's own warning): a real fi
   by name (`named.md`), a patch built in pieces and a template `${dir}` (both left out). On main: `named.md'; await ...`,
   `cat.md' +` and `${dir}/tpl.js` are listed.
 - c2i a split patch (`'...Begin Patch\n' + "...it's-split.md..."`): `it's-split.md`, not `it`.
-- c2j `notes 'a', b.md` in a "-string: kept.
+- c2j `notes 'a', b.md` in a "-string: kept. c2k the same name in a "-string that opens with a newline: kept.
 - One-line scripts, 32,000 headers and 16,000 alternating escaped openers: read in under 3 s (about 60 ms here); the
   32,000-header path swallowed every later header, so no file is listed.
 
@@ -43,5 +43,7 @@ Neither case has been seen in a real Codex transcript (the card says so); both a
 JavaScript string. A patch whose Begin Patch line is not at the start of its own string (it is built in pieces) gets the
 assumed `"`; such paths are usually caught by the ran-on rule and left out, not read wrong. The opener is the one
 character before `*** Begin Patch`, so two shapes read it wrong: a patch whose own text mentions `'*** Begin Patch` inside
-a "-string gives later headers `'` (`it's.md` would read `it`), and a string that starts with a newline before Begin
-Patch is read as "no opener" and gets the assumed `"`. Both are contrived, and neither reads worse than main.
+a "-string gives later headers `'` (`it's.md` would read `it`). Contrived, and not worse than main. (A string that
+opens with a newline, `"\n*** Begin Patch`, used to lose its quote; review 5 found it dropped `notes 'a', b.md` where main
+read it, so the opener is now found past whitespace and `\n` `\r` `\t` escapes, test c2k.) Review 5 timed ten hostile
+shapes to 10 MB and fuzzed 400k inputs against main: linear throughout, and no junk name the branch adds.

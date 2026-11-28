@@ -315,14 +315,14 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
       + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n" + '*** Update File: cat.md' + "\n+x\n*** End Patch"});`
       + ' await tools.apply_patch({patch:`*** Begin Patch\\n*** Update File: $' + '{dir}/tpl.js\\n+x\\n*** End Patch`});'),
     out('10:19', 'c2h', 'Script completed\nWall time 1 seconds'),
+    /* #9314: in a string whose quote is known, a ' then , or ) is part of the name, never "code". */
+    call('10:19', 'c2j', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: notes 'a', b.md\n+x\n*** End Patch"});`),
+    out('10:19', 'c2j', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a patch string that opens with a newline still has its own quote found (`"\n*** Begin Patch`). */
+    call('10:19', 'c2k', String.raw`await tools.apply_patch("\n*** Begin Patch\n*** Update File: nl 'a', b.md\n+x\n*** End Patch");`),
+    out('10:19', 'c2k', 'Script completed\nWall time 1 seconds'),
     /* #9314: a header past the end of the string its Begin Patch opened (here a second, "-quoted piece) is read
        with the " main assumed, never cut at the first piece's quote (it would read `it`). */
-    /* #9314: in a string whose quote is known, a ' then , or ) is part of the name, never "code". */
-    call('10:19', 'c2j', String.raw`await tools.apply_patch({patch:"*** Begin Patch
-*** Update File: notes 'a', b.md
-+x
-*** End Patch"});`),
-    out('10:19', 'c2j', 'Script completed\nWall time 1 seconds'),
     call('10:19', 'c2i', String.raw`await tools.apply_patch({patch:'*** Begin Patch\n' + "*** Update File: it's-split.md\n+x\n*** End Patch"});`),
     out('10:19', 'c2i', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
@@ -342,14 +342,14 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
   const drive = a.files.filter((f) => f.includes('drive.js'));
   assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
-    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "it's-split.md"],
+    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
     'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
   // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
   assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
   assert.ok(/Users.kay.drive\.js$/.test(drive[0]), 'read whole, folders kept: ' + drive[0]);
   assert.ok(!a.files.some((f) => f === 'C:' || f === '.' || f === '' || path.resolve(fs.realpathSync(kay), f) === fs.realpathSync(kay)), 'never C: or the agent\'s own folder: ' + JSON.stringify(a.files));
-  assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.ok(!a.files.includes('it'), 'a header past its Begin Patch string is not cut at that string\'s quote (#9314): ' + JSON.stringify(a.files));
+  assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.equal(a.transcriptsWithWork, 1);
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
 });

@@ -340,6 +340,18 @@ function codexPatchPaths(src) {
     }
     return Infinity;
   };
+  /* The character that opens the string a Begin Patch starts, looking back past whitespace and the escapes `\n` `\r`
+     `\t` (a patch string may open with a newline: `"\n*** Begin Patch`), at most 16 of them. */
+  const openerBefore = (b) => {
+    let i = b - 1;
+    for (let steps = 0; i >= 0 && steps < 16; steps += 1) {
+      const c = src[i];
+      if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i -= 1; continue; }
+      if ((c === 'n' || c === 'r' || c === 't') && src[i - 1] === '\\') { i -= 2; continue; }
+      break;
+    }
+    return i >= 0 ? src[i] : '';
+  };
   const head = /\*\*\* (?:Add|Update|Delete) File: /g;
   let k = -1;   // the last Begin Patch before the current header
   /* Per quote kind, the close last found and the Begin Patch it was found from. A later Begin Patch before that close
@@ -348,7 +360,7 @@ function codexPatchPaths(src) {
   const closes = { "'": { from: -1, at: -1 }, '"': { from: -1, at: -1 }, '`': { from: -1, at: -1 } };
   for (let m = head.exec(src); m; m = head.exec(src)) {
     while (k + 1 < begins.length && begins[k + 1] < m.index) k += 1;
-    const before = k >= 0 && begins[k] > 0 ? src[begins[k] - 1] : '';
+    const before = k >= 0 ? openerBefore(begins[k]) : '';
     const opened = before === "'" || before === '"' || before === '`';
     let j = m.index + m[0].length;
     let at = -1;
@@ -361,17 +373,18 @@ function codexPatchPaths(src) {
        nothing about this path (review 2), so the " main assumed is used, and the ran-on rule drops a path it misreads. */
     const known = opened && at > m.index;
     const quote = known ? before : '"';
-    let text = '';
+    const start = j;
     while (j < src.length) {
       const c = src[j];
       if (c === '\n' || c === '\r' || c === quote) break;
       if (c === '\\') {
         const n = src[j + 1];
         if (n === undefined || n === 'n' || n === 'r' || n === '\n' || n === '\r') break;
-        text += c + n; j += 2; continue;
+        j += 2; continue;
       }
-      text += c; j += 1;
+      j += 1;
     }
+    const text = src.slice(start, j);   // escape pairs are kept as written; decodeJsEscapes reads them
     // Resume after the path, as a consuming regex would: a header inside the text just read is not read again (review 2,
     // which measured a one-line script re-scanned per header: 2,000 headers 711 ms, 32,000 out of memory).
     head.lastIndex = Math.max(head.lastIndex, j);
