@@ -3152,7 +3152,7 @@ cmd_msg() {
       case "$rc" in 0|18|28|52|56) ;; *) rc=52 ;; esac ;;
   esac
   if [ "$rc" -eq 28 ]; then
-    say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
+    say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again."
     exit 3
   elif [ "$rc" -ne 0 ]; then
     say_unreached "send that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
@@ -3191,7 +3191,7 @@ cmd_msg() {
       # exit-code caller cannot read "maybe" as "delivered" -- but never
       # nonzero-1, which would invite the retry the state exists to stop.
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
-      say "Not confirmed: ${because:-the text may already be in their composer}. Do not re-send; check with them."
+      say "Not confirmed: ${because:-the text may already be in their composer}. Do not send it again: if an id is shown below, kosmos msg --status says later whether they read it; if not, wait for their answer."
       _say_msg_id "$body"   # kosmos#8961
       exit 3
       ;;

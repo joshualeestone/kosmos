@@ -4158,11 +4158,15 @@ function blockRules(sessionName, cliShown) {
       /* kosmos#9240: delivery-check probes, even marked, still landed in the receiver's pane and cost it a turn (this
          rule above used to name a delivery test too). The receipt already exists (msg --status, #8961), so the check
          sends nothing, and a not-read-yet answer is no reason to send again. --status reads direct messages only; a room
-         post's own command already says whom it woke or reached (install/kosmos, the "Posted to" lines). */
+         post's own command already says whom it woke or reached (install/kosmos, the "Posted to" lines).
+         kosmos#9243: "Kosmos cannot tell" (msgstatus's own answer) is no reason either, and with nothing to send yet a
+         real message is the check; an unreached post says it could not post (say_unreached). */
       'Do not send a test message to see if your direct messages reach someone: send the real one, then run',
       `\`${cliShown} msg --status <id>\` with the id your send printed. It says whether it reached them and, when Kosmos`,
-      'can tell, whether they read or answered it; that they have not read it yet, or may read it later, is no reason to',
-      'send it again. A room post needs no test either: the post command says whom it reached.',
+      'can tell, whether they read or answered it; that they have not read it yet, may read it later, or that Kosmos',
+      'cannot tell, is no reason to send it again. With nothing real to send yet, a real message is the check: there is',
+      'no test message to send. A room post needs no test either: the post command says whom it reached, or that it',
+      'could not post.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
