@@ -847,3 +847,48 @@ test('#9268: an open that FOLLOWS a link planted at the temp name writes nothing
   assert.equal(fs.lstatSync(file).isSymbolicLink(), false, 'the saved file is a link');
   assert.equal(opens, 2, 'the save did not move to a fresh temp name after refusing the followed one');
 });
+
+/* kosmos#9268 review 1: the name swapped AFTER the open (the link replaced by an ordinary file). "Is the name a
+   link now" would say no and write the secret through the fd to the link's target, then rename the planted file over
+   the config. The check is "is the name the file this open made", so this is refused too. */
+test('#9268: a temp name swapped for another file after the open is refused, and neither the target nor the config gets the planted bytes', (t) => {
+  const file = fresh('swapped');
+  const elsewhere = fresh('attacker2');
+  const realOpen = fs.openSync;
+  let planted = null;
+  fs.openSync = function (p, flags, ...rest) {
+    if (planted === null && flags === 'wx' && String(p).includes('.kosmos-')) {
+      planted = String(p);
+      fs.symlinkSync(elsewhere, planted);
+      const fd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+      fs.unlinkSync(planted);
+      fs.writeFileSync(planted, 'ATTACKER');                    // and the name is swapped before the check
+      return fd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; try { fs.rmSync(planted, { force: true }); fs.rmSync(elsewhere, { force: true }); } catch { /* fine */ } });
+  securewrite.writeSecret(file, 'secret-9268b', 0o600);
+  fs.openSync = realOpen;
+  assert.ok(planted, 'the plant never happened, so this tests nothing');
+  assert.equal(fs.existsSync(elsewhere) ? fs.readFileSync(elsewhere, 'utf8') : '', '', 'the secret went through the fd to where the link pointed');
+  assert.equal(fs.readFileSync(planted, 'utf8'), 'ATTACKER', 'the swapped-in file was moved or changed, which is not ours to do');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268b', 'the planted file became the config, or the save did not land');
+});
+
+/* kosmos#9268 CONTROL: an ordinary save is NOT refused. The same-file check reads the open fd and the temp name;
+   if they disagreed on an ordinary file (the Windows file index, say), every save would be refused and quietly take
+   the in-place fallback. atomicOnly turns that into a throw, so this arm fails where the check is too strict. */
+test('#9268 CONTROL: an ordinary save takes the atomic path (atomicOnly does not throw), with one open', () => {
+  const file = fresh('ordinary');
+  const realOpen = fs.openSync;
+  let opens = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) opens += 1;
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  try { securewrite.writeSecret(file, 'plain-9268', 0o600, { atomicOnly: true }); }
+  finally { fs.openSync = realOpen; }
+  assert.equal(fs.readFileSync(file, 'utf8'), 'plain-9268');
+  assert.equal(opens, 1, 'an ordinary save was refused and retried at a fresh name');
+});

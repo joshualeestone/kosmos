@@ -140,30 +140,40 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-t${THREAD}-${START
    no `t` segment) still matches and is treated as thread 0 (a prior release could
    only have written from the main thread). That suffix is unique to this module, so
    a match is by construction one of our temps and never a credential file. */
+const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
+
 /**
- * kosmos#9268: did the create-exclusive open of `tmp` FOLLOW a link planted there? On Windows it can: Node maps
- * `'wx'` to CREATE_NEW, and CreateFile follows a reparse point, so a dangling link at the temp name is not an existing
- * file to it and the open creates the link's TARGET (measured on GitHub's Windows runner, engine/trust.test.js). A
- * POSIX O_CREAT|O_EXCL refuses a link instead, so there this is false.
+ * kosmos#9268: is the temp name still the very file this open made? On Windows a create-exclusive open can FOLLOW a
+ * link planted at the name: Node maps `'wx'` to CREATE_NEW, and CreateFile follows a reparse point, so a dangling
+ * link is not an existing file to it and the open creates the link's TARGET (measured on GitHub's Windows runner,
+ * engine/trust.test.js). A POSIX O_CREAT|O_EXCL refuses a link itself.
  *
- * When it did, the file the open just made sits where somebody else chose. This closes it and removes that file, and
- * only that one: the same file as the open's (device and inode) and still empty, so it holds nothing of anyone's (the
- * exclusive open made it). The link itself is left as it was. Returns true when it refused.
+ * So the question is not "is the name a link now" but "is the name a regular file with the same device and inode as
+ * the open file": a name swapped after the open (the link removed, or replaced by another file) fails it too.
+ * Compared as bigints, so a large Windows file index is exact. Refused, the fd is closed, and when the name is still
+ * a link to the file this open made (same device and inode, still empty), that file is removed: it holds nothing,
+ * and leaving it would leave a file where somebody else chose. The name itself is never touched. Returns true when
+ * it refused.
  */
 function refuseFollowedLink(tmp, fd) {
-  let link;
-  try { link = fs.lstatSync(tmp).isSymbolicLink(); } catch { link = false; }
-  if (!link) return false;
+  let made = null;
+  let named = null;
+  try { made = fs.fstatSync(fd, { bigint: true }); } catch { made = null; }
+  try { named = fs.lstatSync(tmp, { bigint: true }); } catch { named = null; }
+  const sameFile = (st) => made && st && st.isFile() && st.dev === made.dev && st.ino === made.ino;
+  if (sameFile(named)) return false;
+  let closed = false;
   try {
-    const made = fs.fstatSync(fd);
-    const target = fs.realpathSync(tmp);
-    const there = fs.lstatSync(target);
-    fs.closeSync(fd);
-    if (there.isFile() && there.dev === made.dev && there.ino === made.ino && there.size === 0) fs.unlinkSync(target);
-  } catch { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    let target = null;
+    if (named && named.isSymbolicLink()) { try { target = fs.realpathSync(tmp); } catch { target = null; } }
+    fs.closeSync(fd); closed = true;
+    if (target) {
+      const there = fs.lstatSync(target, { bigint: true });
+      if (sameFile(there) && there.size === 0n) fs.unlinkSync(target);
+    }
+  } catch { if (!closed) { try { fs.closeSync(fd); } catch { /* already closed */ } } }
   return true;
 }
-const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
 
 /* Directories already swept this process, so the reap runs once per directory per
    process rather than on every write. Cleared by nothing: a process lives once. */
@@ -416,8 +426,8 @@ function writeSecret(file, data, mode, opts) {
     let created = false;
     let flushError = null;   // #5434: set when the disk refused the flush (see flushOrThrow)
     try {
-      /* `wx` refuses rather than following or reusing anything already at the
-         temp path, which also refuses a symlink planted there. */
+      /* `wx` refuses rather than reusing anything already at the temp path. On POSIX it also refuses a
+         symlink planted there; on Windows it can follow one, which refuseFollowedLink catches (kosmos#9268). */
       /* 🛑 CREATE AND WRITE ARE TWO CALLS, ON PURPOSE. This was one
          `writeFileSync(tmp, data, { flag: 'wx', mode })` with `created = true`
          AFTER it, and that call both creates and writes: a write that fails after
@@ -429,7 +439,7 @@ function writeSecret(file, data, mode, opts) {
          The flag flips the instant the inode exists, which is the only moment
          "we created it" is a fact rather than a proxy. */
       const tfd = fs.openSync(tmp, 'wx', createMode);
-      if (refuseFollowedLink(tmp, tfd)) throw Object.assign(new Error('a link was planted at the temp name'), { code: 'EEXIST' });   // kosmos#9268: the next attempt takes a fresh name
+      if (refuseFollowedLink(tmp, tfd)) throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_SYMLINK' });   // kosmos#9268: the next attempt takes a fresh name
       created = true;
       try {
         /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
@@ -482,7 +492,9 @@ function writeSecret(file, data, mode, opts) {
       lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
-         `created` is the FACT, and it is set the instant the open returns so a
+         `created` is the FACT, and it is set the instant the open returns and the
+         name is confirmed to be the opened file (kosmos#9268: on Windows a refused
+         name may be a planted link, never ours to unlink), so a
          failure in the write, the chmod or the rename all find it true; an
          `err.code !== 'EEXIST'` test is a PROXY for it and misses an EEXIST from
          the chmod or the rename. */
