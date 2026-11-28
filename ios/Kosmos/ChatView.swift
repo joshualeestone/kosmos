@@ -978,6 +978,12 @@ struct ChatView: View {
                     else { goNewest(proxy) }
                     landOnNewest(proxy)   // kosmos#9089
                     #if DEBUG
+                    // kosmos#9226 probe (never merged): KOSMOS_SAMPLE_ARRIVE_AFTER=<s> brings one message s seconds into the open.
+                    if let after = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARRIVE_AFTER"].flatMap(Double.init) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + after) { client.sampleArrive(agent.session); Task { await read() } }
+                    }
+                    #endif
+                    #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
                     // kosmos#7265: KOSMOS_SAMPLE_SCROLLUP=<n> scrolls 3 s after opening so the n-th row from the end is at the
@@ -2924,7 +2930,11 @@ struct ChatView: View {
         // naming what is shown (its ETag) once a whole window is shown, so an unchanged one costs no body.
         let ask = Board.threadAsk(fullRead: fullRead, showing: thread != nil, tag: threadTag)
         let small = ask.tail != nil
-        let (result, tag) = await client.threadRead(for: agent.session, tail: ask.tail, tag: ask.tag)
+        var (result, tag) = await client.threadRead(for: agent.session, tail: ask.tail, tag: ask.tag)
+        #if DEBUG
+        // kosmos#9226 probe (never merged): KOSMOS_SAMPLE_REFUSE_FIRST=1 refuses each open's first read, as the Mac can.
+        if mine == 1, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSE_FIRST"] == "1" { result = .refused("A sample refusal (kosmos#9226 probe)."); tag = nil }
+        #endif
         // A read cut short (the chat closed, the app went away) says nothing about the Mac, and an older read than the
         // one shown changes nothing.
         guard !Task.isCancelled, mine > readShown, startedIn == client.chatEpoch else { return false }

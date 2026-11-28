@@ -1591,6 +1591,17 @@ final class BoardClient: ObservableObject {
     private var newestSeen: [String: String] = [:]
     @Published private(set) var chatEpoch = 0
     #if DEBUG
+    #if DEBUG
+    /// kosmos#9226 probe (never merged): one new message in a sample chat, as if it arrived just now.
+    func sampleArrive(_ session: String) {
+        guard let sample = sampleThreads[session], let last = sample.rows.last else { return }
+        sampleGrown += 1
+        let at = String(format: "2026-10-23T23:%02d:%02dZ", sampleGrown / 60 % 60, sampleGrown % 60)
+        let row = Board.ChatRow(id: "arrived-\(sampleGrown)", atRaw: at, at: Board.isoDate(at),
+                                text: "Arrived \(sampleGrown) during the open.", who: last.who == .agent ? .person : .agent)
+        sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount, choices: sample.choices)
+    }
+    #endif
     private var sampleGrown = 0   // kosmos#7265: KOSMOS_SAMPLE_GROW's new messages so far
     #endif
 
