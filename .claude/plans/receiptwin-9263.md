@@ -22,8 +22,10 @@ was cut to `C:`, and `path.resolve(folder, 'C:')` gave back the agent's own fold
 ## Encodings not covered
 A path with SINGLE backslashes is still cut at the first one. In a JavaScript string or template literal an unescaped
 `\U` is a syntax error (or a different character), so a script that runs carries the path escaped; only `String.raw`
-keeps single backslashes, and that case is left cut rather than guessed at, because a single backslash cannot be told
-apart from the start of an escape. Raised by review round 2; the comment at the code says this plainly.
+keeps single backslashes, and such a path cannot be read whole, because a single backslash cannot be told apart from the
+start of an escape. Round 3: the cut piece was then SHOWN as a file (`C:`, which on Windows resolves to the agent's own
+folder). A path line ends at a newline (`\n`/`\r`) or a quote, so a match stopped by any other backslash is now left
+out of the receipt instead; the test carries a String.raw arm for it. Raised by review round 2; the comment at the code says this plainly.
 
 ## Weakest premise
 How a real Windows Codex writes an absolute path in its exec script (escaped `\\`) is reasoned from the script
