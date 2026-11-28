@@ -133,3 +133,17 @@ test('one agent holds at most MAX_PLACES_PER_AGENT places', () => {
   assert.deepEqual([over.ok, over.refused], [false, true]);
   assert.equal(ht.readLine(r).length, ht.MAX_PLACES_PER_AGENT);
 });
+
+test('a front place\'s grace starts again each time the turn comes free: time spent behind a holder never counts', () => {
+  const r = root();
+  ht.take({ root: r, agent: 'angel', label: 'validation', now: T0 });   // the turn
+  ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 10 });
+  ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 20 });
+  ht.release({ root: r, agent: 'angel' });
+  ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 30 });   // the turn is free for mona from here
+  hj.start({ root: r, agent: 'renet', label: 'by start', now: T0 + 40 });   // and then held by someone else for an hour
+  ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 50 });
+  hj.end({ root: r, agent: 'renet' });
+  const k = ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 60 * 60 * 1000 });
+  assert.deepEqual([k.turn, names(k.ahead)], [false, ['mona']], 'mona lost the front for time the turn was not free');
+});
