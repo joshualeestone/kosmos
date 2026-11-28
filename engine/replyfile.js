@@ -298,7 +298,7 @@ function libraryOpen(chain, k, rootDepth) {
   return false;
 }
 
-function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false } = {}) {
+function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false, onlyProject = null } = {}) {
   const chain = chainOf(real);
   const filesReal = filesRoot(sessionName, filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
@@ -323,7 +323,8 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
     depthCache.set(folder, at);
     return at;
   };
-  const listsMe = (p) => (p.agents || []).includes(sessionName);
+  // kosmos#9242 review 3: a room post counts only that room's own project as the agent's (onlyProject); a reply, every one.
+  const listsMe = (p) => (p.agents || []).includes(sessionName) && (!onlyProject || p.id === onlyProject);
   const usable = (p) => p && typeof p.folder === 'string' && p.folder;
   /* #7232 B3: the agent's OWN projects first. None holding the file is a refusal (as it always was: the deepest
      project would then not be the agent's), said before any other agent's folder is touched, so an attach of a file in
@@ -757,7 +758,12 @@ function winRealRefusal(real, given, roots) {
  * Copy one of the agent's own files into the attachment store.
  * Returns { ok: true, rec } (rec as attachments.save returns it) or { ok: false, because }.
  */
-function attach(sessionName, given, { roster, platform = process.platform } = {}) {
+/* kosmos#9242: `scope` and `owner` say where the copy is kept: the agent's own reply ('agent', its session, the default)
+   or a room post ('project', the project's id, where the room's attachments live, so the room draws and serves it as a
+   person's upload to that room). Which files may go is decided exactly the same way either way, and the daily total is
+   the agent's own in both (the copy keeps `from`, the sending agent). */
+function attach(sessionName, given, { roster, platform = process.platform, scope = 'agent', owner = sessionName, onlyProject = null } = {}) {
+  if (scope !== 'agent' && scope !== 'project') return { ok: false, because: 'that is not a place a file can be kept' };
   if (typeof given !== 'string' || !given || given.includes('\0')) return { ok: false, because: 'name the file to attach by its path' };
   if (!path.isAbsolute(given)) return { ok: false, because: 'give the full path of the file to attach' };
   if (given.split(/[\\/]/).includes('..')) return { ok: false, because: 'a path with .. in it cannot be attached; give the file\'s own full path' };
@@ -786,7 +792,17 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
   if (Number(st.nlink) > 1) return { ok: false, because: HARD_LINK };
   const size = Number(st.size);
-  const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win });
+  const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win, onlyProject });
+  /* kosmos#9242 review 3: a room post reaches the room's other agents, not only the person, so a file from another of the
+     agent's projects would hand that project's files to members who are not on it. Said plainly when that is the reason. */
+  // Review 4: only when another of its projects would really take the file (a root, not a refusal of its own), so a
+  // `.env` there is not told it is "another project". RESIDUAL, stated: on Windows another of its projects on an
+  // unnamed network folder can make a file in the room's own folder refused as unplaced (the safe direction, as any
+  // other agent's such folder already does).
+  const elsewhere = !where && onlyProject ? allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win }) : null;
+  if (elsewhere && elsewhere.root && !elsewhere.refused) {
+    return { ok: false, because: 'that file is in another of your projects, and a room post can attach only from your Files folder or this room\'s own project folder' };
+  }
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (size > attachments.MAX_BYTES) {
@@ -796,12 +812,12 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   if (size === 0) return { ok: false, because: 'there is nothing in that file' };
   const used = sentToday(sessionName);
   if (used + size > DAILY_BYTES) {
-    return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
+    return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies and posts in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
   }
   const name = path.basename(real);   // review r2 finding 5: the file's own name, not a link's (report.pdf -> notes.txt is notes.txt)
   try {
     /* #6734: copied across in chunks into the stored file, never held whole; a refused read leaves nothing stored. */
-    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
+    const kept = attachments.saveFilled(scope, owner, { name, type: typeOf(name), by: 'agent', ...(scope === 'project' ? { from: sessionName } : {}) }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
     if (!kept.ok) return kept;
     const rec = kept.rec;
     /* kosmos#9016: an agent is told to make it again, rather than handing a person a file that is not whole. */
@@ -904,21 +920,27 @@ let ledger = null;   // key -> Map(id -> { at, size })
 function keyOf(sessionName) { try { return store.safeKey(sessionName); } catch { return null; } }
 function seed(now = Date.now()) {
   ledger = new Map();
-  const base = path.join(attachments.ROOT, 'agent');
-  let keys = [];
-  try { keys = fs.readdirSync(base); } catch { return; }
-  for (const key of keys) {
-    let ids = [];
-    try { ids = fs.readdirSync(path.join(base, key)); } catch { continue; }
-    for (const id of ids) {
-      /* Review r6 finding 5: a record folder last changed more than a day ago cannot hold a copy from the last day,
-         so the boot read skips it without parsing (a store keeps every upload ever made). */
-      try { if (now - fs.statSync(path.join(base, key, id)).mtimeMs >= DAY_MS) continue; } catch { continue; }
-      let rec;
-      try { rec = JSON.parse(fs.readFileSync(path.join(base, key, id, 'record.json'), 'utf8')); } catch { continue; }
-      if (!rec || rec.by !== 'agent' || !Number.isFinite(rec.size)) continue;
-      const at = Date.parse(rec.at);
-      if (Number.isFinite(at) && now - at < DAY_MS) entriesFor(key).set(id, { at, size: rec.size });
+  /* kosmos#9242: an agent's copies on room posts live under 'project' (owner: the project), each keeping `from`, the
+     agent; they count against that agent's total too, so a board restart cannot reset it. */
+  for (const scope of ['agent', 'project']) {
+    const base = path.join(attachments.ROOT, scope);
+    let keys = [];
+    try { keys = fs.readdirSync(base); } catch { continue; }
+    for (const key of keys) {
+      let ids = [];
+      try { ids = fs.readdirSync(path.join(base, key)); } catch { continue; }
+      for (const id of ids) {
+        /* Review r6 finding 5: a record folder last changed more than a day ago cannot hold a copy from the last day,
+           so the boot read skips it without parsing (a store keeps every upload ever made). */
+        try { if (now - fs.statSync(path.join(base, key, id)).mtimeMs >= DAY_MS) continue; } catch { continue; }
+        let rec;
+        try { rec = JSON.parse(fs.readFileSync(path.join(base, key, id, 'record.json'), 'utf8')); } catch { continue; }
+        if (!rec || rec.by !== 'agent' || !Number.isFinite(rec.size)) continue;
+        const who = scope === 'agent' ? key : keyOf(rec.from);
+        if (!who) continue;
+        const at = Date.parse(rec.at);
+        if (Number.isFinite(at) && now - at < DAY_MS) entriesFor(who).set(id, { at, size: rec.size });
+      }
     }
   }
 }
@@ -948,7 +970,8 @@ function sentToday(sessionName, now = Date.now()) {
 function discard(rec) {
   if (!rec || typeof rec.dir !== 'string' || !inside(attachments.ROOT, rec.dir)) return;
   try { fs.rmSync(rec.dir, { recursive: true, force: true }); } catch { /* best effort */ }
-  const key = keyOf(rec.owner);
+  // kosmos#9242: a room post's copy is owned by the project; the agent it counts against is `from`.
+  const key = keyOf(rec.scope === 'project' ? rec.from : rec.owner);
   if (ledger && key && ledger.has(key)) ledger.get(key).delete(rec.id);
 }
 

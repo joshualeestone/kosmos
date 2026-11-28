@@ -5706,7 +5706,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost, citationMustResolve }, roster, asynchronousDelivery) {
+function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost, citationMustResolve, files }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -5795,6 +5795,10 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
     projectName: found.name,
     text,
     replyExpected,
+    // kosmos#9242: a file the agent attached (`kosmos post --file`), kept as the room's own attachment (scope 'project'),
+    // so the room draws and serves it as a person's upload; the members it is typed to get its facts after the post.
+    // After replyExpected on purpose: server.agent-token-sender-570's wiring check reads this object up to its first }.
+    ...(Array.isArray(files) && files.length ? { ...attachments.rowFields(files), trailer: attachments.wireNote(files) } : {}),
     // #3311: the colleagues it reaches are told the room is shared outside this computer.
     federated: (() => { try { return !!fedseats.linkFor(found.id); } catch (err) { fedseats.logUnreadable(err); return false; } })(),
     /* #3224, the proactive half: only a post that is not a reply is asked which room
@@ -21653,18 +21657,75 @@ const server = http.createServer(async (req, res) => {
            here and refused inside it, after the project check: the order this
            route has always answered in. */
         const postSender = senderFromAgentToken(req, body, roster);   // #6254: kept to name the poster for a `posted` notification below
-        const delivery = await sendRoomPostAsAgent({
-          fromPane: body.from_pane,
-          sender: postSender,
-          senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
-          project: body.project,
-          text: body.text,
-          replyExpected: body.reply_expected,
-          inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
-          askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
-          newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
-          citationMustResolve: true,              // kosmos#8165: a citation naming no room post is refused here (not on drain)
-        }, roster, true);
+        /* kosmos#9242: `file` attaches one of the agent's own files to its room post, by the same rules as
+           `kosmos reply --file` (engine/replyfile.js: its Files folder or a project it is on, the size caps, its daily
+           total), only from a caller on this computer and only from a sender its own agent token named. It is checked
+           and copied only once the project is known and the agent is on it, so no file is copied into a room it cannot
+           post in; a copy no post carries is taken back. With no words the file's name is the text, as for a reply. */
+        if (body.file !== undefined && body.file !== null && typeof body.file !== 'string') {
+          const bad = new Error('file is the path of one file'); bad.status = 400; throw bad;
+        }
+        const postFile = typeof body.file === 'string' && body.file ? body.file : null;
+        let postFiles = null;
+        if (postFile) {
+          if (isRemoteRequest(req)) { sendJson(res, 200, { delivery: { state: 'could_not', because: 'a file can be attached only by an agent running on this computer, so nothing was posted' } }); return; }
+          if (!presentedAgentToken(req, body) || !postSender || !postSender.ok) {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'a file can be attached only by an agent Kosmos started with its own agent token; this post came without one, so nothing was posted' } });
+            return;
+          }
+          let pj = null;
+          try { pj = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { pj = null; }
+          if (!pj) { sendJson(res, 200, { delivery: { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' } }); return; }
+          const who = postSender.card.sessionName;
+          if (!(pj.agents || []).some((a) => a && a.sessionName === who)) {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'you are not on that project, so nothing was posted and no file was taken' } });
+            return;
+          }
+          // Review 3: only from the agent's Files folder or THIS room's own project folder (onlyProject).
+          const got = require('./engine/replyfile').attach(who, postFile, { roster, scope: 'project', owner: pj.id, onlyProject: pj.id });
+          if (!got.ok) { sendJson(res, 200, { delivery: { state: 'could_not', because: got.because + ', so nothing was posted' } }); return; }
+          postFiles = [got.rec];
+          if (typeof body.text !== 'string' || !body.text.trim()) body.text = got.rec.name;
+        }
+        let delivery;
+        try {
+          delivery = await sendRoomPostAsAgent({
+            fromPane: body.from_pane,
+            sender: postSender,
+            senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
+            project: body.project,
+            text: body.text,
+            replyExpected: body.reply_expected,
+            inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
+            askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
+            newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
+            citationMustResolve: true,              // kosmos#8165: a citation naming no room post is refused here (not on drain)
+            files: postFiles,                       // kosmos#9242
+          }, roster, true);
+        } catch (err) {
+          if (postFiles) require('./engine/replyfile').discard(postFiles[0]);
+          throw err;
+        }
+        /* kosmos#9242: a copy no post carries is taken back. Asked of the record itself, not of the answer's flags (review 2):
+           - no post id (refused, or held to ask which room): taken back;
+           - folded into an earlier identical post, or answered by a twin still being delivered: that post's row carries
+             ITS copy, not this one, so this one is taken back;
+           - posted and recorded with this copy: kept.
+           Kept too, on purpose: a post that reached members but could not be recorded (no row): they were told this copy's
+           path, so taking it back would break their download. */
+        if (postFiles) {
+          let carries = null;   // true: the post's row carries this copy; false: it carries another or none; null: no row
+          if (delivery && delivery.id) {
+            try {
+              const row = (messages.record().rows || []).find((r) => r && r.kind === 'post' && r.id === delivery.id);
+              if (row) {
+                const f = Array.isArray(row.attachments) && row.attachments.length ? row.attachments : (row.attachment ? [row.attachment] : []);
+                carries = f.some((x) => x && x.id === postFiles[0].id);
+              }
+            } catch { carries = null; }
+          }
+          if (!(delivery && delivery.id) || delivery.duplicate === true || carries === false) require('./engine/replyfile').discard(postFiles[0]);
+        }
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */

@@ -1,7 +1,12 @@
 'use strict';
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 /**
- * kosmos#1955. `kosmos post` is text-only, and an agent asked to post a document
+ * kosmos#9242 (rewritten from #1955's refusal, which this card replaces): `kosmos post <proj> --file X` now attaches the
+ * file (the board decides which files may go; server.post-file-9242.test.js covers that on a real board). Here, at a dead
+ * port: --file is taken as the flag and the post reaches the send path (never swept into the text), --attach and a bad
+ * --file are refused before the network, and a quoted mention of --file stays text.
+ *
+ * The history, kept: kosmos#1955. `kosmos post` was text-only, and an agent asked to post a document
  * had no mechanism and no signal that one was missing -- an absent capability and
  * a disregarded request are indistinguishable from the operator's side. Worse,
  * `cmd_post` takes `text="$*"`, so `kosmos post <proj> --file findings.md` would
@@ -38,35 +43,42 @@ function run(args) {
   });
 }
 
-test('#1955: `post <proj> --file X` says attachments are unsupported and never reaches the network', async () => {
-  const r = await run(['post', 'someproj', '--file', '/tmp/findings.md']);
-  assert.match(r.out, /not supported yet \(kosmos#1955\)/, 'the attach attempt did not get the honest message');
-  assert.doesNotMatch(r.out, /not running/, 'it reached healthy(), so it was intercepted too late to prevent a literal-text post');
-  assert.equal(r.code, 2, 'a refused attach should exit non-zero (usage/2), not silently');
+test('#9242: `post <proj> --file X` reaches the send path, the flag never swept into the text', async () => {
+  const r = await run(['post', 'someproj', '--file', '/tmp/findings.md', 'here it is']);
+  assert.match(r.out, /not running/, 'a post with a file did not reach the send path');
+  assert.doesNotMatch(r.out, /not supported yet/, 'the old refusal is still there');
+  const eq = await run(['post', 'someproj', '--file=/tmp/findings.md']);
+  assert.match(eq.out, /not running/, 'the = form with no words did not reach the send path (a file needs no words)');
 });
 
-test('#1955: `--attach` and the `=` forms are caught too', async () => {
-  for (const args of [['post', 'p', '--attach', '/tmp/x'], ['post', 'p', '--file=/tmp/x'], ['post', 'p', '--attach=/tmp/x']]) {
+test('#9242: --attach is refused before the network, naming --file', async () => {
+  for (const args of [['post', 'p', '--attach', '/tmp/x'], ['post', 'p', '--attach=/tmp/x']]) {
     const r = await run(args);
-    assert.match(r.out, /not supported yet \(kosmos#1955\)/, `not caught: ${args.join(' ')}`);
+    assert.match(r.out, /use --file/, `not refused: ${args.join(' ')}`);
     assert.doesNotMatch(r.out, /not running/, `reached the network: ${args.join(' ')}`);
+    assert.equal(r.code, 2);
   }
 });
 
-test('#1955: a project-omitted attach attempt (`post --file X`) is still caught, not swept into text', async () => {
+test('#9242: a bad --file is refused before the network (twice, no path, a flag as the path)', async () => {
+  for (const [args, why] of [[['post', 'p', '--file', '/tmp/a', '--file', '/tmp/b', 'x'], /given twice/],
+    [['post', 'p', 'x', '--file'], /needs the path of the file/], [['post', 'p', '--file', '--new', 'x'], /needs the path of the file/]]) {
+    const r = await run(args);
+    assert.match(r.out, why, args.join(' '));
+    assert.doesNotMatch(r.out, /not running/, `reached the network: ${args.join(' ')}`);
+    assert.equal(r.code, 2);
+  }
+});
+
+test('#9242: a project-omitted post (`post --file X`) prints the usage, never posts with "--file" as the project', async () => {
   const r = await run(['post', '--file', '/tmp/findings.md']);
-  assert.match(r.out, /not supported yet \(kosmos#1955\)/, 'the flag was consumed as the project and slipped past the guard');
-  assert.doesNotMatch(r.out, /not running/, 'it reached the network with a "--file" project id');
+  assert.match(r.out, /Usage: kosmos post/);
+  assert.doesNotMatch(r.out, /not running/);
 });
 
-test('#1955 CONTROL: a real text message is NOT intercepted and still reaches the send path', async () => {
+test('#9242 CONTROL: a plain text post reaches the send path; a message that merely MENTIONS --file (one quoted arg) is text', async () => {
   const r = await run(['post', 'someproj', 'here are my findings']);
-  assert.doesNotMatch(r.out, /not supported yet \(kosmos#1955\)/, 'a plain text post was wrongly treated as an attach');
-  assert.match(r.out, /not running/, 'a plain text post did not reach healthy(), so the guard intercepts too much');
-});
-
-test('#1955 edge: a message that merely MENTIONS --file (as one quoted arg) is text, not an attach', async () => {
-  const r = await run(['post', 'someproj', 'use the --file flag to attach']);
-  assert.doesNotMatch(r.out, /not supported yet \(kosmos#1955\)/, 'text containing "--file" was wrongly intercepted');
-  assert.match(r.out, /not running/, 'the mention arm did not reach the send path');
+  assert.match(r.out, /not running/);
+  const m = await run(['post', 'someproj', 'use the --file flag to attach']);
+  assert.match(m.out, /not running/, 'the mention was not text');
 });

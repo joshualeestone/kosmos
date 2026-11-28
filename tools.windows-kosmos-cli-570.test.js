@@ -151,13 +151,17 @@ test('a refusal ({error}) is exit 1 with the board\'s words', async () => {
 
 // ── post, react, report, whoami, room, task ─────────────────────────────────
 
-test('post: /api/post with the project and text; a --file attempt is refused before anything is sent', async () => {
+test('post: /api/post with the project and text; an --attach attempt is refused before anything is sent (kosmos#9242: --file is the flag now)', async () => {
   const r = await run(['post', 'proj-1', 'room', 'news'], () => ({ body: { delivery: { state: 'placed' } } }));
   assert.equal(r.code, 0);
   assert.deepEqual(r.calls[0].body, { project: 'proj-1', text: 'room news', from_pane: '' });
-  const f = await run(['post', 'proj-1', '--file=notes.md']);
+  const f = await run(['post', 'proj-1', '--attach=notes.md']);
   assert.equal(f.code, 2);
   assert.equal(f.calls.length, 0);
+  // kosmos#9242: --file is sent to the board, which decides which files may go (tools.windows-kosmos-cli-post-file-9242).
+  const withFile = await run(['post', 'proj-1', '--file=' + (process.platform === 'win32' ? 'C:\\x\\notes.md' : '/x/notes.md')], () => ({ body: { delivery: { state: 'placed' } } }));
+  assert.equal(withFile.calls.length, 1, withFile.err);
+  assert.ok(typeof withFile.calls[0].body.file === 'string' && withFile.calls[0].body.file.endsWith('notes.md'));
 });
 
 test('#2908: post --no-reply sends reply_expected:false; without it no field; a non-leading flag is text', async () => {

@@ -3515,36 +3515,43 @@ cmd_post() {
       || { say "Kosmos could not find its own runtime to print this."; exit 1; }
     exit 0
   fi
-  # #1955: attaching a FILE to a room post is not supported yet. Detect the
-  # attempt -- a --file / --attach flag (or its `=` form), which today would
-  # otherwise be swept into `text="$*"` and posted as LITERAL room text
-  # ("--file findings.md") -- and say so honestly. An agent asked to post a
-  # document then learns the limit HERE, rather than by being asked for something
-  # it cannot deliver (an absent capability and a disregarded request are
-  # indistinguishable from the operator's side). The real capability is tracked as
-  # kosmos#1955 (attach) alongside kosmos#1943 (where an agent's produced document
-  # belongs).
-  # Scanned over the ORIGINAL args, BEFORE `project` is consumed, so a
-  # project-omitted attempt (`kosmos post --file x`) is caught too. Tradeoff, safe
-  # direction: a standalone `--file`/`--attach` WORD anywhere -- e.g. in unquoted
-  # prose like `post p remove the --file option` -- is treated as an attach and
-  # refused. Recoverable: pass the message as ONE quoted arg (the mention then
-  # passes, as the test pins); `--` is not specially honored. Refusing a legit
-  # message is recoverable; posting literal `--file x` garbage is not.
-  # Out of scope, on record: a BARE path (`post proj findings.md`) or an `@file`
-  # form is NOT detected -- it is indistinguishable from a text message, so it is
-  # left to the real attach capability (Done #1, coupled to kosmos#1943), not
-  # guessed at here.
-  for _a in "$@"; do
-    case "$_a" in
-      --file|--file=*|--attach|--attach=*)
-        say "Attaching a file to a room post is not supported yet (kosmos#1955)."
-        say "Paste the document's content inline as the message, or share its path with the operator."
-        say "Text only for now: kosmos post <project-id> <text>"
-        exit 2
-        ;;
-    esac
+  # kosmos#9242 (was #1955's refusal): --file <path> (or --file=<path>) attaches one of the agent's own files to the room
+  # post, as kosmos reply --file does (engine/replyfile.js decides which files may go, and the size caps). Taken out of
+  # the args before `--`, wherever it sits, so the rest parse as before; past `--` it is words. --attach is still
+  # refused (it is not this flag's name). A relative path is made absolute here; a control character in it is refused.
+  local _pfile="" _pgot=0 _ppast=0 _pargs=()
+  while [ $# -gt 0 ]; do
+    if [ "$_ppast" = 0 ]; then
+      case "$1" in
+        --) _ppast=1 ;;
+        --attach|--attach=*)
+          say "To attach a file to a room post use --file: kosmos post <project-id> --file <path> \"what it is\""
+          exit 2 ;;
+        --file|--file=*)
+          if [ "$_pgot" = 1 ]; then say "--file was given twice, so nothing was posted. Attach one file per post."; exit 2; fi
+          _pgot=1
+          if [ "$1" = --file ]; then
+            if [ $# -ge 2 ]; then _pfile="$2"; shift; fi
+          else
+            _pfile="${1#--file=}"
+          fi
+          case "$_pfile" in
+            ''|--|--[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*)
+              say "--file needs the path of the file to attach, so nothing was posted: kosmos post <project-id> --file <path> \"what it is\""
+              exit 2 ;;
+          esac
+          case "$_pfile" in /*) ;; *) _pfile="$PWD/$_pfile" ;; esac
+          case "$_pfile" in
+            *[[:cntrl:]]*)
+              say "That file's path has a line break or another control character in it, so it cannot be attached. Rename the file, then post it again."
+              exit 2 ;;
+          esac
+          shift; continue ;;
+      esac
+    fi
+    _pargs+=("$1"); shift
   done
+  set -- ${_pargs[@]+"${_pargs[@]}"}
   # #2908: --no-reply marks the post an acknowledgement (reply_expected:false), so a mentioned
   # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
   # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
@@ -3603,8 +3610,8 @@ cmd_post() {
     _text_args post "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
     text="$*"
   fi
-  if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624)."
+  if [ -z "$project" ] || { [ -z "$text" ] && [ -z "$_pfile" ]; }; then
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; --file <path>: attach one file from your Files folder or a project you are on, up to 100 MB) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624)."
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post
@@ -3626,7 +3633,7 @@ cmd_post() {
   esc_text=$(printf '%s' "$text" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/${_tab}/\\\\t/g; s/${_cr}/\\\\r/g" | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g') || { say "Nothing was posted: the message could not be prepared for sending."; _keep_piped; exit 2; }
   # #2909: an argument made only of dropped control characters escapes to nothing; refuse it rather
   # than post an empty message and report success. (--stdin input was blank-checked after its drop.)
-  if [ -z "$esc_text" ]; then
+  if [ -z "$esc_text" ] && [ -z "$_pfile" ]; then
     say "Nothing was posted: the message is empty once control characters are removed."
     exit 2
   fi
@@ -3658,7 +3665,12 @@ cmd_post() {
   fi
   local _new_field=""
   [ "$new_post" -eq 1 ] && _new_field=',"new_post":true'
-  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field$_new_field}"
+  # kosmos#9242: the file's path, escaped the same hand-rolled way; the board reads and checks it.
+  local _file_field=""
+  if [ -n "$_pfile" ]; then
+    _file_field=",\"file\":\"$(printf '%s' "$_pfile" | sed 's/\\/\\\\/g; s/"/\\"/g')\""
+  fi
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field$_new_field$_file_field}"
   # #2909: the board drops a request body over its limit, which would read below as "could not
   # reach Kosmos". Measured on the escaped body, since escaping grows quotes, newlines and tabs.
   if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
@@ -3704,7 +3716,10 @@ cmd_post() {
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
-  case "$body" in '{"wrongWorld":true'*) keep_in_outbox post "$_data" ;; esac
+  # kosmos#9242: except a post with a file: the kept post would be replayed without it, so it is not kept.
+  case "$body" in '{"wrongWorld":true'*)
+    if [ -n "$_pfile" ]; then say "Nothing was posted: this board is serving another Kosmos, and a post with a file is not kept to send later. Post it again once your own Kosmos is open."; _keep_piped; exit 1; fi
+    keep_in_outbox post "$_data" ;; esac
   # ⚠️ Globs are ANCHORED on the top-level keys. The post response embeds
   # `outcomes`, an object keyed by AGENT NAMES -- an agent named "state"
   # or "error" would otherwise put the matching substring into the body
