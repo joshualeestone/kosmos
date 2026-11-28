@@ -2320,7 +2320,10 @@ test('the taught kosmos command resolves to a real file on this machine, never a
   const spaced = fs.mkdtempSync(path.join(os.tmpdir(), 'cli path-'));
   fs.mkdirSync(path.join(spaced, 'install'), { recursive: true });
   fs.writeFileSync(path.join(spaced, 'install', 'kosmos'), '#!/bin/sh\n');
-  assert.equal(kosmosCliShown(spaced), '"' + path.join(spaced, 'install', 'kosmos') + '"');
+  /* A path with a backslash (any Windows path) is never taught, by the rule below: the bare word, and the agent's
+     supervisor puts the CLI on its PATH there (engine/clipath.js, #570; kosmos#8378). */
+  const spacedCli = path.join(spaced, 'install', 'kosmos');
+  assert.equal(kosmosCliShown(spaced), spacedCli.includes('\\') ? 'kosmos' : '"' + spacedCli + '"');
   // Guarded: on a checkout whose own path carries a space, the quoting
   // arm is CORRECT and this assertion would fail environmentally.
   if (!/\s/.test(kosmosCli())) {
@@ -2818,8 +2821,8 @@ test('the temp-folder refusal fires for a real store and not for a temp store', 
 
   // A temp folder entering a REAL store is refused: this is the leak.
   assert.equal(projects.tmpFolderRefused(tmpFolder, realStore), true);
-  // /tmp is a temp root too.
-  assert.equal(projects.tmpFolderRefused('/tmp/anything', realStore), true);
+  // /tmp is a temp root too, on the Mac and Linux; on Windows it would be a person's own C:\tmp (kosmos#9267).
+  assert.equal(projects.tmpFolderRefused('/tmp/anything', realStore), process.platform !== 'win32');
   // A real folder entering a real store is fine.
   assert.equal(projects.tmpFolderRefused(realFolder, realStore), false);
   // A temp folder is expected when the STORE is itself temp (a test/sandbox):
@@ -2850,6 +2853,16 @@ test('a folder symlinked INTO temp is caught by its resolved target', () => {
   fs.symlinkSync(realTarget, link);
   // isUnderTmpDir resolves the link, so both the link and its target read temp.
   assert.equal(projects.isUnderTmpDir(link), true);
+});
+
+/* kosmos#9267: Windows is case-blind, so a temp folder typed in another letter case, and not yet made (so it cannot be
+   resolved to the spelling on disk), is still temp there. Without the case fold it read as not temp. */
+test('#9267 Windows: a temp folder typed in another letter case, not yet made, still reads as temp', { skip: process.platform !== 'win32' && 'the file system is case-blind only on Windows' }, () => {
+  for (const spell of [(s) => s.toUpperCase(), (s) => s.toLowerCase()]) {
+    const dir = path.join(spell(os.tmpdir()), 'aw-case-9267-' + process.pid, 'proj');
+    assert.equal(fs.existsSync(dir), false, 'the folder must not exist, or it would be resolved to the spelling on disk');
+    assert.equal(projects.isUnderTmpDir(dir), true, dir + ' did not read as temp');
+  }
 });
 
 test('in the test store (itself temp) a temp-folder project is still accepted', () => {

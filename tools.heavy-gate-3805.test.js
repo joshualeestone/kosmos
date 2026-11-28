@@ -13,6 +13,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test tools.heavy-gate-3805.test.js
  */
 const test = require('node:test');
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it tests tools/heavy-gate.sh, the heavy-run gate for the fleet Mac and Linux hosts, and each skipped arm reads the process table with ps and lsof, keeps its fixtures under /tmp by an absolute POSIX path, or runs the script against this host; Windows is not a fleet test or release host');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -94,7 +95,7 @@ test('#4410: the install harness follows the shared fixture rule (controls: the 
   assert.equal(run([['116', WORK, 'bash ' + WORK + '/tools/test-install.sh --sleep 4', 'zsh']]).code, 1);
 });
 
-test('#4410: --except-cwd never rules out an install harness, which collides with your own suite too (control: a browser run there is ruled out)', (t) => {
+test('#4410: --except-cwd never rules out an install harness, which collides with your own suite too (control: a browser run there is ruled out)', { skip: SKIP_RELEASE_HOST }, (t) => {
   /* Under /tmp, not os.tmpdir(), for the reason the --except-cwd test below gives: inside
      tools/run-tests.sh os.tmpdir() is the kt<pid> sandbox, and both rows would be ignored as
      fixtures instead of testing the rule (the first version of this test did exactly that). */
@@ -241,7 +242,7 @@ test('a script path with a space still counts (control: the same path in a -c st
   assert.match(c.out, /ignore 105: mentions the name/);
 });
 
-test('a * in a command line is not expanded against the tool\'s folder (control: a real bare name counts)', (t) => {
+test('a * in a command line is not expanded against the tool\'s folder (control: a real bare name counts)', { skip: SKIP_RELEASE_HOST }, (t) => {
   // Run the tool from a folder holding a release.sh: if `*` expanded there, `bash *` from a
   // tools/ cwd would read as the bare `bash release.sh` run and count.
   const here = fs.mkdtempSync(path.join('/tmp', 'hg-glob-'));
@@ -264,7 +265,7 @@ function hasZsh() {
   }
 }
 
-test('sourced in bash or zsh it refuses with 2 and leaves the caller\'s shell alive (control: run, it answers)', () => {
+test('sourced in bash or zsh it refuses with 2 and leaves the caller\'s shell alive (control: run, it answers)', { skip: SKIP_RELEASE_HOST }, () => {
   for (const sh of ['bash', 'zsh']) {
     const r = spawnSync(sh, ['-c', `. '${TOOL}'; echo "rc=$? still-alive"`], {
       encoding: 'utf8',
@@ -333,7 +334,7 @@ test('the real reservation line is one of the wordings the tool reads', () => {
 /* #4911 review 11: the two new wordings in the live test above are only ever met while the box is held, so a quiet box
    (CI) could never show them drifting from what the status prints. Here they are made: a private marker folder holding
    an ordinary queued turn's claim, then a light run's side turn, each read through the real tool. */
-test('#4911 the real tool prints the held wordings the live test accepts', (t) => {
+test('#4911 the real tool prints the held wordings the live test accepts', { skip: SKIP_RELEASE_HOST }, (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-wordings-'));
   const holder = spawn('sleep', ['60'], { stdio: 'ignore' });
   t.after(() => { try { holder.kill(); } catch { /* gone */ } fs.rmSync(dir, { recursive: true, force: true }); });
@@ -352,7 +353,7 @@ test('#4911 the real tool prints the held wordings the live test accepts', (t) =
   assert.match(r.stdout, LIVE_RESERVATION, r.stdout);
 });
 
-test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', (t) => {
+test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', { skip: SKIP_RELEASE_HOST }, (t) => {
   /* Made under /tmp, not os.tmpdir(): tools/run-tests.sh points TMPDIR at its $TMPDIR/kt<pid>/
      sandbox, and the tool rightly ignores a run there as a test fixture, so a sibling in the
      sandbox would read as ignored for that reason instead of testing the prefix match. */
@@ -371,7 +372,7 @@ test('--except-cwd rules out your own run, exact or below, and not a sibling tha
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-test('--except-cwd with a missing or non-existent directory is an error, never a clear', () => {
+test('--except-cwd with a missing or non-existent directory is an error, never a clear', { skip: SKIP_RELEASE_HOST }, () => {
   const noArg = run([], { args: ['--except-cwd'] });
   assert.equal(noArg.code, 2, noArg.out);
   assert.equal(run([], { args: ['--except-cwd', ''] }).code, 2);
@@ -416,7 +417,7 @@ test('--quiet-box counts a validation suite while the default remains clear', ()
   assert.match(ordinary.out, /ignore 860: mentions the name but does not run it/);
 });
 
-test('--quiet-box applies --except-cwd to a validation suite, but not to a sibling', (t) => {
+test('--quiet-box applies --except-cwd to a validation suite, but not to a sibling', { skip: SKIP_RELEASE_HOST }, (t) => {
   const base = fs.realpathSync(fs.mkdtempSync('/tmp/hg-quiet-box-'));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const mine = path.join(base, 'kosmos');
@@ -494,13 +495,13 @@ test('the reservation reads free only on the exact free line (control: the phras
   assert.equal(run([], { claim: FREE + '\nwarning: something' }).code, 1);
 });
 
-test('stock macOS /bin/bash 3.2 gives the same answers (control: clear stays clear)', () => {
+test('stock macOS /bin/bash 3.2 gives the same answers (control: clear stays clear)', { skip: SKIP_RELEASE_HOST }, () => {
   assert.equal(run([realRun()], { shell: '/bin/bash' }).code, 1);
   assert.equal(run([['901', KT, 'bash ' + KT + '/tools/release.sh', 'zsh']], { shell: '/bin/bash' }).code, 0);
   assert.equal(run([], { shell: '/bin/bash' }).code, 0);
 });
 
-test('the LIVE scan (ps, lsof, the ancestor walk) through a fake ps and lsof on PATH (control: without the real run, clear)', (t) => {
+test('the LIVE scan (ps, lsof, the ancestor walk) through a fake ps and lsof on PATH (control: without the real run, clear)', { skip: SKIP_RELEASE_HOST }, (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-fake-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const bin = path.join(dir, 'bin');
@@ -575,7 +576,7 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
   assert.equal(live([]).code, 2, 'an empty table (no pid 1) is do-not-start');
 });
 
-test('smoke: against the live Mac it gives an answer (0 or 1), never a usage error', () => {
+test('smoke: against the live Mac it gives an answer (0 or 1), never a usage error', { skip: SKIP_RELEASE_HOST }, () => {
   const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env: { ...process.env, KOSMOS_HG_SNAPSHOT: '', KOSMOS_HG_CLAIM: FREE } });
   assert.ok(r.status === 0 || r.status === 1, 'exit ' + r.status + ': ' + r.stdout + r.stderr);
   assert.match(r.stdout, /^reservation:/m);
@@ -636,7 +637,7 @@ test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR an
   assert.doesNotMatch(quiet.stderr, /queued-heavy/, '--quiet printed the queue hint');
 });
 
-test('#5446: in a repo with a worktree, the hint names the main checkout\'s queue only when that copy has the fallback, else the worktree\'s own', () => {
+test('#5446: in a repo with a worktree, the hint names the main checkout\'s queue only when that copy has the fallback, else the worktree\'s own', { skip: SKIP_RELEASE_HOST }, () => {
   const { execFileSync } = require('node:child_process');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'hg5446-'));
   try {

@@ -9,6 +9,7 @@
  */
 require('../test-support/tmpscope');
 const test = require('node:test');
+const SKIP_LAUNCHD = require('../test-support/skip-on-win32').skipOnWin32('it re-applies launchd disables after a Mac move (launchctl, a tmux session, and process.getuid for the launchd domain); launchd keeps that disable record on macOS only, so off macOS reapplyRemovedDisables returns at once, and the timer reapplyAtBoardStart still sets fires, does nothing and logs nothing (a Windows agent is a Scheduled Task)');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -147,7 +148,7 @@ test('#7409: an unreadable removed list, or a print-disabled launchd will not an
   assert.deepEqual(calls, ['print-disabled gui/501'], 'it disabled without knowing what launchd held');
 });
 
-test('#7409: a sandboxed board never schedules it; a real board does, logs the names, and tries once more only when not clean', () => {
+test('#7409: a sandboxed board never schedules it; a real board does, logs the names, and tries once more only when not clean', { skip: SKIP_LAUNCHD }, () => {
   const timers = [];
   const setTimer = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
   const said = [];
@@ -310,7 +311,7 @@ test('#7409 review 7: a session that appears only after the bootout is a recheck
   assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the retry did not end the late session: ' + calls.join(' | '));
 });
 
-test('#7409 review 7: a recheck makes the board try once more, and only the last run names one still open', () => {
+test('#7409 review 7: a recheck makes the board try once more, and only the last run names one still open', { skip: SKIP_LAUNCHD }, () => {
   const timers = [];
   const setTimer = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
   const said = [];
@@ -330,7 +331,7 @@ test('#7409 review 7: a recheck makes the board try once more, and only the last
 
 /* ── kosmos#7409 review 8 ─────────────────────────────────────────────────────── */
 
-test('#7409 review 8: a job this run unloaded is waited on until launchd says it is gone, before the roster read', () => {
+test('#7409 review 8: a job this run unloaded is waited on until launchd says it is gone, before the roster read', { skip: SKIP_LAUNCHD }, () => {
   removedList([removedRow('casey'), removedRow('dana')]);
   roster([]);
   const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;

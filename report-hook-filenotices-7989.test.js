@@ -5,6 +5,7 @@ require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remov
  * real hook, a stand-in for the CLI.
  *   node --test report-hook-filenotices-7989.test.js */
 const test = require('node:test');
+const SKIP_POSIX_HOOK = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos-report-hook.sh, the Mac and Linux report hook, a bash script, whose paths reach it in POSIX form; a Windows agent runs the hook engine/kosmos-report-hook.js, whose file notices are tested in engine/kosmos-report-hook.filenotices-8014.test.js');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -41,7 +42,7 @@ const callFor = (pane) => 'file-notices|--hook|--ack-file|' + path.join(SB, 'kos
 const JSONLINE = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Kosmos file-owner notice: x' } });
 const prompt = { hook_event_name: 'UserPromptSubmit', session_id: 's', cwd: '/w' };
 
-test('UserPromptSubmit prints the CLI\'s hook JSON, and asks with --hook', () => {
+test('UserPromptSubmit prints the CLI\'s hook JSON, and asks with --hook', { skip: SKIP_POSIX_HOOK }, () => {
   const r = run(prompt, JSONLINE + '\n');
   assert.deepEqual(r.calls, [callFor(r.pane)]);
   assert.equal(r.out, JSONLINE + '\n');
@@ -53,7 +54,7 @@ test('anything that is not the hook JSON is dropped: nothing, other words, or a 
   assert.equal(run(prompt, JSONLINE + '\n', 1).out, '', 'a failing CLI says nothing even if it printed the JSON');
 });
 
-test('a pane asks at most once per FILE_NOTICE_EVERY: a second prompt soon after makes no call; a stale mark asks again', () => {
+test('a pane asks at most once per FILE_NOTICE_EVERY: a second prompt soon after makes no call; a stale mark asks again', { skip: SKIP_POSIX_HOOK }, () => {
   const first = run(prompt, JSONLINE + '\n', 0, '%throttle');
   assert.deepEqual(first.calls, [callFor('%throttle')]);
   const second = run(prompt, JSONLINE + '\n', 0, '%throttle');
@@ -67,7 +68,7 @@ test('a pane asks at most once per FILE_NOTICE_EVERY: a second prompt soon after
   assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, [callFor('%throttle')], 'an unreadable mark is treated as old');
 });
 
-test('a mark that cannot be written means no call: the cost would land on the turn every time', () => {
+test('a mark that cannot be written means no call: the cost would land on the turn every time', { skip: SKIP_POSIX_HOOK }, () => {
   const dir = path.join(SB, 'kosmos-report-throttle');
   fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(path.join(dir, '_nowrite.filenotices'));   // a folder where the mark goes: the write fails

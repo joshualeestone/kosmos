@@ -26,6 +26,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  */
 
 const test = require('node:test');
+const NO_CWD_CASE = require('../test-support/skip-on-win32').skipOnWin32('it pins the macOS behaviour that process.cwd() after a chdir returns the on-disk letter case; on Windows process.cwd() keeps the spelling it was handed, and Windows trust keys are matched case-blind (engine/trust.js runnerSpelling)');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -66,7 +67,7 @@ test('canonicalOnDisk resolves a symlink to its target (the property realpath al
   assert.equal(canonicalOnDisk(link), fs.realpathSync.native(link), 'symlinks resolve like realpath');
 });
 
-test('#2129/#5: canonicalOnDisk equals what the RUNNER looks up (process.cwd), where realpath does NOT', { skip: !CI_FS && 'case-sensitive FS' }, () => {
+test('#2129/#5: canonicalOnDisk equals what the RUNNER looks up (process.cwd), where realpath does NOT', { skip: NO_CWD_CASE || (!CI_FS && 'case-sensitive FS') }, () => {
   const { handedLower, capitalMarker } = capitalOnDiskLowercaseHanded();
   // What the runner actually looks up: its resolved cwd.
   const prev = process.cwd();
@@ -89,10 +90,11 @@ test('#2129/#5 Claude: trustFolder keys the trust under the on-disk (runner-look
   const cfg = JSON.parse(fs.readFileSync(path.join(cfgDir, '.claude.json'), 'utf8'));
   const keys = Object.keys(cfg.projects);
   assert.equal(keys.length, 1, 'exactly one key');
-  assert.ok(keys[0].includes(capitalMarker), `the key is the on-disk CAPITAL spelling (${keys[0]})`);
+  const onSep = keys[0].split('/').join(path.sep);   // kosmos#8378: on Windows the key is written with /, as Claude Code reads it
+  assert.ok(onSep.includes(capitalMarker), `the key is the on-disk CAPITAL spelling (${keys[0]})`);
   assert.equal(cfg.projects[keys[0]][KEY], true);
   // Control: the old realpath key would have been the lowercase handed spelling.
-  assert.ok(!keys[0].includes(`${path.sep}work${path.parse(handedLower).dir.match(/work(\d+)/)[1]}${path.sep}`),
+  assert.ok(!onSep.includes(`${path.sep}work${path.parse(handedLower).dir.match(/work(\d+)/)[1]}${path.sep}`),
     'CONTROL: the key is NOT the lowercase spelling realpath would have written');
 });
 

@@ -503,14 +503,14 @@ test('files are shown by their short path under either spelling of a linked agen
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'rue' }, { at: '11:00', kind: 'closed' }]);
   const slug = path.join(SB, '.gemini', 'tmp', 'rue-slug');
   fs.mkdirSync(path.join(slug, 'chats'), { recursive: true });
-  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync(real) + '\n');   // the session records the real spelling
+  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync.native(real) + '\n');   // the session records the real spelling
   const write = (id, fp) => ({ id, name: 'write_file', args: { file_path: fp }, status: 'success', timestamp: T('10:15') });
   fs.writeFileSync(path.join(slug, 'chats', 'session-1.jsonl'), jl([{ id: 'r1', type: 'gemini', timestamp: T('10:15'), model: 'gemini-3.8-flash',
     tokens: { input: 1, output: 1, cached: 0, thoughts: 0, tool: 0 },
-    toolCalls: [write('w1', path.join(fs.realpathSync(real), 'in.md')), write('w2', fs.realpathSync(real) + '2/sibling.md'),
-      write('w3', path.join(fs.realpathSync(real), '..cache', 'x'))] }]));
+    toolCalls: [write('w1', path.join(fs.realpathSync.native(real), 'in.md')), write('w2', fs.realpathSync.native(real) + '2/sibling.md'),
+      write('w3', path.join(fs.realpathSync.native(real), '..cache', 'x'))] }]));
   const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
-  assert.deepEqual(a.files, ['in.md', fs.realpathSync(real) + '2/sibling.md', path.join('..cache', 'x')]);
+  assert.deepEqual(a.files, ['in.md', fs.realpathSync.native(real) + '2/sibling.md', path.join('..cache', 'x')]);
 });
 
 /* ---- slice 3: an agent's receipts ---- */

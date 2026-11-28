@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 
 /*
  * #5774 route 3: the token-only guard denies the files Claude Code's instruction files IMPORT (`@path`), which it
@@ -8,6 +8,7 @@ require('../test-support/tmpscope');   // first: every mkdtemp in this file land
  */
 
 const test = require('node:test');
+const POSIX_GUARD = require('../test-support/skip-on-win32').skipOnWin32('it runs the macOS guard (platform darwin, through its seam) over folders made on this host, and that guard writes its rules for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -89,7 +90,7 @@ test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spac
   // Review 3: a list item's raw text (its code spans and comments) is scanned by Claude Code, and this does not model
   // lists, so code and comments are scanned everywhere: the result is a superset, never a subset.
   // Review 5: a superset by design, so the test names what MUST be there and what must NOT.
-  for (const w of [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), '/h/c.md,', '/abs/d.md', path.join(dir, 'j.md'),
+  for (const w of [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), path.join(home, 'c.md,'), path.resolve(dir, '/abs/d.md'), path.join(dir, 'j.md'),   // kosmos#8378: as this host spells them (a rooted path takes the file's own drive)
     path.join(dir, 'my file.md'), path.join(dir, 'indented.md')]) assert.ok(got.includes(w), `${w} missing from ${JSON.stringify(got)}`);
   // Review 7: in a PARAGRAPH, code (spans, fences) and comments are skipped by Claude Code, so they are not imports here
   // either (the raw pass reads list items only).
@@ -119,7 +120,7 @@ test('#5774 route 3: imports nest to the depth Claude Code loads (the root is 0,
   assert.deepStrictEqual(c.unsafe, []);
 });
 
-test('#5774 route 3: what each instruction file imports is denied: config home, folder above, managed (both layers); inside agents\' folders by one glob per name', () => {
+test('#5774 route 3: what each instruction file imports is denied: config home, folder above, managed (both layers); inside agents\' folders by one glob per name', { skip: POSIX_GUARD }, () => {
   const write = (f, body) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); };
   const homeMd = path.join(HOME, '.claude', 'CLAUDE.md');
   const shared = path.join(HOME, 'notes', 'shared.md');
@@ -234,7 +235,7 @@ test('#5774 route 3 review 1: a linked instruction file\'s imports resolve from 
   }
 });
 
-test('#5774 route 3 review 2: a target in a store gets the store\'s one rule, never its hashed name; a read-only target is not listed (its link is)', () => {
+test('#5774 route 3 review 2: a target in a store gets the store\'s one rule, never its hashed name; a read-only target is not listed (its link is)', { skip: POSIX_GUARD }, () => {
   const store = path.join(fs.realpathSync.native(SANDBOX), 'store-r2');
   const hashed = path.join(store, 'h1abc-CLAUDE.md');
   fs.mkdirSync(store, { recursive: true });
@@ -264,7 +265,7 @@ test('#5774 route 3 review 2: a target in a store gets the store\'s one rule, ne
   } finally { for (const f of [homeMd, anc, linkRo]) fs.rmSync(f, { force: true }); }
 });
 
-test('#5774 route 3 review 2: an import inside an agent folder that is a link (or dangles) has where it leads denied; sibling CLAUDE.local.md and rules, and a folder-above rules file, are roots', () => {
+test('#5774 route 3 review 2: an import inside an agent folder that is a link (or dangles) has where it leads denied; sibling CLAUDE.local.md and rules, and a folder-above rules file, are roots', { skip: POSIX_GUARD }, () => {
   const workers = path.join(SANDBOX, 'workers');
   const sib = path.join(workers, 'sib-l2');
   const elsewhere = path.join(SANDBOX, 'elsewhere-r2');
@@ -288,7 +289,7 @@ test('#5774 route 3 review 2: an import inside an agent folder that is a link (o
   } finally { for (const f of made) fs.rmSync(f, { force: true }); }
 });
 
-test('#5774 route 3 review 3: a connected agent\'s own .claude rules, the managed rules and a sibling named ..x are roots; a too-wide store is named; a rules walk past its budget is named', () => {
+test('#5774 route 3 review 3: a connected agent\'s own .claude rules, the managed rules and a sibling named ..x are roots; a too-wide store is named; a rules walk past its budget is named', { skip: POSIX_GUARD }, () => {
   const write = (f, body) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); };
   const elsewhere = path.join(SANDBOX, 'elsewhere-r3');
   const repo = path.join(SANDBOX, 'repo-r3');
@@ -334,7 +335,7 @@ test('#5774 route 3 review 3: a connected agent\'s own .claude rules, the manage
   } finally { fs.rmSync(path.join(HOME, '.claude', 'rules'), { recursive: true, force: true }); }
 });
 
-test('#5774 route 3 review 4: a link in the middle of an import\'s chain is denied; a store root the rules cannot carry is named; the text extensions are 2.1.296\'s', () => {
+test('#5774 route 3 review 4: a link in the middle of an import\'s chain is denied; a store root the rules cannot carry is named; the text extensions are 2.1.296\'s', { skip: POSIX_GUARD }, () => {
   assert.equal(si.TEXT_EXTS.size, 106, '2.1.296 lists 107, one of them ".R", which the lowercased lookup makes the same as ".r"');
   const base = fs.realpathSync.native(SANDBOX);
   const dots = path.join(base, 'dots-r4');
@@ -382,7 +383,7 @@ test('#5774 route 3 review 5: an @ just after any token edge is an import, cut w
   assert.ok(Date.now() - t0 < 3000, `code spans: ${Date.now() - t0} ms`);
 });
 
-test('#5774 route 3 review 5: a link on the way, or a store reached through one, the rules cannot carry is named and the rest written', () => {
+test('#5774 route 3 review 5: a link on the way, or a store reached through one, the rules cannot carry is named and the rest written', { skip: POSIX_GUARD }, () => {
   const base = fs.realpathSync.native(SANDBOX);
   const odd = path.join(base, 'Drop (r5)');
   fs.mkdirSync(odd, { recursive: true });
@@ -409,7 +410,7 @@ test('#5774 route 3 review 5: a link on the way, or a store reached through one,
   } finally { fs.rmSync(homeMd, { force: true }); }
 });
 
-test('#5774 route 3 review 7: a chain that starts inside an agent folder has its middle link denied; an uncarriable target in another agent folder is named', () => {
+test('#5774 route 3 review 7: a chain that starts inside an agent folder has its middle link denied; an uncarriable target in another agent folder is named', { skip: POSIX_GUARD }, () => {
   const base = fs.realpathSync.native(SANDBOX);
   const workers = path.join(SANDBOX, 'workers');
   const sib = path.join(workers, 'sib-r7');

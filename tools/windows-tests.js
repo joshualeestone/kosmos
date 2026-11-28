@@ -57,7 +57,10 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
+const ALSO = ['projects.test.js',   // kosmos#9267: the temp-folder refusal, on a real Windows runner (its chmod arms skip by skipOnWin32)
+  // kosmos#8378 cluster 3: fixed to hold on Windows and measured green on its runner, so the job keeps them green there
+  'reporthook.test.js', 'trust.canonical-spelling-2129c.test.js', 'pdfpreview-9218.test.js', 'receipt-5153.test.js', 'usageagy-5158.test.js', 'remove.redisable-7409.test.js',
+  'loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
   'orgchartfile.test.js',   // kosmos#9272: the org chart reader's real runner, with a node stand-in for claude; its #!/bin/sh arms skip
   'heavyjobs-9217.test.js',   // kosmos#9217: a heavy job's process is judged by signal 0 there, with no ps to read its start
   'loginexpiry-why-9107.test.js',   // kosmos#9107: the off-macOS refusal lines, on a real Windows runner
@@ -71,7 +74,7 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   // so the arms that hold on Windows run there (#5664 step A among them); each arm about the macOS or Linux guard, POSIX
   // startup files, POSIX path lines, the PATH scan Windows does not build yet or /bin/bash skips with its reason.
   'hookscripts-5774.test.js', 'startupfiles-5774.test.js', 'startplugins-5774.test.js', 'launchpath-5516.test.js',
-  'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js',
+  'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js', 'startimports-5774.test.js',
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
   'howhint.test.js', 'howhint-cli-8935.test.js',   // kosmos#8935: the first-use pointer through the Windows CLI (a launch-token agent); its bash half skips there with a reason
   'communityguide.test.js', 'taskguide.test.js', 'claimguide.test.js', 'postguide.test.js', 'agentguide.test.js',   // kosmos#8735: kosmos community --how, kosmos task --how, kosmos claim --how, kosmos post --how and kosmos agent --how through the Windows CLI; their bash halves skip there with a reason
@@ -189,7 +192,9 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'musefront.test.js'];   // kosmos#9270: the Muse front on Windows, its turn log rotation included; only its file-mode checks skip there (POSIX modes)
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
-const ALSO_ROOT = ['teamcreate-structure-4557.test.js',   // kosmos#9272: making a team on Windows (where.exe binaries, the win32job seams, an empty roster)
+const ALSO_ROOT = ['engine.live-execution-1598.test.js', 'bridges.board-proof-1765.test.js', 'tools.plus-signin-2036.test.js', 'test-support.tool-guard-4326.test.js',   // kosmos#8378 cluster 3, measured green on Windows
+  'engine.runnable-not-directory.test.js',   // kosmos#8378: its .exe stand-in and the tmux-less installedCheck keys, on a real Windows runner
+  'teamcreate-structure-4557.test.js',   // kosmos#9272: making a team on Windows (where.exe binaries, the win32job seams, an empty roster)
   'cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
   'test-support.remove-tree.test.js',
   'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
@@ -213,9 +218,14 @@ const ALSO_ROOT = ['teamcreate-structure-4557.test.js',   // kosmos#9272: making
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'report-hook-filenotices-7989.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos-report-hook.sh, the Mac and Linux report hook, a bash script, whose paths reach it in POSIX form; a Windows agent runs the hook engine/kosmos-report-hook.js, whose file notices are tested in engine/kosmos-report-hook.filenotices-8014.test.js',
+  'tools.plus-signin-auto-9018.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs tools/plus-signin-auto.sh, the release gate sign-in seed, against a Mac bundle; the gate runs on the release Mac, never on Windows',
+  'tools.pinned-keys-read.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs a line of tools/build-kosmos-bundle.sh, the Mac bundle build, through /bin/bash by an absolute POSIX path; bundles are built on the release Mac, never on Windows',
+  'tools.heavy-gate-3805.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it tests tools/heavy-gate.sh, the heavy-run gate for the fleet Mac and Linux hosts, and each skipped arm reads the process table with ps and lsof, keeps its fixtures under /tmp by an absolute POSIX path, or runs the script against this host; Windows is not a fleet test or release host',
+  'tools.cut-home-2724.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs tools/release.sh, the release cut, and the gates it starts; releases are cut on the release Mac, never on Windows',
+  'tools.build-linux-7281.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs tools/build-kosmos-linux.sh, the Linux bundle build; bundles are built on the release Mac, never on Windows',
+  'engine/update.marker-1728.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs the Mac and Linux update shell line (the run-setup wrapper) through /bin/sh by an absolute POSIX path; Windows updates through engine/win32update.js',
   'engine/trust.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it checks a 0640 file mode survives a write, and Windows does not keep POSIX file modes',
-  'engine/reporthook.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it checks a 0600 file mode survives a write, and Windows does not keep POSIX file modes',
-  'engine/projects.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there',
   'install.tmux-pick.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs the tmux pick in install/kosmos (the Mac and Linux CLI, a bash script) through /bin/sh by an absolute POSIX path; Kosmos runs no tmux on Windows',
   'install.setup-sig-6468.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs run-setup, the macOS and Linux update path, which checks and runs install/setup.sh through a POSIX shell; Windows updates from its own package',
   'install.pkg-verify-6576.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs the macOS .pkg postinstall and install/setup.sh, the macOS and Linux installer, through a POSIX shell; neither runs on Windows, which installs from its own package',

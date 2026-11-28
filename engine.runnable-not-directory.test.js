@@ -516,7 +516,9 @@ function fixture(name) {
   const dir = mkTemp('runnable-1592-');
   const asDirectory = path.join(dir, name);
   fs.mkdirSync(asDirectory);
-  const realBin = path.join(dir, 'real-' + name);
+  /* kosmos#8378: Windows runs a file by its extension (PATHEXT), not by a mode bit, so there the stand-in is an .exe;
+     it is never run, only judged runnable. */
+  const realBin = path.join(dir, 'real-' + name + (process.platform === 'win32' ? '.exe' : ''));
   fs.writeFileSync(realBin, '#!/bin/sh\nexit 0\n');
   fs.chmodSync(realBin, 0o755);
   // The defect itself, asserted so every arm below argues with something real.
@@ -806,7 +808,9 @@ test('machine.js installedCheck answers NOT PRESENT for a directory named like t
        ⇒ Same family as the devicedoor and githubdevice candidate-branch finding,
        one level down: per-KEY coverage rather than per-BRANCH. An arm that drives
        shared code through one of its inputs proves nothing about the others. */
-    const keys = ['claude', 'codex', 'tmux'];
+    /* kosmos#8378: Windows has no tmux, and installedCheck does not probe it there (engine/machine.js), so there the
+       keys are the two it does probe. */
+    const keys = process.platform === 'win32' ? ['claude', 'codex'] : ['claude', 'codex', 'tmux'];
     for (const key of keys) {
       const opts = { claudeBin: f.realBin, tmuxBin: f.realBin, codexBin: f.realBin };
       opts[key === 'claude' ? 'claudeBin' : key === 'codex' ? 'codexBin' : 'tmuxBin'] = f.asDirectory;
