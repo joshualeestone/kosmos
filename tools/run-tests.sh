@@ -17,7 +17,7 @@
 # --test not found yet", which prints on a green run whenever node takes 5 s or more to start, at any limit, and
 # "could not make the file watchdog's flag file", when its flag file cannot be made). On Windows (Git Bash) a green
 # run also prints the schtasks rule line (#7247), the chunk count (#7257) and that the leftover-process checks and
-# stops do not run there (#9278).
+# stops do not run there (#9278), and, where powershell is missing, that the per-file limit is off (#9278).
 #
 # The suite itself is isolated by construction (every booted server takes
 # port 0, every store-using test sandboxes before requiring, every shell test
@@ -358,47 +358,55 @@ rt_wd_loop() {
 # Measured on a Windows runner: Git Bash's /proc lists the node.exe it started, with ppid, cmdline and winpid; node's
 # per-file children are native, so they come from one Windows snapshot (Get-CimInstance, about 0.3 s warm and 2.4 s
 # cold), and a file and its tree are stopped with taskkill /T /F. The limit, the TIMED OUT line and the flag file are
-# the Mac loop's own. Not covered: a Windows pid reused within one tick (each pid is stopped once), and node behind a
-# shim (the Mac loop's shim step has no Windows twin).
-rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whole seconds, command line
-  powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CommandLine }' 2>/dev/null | tr -d '\r'
+# the Mac loop's own. On Windows node --test runs once per #7257 chunk, so when one ends the loop looks for the next.
+# Each file is stopped once, keyed on its pid AND its start time (Windows reuses pids quickly). Only a child of node
+# whose command line runs node counts (node's own console host, conhost.exe, lives as long as node). A file is named
+# only when taskkill stopped it (one that ended first is not). The snapshot runs in the foreground, so a stop waits
+# for the one in progress. Not covered: node behind a shim (the Mac loop's shim step has no Windows twin).
+rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whole seconds, start time, command line
+  powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
 }
 rt_wd_loop_win() {
-  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 stopped="" d cmd old row pid file f p w
+  local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 stopped="" d pp cmd old row pid key file f p w
   [ "$RT_FILE_TIMEOUT_S" -lt 30 ] && tick=1
   trap 'stop=1; [ -n "${sl:-}" ] && kill "$sl" 2>/dev/null' TERM
   while [ "$stop" = 0 ] && kill -0 "$parent" 2>/dev/null; do
     if [ -z "$nodew" ]; then
       for d in /proc/[0-9]*; do
-        [ "$(cat "$d/ppid" 2>/dev/null)" = "$parent" ] || continue
+        pp=""; read -r pp < "$d/ppid" 2>/dev/null
+        [ "$pp" = "$parent" ] || continue
         cmd="$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)"
-        case "$cmd" in *node" --test "*|*node.exe" --test "*) nodew="$(cat "$d/winpid" 2>/dev/null)"; node="${d#/proc/}" ;; esac
+        case "$cmd" in "node --test "*|*/node" --test "*|*/node.exe" --test "*|*\\node.exe" --test "*)
+          read -r nodew < "$d/winpid" 2>/dev/null; node="${d#/proc/}" ;; esac
       done
-      [ -n "$nodew" ] && : > "$flag.node"
+      [ -n "$nodew" ] && { : > "$flag.node"; seen=1; }
       looks=$((looks + 1))
-      if [ -z "$nodew" ] && [ "$looks" = 25 ]; then
+      if [ -z "$nodew" ] && [ "$looks" = 25 ] && [ "$seen" = 0 ]; then
         echo "run-tests: node --test not found yet; the per-file limit is off until it is (#6668)" >&2
       fi
     elif ! kill -0 "$node" 2>/dev/null; then
-      return 0
+      # One #7257 chunk ended: the next starts as another node --test under the runner, so look for it.
+      node=""; nodew=""; looks=0
+      continue
     else
-      old="$(rt_wd_snap_win | awk -v n="$nodew" -v lim="$RT_FILE_TIMEOUT_S" '$2 == n && $3 >= lim')"
+      old="$(rt_wd_snap_win | awk -v n="$nodew" -v lim="$RT_FILE_TIMEOUT_S" '$2 == n && $3 >= lim && tolower($0) ~ /node(\.exe)?"? /')"
       while IFS= read -r row; do
         [ "$stop" = 0 ] || break
         [ -n "$row" ] || continue
         pid="${row%% *}"
-        case "$stopped " in *" $pid "*) continue ;; esac
-        cmd="${row#* * * }"
+        key="$pid@$(printf '%s\n' "$row" | awk '{ print $4 }')"
+        case "$stopped " in *" $key "*) continue ;; esac
+        cmd="${row#* * * * }"
         file="${cmd##* }"; p=""
         for f in "${KOSMOS_TEST_FILES[@]}"; do
           w="${f//\//\\}"
           case "$cmd" in *" $f"|*"/$f"|*" $w"|*"\\$w") [ "${#f}" -gt "${#p}" ] && p="$f" ;; esac
         done
         [ -n "$p" ] && file="$p"
-        stopped="$stopped $pid"
+        stopped="$stopped $key"
+        taskkill //T //F //PID "$pid" >/dev/null 2>&1 || continue   # it ended first: it timed nothing out
         echo "run-tests: TIMED OUT after $RT_FILE_TIMEOUT_LABEL: $file (#6668; stopped it and its process tree)" >&2
         printf '%s\n' "$file" >> "$flag"
-        taskkill //T //F //PID "$pid" >/dev/null 2>&1
       done <<< "$old"
     fi
     [ "$stop" = 0 ] || break
@@ -416,6 +424,11 @@ rt_file_watchdog_start() {
   # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
   # run root exists it lands in TMPDIR itself, which the tests then share. A signal in the microseconds between mktemp
   # creating the file and this assignment leaves it behind (the traps remove only a flag they can name).
+  # kosmos#9278: the Windows loop reads every process through powershell; without it there is no limit, and it says so.
+  if [ "$_RT_WIN" = 1 ] && ! command -v powershell >/dev/null 2>&1; then
+    echo "run-tests: powershell is missing, so the file watchdog cannot see Windows processes; running without a per-file limit (#6668, kosmos#9278)" >&2
+    return 0
+  fi
   _rt_wd_flag="$(mktemp "$(dirname "$KOSMOS_RUN_TMPDIR")/kt$$-file-timeout.XXXXXXXXXX")" || { echo "run-tests: could not make the file watchdog's flag file; running without a per-file limit (#6668)" >&2; _rt_wd_flag=""; return 0; }
   if [ "$_RT_WIN" = 1 ]; then rt_wd_loop_win "$$" "$_rt_wd_flag" & else rt_wd_loop "$$" "$_rt_wd_flag" & fi
   _rt_wd_pid=$!
@@ -1004,7 +1017,7 @@ fi
 # status as the node part's, and one line naming the chunk count (so a run that did one chunk of many shows). A test
 # failure outranks a 126/127 from another chunk (so the "not a failing test" line below stays true), and a chunk that
 # ends from a signal (128 and up, a Ctrl-C) stops the rest. Every other node call goes to node itself. The node --test line below stays as it is (three guards find it flush left).
-# The per-file watchdog has never run on Windows (it reads ps -A and pgrep, which Git Bash lacks), chunked or not.
+# On Windows the per-file watchdog is rt_wd_loop_win, which follows each chunk's node --test in turn (#9278).
 if [ "${_RT_WIN:-0}" = 1 ]; then
   node() {
     local n=${#KOSMOS_TEST_FILES[@]} k=-1 i
