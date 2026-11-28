@@ -72,3 +72,16 @@ comments and log strings) are the 431; ten times fewer than main, and removing t
 left-out names.
 Test count: 35 in receipt-5153 (the Codex, Gemini and timing tests hold the cases b2d to b3a) and 10 in
 receipt-project-6842, 45 in all.
+
+## Review 5 (opus, measuring)
+Fuzz, 10,000 scripts per seed on three seeds: wrong names 2,466 here against 7,736 on main. The one class where this
+branch was worse than main (280 to 286 scripts per 10k): a call written as added-line text inside a concatenated patch
+whose first piece is a lone Begin Patch or a variable was read as a call (fakec.md). A call's argument is now read as
+operands joined by `+` (each literal with its own quote, each name marking the whole-script reading), and the scan
+resumes after the whole value, so nothing inside it is read as a call (b3b, b3c). Three guards that no test pinned now
+are (b3d the member skip, b3e the run-on rule, b3f the assumed-" stop); measured, removing each turns the test red. A
+literal-piece patch is read piece by piece, so #9323's cat.md is listed now.
+Right names left out: about 490 per 10k on both versions (the review-4 "0" was for a generator without quotes in names),
+mostly names holding a " that the whole-script reading cannot read; not a regression.
+Timing: the operand loop is linear on its shapes (64k joined names, members, name-and-string calls); the mixed var and
+literal shape grew 4.1, 18, 104 ms at 4k, 16k, 64k, which is for the next round to settle.

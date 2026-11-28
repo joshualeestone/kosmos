@@ -307,7 +307,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
     /* #9314: the quote is the one that opens the PATCH's own string (just before *** Begin Patch), so a quoted
        key before it does not decide it, two calls in one script each keep their own; a '-string patch passed by name (named.md) is read from its own
-       literal, with its own quote. A path that ran on into code (built in pieces) or holds a template's ${ is left out. */
+       literal, with its own quote. A patch built in literal pieces is read piece by piece (cat.md); one that holds a template's ${ is left out. */
     call('10:19', 'c2h', String.raw`await tools.apply_patch({'patch': "*** Begin Patch\n*** Update File: q'key.md\n+x\n*** End Patch"});`
       + String.raw` await tools.apply_patch({patch:'*** Begin Patch\n*** Update File: first.md\n+x\n*** End Patch'});`
       + String.raw` await tools.apply_patch({patch:"*** Begin Patch\n*** Update File: sec'ond.md\n+x\n*** End Patch"});`
@@ -342,7 +342,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
   const drive = a.files.filter((f) => f.includes('drive.js'));
   assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md",
-    "q'key.md", 'first.md', "sec'ond.md", 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
+    "q'key.md", 'first.md', "sec'ond.md", 'cat.md', 'named.md', "notes 'a', b.md", "nl 'a', b.md", "it's-split.md"],
     'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
   // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
   assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
@@ -478,11 +478,26 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
        whole-script reading is not turned on and a log string's header (decoy.md) is not listed. */
     call('10:39', 'b3a', String.raw`console.log("*** Add File: decoy.md"); await tools.apply_patch('*** Begin Patch\n*** Update File: tail.md\n+x\n*** End Patch' + "\n");`),
     out('10:39', 'b3a', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 5: a call written as added-line text in a concatenated patch is not a call, whether the first
+       piece is a literal Begin Patch or a variable (fakec.md and fakeh.md are not listed); and three guards pinned: a
+       member with no header is skipped for the next (nm.md, not the log's decoyz.md); a path that ran on into code is
+       left out (nothing with `await` in it); a stop at the assumed " is not a cut (never `a`). */
+    call('10:40', 'b3b', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n" + "*** Update File: realc.md\n+tools.apply_patch('*** Delete File: fakec.md')\n"});`),
+    out('10:40', 'b3b', 'Script completed\nWall time 1 seconds'),
+    call('10:41', 'b3c', String.raw`const h0 = "*** Begin Patch\n"; await tools.apply_patch({patch:h0 + "*** Update File: realh.md\n+tools.apply_patch('*** Delete File: fakeh.md')\n"});`),
+    out('10:41', 'b3c', 'Script completed\nWall time 1 seconds'),
+    call('10:42', 'b3d', String.raw`console.log("*** Delete File: decoyz.md"); await tools.apply_patch({cwd:"x", patch:'*** Delete File: nm.md'});`),
+    out('10:42', 'b3d', 'Script completed\nWall time 1 seconds'),
+    call('10:43', 'b3e', String.raw`const p = "*** Begin Patch\n" + '*** Delete File: r.md'; await tools.apply_patch(p);`),
+    out('10:43', 'b3e', 'Script completed\nWall time 1 seconds'),
+    call('10:44', 'b3f', String.raw`const h = "*** Begin Patch\n"; const p2 = h + '*** Delete File: a"bq.md\n*** End Patch'; await tools.apply_patch(p2);`),
+    out('10:44', 'b3f', 'Script completed\nWall time 1 seconds'),
   ]));
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   assert.deepEqual(r.agents[0].files, ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
     'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
-    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md', 'tail.md'], 'each path stops at its own patch string\'s quote (#9314)');
+    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md', 'tail.md', 'realc.md', 'realh.md', 'nm.md'], 'each path stops at its own patch string\'s quote (#9314)');
+  assert.ok(!r.agents[0].files.some((f) => /fake[ch]\.md|decoyz|await/.test(f)), 'a call inside a patch, a decoy or a run-on was listed: ' + JSON.stringify(r.agents[0].files));
   assert.ok(!r.agents[0].files.some((f) => f === 'a' || f === 'x' || f.includes('s1.md') || f.includes('s2.md') || /["'`]\}?\)\s*;/.test(f)), 'a cut, swallowed or run-on name (a quote, then `);` or `});`) was listed: ' + JSON.stringify(r.agents[0].files));
 });
 

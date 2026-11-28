@@ -411,45 +411,47 @@ async function providerWork(runner, dir, holds) {
             const HEADER = /\*\*\* (?:Add|Update|Delete) File: /;
             const NEXT_MEMBER = /\s*,\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*/y;
             const CONCAT = /\s*\+/y;
+            const NAME = /[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*(?:\s*\([^)\n]{0,200}\))?/y;   // a variable, a property, a call
             for (const c of src.matchAll(/tools\.apply_patch\(\s*(?:\{\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*)?/g)) {
               if (c.index < after) continue;
               let open = c.index + c[0].length;
               for (let member = 0; member < 16; member += 1) {
-                const q = src[open];
-                if (!`'"\``.includes(q || '')) { readWhole = true; break; }
-                let i = open + 1;
-                while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
-                const end = Math.min(i, src.length);
-                const text = src.slice(open + 1, end);
-                after = end + 1;
-                if (!HEADER.test(text)) {
-                  // Another member ({cwd:"x", patch:...}): the next `key:` string of the same call, if there is one.
-                  NEXT_MEMBER.lastIndex = after;
-                  if (NEXT_MEMBER.test(src)) { open = NEXT_MEMBER.lastIndex; continue; }
+                /* One member's value, read as what it is: operands joined by `+`, each a string literal (read with its own
+                   quote) or a name (a variable, a property, a call). The scan then resumes after the whole value, so a
+                   `tools.apply_patch(` written inside any piece is never read as a call (review 5). A name among them
+                   means part of the patch is elsewhere, so the whole script is read too. */
+                const pieces = [];
+                let named = false;
+                let o = open;
+                for (let n = 0; ; n += 1) {
+                  while (o < src.length && (src[o] === ' ' || src[o] === '\t' || src[o] === '\n' || src[o] === '\r')) o += 1;
+                  const pq = src[o];
+                  if (pq === "'" || pq === '"' || pq === '`') {
+                    let k = o + 1;
+                    while (k < src.length && src[k] !== pq) k += src[k] === '\\' ? 2 : 1;
+                    const pend = Math.min(k, src.length);
+                    pieces.push({ q: pq, text: src.slice(o + 1, pend), span: [o + 1, pend] });
+                    o = pend + 1;
+                  } else {
+                    NAME.lastIndex = o;
+                    if (!NAME.test(src)) break;
+                    named = true;
+                    o = NAME.lastIndex;
+                  }
+                  CONCAT.lastIndex = o;
+                  if (!CONCAT.test(src)) break;
+                  o = CONCAT.lastIndex;
+                  if (n >= 64) { named = true; break; }   // past 64 pieces the rest is read with the whole script
+                }
+                after = Math.max(after, o);
+                if (!pieces.some((x) => HEADER.test(x.text))) {
+                  // Another member ({cwd:"x", patch:...}): the next `key:` value of the same call, if there is one.
+                  NEXT_MEMBER.lastIndex = o;
+                  if (NEXT_MEMBER.test(src)) { open = NEXT_MEMBER.lastIndex; if (named) readWhole = true; continue; }
                   readWhole = true; break;
                 }
-                const span = [open + 1, end];
-                bodies.push({ q, text, span });
-                spans.push(span);
-                /* "..." + more: a concatenation. Each further piece that is a literal is read the same way, with its own
-                   quote (review 4: a trailing `+ "\n"` turned on the whole-script reading, which then listed header text
-                   from a log string); only a piece that is not a literal (a variable, a call) needs the whole script. */
-                for (let piece = 0; ; piece += 1) {
-                  CONCAT.lastIndex = after;
-                  if (!CONCAT.test(src)) break;
-                  if (piece >= 64) { readWhole = true; break; }   // past 64 pieces the rest is read with the whole script
-                  let o = CONCAT.lastIndex;
-                  while (o < src.length && /\s/.test(src[o])) o += 1;
-                  const pq = src[o];
-                  if (!`'"\``.includes(pq || '')) { readWhole = true; break; }
-                  let k = o + 1;
-                  while (k < src.length && src[k] !== pq) k += src[k] === '\\' ? 2 : 1;
-                  const pend = Math.min(k, src.length);
-                  const pspan = [o + 1, pend];
-                  bodies.push({ q: pq, text: src.slice(o + 1, pend), span: pspan });
-                  spans.push(pspan);
-                  after = pend + 1;
-                }
+                for (const x of pieces) { bodies.push(x); spans.push(x.span); }
+                if (named) readWhole = true;
                 break;
               }
             }
