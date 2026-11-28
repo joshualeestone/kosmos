@@ -44,8 +44,10 @@
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
  * have, and (kosmos#9268, #9285, #9307) any write whose three atomic attempts all fail, at least one of them refused
  * because its temp name was not the opened file or already held a file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or
- * not. No caller branches on it
- * (grep); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they already met. The three
+ * not; its `planted` is true when an attempt found a file already at its temp name (kosmos#9307). No caller branches
+ * on this code (grep; backupstate.js reads the code it carries, which is not one of its retry codes, so it does not
+ * retry: refuseFollowedLink's doc); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they
+ * already met. The three
  * token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
  * `retire` catching one level up, which is true at one remove and worth knowing before you check the call site and
  * find nothing. `create.js` carries an

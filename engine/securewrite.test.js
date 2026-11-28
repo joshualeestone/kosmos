@@ -1202,7 +1202,7 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
   assert.equal(ao.err.lastAttempt && ao.err.lastAttempt.planted, true, 'atomicOnly: the last attempt is not marked a plant');
   assert.equal(ao.after, 'old config');
   // A refusal never removes what was planted: the refusal comes before the write could call a temp its own.
-  assert.ok(planted.length >= 7, 'CONTROL: the plants were made (' + planted.length + ')');
+  assert.equal(planted.length, 7, 'CONTROL: the plants were made, three, one and three (' + planted.length + ')');
   for (const p of planted) assert.equal(fs.readFileSync(p, 'utf8'), 'planted', 'a planted file was removed or changed: ' + p);
   // Every plant shape that fails the create EEXIST counts, not only a regular file: a directory, and on POSIX a dangling
   // link (an exclusive create never follows one there). On Windows, a 'wx' create over a directory failing EEXIST is

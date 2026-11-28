@@ -59,3 +59,9 @@ reviewer after my search looked only near each call. Behaviour kept: a refused s
 swap since #9285, because a prompt retry only draws three more guessable names. Added the fourth honest route
 (containers with their own pid namespaces sharing a folder). The store test matches the raw EPERM by code. The
 dangling-link arm's "not followed" line was dropped (it could not fail where it runs).
+
+## Review 6
+Every reader of an error code on a writeSecret failure path was traced: backupstate (not retry, as stated),
+githubdevice (shows the code), and two others that read codes from other calls. Added: a backupstate test that a state
+save refused by a plant is not retry while three EPERMs still are (fails on main, where the plant case was retry), the
+`planted` flag in the module header, and an exact plant count in the #9307 test.
