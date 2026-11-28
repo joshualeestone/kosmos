@@ -15,7 +15,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-2129b-')));
+// .native, as create.js resolves a folder: on Windows it expands an 8.3 temp name (RUNNER~1) the JS form keeps (kosmos#8378).
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-2129b-')));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
