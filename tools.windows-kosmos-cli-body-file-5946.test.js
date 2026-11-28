@@ -217,11 +217,14 @@ test('#5946: text piped in PowerShell is refused AT ONCE (stdin never read), nam
   }
 });
 
-test('#5946: from PowerShell with words, or with --body-file, a pipe flag changes nothing', async () => {
+test('#5946: from PowerShell with --body-file a pipe flag changes nothing; with words it is refused (#9238)', async () => {
+  // kosmos#9238 changed the words case: words plus a PowerShell pipe used to send the words and lose what was piped,
+  // so `$body | kosmos community post 'title'` posted the title alone. It is now refused with the --body-file way.
   const words = ['community', 'post', 'hello there'];
   const h = harness({ psArgs: words });
-  assert.equal(await cli.main(viaPowerShell(true), h.io), 0, h.all());
-  assert.equal(h.sent[0].body.body, 'hello there');
+  assert.equal(await cli.main(viaPowerShell(true), h.io), 2, h.all());
+  assert.equal(h.sent.length, 0, 'the words were sent and the piped text lost');
+  assert.match(h.lines.err.join('\n'), /--body-file <file>/);
   const fw = ['community', 'post', '--body-file', 'd.txt'];
   const f = harness({ psArgs: fw, files: { 'd.txt': utf16le(crlf(BODY)) } });
   assert.equal(await cli.main(viaPowerShell(true), f.io), 0, f.all());

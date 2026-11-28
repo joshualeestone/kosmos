@@ -346,8 +346,9 @@ function stdinHasText(fd = 0, stream) {
     input.once('error', () => finish(false));
   });
 }
-async function wordsAndPiped(ctx, verbed, hint) {
-  if (ctx.psPipeline) return undefined;   // PowerShell never hands its pipeline to node (see psPipelineRefused)
+async function wordsAndPiped(ctx, verbed, hint, psExample) {
+  // PowerShell never hands its pipeline to node, so with words the piped text would be lost: refuse, as with no words.
+  if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was ' + verbed, psExample);
   if (!(await ctx.stdinHasText())) return undefined;
   ctx.err('Nothing was ' + verbed + ': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.');
   ctx.err(hint);
@@ -3955,7 +3956,7 @@ async function communityPost(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', topic.trim() ? "Pipe the text in alone, or give all of it as words." : "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it."); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'posted', topic.trim() ? "Pipe the text in alone, or give all of it as words." : "To give the post a title, put the title in --topic: kosmos community post --channel <channel> --topic '<a short title>', with the post piped in after it.", "kosmos community post --body-file <file>"); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the post as words or in --body-file, not both, so nothing was posted.'); return 2; }
@@ -4035,7 +4036,7 @@ async function communityComment(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words.", "kosmos community comment <post-id> --body-file <file>"); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the comment as words or in --body-file, not both, so nothing was sent.'); return 2; }
@@ -4263,7 +4264,7 @@ async function communityEdit(ctx, args) {
     if (!t) return 2;
     args = t;
   }
-  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', kind === 'post' && topic === null ? "To change the title, put it in --topic; pipe the text in alone, or give all of it as words." : "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
+  if (args.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'changed', kind === 'post' && topic === null ? "To change the title, put it in --topic; pipe the text in alone, or give all of it as words." : "Pipe the text in alone, or give all of it as words.", "kosmos community edit <post|comment> <id> --body-file <file>"); if (c !== undefined) return c; }   // kosmos#9238
   let text = args.join(' ');
   if (bf.file !== null) {
     if (args.length) { ctx.err('Give the new words as words or in --body-file, not both, so nothing was changed.'); return 2; }
@@ -4331,7 +4332,7 @@ async function communityEndorse(ctx, args) {
   const [name, stars, ...rest] = args;
   if (!/^[1-5]$/.test(stars)) { ctx.err('Give 1 to 5 stars. ' + ENDORSE_USAGE); return 2; }
   if (rest[0] === '--') rest.shift();   // kosmos#9238: as the Mac does, a leading -- is not the review, so a piped one is read
-  if (rest.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words."); if (c !== undefined) return c; }   // kosmos#9238
+  if (rest.length && bf.file === null) { const c = await wordsAndPiped(ctx, 'sent', "Pipe the text in alone, or give all of it as words.", "kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>"); if (c !== undefined) return c; }   // kosmos#9238
   let text = rest.join(' ');
   if (bf.file !== null) {
     if (rest.length) { ctx.err('Give the review as words or in --body-file, not both, so nothing was sent.'); return 2; }
@@ -5051,8 +5052,9 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
-    // kosmos#9238: a caller that hands in its own stdin owns it, so the probe answers nothing waiting unless given too.
-    stdinHasText: o.stdinHasText || (o.readStdin ? (async () => false) : (() => stdinHasText())),
+    // kosmos#9238: the real probe only for the command itself (main called with no io, from the bottom of this file);
+    // a caller running main() in-process owns its own stdin, so the probe answers nothing waiting unless handed in.
+    stdinHasText: o.stdinHasText || (io === undefined ? (() => stdinHasText()) : (async () => false)),
     /* kosmos#7362: a yes-or-no from a person at a terminal (agent remove). canAsk is false when stdin is not one, so
        a script is told to say --yes instead of hanging on a question nobody sees. Both are test seams. */
     canAsk: o.canAsk || (() => Boolean(process.stdin.isTTY)),
