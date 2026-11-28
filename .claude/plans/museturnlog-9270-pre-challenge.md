@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: museturnlog-9270
-diff_hash: 5bf7f61e442fc3fc4728c58a57487ace49db9d87b416c0cd43864c565c9905e6
-validation: on head 8e169bc035 (the commit after c0da5289fa adds only the plan). GitHub windows-latest: musefront 79/79 x3 (run 46125861530); before the fix 78 pass / 1 fail on the logTurn test (run 46120990799). Mac: musefront and the five files naming musefront.js or logTurn 138/138, windows-tests-1777 24/24. The full suite runs on the PR's CI.
+diff_hash: a8a764ab125d17e73d81a8e18baaeeb287c83f14ca6c458af881e8f0677b38c6
+validation: on head  rebased onto main after #9290 (windows-tests.js keeps both ALSO lines; windows-tests-1777 24/24 after the rebase; musefront.js unchanged by it). GitHub windows-latest: musefront 79/79 x3 (run 46125861530); before the fix 78 pass / 1 fail on the logTurn test (run 46120990799). Mac: musefront and the five files naming musefront.js or logTurn 138/138, windows-tests-1777 24/24. The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-28T08:29:16Z
 iterations: 1
