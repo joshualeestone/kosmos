@@ -23,5 +23,13 @@ reach the fallback, which is the #9285 review 2 gap again.
 
 ## Weakest premise
 That nothing legitimate leaves a file at a fresh temp name. The name carries pid, thread, start time and a sequence
-number, so the only route is a crashed writer with the same pid and start millisecond whose temp the reaper cannot prove
-dead; that save now fails instead of rewriting in place.
+number, so the honest routes are a crashed earlier process with the same pid, thread and start millisecond (the reaper
+reads such a temp as this process's own and cannot remove it), or a network mount that resends an exclusive create after
+a lost reply and answers EEXIST for the file it just made. Either fails that save only when the other two attempts fail
+too; one EEXIST and a clean next attempt still saves.
+
+## Review 1
+Seven more "every atomic attempt fails, the file is left as it was" tests forced the failure with EEXIST, which now
+refuses before atomicOnly is consulted, so they passed whatever atomicOnly did (agyhooks, setupsettings, person,
+create.codex, trust, settingswrite, allowance fsync-5434). Moved to EPERM; measured: with atomicOnly ignored in
+securewrite.js all seven files go red (1, 3, 2, 1, 5, 3, 2 failures), so they test their claim again.

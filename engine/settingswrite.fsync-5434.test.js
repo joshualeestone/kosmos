@@ -99,7 +99,7 @@ for (const [name, write] of WRITERS) {
     fs.openSync = (target, flags, ...rest) => {
       // every atomic attempt fails: 'wx' is the flag writeSecret opens its temp with (securewrite.js, the
       // atomic loop). If that flag ever changes, this stub stops matching and the arm fails loudly on `wrote`.
-      if (flags === 'wx') { planted += 1; throw Object.assign(new Error('planted'), { code: 'EEXIST' }); }
+      if (flags === 'wx') { planted += 1; throw Object.assign(new Error('planted'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
       return realOpen.call(fs, target, flags, ...rest);
     };
     let wrote;

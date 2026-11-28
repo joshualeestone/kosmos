@@ -89,7 +89,7 @@ test('#5434: when every atomic attempt fails, the forget is refused and config.t
   const realOpen = fs.openSync;
   let planted = 0;
   fs.openSync = (p, flags, ...rest) => {
-    if (flags === 'wx' && String(p).startsWith(cfg + '.kosmos-')) { planted += 1; const e = new Error('injected'); e.code = 'EEXIST'; throw e; }
+    if (flags === 'wx' && String(p).startsWith(cfg + '.kosmos-')) { planted += 1; const e = new Error('injected'); e.code = 'EPERM'; throw e; }   // kosmos#9307: EPERM, not EEXIST (which now refuses as a plant)
     return realOpen.call(fs, p, flags, ...rest);
   };
   let out;

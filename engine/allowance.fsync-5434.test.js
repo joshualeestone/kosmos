@@ -92,7 +92,7 @@ for (const [name, write] of WRITERS) {
     let planted = 0;
     fs.openSync = (target, flags, ...rest) => {
       // 'wx' is the flag writeSecret opens its temp with; if that ever changes `planted` says so
-      if (flags === 'wx' && String(target).startsWith(file)) { planted += 1; throw Object.assign(new Error('planted'), { code: 'EEXIST' }); }
+      if (flags === 'wx' && String(target).startsWith(file)) { planted += 1; throw Object.assign(new Error('planted'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
       return realOpen.call(fs, target, flags, ...rest);
     };
     // The writer's own contract on a failed save, called directly (no helper assertion to swallow): the statusline

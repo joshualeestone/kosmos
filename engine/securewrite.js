@@ -42,8 +42,9 @@
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
- * have, and (kosmos#9268, #9285) any write whose three atomic attempts all fail, at least one of them refused because
- * its temp name was not the opened file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or not. No caller branches on it
+ * have, and (kosmos#9268, #9285, #9307) any write whose three atomic attempts all fail, at least one of them refused
+ * because its temp name was not the opened file or already held a file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or
+ * not. No caller branches on it
  * (grep); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they already met. The three
  * token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
  * `retire` catching one level up, which is true at one remove and worth knowing before you check the call site and
@@ -191,12 +192,14 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     answers disagree every time (another device or inode, or a link count above one), every attempt is refused,
  *     so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three failures with
  *     no such refusal fall back as before.
- *   - (kosmos#9307) a plain file already at a fresh temp name counts as such a refusal too: the create fails EEXIST,
- *     and with pid, thread, start time and a sequence number in the name the only honest route is a crashed writer of
- *     the same pid and start millisecond, and the reaper removes a dead writer's temps before these attempts. So three
- *     plain files planted at the three names no longer reach the in-place fallback (or its Windows race at the config).
- *     The module's own tests reach the fallback with EPERM now. The cost: a temp the reaper cannot prove dead (its pid
- *     reads alive) at the very name this write draws fails the save rather than rewriting the file in place.
+ *   - (kosmos#9307) a plain file already at a fresh temp name counts as such a refusal too: the create fails EEXIST.
+ *     The name carries this process's pid, thread, start time and a sequence number, so the honest routes are a
+ *     crashed earlier process with the same pid, thread AND start millisecond (which the reaper cannot remove: it reads
+ *     such a temp as this process's own), or a network mount that resends an exclusive create after a lost reply and
+ *     answers EEXIST for the file it just made. Both are near impossible; the cost of either is that save failing when
+ *     the other two attempts fail too (one EEXIST and a clean next attempt still saves). So three plain files planted
+ *     at the three names no longer reach the in-place fallback (or its Windows race at the config). The module's own
+ *     tests reach the fallback with EPERM now.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -451,8 +454,8 @@ function syncDir(dir) {
  * settings.json), where failing the save beats rewriting it in place.
  *
  * Without atomicOnly the fallback is skipped in one case too (kosmos#9285): when at least one of the
- * three failed attempts was refused because its temp name was not the opened file, the write throws
- * ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it was (refuseFollowedLink's doc says why).
+ * three failed attempts was refused because its temp name was not the opened file, or (kosmos#9307) already held a
+ * file, the write throws ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it was (refuseFollowedLink's doc says why).
  *
  * `opts.ownTempsOnly` (#5434 slice 3): before writing, reap only this file's own dead temps rather
  * than sweeping the whole folder once per process. For a folder Kosmos does not own. Not cached: it
@@ -516,10 +519,10 @@ function writeSecret(file, data, mode, opts) {
       let tfd;
       try { tfd = fs.openSync(tmp, 'wx', createMode); }
       catch (e) {
-        /* kosmos#9307: something is already at a FRESH temp name (pid, thread, start time and a sequence number). The
-           only honest route is a crashed writer with the same pid and start millisecond, and the reaper removes those;
-           otherwise it was planted, and three plants would reach the in-place fallback (on Windows, a race at the config
-           itself). So it counts as a refusal, as a swapped name does. */
+        /* kosmos#9307: something is already at a FRESH temp name (pid, thread, start time and a sequence number). Short of
+           two near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
+           the in-place fallback (on Windows, a race at the config itself). So it counts as a refusal, as a swapped name
+           does. */
         if (e && e.code === 'EEXIST') {
           throw Object.assign(new Error('a file was already at a fresh temp name'), { code: 'ERR_KOSMOS_TEMP_SWAPPED', planted: true, cause: e });
         }
@@ -605,7 +608,7 @@ function writeSecret(file, data, mode, opts) {
   // kosmos#9285: any attempt refused for a swapped temp name, or (kosmos#9307) one that found a file already at its
   // fresh name, means somebody is planting; never fall back then.
   if (swappedAttempts > 0) {   // one shape every time: the first swap as the cause, the last attempt's error beside it
-    throw Object.assign(new Error('the temp name is not the file this write opened'),
+    throw Object.assign(new Error('the temp names were refused: one was not the file this write opened, or already held a file'),
       { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError });
   }
   if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
