@@ -7,7 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * guard treat the stand-in as a real install; if the guard regressed, only the stand-in would run.
  */
 const test = require('node:test');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('its two controls run /bin/bash by an absolute POSIX path and the repo fake test-support/fake-cli-signed-out.sh by its shebang line, which Windows cannot do; the refusal arms, cmd /c and powershell among them, run there');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('its two controls run /bin/bash by an absolute POSIX path and the repo fake test-support/fake-cli-signed-out.sh by its shebang line, which Windows cannot do; the refusal arms, cmd /c and powershell among them, need no skip on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');

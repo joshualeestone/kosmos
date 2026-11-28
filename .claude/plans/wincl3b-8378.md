@@ -73,3 +73,9 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
 - After review 1, on the Windows runner: runnable-not-directory 22 of 22 (10 failed before), projects 162 pass and
   pdfpreview 11 pass (run 46135356176); startimports 8 pass, its 7 macOS-guard arms skipped (run 46135446761, after
   its parser arm was corrected to resolve a rooted path on the file's own drive).
+- Review 3: what was fixed to hold on Windows is now run there by the Windows job: reporthook, trust.canonical-spelling,
+  pdfpreview, receipt-5153 and usageagy join ALSO, and engine.live-execution-1598 and bridges.board-proof-1765 join
+  ALSO_ROOT (each measured green on the runner above). A new Windows-only arm in projects.test.js pins the case fold
+  (a temp folder typed in another letter case, not yet made). Reasons that read as coverage claims now say "needs no
+  skip on Windows"; redisable's says off macOS it schedules and logs nothing. Deferred: startimports' review-4 arm
+  checks TEXT_EXTS.size beside its macOS-guard checks and skips as a whole; that count still runs on the Mac.
