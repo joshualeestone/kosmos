@@ -837,3 +837,14 @@ test('#9272: the read runs claude with CLAUDE_CONFIG_DIR unset on the default ac
     });
   } finally { if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved; }
 });
+
+test('#9272: setClaudeLaunchForTest is named only by its own module and by test files (it decides what the reader starts)', () => {
+  const { execFileSync } = require('node:child_process');
+  const root = path.join(__dirname, '..');
+  const files = execFileSync('git', ['ls-files', '-z', '--', '*.js', '*.mjs', '*.cjs'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
+  assert.ok(files.length > 100, 'CONTROL: git listed the repo\'s scripts (' + files.length + ')');
+  const named = files.filter((f) => fs.readFileSync(path.join(root, f), 'utf8').includes('setClaudeLaunchForTest'));
+  assert.ok(named.includes('engine/orgchartfile.js') && named.includes('engine/orgchartfile.test.js'), 'CONTROL: the search finds the hook where it is: ' + named.join(', '));
+  const outside = named.filter((f) => f !== 'engine/orgchartfile.js' && !/\.test\.(js|mjs|cjs)$/.test(f));
+  assert.deepEqual(outside, [], 'a file that is not a test names the launch hook, so it may decide what the org chart reader runs');
+});
