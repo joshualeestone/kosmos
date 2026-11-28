@@ -1026,6 +1026,29 @@ elif [ -n "$QH_BESIDE" ]; then
 else
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') TURN: running $WHAT (machine claimed, renewed every ${RENEW_SEC}s while it runs)"
 fi
+# kosmos#9246: the run's name as text the board accepts in a label (engine/heavyjobs.js normalizeLabel): what it refuses
+# (the C1 controls, U+061C, U+200B/E/F, U+2028/9, the direction marks U+202A-E and U+2066-9, the BOM) and the spaces it
+# trims or collapses (NBSP, U+1680, U+2000-200A, U+202F, U+205F, U+3000) become plain spaces, so the empty and leading -
+# checks below see them and the likeliest refusal no longer hides behind "asked the board". Matched as UTF-8 bytes, so a
+# C locale (a tmux run-shell or launchd job) does it too and bash 3.2 needs no \u; each is a whole sequence from its
+# lead byte, so no valid letter is cut. Then the ASCII controls. tools/test-queued-heavy-4977.sh checks every such
+# character against normalizeLabel itself. (An emoji that takes a name past 80 UTF-16 units can still be refused.)
+_qh_board_text() {
+  local t="$1" q
+  for q in \
+    $'\xc2\x80' $'\xc2\x81' $'\xc2\x82' $'\xc2\x83' $'\xc2\x84' $'\xc2\x85' $'\xc2\x86' $'\xc2\x87' $'\xc2\x88' \
+    $'\xc2\x89' $'\xc2\x8a' $'\xc2\x8b' $'\xc2\x8c' $'\xc2\x8d' $'\xc2\x8e' $'\xc2\x8f' $'\xc2\x90' $'\xc2\x91' \
+    $'\xc2\x92' $'\xc2\x93' $'\xc2\x94' $'\xc2\x95' $'\xc2\x96' $'\xc2\x97' $'\xc2\x98' $'\xc2\x99' $'\xc2\x9a' \
+    $'\xc2\x9b' $'\xc2\x9c' $'\xc2\x9d' $'\xc2\x9e' $'\xc2\x9f' $'\xd8\x9c' $'\xe2\x80\x8b' $'\xe2\x80\x8e' \
+    $'\xe2\x80\x8f' $'\xe2\x80\xa8' $'\xe2\x80\xa9' $'\xe2\x80\xaa' $'\xe2\x80\xab' $'\xe2\x80\xac' $'\xe2\x80\xad' \
+    $'\xe2\x80\xae' $'\xe2\x81\xa6' $'\xe2\x81\xa7' $'\xe2\x81\xa8' $'\xe2\x81\xa9' $'\xef\xbb\xbf' $'\xc2\xa0' \
+    $'\xe1\x9a\x80' $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' $'\xe2\x80\x83' $'\xe2\x80\x84' $'\xe2\x80\x85' \
+    $'\xe2\x80\x86' $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a' $'\xe2\x80\xaf' $'\xe2\x81\x9f' \
+    $'\xe3\x80\x80'; do
+    t="${t//"$q"/ }"
+  done
+  printf '%s' "${t//[[:cntrl:]]/ }"
+}
 # kosmos#9217: say on the board that a heavy job runs on this computer (`kosmos heavy start`), tied to this script's own
 # process, so the board's line clears itself when this script's process is gone (no end call in _qh_end): a zombie
 # wrapper counts as alive until reaped, and a call that lands after the script exited is refused unless the number was
@@ -1041,7 +1064,7 @@ fi
 # count: a name with non-ASCII letters can be cut mid-letter under a C locale, or refused when it holds an emoji).
 # kosmos#9246: a caller that names the real folder itself (a launchd job, a pinning wrapper) is on the real markers too,
 # so it announces: the folder is compared with the real one as physical paths (so a trailing slash, `..` or a symlink
-# does not matter); this script made the folder above (line 407), so it exists. Any other folder is a private one, and
+# does not matter); this script made the folder near its start (mkdir -p "$(_qh_marker_dir_raw)"), so it exists. Any other folder is a private one, and
 # stays quiet as before. "Real" is $HOME's folder, as queued-heavy itself uses: a sandbox HOME that names its own folder
 # explicitly counts as real too (as unset markers under a sandbox HOME already did), so a test still sets
 # QUEUED_HEAVY_ANNOUNCE=0, as run-tests.sh and test-queued-heavy-4977.sh do.
@@ -1064,21 +1087,7 @@ if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$Q
   # name like "cut tools/release.sh" as a live run. So no word of it can be a script path: / and .sh are broken up, and
   # so are the hyphenated script names an unanchored pgrep -f might look for (run-tests, browser-checks, test-install).
   # A plain word such as "release" is left as it is: breaking it would garble ordinary names.
-  # kosmos#9246: what the board refuses in a label (engine/heavyjobs.js normalizeLabel) becomes a space, so the likeliest
-  # refusal no longer hides behind "asked the board": the C1 controls, the line and paragraph separators, the direction
-  # marks and the byte order mark, matched as their UTF-8 bytes so a C locale (a tmux run-shell or launchd job) strips
-  # them too and bash 3.2 needs no \u; then the ASCII controls. Each is a whole UTF-8 sequence from its lead byte, so no
-  # valid letter is cut. (An emoji that takes a name past 80 UTF-16 units can still be refused.)
-  qh_label="$WHAT"
-  for qh_b in 80 81 82 83 84 85 86 87 88 89 8a 8b 8c 8d 8e 8f 90 91 92 93 94 95 96 97 98 99 9a 9b 9c 9d 9e 9f; do
-    qh_seq=$(printf "\\xc2\\x$qh_b"); qh_label="${qh_label//"$qh_seq"/ }"
-  done
-  for qh_seq in $'\xd8\x9c' $'\xe2\x80\x8b' $'\xe2\x80\x8e' $'\xe2\x80\x8f' $'\xe2\x80\xa8' $'\xe2\x80\xa9' \
-    $'\xe2\x80\xaa' $'\xe2\x80\xab' $'\xe2\x80\xac' $'\xe2\x80\xad' $'\xe2\x80\xae' \
-    $'\xe2\x81\xa6' $'\xe2\x81\xa7' $'\xe2\x81\xa8' $'\xe2\x81\xa9' $'\xef\xbb\xbf'; do
-    qh_label="${qh_label//"$qh_seq"/ }"
-  done
-  qh_label="${qh_label//[[:cntrl:]]/ }"
+  qh_label="$(_qh_board_text "$WHAT")"
   qh_label="${qh_label//\// }"; qh_label="${qh_label//.sh/ sh}"; qh_label="${qh_label//run-tests/run tests}"
   qh_label="${qh_label//browser-checks/browser checks}"; qh_label="${qh_label//test-install/test install}"
   qh_label="${qh_label:0:80}"

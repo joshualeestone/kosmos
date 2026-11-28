@@ -1142,8 +1142,45 @@ rm -f $S/kosmos-calls
 o=$(cd /tmp && LC_ALL=C KOSMOS_RUN_MARKER_DIR=$S/mannsep QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "$(printf 'sep\342\200\250rlo\342\200\256c1\302\205end')" true 2>&1); calls
 ok "#9246: under a C locale, a line separator, a direction mark and a C1 control are sent as spaces too" 'grep -qxE "heavy start sep rlo c1 end --pid [0-9]+" $S/kosmos-calls'
 rm -f $S/kosmos-calls
+# kosmos#9246 round 2: every BMP character the board's own normalizeLabel refuses inside a label, or reads as a space,
+# comes out of queued-heavy's _qh_board_text as text the board accepts (a space for a space), in a C and a UTF-8 locale.
+# The list is the board's, not a copy of the script's, so a character missing from the script reds here.
+sed -n '/^_qh_board_text() {$/,/^}$/p' $QH > $S/boardtext.sh
+node - "$(dirname $QH)/../engine/heavyjobs.js" > $S/bt-chars <<'JS'
+const hj = require(process.argv[2]);
+for (let cp = 0x80; cp <= 0xffff; cp++) {
+  if (cp >= 0xd800 && cp <= 0xdfff) continue;
+  const c = String.fromCodePoint(cp);
+  let kind = null;
+  try { hj.normalizeLabel('a' + c + 'b'); } catch { kind = 'refused'; }
+  if (!kind && /\s/.test(c)) kind = 'space';
+  if (kind) console.log(Buffer.from(c).toString('hex') + ' ' + kind);
+}
+JS
+for loc in C en_US.UTF-8; do
+  ( . $S/boardtext.sh
+    while read -r hex kind; do
+      in=$(printf "a$(printf '%s' "$hex" | sed 's/../\\x&/g')b")
+      printf '%s %s %s\n' "$loc" "$kind" "$(LC_ALL=$loc _qh_board_text "$in" | od -An -tx1 | tr -d ' \n')"
+    done < $S/bt-chars )
+done > $S/bt-out
+btbad=$(node - "$(dirname $QH)/../engine/heavyjobs.js" "$S/bt-out" <<'JS'
+const hj = require(process.argv[2]);
+const rows = require('fs').readFileSync(process.argv[3], 'utf8').trim().split('\n');
+let bad = 0;
+for (const r of rows) {
+  const [loc, kind, hex] = r.split(' ');
+  const out = Buffer.from(hex || '', 'hex').toString('utf8');
+  let ok = kind === 'space' ? out === 'a b' : true;
+  try { hj.normalizeLabel(out); } catch { ok = false; }
+  if (!ok) { bad++; if (bad <= 5) console.error('BAD board text: ' + loc + ' ' + kind + ' ' + hex); }
+}
+console.log(rows.length + ' ' + bad);
+JS
+)
+ok "#9246: every character the board refuses or trims comes out as text it accepts, in a C and a UTF-8 locale ($btbad: rows, bad)" '[ "${btbad#* }" = 0 ] && [ "${btbad% *}" -ge 100 ]'
 
-EXPECTED=221   # four #9246 arms (the real marker folder named with a trailing slash, a symlink to it, control characters in a name, separators and marks under a C locale); one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+EXPECTED=222   # five #9246 arms (the real marker folder named with a trailing slash, a symlink to it, control characters in a name, separators and marks under a C locale, every character the board refuses or trims); one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

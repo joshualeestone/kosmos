@@ -15,9 +15,12 @@
 2. A name holding control characters was reported as "asked the board" while the board refused it. Everything
    normalizeLabel refuses now becomes a space before the cut to 80: the C1 controls, U+2028/2029, the direction marks
    and the BOM, matched as UTF-8 bytes so a C locale strips them too (round 1 measured [[:cntrl:]] alone missing them
-   there), then the ASCII controls. The board collapses runs of spaces. An emoji that pushes past 80 UTF-16 units can still be refused (noted in the
+   there), then the ASCII controls. The spaces it trims (NBSP, U+1680, U+2000-200A, U+202F, U+205F, U+3000) become plain spaces
+   too, so the empty and leading-dash checks see them (round 2). All of it is one function, _qh_board_text. An emoji that pushes past 80 UTF-16 units can still be refused (noted in the
    comment, not fixed: the card asked for the likeliest refusal).
 
-Tests (tools/test-queued-heavy-4977.sh, 217 -> 221): the real folder named with a trailing slash announces; a symlink
+Tests (tools/test-queued-heavy-4977.sh, 217 -> 222): the real folder named with a trailing slash announces; a symlink
 to it announces; a tab, newline and escape are sent as spaces on one line; under a C locale a line separator, a direction mark and a
-C1 control are too. Each must red when its fix is removed.
+C1 control are too; and every BMP character normalizeLabel itself refuses or reads as a space comes out of
+_qh_board_text as text it accepts, in both locales (the list is the board's, so a missing entry reds; measured by
+removing U+3000). Each must red when its fix is removed.
