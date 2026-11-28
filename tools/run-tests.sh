@@ -372,7 +372,7 @@ rt_wd_loop() {
 # KOSMOS_TEST_WIN_SNAP_EMPTY=1 makes it print nothing, for tools.run-tests-winwd-9278's empty-snapshot arm.
 rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whole seconds, start time, command line
   [ "${KOSMOS_TEST_WIN_SNAP_EMPTY:-}" = 1 ] && return 0
-  timeout 20 powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
+  timeout 20 powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'   # gnu-ok: Windows only (Git Bash ships coreutils timeout; checked at the watchdog start)
 }
 rt_wd_loop_win() {
   local parent="$1" flag="$2" node="" nodew="" tick=5 sl="" stop=0 looks=0 seen=0 blind=0 stopped="" d pp cmd snap old row pid key krc tl file f p w
@@ -457,7 +457,7 @@ rt_file_watchdog_start() {
     return 0
   fi
   # And the coreutils timeout that cuts a hung snapshot (Windows' own timeout.exe, found first, would empty every one).
-  if [ "$_RT_WIN" = 1 ] && ! timeout --version >/dev/null 2>&1; then
+  if [ "$_RT_WIN" = 1 ] && ! timeout --version >/dev/null 2>&1; then   # gnu-ok: Windows only (the check that Git Bash's coreutils timeout is the one found)
     echo "run-tests: the timeout found first is not coreutils timeout, so the file watchdog cannot bound its Windows snapshot; running without a per-file limit (#6668, kosmos#9278)" >&2
     return 0
   fi
