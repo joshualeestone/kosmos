@@ -159,8 +159,12 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *
  * It only decides, and never closes the fd: the caller closes it at one place, then removeMadeFile removes the file
  * this open made when the name is still a link to it (same device and inode, still empty): it holds nothing, and
- * leaving it would leave a file where somebody else chose. After a swap the made file has no name this can find, so it stays where it is, empty; nothing is ever written
- * to it. The temp name itself is never touched. Returns null to go on, or the verdict to refuse with.
+ * leaving it would leave a file where somebody else chose. Returns null to go on, or the verdict to refuse with.
+ *
+ * What a refusal leaves (kosmos#9285): whatever was planted at the temp name (a link, a swapped-in file, a second hard
+ * link, a folder) stays, because the name is never touched; and when the name is no longer a link to the made file
+ * (swapped, removed, a hard link), the made file stays where the link pointed, empty, since nothing is ever written to
+ * it. Both are inert, and the reaper does not take temps under a live writer's own pid, so they stay until removed.
  *
  * Not closed, and accepted:
  *   - the check runs once, right after the open, so a name swapped between it and the rename still goes over the
@@ -169,6 +173,13 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     the made file back to the temp name before this check (Windows lets a file held open be renamed). The name is
  *     then the opened file and passes, and the saved config keeps the access list it was created with where the link
  *     pointed. Closing it needs the file's own access list set or checked at the open; that is not done here.
+ *   - (kosmos#9285) three refusals in a row end the atomic attempts. An atomicOnly caller then gets
+ *     ERR_KOSMOS_TEMP_SWAPPED and its file is untouched. Any other caller takes the in-place fallback below, as it
+ *     does after any three failed atomic attempts: it refuses a link at the config itself (refuseSymlinkTarget) and
+ *     rewrites the config in place, which is not atomic (a crash mid-write can cut it short) but writes nothing
+ *     through the links this check refuses, which sit at temp names. So somebody who can plant links there can cost
+ *     a write its atomicity, not its secrecy. Chosen over refusing the write: either way the save is spoiled, and
+ *     a refusal would turn every planted link into a failed save.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {

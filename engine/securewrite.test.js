@@ -920,6 +920,7 @@ test('#9268: a temp name that is a second hard link to the opened file is refuse
   assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret was written into the file the attacker holds a name for');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268c', 'the save did not land');
   assert.notEqual(fs.statSync(file).ino, fs.statSync(elsewhere).ino, 'the config is a second name of the attacker\'s file');
+  assert.equal(fs.statSync(planted).ino, fs.statSync(elsewhere).ino, 'the planted second name was removed or replaced, which is not ours to do (kosmos#9285)');
 });
 
 /* kosmos#9268 review 3: the planted link is RE-POINTED after the open, at somebody's existing file. The cleanup must
@@ -978,6 +979,9 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.ok(planted, 'the plant never happened, so this tests nothing');
     assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to where the link pointed');
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
+    // kosmos#9285: what was planted at the temp name is left as it was (a folder stays a folder; a removed name stays gone)
+    if (label === 'replaced by a folder') assert.equal(fs.lstatSync(planted).isDirectory(), true, 'the planted folder was removed or replaced');
+    else assert.equal(fs.existsSync(planted), false, 'something was written at the removed temp name');
   });
 }
 
@@ -1053,4 +1057,31 @@ test('#9268: a file renamed onto the made file\'s path after the close is never 
   assert.ok(planted, 'the plant never happened, so this tests nothing');
   assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'their bytes', 'the cleanup removed a file the open did not make');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268g', 'the save did not land');
+});
+
+/* kosmos#9285: a caller WITHOUT atomicOnly whose three atomic attempts all meet a followed link takes the in-place
+   fallback, as after any three failed atomic attempts (refuseFollowedLink's doc says so). The save lands in the config
+   itself, and none of the planted links' targets gets the secret. */
+test('#9285: three followed links send an ordinary caller to the in-place fallback, and no link target gets the secret', (t) => {
+  const file = fresh('fellback');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      const elsewhere = fresh('attacker8');
+      planted.push(String(p)); targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link, every time
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  securewrite.writeSecret(file, 'secret-9285', 0o600);
+  fs.openSync = realOpen;
+  assert.equal(planted.length, 3, 'the atomic path did not try three fresh names before the fallback');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9285', 'the fallback did not write the config');
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), false, 'the config became a link');
+  for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
 });
