@@ -760,7 +760,7 @@ test('#7742: only what really says so counts as sent elsewhere, and what cannot 
   }
 });
 
-/* kosmos#9272: the Windows arms of the four real-runner tests above, which stand claude in with a #!/bin/sh script
+/* kosmos#9272: the Windows arms of the three real-runner tests above (SKIP_SH_CLAUDE), which stand claude in with a #!/bin/sh script
    that Windows cannot run. Here claude is a node script started through setClaudeLaunchForTest, so these run on
    every platform, Windows included; the rest of the call (its flags, its env, stdin, reading the answer) is the real
    one. AGENT_WORKFORCE_CLAUDE_BIN names this node only so the reader finds a runnable claude, as it would find
@@ -795,11 +795,12 @@ test('#9272: the real runner reads a stream-json result from claude, on every pl
     { person: 'Bo Linden', title: 'VP', reportsTo: 'Avery Quill', sure: true },
   ] } };
   await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(JSON.stringify({ type: 'system', subtype: 'init' }) + '\n' + JSON.stringify(answer) + '\n') + ');'), async (dir, started) => {
+    const flags = o.readArgs();   // before the read, so the expected value does not come from the path under test
     const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
     assert.equal(started(), 1, 'CONTROL: the read went through the launch hook, once');
     assert.deepEqual(r.rows.map((x) => [x.person, x.reportsTo]), [['Avery Quill', null], ['Bo Linden', 0]], JSON.stringify(r));
     const seen = seenIn(dir);
-    assert.deepEqual(seen.args, o.readArgs(), 'claude was started with the reader\'s own flags, every tool off');
+    assert.deepEqual(seen.args, flags, 'claude was started with the reader\'s own flags, every tool off');
     assert.ok(seen.bytes > 0, 'the request went in on stdin');
   });
 });
