@@ -1546,6 +1546,10 @@ for _p in $bwp; do wait "$_p"; done
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end last-fold
 nw9139="$(grep -c '^E g' "$MB/beside-runs.log")"
 { [ "$ng9139" -ge 1 ] && [ "$nw9139" = 300 ] && [ -z "$(ls "$MB" | grep '^beside-runs\.log\.pending')" ]; } && pass "#9139 twenty writers that mostly give up lose no line once folded ($ng9139 had given up while the lock was held)" || fail "#9139 writers that give up lost lines ($nw9139 of 300, $ng9139 were pending)"
+# #9300: and no break dir outlives them. A taker that backed off used to leave it empty, which held off every break for
+# 60 s and failed the dead-holder, 400 s and pid-0 checks below together; this names that state where it starts.
+[ ! -e "$MB/beside-runs.log.lock.break" ] && pass "#9300 no break dir is left after the twenty-writer runs" || fail "#9300 a break dir was left after the twenty-writer runs ($(ls -a "$MB/beside-runs.log.lock.break" 2>/dev/null | tr '\n' ' '))"
+rm -rf "$MB/beside-runs.log.lock.break"
 # Review 6 (besidefix): a lock just taken names a LIVE holder, the one the release checks, and does not read as stale.
 # Taking the pid inside $( ) named the substitution's own subshell, gone at once, so the next writer broke a held lock
 # (measured: 299 of 300). Run in a ( ) subshell, as the writers are, where $$ is not the holder either.
@@ -1704,6 +1708,7 @@ ns9139="$(wc -l < "$MB/beside-runs.log" | tr -d ' ')"; rm -rf "$MB/awkbin"
 # #9139 follow-up: the lock names its holder. A lock whose HOLDER IS ALIVE is never broken, however old (a slowed holder
 # was broken at 10 s, and two holders at once cut the log short); a lock whose holder is gone is broken at once.
 : > "$MB/beside-runs.log"; rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
+rm -rf "$MB/beside-runs.log.lock.break"   # #9300: these checks test only the rule they name
 mkdir -p "$MB/beside-runs.log.lock"; perl -e 'select(undef, undef, undef, 300)' < /dev/null > /dev/null 2>&1 & LH9139=$!; echo "$LH9139" > "$MB/beside-runs.log.lock/pid"
 TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 120 )) +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC date -d "@$(( $(date +%s) - 120 ))" +%Y%m%d%H%M.%S)" "$MB/beside-runs.log.lock"
 KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=3 kosmos_note_beside_run start live-held "live holder"
@@ -1736,7 +1741,7 @@ KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=5 kosmos_note_beside_run en
 { [ "$_bm9300_n" -ge 2 ] && [ ! -e "$MB/beside-runs.log.lock" ] && [ ! -e "$MB/beside-runs.log.lock.break" ] && grep -q '^E backoff-9300 ' "$MB/beside-runs.log"; } \
   && pass "#9300 a taker that backs off removes the empty break dir, so the next poll breaks the stale lock" \
   || fail "#9300 a backed-off taker left the break dir (checks $_bm9300_n; left: $(ls "$MB" | grep lock | tr '\n' ' '))"
-eval "$(declare -f _bm9300_real | sed '1s/_bm9300_real/_kosmos_beside_break_mine/')"; unset -f _bm9300_real
+eval "$(declare -f _bm9300_real | sed '1s/_bm9300_real/_kosmos_beside_break_mine/')"; unset -f _bm9300_real; unset _bm9300_n
 rm -rf "$MB/beside-runs.log.lock" "$MB/beside-runs.log.lock.break"; rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
 # A .folding. file (a fold claimed it and was killed before reading it) is read by the reader and folded once 60 s old.
 : > "$MB/beside-runs.log"; printf 'S fz %s claimed-run\n' "$now9139" > "$MB/beside-runs.log.folding.TESTCLAIM"
