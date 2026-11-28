@@ -814,3 +814,36 @@ test('#5434: reapDeadTempsOf takes a dead writer\'s and a prior run\'s temp of t
 test('#5434: reapDeadTempsOf never throws, even for a folder that does not exist', () => {
   assert.doesNotThrow(() => securewrite.reapDeadTempsOf(path.join(os.tmpdir(), 'no-such-folder-5434-' + process.pid, 'f')));
 });
+
+/* kosmos#9268: on Windows the create-exclusive open of the temp FOLLOWS a dangling link planted at its name (Node maps
+   'wx' to CREATE_NEW, which follows a reparse point), so the open creates the link's target. A Mac refuses a link
+   there, so this stands in for the Windows open: it plants the link, then opens the target exclusively, as
+   CreateFile does. What must hold: nothing written through the link, the link left, and the save made at a fresh
+   name. The same arm runs unstubbed on Windows as engine/trust.test.js's planted-link arm. */
+test('#9268: an open that FOLLOWS a link planted at the temp name writes nothing through it, and saves at a fresh name', (t) => {
+  const file = fresh('followed');
+  const elsewhere = fresh('attacker');
+  const realOpen = fs.openSync;
+  let planted = null;
+  let opens = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      if (planted === null) {
+        planted = String(p);
+        fs.symlinkSync(elsewhere, planted);
+        return realOpen.call(fs, elsewhere, 'wx', ...rest);   // what CreateFile(CREATE_NEW) does on Windows
+      }
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; try { fs.rmSync(planted, { force: true }); } catch { /* fine */ } });
+  securewrite.writeSecret(file, 'secret-9268', 0o600);
+  fs.openSync = realOpen;
+  assert.ok(planted, 'the plant never happened, so this tests nothing');
+  assert.equal(fs.existsSync(elsewhere), false, 'the secret, or an empty file, was left where the planted link points');
+  assert.equal(fs.lstatSync(planted).isSymbolicLink(), true, 'the planted link was removed, which is not ours to do');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268', 'the save did not land');
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), false, 'the saved file is a link');
+  assert.equal(opens, 2, 'the save did not move to a fresh temp name after refusing the followed one');
+});
