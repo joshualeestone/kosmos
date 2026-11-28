@@ -19,6 +19,12 @@ was cut to `C:`, and `path.resolve(folder, 'C:')` gave back the agent's own fold
   and the existing end-to-end test can carry a host-independent red arm.
 - Normalising shown paths to `/`: changes what every receipt shows on Windows, beyond this card.
 
+## Encodings not covered
+A path with SINGLE backslashes is still cut at the first one. In a JavaScript string or template literal an unescaped
+`\U` is a syntax error (or a different character), so a script that runs carries the path escaped; only `String.raw`
+keeps single backslashes, and that case is left cut rather than guessed at, because a single backslash cannot be told
+apart from the start of an escape. Raised by review round 2; the comment at the code says this plainly.
+
 ## Weakest premise
 How a real Windows Codex writes an absolute path in its exec script (escaped `\\`) is reasoned from the script
 being a JavaScript string, not measured on a Windows Codex session. A path written with forward slashes already read fine.
