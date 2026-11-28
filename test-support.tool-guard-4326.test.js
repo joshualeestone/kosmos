@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * guard treat the stand-in as a real install; if the guard regressed, only the stand-in would run.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('its two controls run /bin/bash by an absolute POSIX path and the repo fake test-support/fake-cli-signed-out.sh by its shebang line, which Windows cannot do; the refusal arms, cmd /c and powershell among them, run there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -59,7 +60,7 @@ test('#4326 promisify(execFile) keeps its { stdout, stderr } shape under the gua
   // generic form and resolves a bare string, which breaks every `const { stdout } = await run()`.
   require('./test-support/tool-guard');
   const run = util.promisify(require('node:child_process').execFile);
-  const r = await run('/bin/echo', ['hi']);
+  const r = await run(process.execPath, ['-e', 'process.stdout.write("hi\\n")']);   // node, not /bin/echo, so it runs on Windows too (kosmos#8378)
   assert.equal(typeof r, 'object', 'promisify(execFile) resolved a bare value, not { stdout, stderr }');
   assert.equal(r.stdout, 'hi\n');
   assert.equal(r.stderr, '');
@@ -116,12 +117,12 @@ for (const [label, body] of [
   });
 }
 
-test('#4326 control: bash -lc running an ordinary command is NOT refused', () => {
+test('#4326 control: bash -lc running an ordinary command is NOT refused', { skip: SKIP_POSIX_SHELL }, () => {
   const r = runFile("const o = cp.spawnSync('/bin/bash', ['-lc', 'echo fine'], { encoding: 'utf8' }); if (o.stdout.trim() !== 'fine') throw new Error('bash -lc did not run: ' + JSON.stringify(o));");
   assert.equal(r.status, 0, `the guard refused an ordinary bash -lc:\n${r.stdout}${r.stderr}`);
 });
 
-test('#4326 control: the same file through the repo\'s fake passes, and the fake really ran', () => {
+test('#4326 control: the same file through the repo\'s fake passes, and the fake really ran', { skip: SKIP_POSIX_SHELL }, () => {
   // Synchronous, so the fake has run before the test ends; it exits 1 ("signed out").
   const r = runFile(`let ran = false; try { cp.execFileSync(${JSON.stringify(FAKE)}, ['whoami'], { stdio: 'ignore' }); } catch (e) { ran = e.status === 1; } if (!ran) throw new Error('the fake did not run');`);
   assert.equal(r.status, 0, `the guard failed a file that only used the fake:\n${r.stdout}${r.stderr}`);

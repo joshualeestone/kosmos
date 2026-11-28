@@ -4,6 +4,7 @@
 // Nothing here reaches a real board, mailbox or coordinator.
 require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/plus-signin-auto.sh, the release gate sign-in seed, against a Mac bundle; the gate runs on the release Mac, never on Windows');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -107,7 +108,7 @@ const recordOf = (w) => record.recordPath(w.sha, { KOSMOS_PLUS_VERIFY_DIR: w.rec
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const leftovers = (w) => fs.readdirSync(w.scratch).filter((n) => n.startsWith('kplusgate.'));
 
-test('#9018: one command takes the pointer\'s own tarball through a first sign-in, the gate then says yes, and nothing is left running', async () => {
+test('#9018: one command takes the pointer\'s own tarball through a first sign-in, the gate then says yes, and nothing is left running', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world({ placement: 'SPAM' });
   const port = await freePort();
   const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(port), '--base-url', 'file://' + w.dist]);
@@ -172,7 +173,7 @@ test('#9018: a tarball that is not the pointer\'s bytes is refused before anythi
   assert.ok(!fs.existsSync(record.recordPath('b'.repeat(64), { KOSMOS_PLUS_VERIFY_DIR: w.records })));
 });
 
-test('#9018: a board that is not the pointer\'s build leaves no pass record, and no code is sent from it', async () => {
+test('#9018: a board that is not the pointer\'s build leaves no pass record, and no code is sent from it', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world({ identity: '9.9.8@default' });
   const port = await freePort();
   const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(port), '--tarball', w.tgz]);
@@ -183,7 +184,7 @@ test('#9018: a board that is not the pointer\'s build leaves no pass record, and
   assert.strictEqual(await portAnswers(port), false, 'the throwaway board is still running');
 });
 
-test('#9018: a step that fails records a FAIL, which the gate refuses on', async () => {
+test('#9018: a step that fails records a FAIL, which the gate refuses on', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world({ verifyFails: true });
   const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(await freePort()), '--tarball', w.tgz]);
   assert.strictEqual(r.code, 1, r.out);
@@ -194,7 +195,7 @@ test('#9018: a step that fails records a FAIL, which the gate refuses on', async
   assert.strictEqual(g.status, 1, g.stdout + g.stderr);
 });
 
-test('#9018: no code arriving records nothing (the gate cannot tell), and the board is still stopped', async () => {
+test('#9018: no code arriving records nothing (the gate cannot tell), and the board is still stopped', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world({ noCode: true });
   const port = await freePort();
   const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(port), '--tarball', w.tgz]);
@@ -206,7 +207,7 @@ test('#9018: no code arriving records nothing (the gate cannot tell), and the bo
   assert.deepStrictEqual(leftovers(w), [], 'the work folder was left behind');
 });
 
-test('#9018: with KOSMOS_SEED_TOTP unset the secret is read through the secrets map, by the meta target that is not an address', async () => {
+test('#9018: with KOSMOS_SEED_TOTP unset the secret is read through the secrets map, by the meta target that is not an address', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world();
   const bin = path.join(w.dir, 'bin'); fs.mkdirSync(bin);
   const asked = path.join(w.dir, 'secrets.calls');
@@ -227,7 +228,7 @@ test('#9018: with KOSMOS_SEED_TOTP unset the secret is read through the secrets 
   assert.deepStrictEqual(calls(w2.boardLog), [], 'a board was started');
 });
 
-test('#9018: a meta whose targets are only addresses is refused for naming no secret, before any download', async () => {
+test('#9018: a meta whose targets are only addresses is refused for naming no secret, before any download', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world();
   fs.writeFileSync(path.join(w.env.HOME, '.config', 'secrets', 'kosmosplus-test-gate-totp.meta'), 'purpose: x\ntargets: ' + SEED + '\nformat: bare-token\n');
   const bin = path.join(w.dir, 'bin'); fs.mkdirSync(bin);
@@ -239,7 +240,7 @@ test('#9018: a meta whose targets are only addresses is refused for naming no se
   assert.deepStrictEqual(calls(w.boardLog), [], 'a board was started');
 });
 
-test('#9018: a progress file from a run started by hand on an installed board is left alone', async () => {
+test('#9018: a progress file from a run started by hand on an installed board is left alone', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world({ noCode: true });
   const prog = recordOf(w).replace(/\.json$/, '.progress.json');
   /* Not this run's: an installed board's start. The driver's own start overwrites it during the run, so put it
@@ -253,7 +254,7 @@ test('#9018: a progress file from a run started by hand on an installed board is
   assert.strictEqual(JSON.parse(fs.readFileSync(prog, 'utf8')).kind, 'installed');
 });
 
-test('#9018: a second run for a build whose run is still in flight is refused, and the first run\'s progress is untouched', async () => {
+test('#9018: a second run for a build whose run is still in flight is refused, and the first run\'s progress is untouched', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world();
   const prog = recordOf(w).replace(/\.json$/, '.progress.json');
   fs.mkdirSync(path.dirname(prog), { recursive: true });
@@ -308,7 +309,7 @@ function used(w, seed, n, agoMs = 60 * 60 * 1000) {
   for (let i = 0; i < n; i += 1) ledger.record(ledgerOf(w), seed, Date.now() - agoMs - i * 1000);
 }
 
-test('#9026: with the first seed used up this week, the run signs in with the second, and counts it', async () => {
+test('#9026: with the first seed used up this week, the run signs in with the second, and counts it', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world(); secondSeed(w); used(w, SEED, 5);
   const port = await freePort();
   const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--seed', SEED2, '--port', String(port), '--base-url', 'file://' + w.dist]);
@@ -332,7 +333,7 @@ test('#9026: with every seed used up, it says when the next frees and stops befo
   assert.deepStrictEqual(leftovers(w), [], 'a work folder was made, so the download ran');
 });
 
-test('#9026: runs older than a week do not count, and one seed alone works as before', async () => {
+test('#9026: runs older than a week do not count, and one seed alone works as before', { skip: SKIP_RELEASE_HOST }, async () => {
   const w = world(); used(w, SEED, 7, 8 * 24 * 60 * 60 * 1000);
   const port = await freePort();
   const r = await run(w, ['--pointer', w.pointer, '--seed', SEED, '--port', String(port), '--base-url', 'file://' + w.dist]);

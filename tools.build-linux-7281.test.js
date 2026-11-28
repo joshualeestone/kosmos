@@ -11,6 +11,7 @@
  */
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/build-kosmos-linux.sh, the Linux bundle build; bundles are built on the release Mac, never on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -154,7 +155,7 @@ test('the builder refuses a connector that is not ELF x86-64 (the Mac\'s Mach-O 
   assert.match(none.stderr, /KOSMOS_TUNNEL_LINUX_BIN is not set/, 'a bundle without a connector was not refused');
 });
 
-test('review 1: a connector without its provenance, from a dirty tree, or needing a newer glibc than the floor is refused', () => {
+test('review 1: a connector without its provenance, from a dirty tree, or needing a newer glibc than the floor is refused', { skip: SKIP_RELEASE_HOST }, () => {
   const f = fixtures();
   const cases = [
     ['tunnel-bare', /connector_provenance: no .*\.commit beside the connector/],
@@ -173,7 +174,7 @@ test('review 1: a connector without its provenance, from a dirty tree, or needin
   }
 });
 
-test('review 1 and 2: an unchecked node, and a different glibc floor, are test builds only', () => {
+test('review 1 and 2: an unchecked node, and a different glibc floor, are test builds only', { skip: SKIP_RELEASE_HOST }, () => {
   const f = fixtures();
   // Review 2 (N3): on a clean tree (CI) the refusal must be the gate itself, not the dirty-tree one before it.
   const clean = spawnSync('git', ['-C', ROOT, 'diff', '--quiet', 'HEAD', '--', '.']).status === 0;
@@ -191,7 +192,7 @@ test('review 1 and 2: an unchecked node, and a different glibc floor, are test b
   assert.match(floor.stderr, want(/KOSMOS_LINUX_GLIBC_FLOOR=2\.99 is for a test build only/));
 });
 
-test('review 2: a static connector needs no glibc (a GLIBC_ text in it is not a symbol version)', () => {
+test('review 2: a static connector needs no glibc (a GLIBC_ text in it is not a symbol version)', { skip: SKIP_RELEASE_HOST }, () => {
   const f = fixtures();
   const r = build(f, path.join(f.d, 'tunnel-static'), path.join(f.d, 'out-static'));
   assert.equal(r.status, 0, r.stderr);
@@ -199,7 +200,7 @@ test('review 2: a static connector needs no glibc (a GLIBC_ text in it is not a 
   assert.equal(m.connector.glibc, '', 'a static connector was recorded as needing glibc');
 });
 
-test('review 2 (W4): the owner gate refuses a tarball that records the build account, on this host\'s own tar', () => {
+test('review 2 (W4): the owner gate refuses a tarball that records the build account, on this host\'s own tar', { skip: SKIP_RELEASE_HOST }, () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ownergate-7281-'));
   fs.writeFileSync(path.join(d, 'f'), 'x');
   const me = require('node:os').userInfo().username;
@@ -222,7 +223,7 @@ test('review 1: the odd-names check is the Mac builder\'s, word for word (the si
   assert.equal(body(LINUX), body(MAC));
 });
 
-test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists exactly the tarball\'s files', () => {
+test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists exactly the tarball\'s files', { skip: SKIP_RELEASE_HOST }, () => {
   const f = fixtures();
   const out = path.join(f.d, 'out');
   const r = build(f, path.join(f.d, 'tunnel-elf'), out);

@@ -18,6 +18,7 @@
  */
 require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/release.sh, the release cut, and the gates it starts; releases are cut on the release Mac, never on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -164,7 +165,7 @@ function runToStep1(extraEnv) {
   return { dir, said: (r.stdout || '') + (r.stderr || '') };
 }
 
-test('#2724: the cut announces a cut-only home, and a GATE SUBPROCESS actually sees it', () => {
+test('#2724: the cut announces a cut-only home, and a GATE SUBPROCESS actually sees it', { skip: SKIP_RELEASE_HOST }, () => {
   const { dir, said } = runToStep1();
 
   /* The run must have reached step 1, or every assertion below is about a script
@@ -179,7 +180,7 @@ test('#2724: the cut announces a cut-only home, and a GATE SUBPROCESS actually s
     'the child saw a different home than the one derived from TMPDIR');
 });
 
-test('#2724: the home the cut hands its gates EXISTS and is EMPTY', () => {
+test('#2724: the home the cut hands its gates EXISTS and is EMPTY', { skip: SKIP_RELEASE_HOST }, () => {
   const { dir, said } = runToStep1();
   assert.match(said, /cut-only home:/, 'the cut did not say what home it was using');
   const home = path.join(dir, 'tmp', 'kosmos-cut-home');
@@ -188,7 +189,7 @@ test('#2724: the home the cut hands its gates EXISTS and is EMPTY', () => {
     'the cut home is not empty, so a gate can still read state left in it');
 });
 
-test('#2724 CONTROL: the cut home is NOT the operator home, which is the whole point', () => {
+test('#2724 CONTROL: the cut home is NOT the operator home, which is the whole point', { skip: SKIP_RELEASE_HOST }, () => {
   const { dir, said } = runToStep1();
   const seen = /CHILD_SEES=\[([^\]]*)\]/.exec(said)[1];
   assert.notEqual(seen, os.homedir(),
@@ -197,7 +198,7 @@ test('#2724 CONTROL: the cut home is NOT the operator home, which is the whole p
     'the cut home is the sandbox HOME itself rather than a separate empty leaf');
 });
 
-test('#2724: a pre-existing cut home is EMPTIED, so one cut cannot read the last one leftovers', () => {
+test('#2724: a pre-existing cut home is EMPTIED, so one cut cannot read the last one leftovers', { skip: SKIP_RELEASE_HOST }, () => {
   /* The dir is deliberately a fixed leaf rather than a fresh mktemp, so a failed
      cut leaves it behind to inspect. That is only safe if the NEXT cut wipes it:
      otherwise state from a previous cut is exactly the live state this card is
@@ -224,7 +225,7 @@ test('#2724: a pre-existing cut home is EMPTIED, so one cut cannot read the last
     'a previous cut leftover survived into this cut, which is the same leak one cut removed');
 });
 
-test('#2724: KOSMOS_CUT_LIVE_HOME=1 opts out, and the opt-out is the ONLY difference', () => {
+test('#2724: KOSMOS_CUT_LIVE_HOME=1 opts out, and the opt-out is the ONLY difference', { skip: SKIP_RELEASE_HOST }, () => {
   const { said } = runToStep1({ KOSMOS_CUT_LIVE_HOME: '1' });
 
   /* 🛑 THE DISCRIMINATING HALF. "The line is absent" is also what a script that
@@ -262,7 +263,7 @@ test('#2724: the home is exported BEFORE the suite gate, which is the half a gre
     'the cut home is exported AFTER the suite gate runs, so the suite still reads the live fleet');
 });
 
-test('#2724: the TMPDIR guard can actually FIRE, which the version it replaced could not', () => {
+test('#2724: the TMPDIR guard can actually FIRE, which the version it replaced could not', { skip: SKIP_RELEASE_HOST }, () => {
   /* The first version of this guard asked whether the DERIVED path was `/`, `/tmp` or
      `$HOME`. It never could be: the leaf is always appended. So it read as protection in
      review and could not return the dangerous answer for any value of TMPDIR. The guard
@@ -302,7 +303,7 @@ test('#2724: the page gate is EXPLICITLY excluded from the cut home, and says wh
     'the page gate now inherits the cut home, which is the one gate whose boards were never measured under it');
 });
 
-test('#2724: an ambient KOSMOS_* or AGENT_WORKFORCE_* cannot decide what these arms measure', () => {
+test('#2724: an ambient KOSMOS_* or AGENT_WORKFORCE_* cannot decide what these arms measure', { skip: SKIP_RELEASE_HOST }, () => {
   /* The round-1 BLOCKER was an arm whose verdict came from the environment. Round 2 found
      the same shape one variable over (KOSMOS_CUT_CHANNEL). This arm is the general form:
      it drives the script with a spread of hostile ambient values and asserts the cut home
@@ -356,7 +357,7 @@ test('#2724: an ambient KOSMOS_* or AGENT_WORKFORCE_* cannot decide what these a
   }
 });
 
-test('#2724: a RELATIVE TMPDIR is refused, because the exported home would follow each gate cwd', () => {
+test('#2724: a RELATIVE TMPDIR is refused, because the exported home would follow each gate cwd', { skip: SKIP_RELEASE_HOST }, () => {
   const dir = sandbox('kosmos-cuthome-rel-');
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
