@@ -7,12 +7,14 @@ patch is a JavaScript string where a newline is written `\n`. A Windows absolute
 was cut to `C:`, and `path.resolve(folder, 'C:')` gave back the agent's own folder.
 
 ## Change
-- Match `((?:\\\\|[^\n\\"])+)`: an escaped backslash (two characters) is part of the path; any other backslash
-  escape or a quote ends it. Unescape `\\` to `\` before resolving.
-- Test fixture (`engine/receipt-5153.test.js`) writes paths escaped, as the JavaScript string carries them, and adds
-  a relative path with a backslash (`lib\deep.js`), which reads `lib` without the fix on ANY host, so the defect is
-  guarded on the Mac as well as on Windows. The expectation for the absolute path uses `path.join('src','new.js')`,
-  since a receipt shows the host's own separator (shownPath is path.relative).
+- engine/receipt.js reads each patch path as the JavaScript string text it is (decodeJsEscapes, a local helper, not
+  exported): the path runs to an escaped or real newline or a bare quote, `\\` pairs are taken left to right, and
+  escapes are decoded. A path that cannot be trusted whole is left out (see "How a path is read").
+- Test fixture (`engine/receipt-5153.test.js`) writes paths escaped, as the JavaScript string carries them, and adds: a
+  relative path with a backslash (`lib\deep.js`, which reads `lib` without the fix on ANY host); a String.raw call whose
+  single-backslash paths must all be left out; and an ordinary `\'` escape that must be decoded. The expectation for the
+  absolute path uses `path.join('src','new.js')`, since a receipt shows the host's own separator (shownPath is
+  path.relative).
 
 ## Rejected
 - Exporting a pure `codexPatchPaths()` for a unit test: a new engine export trips engine.reachable unless excused,
@@ -27,12 +29,15 @@ Left out of the receipt, as paths that cannot be trusted whole:
   in a path it is far likelier a single backslash written raw (String.raw), so it is treated as one. A judgement about how
   Codex writes paths, not a language rule (review round 5 corrected my comment, which said a string cannot hold it).
 - a decoded control character (`C:\tools.js` written raw decodes a tab), never part of a real file name.
+- a path whose "newline" is followed by something that cannot begin a patch line (`+ - @ *`, a space) or end the
+  string: a raw `src\new.md` stops at `src` there, and `src` is not the file edited (review round 6).
 A path that resolves to the agent's own folder is never listed: that is the card's symptom, and no patch line names the
 folder itself.
 
 Not covered: a single-backslash raw path whose escape decodes to a printable character (`C:\x41.js` raw reads
-`C:A.js`), and one cut by `\n`/`\r` (`C:\new.js` raw reads `C:`: the folder filter catches it on Windows, macOS and
-Linux would show a file named `C:`). A real Codex script was not measured writing String.raw.
+`C:A.js`, a WRONG name shown), or whose cut leaves a next line that begins like a patch line (`C:\n+x.js`). A real
+Codex script was not measured writing String.raw.
+Accepted risk: an unknown escape drops a real edit from the receipt (an under-report, chosen over a wrong name).
 
 Design note: review rounds 2, 3 and 4 each reworked the same rule (what ends or cuts a path). Decoding the text as the
 string it is replaced the stop-rule patches; round 5 tightened what the decoder trusts.
@@ -42,4 +47,5 @@ How a real Windows Codex writes an absolute path in its exec script (escaped `\\
 being a JavaScript string, not measured on a Windows Codex session. A path written with forward slashes already read fine.
 
 ## Validation
-Measured (round 0): `node --test engine/receipt*.test.js` 43/43 with the fix; without the fix the new arm reads `['src/new.js','notes.md','lib']`.
+Each round: `node --test engine/receipt*.test.js` (43/43 at the last round), with a red control against the previous
+round's receipt.js and against origin/main. The full suite runs once at convergence.

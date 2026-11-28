@@ -320,7 +320,7 @@ async function claudeWork(dir, holds) {
    backslash written raw (String.raw) than a meant identity escape, so it is treated as one; and a decoded control
    character (`C:\tools.js` written raw reads a tab) is never part of a real file name. That is a judgement about how a
    Codex writes paths, not a rule of the language. */
-const JS_SIMPLE_ESCAPES = { '\\': '\\', "'": "'", '"': '"', '/': '/', '`': '`', $: '$', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' };
+const JS_SIMPLE_ESCAPES = { '\\': '\\', "'": "'", '"': '"', '/': '/', '`': '`', $: '$' };   // \t, \0 and the like decode to control characters, so they are left out too
 function decodeJsEscapes(text) {
   let bad = false;
   const out = text.replace(/\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[^])/g, (m, e) => {
@@ -395,6 +395,9 @@ async function providerWork(runner, dir, holds) {
                A path decodeJsEscapes cannot trust whole is left out rather than shown as a file it is not (#9263). */
             const own = path.resolve(folder);
             const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\[^nr\n\r]|[^\n\r\\"])+)/g)]
+              /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A "newline"
+                 followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it is left out. */
+              .filter((x) => /^(?:(?:\\r)?\\n|\r?\n)?(?:[-+@* "`]|$)/.test(src.slice(x.index + x[0].length)))
               .map((x) => decodeJsEscapes(x[1])).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
               /* Never the agent's own folder as an edited file: no patch line names it, so one that resolves there was
                  misread (#9263: `C:` resolves to the folder on Windows). */
