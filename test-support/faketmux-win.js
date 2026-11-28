@@ -19,13 +19,24 @@
  * to them (current()) instead of to "none", so a test that installs and restores a fleet keeps a board it can read.
  * On macOS and Linux it does nothing, so the script stays what those tests run.
  *
+ * 🛑 WHAT A GREEN WITH THIS MEANS (review round 3): the rows are fake tmux's, tmux-shaped, so on a Windows host every card
+ * is a MAC card (win32roster.isWin32Pane is false: reachedByChannel false, delivery through tmux, the Mac capture and
+ * state arms). A real Windows board lists only claude.exe rows (engine/win32roster). So a green here means "the route is
+ * reachable and answers on a Windows host", NOT "the Windows board behaves this way". Tests that inject their own tmux
+ * runner (chat.setRunner, as server.swarm-3564 does) and check tmux delivery pass on Windows only because the cards are
+ * Mac cards. The Windows-shaped way, win32roster.rowLine rows and delivery through the supervisor (as
+ * server.dm-outage-send-9087 does), is kosmos#9262's fix, and this does not close it.
+ *
+ * Two older Windows pane-source shims on main do part of this inline: server.test.js (setPaneSource wrapped so null
+ * becomes '') and server.disconnect-stop-2570.test.js (reads its panes file). They were left as they are.
+ *
  * ⚠️ What it does not stand in for, so nobody reads more into a green than it holds:
  *   - fake tmux's WRITES (send-keys, new-session, kill-session). On Windows the board delivers through the agent's
- *     supervisor, not tmux, so a test that checks a delivery through tmux needs a Windows arm (kosmos#9262 is the card
- *     for that class; no test in this group needed it).
+ *     supervisor, not tmux; see the note above.
  *   - its other reads: list-sessions (AGENT_WORKFORCE_FAKE_SESSIONS), the pane_current_path folder read
  *     (AGENT_WORKFORCE_FAKE_PANE_FOLDERS), and chat.js's three-field display-message.
- *   - messages.resetForTests() clears the pane-session runner; a file that calls it falls back to the script after.
+ *   - messages.resetForTests() clears the pane-session runner, and status.setPaneSource(null) the pane list; a file that
+ *     calls either falls back to the script after, silently (fleet.restore() does not: it returns here).
  *   - In a board child (test-support/faketmux-win-preload.js) only the roster and screen are switched to the fixture:
  *     the board's other Windows roster calls (win32roster.cachedRun's read problem, refreshAsync, which the known-agent
  *     check uses) still run the real `claude agents --json` read, against whatever AGENT_WORKFORCE_CLAUDE_BIN names.

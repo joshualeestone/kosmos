@@ -14,6 +14,7 @@ const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { test } = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-range-'));
@@ -185,7 +186,7 @@ test('#6805: the image preview is not ranged (its file can be drawn again under 
   assert.ok(got.body.equals(bytes));
 });
 
-test('#6805: a ranged download the client abandons releases its descriptor', async () => {
+test('#6805: a ranged download the client abandons releases its descriptor', { skip: skipOnWin32('its whole subject is the descriptor the board holds on the file, counted through /dev/fd, which Windows does not have; what it checks exists on Windows (kosmos#9276)') }, async () => {
   const rec = stored(crypto.randomBytes(24 * MB), 'abandoned.bin');
   let openMid = -1;
   await new Promise((resolve, reject) => {
