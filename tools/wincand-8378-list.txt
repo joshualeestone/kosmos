@@ -1,3 +1,3 @@
-engine/projects.test.js
-engine/reporthook.test.js
 engine/trust.test.js
+engine/securewrite.test.js
+engine/securewrite.fsync-5434.test.js
