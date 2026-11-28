@@ -105,7 +105,7 @@ test('Windows `task add` refuses a bad --who before the board; a non-member and 
    `task list` prints its raw-JSON fallback and the rendering under test never runs. */
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: the Mac CLI's runtime; a symlink needs a privilege on Windows, and only the Mac half uses it
 function mac(args, agentToken = '') {
   const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: agentToken };
   return new Promise((resolve, reject) => {

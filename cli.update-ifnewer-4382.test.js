@@ -30,7 +30,7 @@ const RUNNING = '1.0.0';
 
 function layout() {
   fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-  fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+  if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI runs it
   fs.mkdirSync(path.join(HOME, 'app', 'engine'), { recursive: true });
   fs.writeFileSync(path.join(HOME, 'app', 'package.json'), JSON.stringify({ version: RUNNING }) + '\n');
   fs.writeFileSync(path.join(HOME, 'app', 'server.js'), '');
@@ -241,7 +241,7 @@ test('#4382: only a computer set to connect elsewhere, and only a person, may up
   }
 });
 
-test('#4382: the look never starts the board\'s own install, even with Updates on', { skip: SKIP_POSIX_SHELL }, async () => {
+test('#4382: the look never starts the board\'s own install, even with Updates on', async () => {
   reset({ prod: '1.2.0' });   // no Updates file: consent on
   const BEGAN = path.join(T, 'began.txt');
   fs.rmSync(BEGAN, { force: true });
@@ -251,11 +251,13 @@ test('#4382: the look never starts the board\'s own install, even with Updates o
     update.setInstallRunner(() => { require('fs').writeFileSync(${JSON.stringify(BEGAN)}, 'began'); return null; });
     require(${JSON.stringify(path.join(HOME, 'app', 'engine', 'update-ifnewer.js'))}).decide()
       .then((d) => { process.stdout.write(d.line.join(' ')); setTimeout(() => {}, 300); });`;
-  const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: 'file://' + DIST };
+  // kosmos#8378: a file URL built for the host (a Windows path needs file:///C:/...), not 'file://' + a path.
+  const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: require('node:url').pathToFileURL(DIST).href };
   for (const k of ['AGENT_WORKFORCE_RELEASE_BASE', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL', 'KOSMOS_SOURCE_CHANNEL']) delete env[k];
   const out = await new Promise((resolve, reject) => {
     // exit code not read (#3628): any failure, a non-zero exit included, rejects with the error and stderr.
-    execFile(path.join(HOME, 'runtime', 'bin', 'node'), ['-e', script], { env, timeout: 30000 }, (err, stdout, stderr) => {
+    // kosmos#8378: this node itself, not the runtime's symlink to it (a symlink needs a privilege on Windows).
+    execFile(process.execPath, ['-e', script], { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(err) + stderr)); else resolve(stdout);
     });
   });
