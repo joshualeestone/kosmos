@@ -9,6 +9,7 @@
  */
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const { test } = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -63,7 +64,7 @@ function homeWithNode(linked) {
 }
 const PTR = JSON.stringify({ version: '0.7.71', sha256: 'a'.repeat(64), artifact: 'kosmos-0.7.71-linux-x64.tar.gz' });
 
-test('#7281: a Linux x86_64 machine takes the Linux family when its pointer answers with a version', () => {
+test('#7281: a Linux x86_64 machine takes the Linux family when its pointer answers with a version', { skip: SKIP_POSIX_SETUP }, () => {
   assert.equal(family({ files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json');
   assert.equal(family({ files: { 'latest-linux-staging.json': PTR }, channel: 'staging' }), 'yes|latest-linux-staging.json', 'the staging channel reads the staging pointer');
   assert.equal(family({ files: { 'latest-linux.json': PTR }, channel: 'staging' }), '|latest.json', 'a staging install took the PROD Linux pointer');
@@ -84,14 +85,14 @@ test('#7281 review 1: only an a.b.c version turns the family on', () => {
   assert.equal(family({ files: { 'latest-linux.json': '{"version":"0.7"}' } }), '|latest.json');
 });
 
-test('#7281 review 1: an installed Linux-family copy refuses on an unreadable Linux pointer instead of downgrading', () => {
+test('#7281 review 1: an installed Linux-family copy refuses on an unreadable Linux pointer instead of downgrading', { skip: SKIP_POSIX_SETUP }, () => {
   const out = family({ files: {}, home: homeWithNode(false), expectStatus: 9 });
   assert.match(out, /DIE: Could not read a version from the Linux release pointer/);
   // CONTROL: a portable install (its node a link to a system one) keeps the transitional fallback.
   assert.equal(family({ files: {}, home: homeWithNode(true) }), '|latest.json');
 });
 
-test('#7281 review 2: a computer below glibc 2.35, or on musl, keeps the portable bundle; 2.35 itself and newer take the family', () => {
+test('#7281 review 2: a computer below glibc 2.35, or on musl, keeps the portable bundle; 2.35 itself and newer take the family', { skip: SKIP_POSIX_SETUP }, () => {
   assert.equal(family({ libc: '2.34', files: { 'latest-linux.json': PTR } }), '|latest.json', 'glibc 2.34 took a build that needs 2.35');
   assert.equal(family({ libc: '2.28', files: { 'latest-linux.json': PTR } }), '|latest.json');
   assert.equal(family({ libc: null, files: { 'latest-linux.json': PTR } }), '|latest.json', 'a musl computer took the glibc build');

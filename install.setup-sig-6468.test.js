@@ -11,6 +11,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test install.setup-sig-6468.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs run-setup, the macOS and Linux update path, which checks and runs install/setup.sh through a POSIX shell; Windows updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -78,7 +79,7 @@ test('verifySetup: a manifest that records no installer is exit 3 (cut before th
   assert.equal(verifySetup({ manifest: h.manifest, sig: h.sig, setup: h.setup, version: '1.2.3', installedVersion: '1.2.0', keys: [PUB] }).code, 3);
 });
 
-test('run-setup: CONTROL: a matching installer runs, and its exit code comes back', () => {
+test('run-setup: CONTROL: a matching installer runs, and its exit code comes back', { skip: SKIP_POSIX_SETUP }, () => {
   const r = runSetup(home('1.2.0'), host('1.2.3'), '1.2.3');
   assert.equal(r.code, 0, r.err);
   assert.equal(r.ran, true);
@@ -99,7 +100,7 @@ test('run-setup: a tampered installer, a missing .sig, or an unknown version run
   assert.equal(r.code, NOT_RUN, r.err);
   assert.equal(r.ran, false);
 });
-test('run-setup: NODE_OPTIONS is not handed to the installer, and it gets no stdin', () => {
+test('run-setup: NODE_OPTIONS is not handed to the installer, and it gets no stdin', { skip: SKIP_POSIX_SETUP }, () => {
   const hst = host('1.2.3', { setupBody: 'printf "opts=[%s]\\n" "${NODE_OPTIONS:-}" > "$MARK.env"; if read -r x; then echo got > "$MARK.in"; fi; : > "$MARK"\n' });
   const mark = path.join(tmp, 'mark-env');
   const h = home('1.2.0');
@@ -110,7 +111,7 @@ test('run-setup: NODE_OPTIONS is not handed to the installer, and it gets no std
   assert.equal(fs.existsSync(mark + '.in'), false, 'the installer read stdin');
 });
 
-test('#6659: run-setup installs into the home it was handed, not the default one, whatever the environment says', () => {
+test('#6659: run-setup installs into the home it was handed, not the default one, whatever the environment says', { skip: SKIP_POSIX_SETUP }, () => {
   /* The board runs with no KOSMOS_HOME exported (install/kosmos sets it unexported), so without this the installer took
      its default, ~/.local/share/kosmos: a board installed anywhere else updated (and paused) the person's default copy
      instead of itself. The installer here only records what home it was given. */
@@ -127,7 +128,7 @@ test('#6659: run-setup installs into the home it was handed, not the default one
   }
 });
 
-test('#6659 (review 1): a home that IS the default copy, reached through a link, reaches the installer as the default string', () => {
+test('#6659 (review 1): a home that IS the default copy, reached through a link, reaches the installer as the default string', { skip: SKIP_POSIX_SETUP }, () => {
   /* setup.sh tells the default copy from a sandboxed one (data folders, launch label, ~/.local/bin) by the path STRING,
      and installedRoot() resolves links. HOME is a scratch folder here, so nothing real is named. */
   const fakeHome = fs.mkdtempSync(path.join(tmp, 'person-'));

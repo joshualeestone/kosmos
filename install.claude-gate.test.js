@@ -26,6 +26,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 /* #4920 (Splinter 18:53): setup.sh's own option line (read from the file below), not `set -euo pipefail`: these scripts run
    under sh, which is dash on Linux, and dash refuses `set -o pipefail`; so the functions run here as they really
@@ -162,7 +163,7 @@ function run({ homeHasClaude, pathClaude, installer }) {
   }
 }
 
-test('the env override is honored, so sandboxed installs can point at a fixture', () => {
+test('the env override is honored, so sandboxed installs can point at a fixture', { skip: SKIP_POSIX_SETUP }, () => {
   /* ⚠️ RESTORED. An earlier version of this branch deleted this case along
      with the download it used to guard, but AGENT_WORKFORCE_CLAUDE_BIN is
      still read by the shipped function, and tools/test-install.sh pins all
@@ -181,13 +182,13 @@ test('the env override is honored, so sandboxed installs can point at a fixture'
     'the override was ignored, so every sandboxed install would look at the real home');
 });
 
-test('present at the path Kosmos uses: says where it looked, changes nothing', () => {
+test('present at the path Kosmos uses: says where it looked, changes nothing', { skip: SKIP_POSIX_SETUP }, () => {
   const r = run({ homeHasClaude: true, pathClaude: false, installer: 'lands' });
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Claude Code found at .*\.local\/bin\/claude/);
 });
 
-test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', () => {
+test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', { skip: SKIP_POSIX_SETUP }, () => {
   /* The case that used to install, and before that refused. It is the whole
      point of the ruling: an OpenAI-only person gets through setup. */
   const r = run({ homeHasClaude: false, pathClaude: false, installer: 'lands' });
@@ -216,7 +217,7 @@ test('⭐ genuinely absent: the install COMPLETES, and nothing is downloaded', (
   assert.doesNotMatch(r.out, /Installing it now/, 'the retired sentence is back');
 });
 
-test('installed elsewhere: LINKED into place, which moves no bytes and installs nothing', () => {
+test('installed elsewhere: LINKED into place, which moves no bytes and installs nothing', { skip: SKIP_POSIX_SETUP }, () => {
   /* 🛑 THE LINK STAYS, and an earlier version of this branch removed it on
      the belief that the engine would do it on Connect. Checked and wrong
      twice: that code is on an unmerged branch, and even merged it is
@@ -242,7 +243,7 @@ test('installed elsewhere: LINKED into place, which moves no bytes and installs 
   assert.doesNotMatch(r.out, /Installing it now/, 'the retired install sentence is back');
 });
 
-test('the link it writes is ACCEPTED on the next run, so a linked Mac does not loop', () => {
+test('the link it writes is ACCEPTED on the next run, so a linked Mac does not loop', { skip: SKIP_POSIX_SETUP }, () => {
   /* ⚠️ RESTORED from the pre-#979 file. Updates re-run this installer, so a
      symlink that failed the function's own `-f && -x` accept test would be
      re-reported forever. The link arm is the only one that WRITES, so it is
@@ -257,7 +258,7 @@ test('the link it writes is ACCEPTED on the next run, so a linked Mac does not l
     'the function refuses the very link it created, so every linked machine loops');
 });
 
-test('a broken link at the path WITH a working claude elsewhere gets the one-shot replace', () => {
+test('a broken link at the path WITH a working claude elsewhere gets the one-shot replace', { skip: SKIP_POSIX_SETUP }, () => {
   /* The pairing the unrunnable arm used to swallow by returning early: the
      person most likely to re-download the whole binary of something they already have. */
   const sb = sandbox();
@@ -276,7 +277,7 @@ test('a broken link at the path WITH a working claude elsewhere gets the one-sho
   assert.match(out, /&& ln -s/, 'the one-shot replacement is not offered although a working claude is on PATH');
 });
 
-test('a SYMLINK TO A DIRECTORY is refused, not accepted because -f followed it', () => {
+test('a SYMLINK TO A DIRECTORY is refused, not accepted because -f followed it', { skip: SKIP_POSIX_SETUP }, () => {
   /* RESTORED. `-f` follows symlinks, which is what lets a link to a real
      binary pass; the other half of that is that a link to a FOLDER must not. */
   const sb = sandbox();
@@ -292,7 +293,7 @@ test('a SYMLINK TO A DIRECTORY is refused, not accepted because -f followed it',
   assert.match(out, /cannot run/, 'a symlink to a folder was accepted as a runner');
 });
 
-test('something present that cannot run: named, and the install still COMPLETES', () => {
+test('something present that cannot run: named, and the install still COMPLETES', { skip: SKIP_POSIX_SETUP }, () => {
   /* A broken symlink (npm prefix moved) or a chmod-000 file at the path.
      This used to die, taking the whole Kosmos install with it because one
      provider's path was untidy. */
@@ -313,7 +314,7 @@ test('something present that cannot run: named, and the install still COMPLETES'
   assert.doesNotMatch(out, /nothing there/, 'the false claim survived');
 });
 
-test('a DIRECTORY at the path is named as unrunnable, and still does not end the install', () => {
+test('a DIRECTORY at the path is named as unrunnable, and still does not end the install', { skip: SKIP_POSIX_SETUP }, () => {
   /* mode-755 directories pass a bare -x, the #133 trap. The -f half still
      catches it; what changed is that it no longer stops everything. */
   const sb = sandbox();

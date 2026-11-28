@@ -14,6 +14,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * Parts 2 and 3 need macOS and swiftc, and are skipped (said so) without them.
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs the macOS .pkg postinstall and install/setup.sh, the macOS and Linux installer, through a POSIX shell; neither runs on Windows, which installs from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -196,7 +197,7 @@ test('#6576: a tampered installer, a tampered manifest, or no signature ends the
   assert.equal(fs.existsSync(ran), false, 'the tampered installer must never run');
 });
 
-test('#6576: on a Mac that already has Kosmos, the checked installer runs and the older hand-off is never reached', () => {
+test('#6576: on a Mac that already has Kosmos, the checked installer runs and the older hand-off is never reached', { skip: SKIP_POSIX_SETUP }, () => {
   const m = POSTINSTALL.match(/\/bin\/sh -c \\\n\s*'(?<inner>[\s\S]*?)' "\$SETUP_URL"/);
   assert.ok(m, 'could not lift the inner script; postinstall moved, re-anchor this test');
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgpin-installed-6576-'));
@@ -255,7 +256,7 @@ test('#6576: the shipped floor is "off" or a signed release (0.7.57, the first w
 });
 
 // ---- 3b. the person's shell, lifted verbatim (the same anchor as tools/test-pkg-checksum-1670.sh) ----
-test('#6576: handed a checked installer, the person\'s shell runs THAT file with the pins exported and downloads nothing', () => {
+test('#6576: handed a checked installer, the person\'s shell runs THAT file with the pins exported and downloads nothing', { skip: SKIP_POSIX_SETUP }, () => {
   const m = POSTINSTALL.match(/\/bin\/sh -c \\\n\s*'(?<inner>[\s\S]*?)' "\$SETUP_URL"/);
   assert.ok(m, 'could not lift the inner script; postinstall moved, re-anchor this test');
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgpin-inner-6576-'));
@@ -274,7 +275,7 @@ test('#6576: handed a checked installer, the person\'s shell runs THAT file with
 });
 
 // ---- 4. setup.sh pinned_sha_ok, verbatim ----
-test('#6576: setup.sh holds a pinned download to its pin: none passes, equal passes, different or malformed refuses', () => {
+test('#6576: setup.sh holds a pinned download to its pin: none passes, equal passes, different or malformed refuses', { skip: SKIP_POSIX_SETUP }, () => {
   const start = SETUP.indexOf('pinned_sha_ok() {');
   const end = SETUP.indexOf('\n}\n', start) + 3;
   assert.ok(start > 0, 'pinned_sha_ok is gone from setup.sh');
@@ -308,7 +309,7 @@ test('#6576: setup.sh checks each pinned download right after its checksum, befo
   }
 });
 
-test('#6576: setup.sh takes the pins once and removes them from the environment (the board it starts must not inherit them)', () => {
+test('#6576: setup.sh takes the pins once and removes them from the environment (the board it starts must not inherit them)', { skip: SKIP_POSIX_SETUP }, () => {
   const start = SETUP.indexOf('case "${KOSMOS_PINNED_VERSION:-}" in');
   const end = SETUP.indexOf('unset KOSMOS_PINNED_TARBALL_SHA256 KOSMOS_PINNED_TMUX_SHA256 KOSMOS_PINNED_VERSION\n', start);
   assert.ok(start > 0 && end > start, 'the pin capture moved; re-anchor this test');
@@ -318,7 +319,7 @@ test('#6576: setup.sh takes the pins once and removes them from the environment 
   assert.equal(r.stdout, `0.7.60 ${'b'.repeat(64)} ${'c'.repeat(64)}\n0\n`, 'pins kept for this run, and none left in the environment: ' + r.stderr);
 });
 
-test('#6576: setup.sh installs the checked version, and refuses one that is not a.b.c', () => {
+test('#6576: setup.sh installs the checked version, and refuses one that is not a.b.c', { skip: SKIP_POSIX_SETUP }, () => {
   const start = SETUP.indexOf('case "${KOSMOS_PINNED_VERSION:-}" in');
   const end = SETUP.indexOf('esac\n', start) + 5;
   assert.ok(start > 0, 'the pinned-version case is gone from setup.sh');
