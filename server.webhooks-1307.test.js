@@ -703,6 +703,10 @@ test('kosmos#9309: a call whose task save fails with any coded error (libuv UNKN
     assert.ok(r.json.error.includes(code), r.json.error);
     assert.doesNotMatch(r.json.error, /someone|secret/, 'no path to an outside sender: ' + r.json.error);
   }
+  tasksMod.create = () => { throw new Error('there is something wrong with that title'); };   // CONTROL: an uncoded error is the request's
+  let bad;
+  try { bad = await call(made.json.url, { title: 'x' }); } finally { tasksMod.create = orig; }
+  assert.equal(bad.status, 400, 'an uncoded error is the request, so a sender does not retry it');
   assert.equal((await call(made.json.url, { title: 'control: works again' })).status, 201);
 });
 

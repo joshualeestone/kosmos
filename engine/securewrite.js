@@ -177,7 +177,8 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  * to it), the made file stays where the link pointed, empty, since nothing is ever written to it; that name is not a
  * temp name, so nothing reaps it. On POSIX the open refuses a link, so the made file is the temp name itself
  * (kosmos#9309): removed or replaced, it is left with no name and goes when the fd closes; renamed away, it keeps the
- * new name, empty, unless a link to it is then planted at the temp name, when it is unlinked as on Windows; with a
+ * new name, empty, unless a symbolic link to it is then planted at the temp name, when it is unlinked as on Windows (a
+ * hard link planted there instead leaves it with both names); with a
  * second hard link, it keeps both names, empty, the temp name until a later process's reaper unlinks it and the other
  * one, chosen by whoever made the link, for good.
  *
