@@ -82,11 +82,12 @@ function run(args, port, stdin) {
     child.stderr.on('data', (d) => { out += d; if (cliDone === null && out.includes('CLI_DONE_9238')) cliDone = Date.now() - started; });
     const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
     child.on('error', reject);
-    child.on('close', (code, signal) => {
+    child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
       if (child.stdin) { try { child.stdin.destroy(); } catch {} }
-      if (typeof code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + '): it hung. ' + out)); return; }
-      resolve({ code, out, ms: Date.now() - started, cliDone });
+      const res = { code: exitCode, out, ms: Date.now() - started, cliDone };
+      if (typeof res.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + '): it hung. ' + out)); return; }
+      resolve(res);
     });
     if (child.stdin) {
       child.stdin.on('error', () => {});
@@ -179,6 +180,7 @@ test('#9238 CONTROL words alone with an empty named file still post', { skip: SK
    pipe it cannot, and a while-read loop over a heredoc is refused by design (the plan says so). */
 const HEREDOC_IS_FILE = (() => {
   if (!fs.existsSync('/bin/bash')) return null;   // Windows has none; skipOnWin32 skips these arms there anyway
+  // exit code not read (#3628): only the probe's own stdout ("true") says a heredoc is a file; anything else reads as not
   const r = spawnSync('/bin/bash', ['-c', '"$1" -e "process.stdout.write(String(require(\\"fs\\").fstatSync(0).isFile()))" <<X\nx\nX', 'bash', process.execPath]);
   return String(r.stdout) === 'true';
 })();
