@@ -57,8 +57,8 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['loginexpiry-file-9097.test.js',
-  'accountcarry-8048.test.js',   // kosmos#9273: a hook written with ~ is one hook with $CLAUDE_CONFIG_DIR on Windows too (its mkfifo arm skips there)   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
+const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS login file reader and the Windows warning, on a real Windows runner
+  'accountcarry-8048.test.js',   // kosmos#9273: a hook written with ~ is one hook with $CLAUDE_CONFIG_DIR on Windows too (its mkfifo arm skips there)
   'orgchartfile.test.js',   // kosmos#9272: the org chart reader's real runner, with a node stand-in for claude; its #!/bin/sh arms skip
   'messages.notafile-9279.test.js',   // kosmos#9279: a folder in the message log's place reads as unreadable on Windows too
   'heavyjobs-9217.test.js',   // kosmos#9217: a heavy job's process is judged by signal 0 there, with no ps to read its start
