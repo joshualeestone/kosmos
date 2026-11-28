@@ -37,3 +37,14 @@ outside the repo, which is what the fleet rule is for.
 - The MCP config the repo writes (engine/agentbrowser.js configFor) is asserted: Playwright's chromium at the shell,
   isolated, no profile.
 Residual, stated: a Chrome path built entirely from variables is not readable as text.
+
+## Review 2
+- ignoreDefaultArgs is safe ONLY as a literal list of safe switches, or a ternary between two such lists; every other
+  appearance of the name (a variable arm, a call, shorthand, an assignment, a spread) is refused. Each clause has a
+  control; the shape rule removed turns them red.
+- The scan reads every tracked source file by git ls-files (.js/.mjs/.cjs/.ts/.sh/.py/.ps1/.swift and the
+  extensionless scripts in bin/, install/, tools/), not a folder list.
+- The header says what text cannot show: a Chrome path held only in a variable. The card's ask 3 (a launch without the
+  flag raising the prompt) is deliberately not run: it would put the dialog in front of the person. The measured arm is
+  the fixed one: the flags are on the process and securityd logs nothing.
+- ignoreAllDefaultArgs: false is not refused.
