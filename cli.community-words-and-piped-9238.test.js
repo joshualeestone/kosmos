@@ -18,7 +18,7 @@ const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-words-piped-9238-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -56,6 +56,9 @@ function run(args, port, stdin) {
       const f = path.join(DATA, 'fifo-' + Math.random().toString(16).slice(2));
       fs.writeFileSync(f, stdin.fifo);
       cmd = '/bin/sh'; argv = ['-c', 'cat "$1" | { shift; "$CLI9238" "$@"; }', 'sh', f, ...args];
+      env.CLI9238 = CLI;
+    } else if (stdin.bash !== undefined) {
+      cmd = '/bin/bash'; argv = ['-c', stdin.bash, 'bash', ...args];
       env.CLI9238 = CLI;
     } else if (stdin.script !== undefined) {
       // a fixed shell script written by this test; "$CLI9238" is the CLI
@@ -171,20 +174,32 @@ test('#9238 CONTROL words alone with an empty named file still post', { skip: SK
   assert.equal(seen.length, 1, r.out);
 }));
 
-for (const [how, feed] of [
-  ['a heredoc', ' <<\'EOF\'\nfirst reply\nsecond reply\nthird reply\nEOF'],
-  ['a here-string (bash)', null],
-]) {
-  test('#9238 a while-read loop over ' + how + ' comments once per line: the command does not take the loop\'s lines', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
-    const loop = 'while IFS= read -r l; do "$CLI9238" community comment ' + ID + ' "$l" || exit 9; done';
-    const stdin = feed !== null
-      ? { script: loop + feed }
-      : { script: loop + " <<< \"$(printf 'first reply\\nsecond reply\\nthird reply')\"" };   // /bin/sh is bash here
-    const r = await run([], port, stdin);
+/* Whether /bin/bash hands a heredoc over as a regular file (bash 3.2, the Mac's) or as a pipe (bash 5, as on Linux CI).
+   Measured here, not assumed: with a file, the CLI can tell a loop's heredoc (already part read) from its own; with a
+   pipe it cannot, and a while-read loop over a heredoc is refused by design (the plan says so). */
+const HEREDOC_IS_FILE = (() => {
+  if (!fs.existsSync('/bin/bash')) return null;   // Windows has none; skipOnWin32 skips these arms there anyway
+  const r = spawnSync('/bin/bash', ['-c', '"$1" -e "process.stdout.write(String(require(\\"fs\\").fstatSync(0).isFile()))" <<X\nx\nX', 'bash', process.execPath]);
+  return String(r.stdout) === 'true';
+})();
+const LOOP = 'while IFS= read -r l; do "$CLI9238" community comment ' + ID + ' "$l" || exit 9; done';
+const LOOP_FEEDS = [
+  ['a heredoc', LOOP + " <<'EOF'\nfirst reply\nsecond reply\nthird reply\nEOF"],
+  ['a here-string', LOOP + " <<< \"$(printf 'first reply\\nsecond reply\\nthird reply')\""],
+];
+for (const [how, script] of LOOP_FEEDS) {
+  test('#9238 a while-read loop over ' + how + ' (bash, heredoc as a file) comments once per line: the command does not take the loop\'s lines', { skip: SKIP_POSIX_SHELL || (HEREDOC_IS_FILE !== true && '/bin/bash here hands a heredoc over as a pipe, not a file') }, () => withStubBoard(async (port, seen) => {
+    const r = await run([], port, { bash: script });
     assert.equal(r.code, 0, r.out);
     assert.deepEqual(seen.map((x) => x.body && x.body.body), ['first reply', 'second reply', 'third reply'], r.out);
   }));
 }
+test('#9238 where bash hands a heredoc over as a pipe, a while-read loop over one is refused at its first line, nothing sent', { skip: SKIP_POSIX_SHELL || (HEREDOC_IS_FILE !== false && '/bin/bash here hands a heredoc over as a file') }, () => withStubBoard(async (port, seen) => {
+  const r = await run([], port, { bash: LOOP_FEEDS[0][1] });
+  assert.equal(r.code, 9, r.out);
+  assert.equal(seen.length, 0, r.out);
+  assert.match(r.out, /If this runs inside a loop that reads its own input, add < \/dev\/null/);
+}));
 
 test('#9238 a while-read loop over a named file comments once per line, and the loop keeps every line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const list = path.join(DATA, 'loop-' + Math.random().toString(16).slice(2));
@@ -256,7 +271,7 @@ test('#9238 the Mac and Windows CLIs say the same three hints, word for word', (
     assert.ok(mac.includes(h), 'the Mac CLI lacks: ' + h);
     assert.ok(win.includes(JSON.stringify(h)), 'the Windows CLI lacks: ' + h);
   }
-  for (const shared of [': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.', 'If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words.']) {
+  for (const shared of [': there are words on the command line and text piped in too, and only the words would have been sent. Give one or the other.', 'If this runs inside a loop that reads its own input, add < /dev/null to the command so it reads only its words (a loop fed by a pipe has lost the text this check read).']) {
     assert.ok(mac.includes(shared), 'the Mac CLI lacks: ' + shared);
     assert.ok(win.includes(shared), 'the Windows CLI lacks: ' + shared);
   }
