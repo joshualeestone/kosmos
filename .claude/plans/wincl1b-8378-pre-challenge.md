@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: wincl1b-8378
-diff_hash: f36c6a83809beaee13a601215b8776411ffaba81aeb3b96734ac06b692009dcf
+diff_hash: 27bac4e83453e6063552a485ced667fea2429dfb257791178a79f9f66a7971af
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-28T14:48:38Z
@@ -22,6 +22,9 @@ converged: false
 - tools/windows-tests.js then conflicted with main twice as other #8378 clusters landed. Each conflict was an append to HOST_BRANCH_EXCLUDED with distinct keys, resolved by keeping both sides and checked for duplicate keys (0 of 309).
 - A merge of main was refused by .githooks/pre-commit. The refusal was on origin/main's own tools/test-queued-heavy-4977.sh, not on this branch's files (reported to its owner, Renet, kosmos msg m7317). So the 8 rounds were squashed into one commit with an identical tree and rebased. The local backup branch backup-wincl1b-8378-pre-squash = 43bb0a8fc5 keeps every round's commit.
 - After the second rebase (onto 6999392572): the 26 touched test files plus the coupling audit gave 946 tests, 945 pass, 0 fail, 0 cancelled, 1 skip. The full suite on current main runs in PR CI before the merge.
+- Third rebase (onto 33c6cc4cb1, 09:1x): main had changed the `engine/idleretire-8720.test.js` entry; kept main's line
+  and this branch's 19 entries, dropped this side's stale copy of that entry (336 keys, 0 duplicates). The 26 touched
+  files plus the audit: 946 tests, 945 pass, 0 fail. diff_hash updated to this base.
 - Windows (never-merge check branch, windows-latest): 25 of 26 files pass. accountcarry review 6 stays red on purpose (a real bug, #9273). Re-run on each rebased head.
 
 ### Per-Iteration Breakdown
