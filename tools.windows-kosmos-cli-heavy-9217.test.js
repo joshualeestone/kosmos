@@ -140,10 +140,10 @@ test('heavy take: a kept place returns 3 and says the place, the holder and who 
   assert.match(r.out, /^Not yet: you are 2nd in line; ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: bo\. Ask again with kosmos heavy take to keep your place\.$/);
 });
 
-test('heavy take: behind a free turn, it names who has 2 minutes to take it', async () => {
+test('heavy take: behind a free turn, it names who has up to 2 minutes to take it', async () => {
   const r = await run(['heavy', 'take', 'suite'], answering('free'));
   assert.equal(r.code, 3, r.err);
-  assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/);
+  assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has up to 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/);
 });
 
 test('heavy release: an ended turn, a given-up place, and nothing to release each say so and return 0', async () => {
@@ -166,4 +166,13 @@ test('a bare heavy lists the line of turns after what is running', async () => {
   const r = await run(['heavy'], () => [200, { ok: true, jobs: [], line: [{ agent: 'bo', name: 'Bo', label: 'v', pid: null, since: S }] }]);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^No heavy job is running on this computer\.\nWaiting 1: Bo, v \(in line since \d\d:\d\d\)$/);
+});
+
+test('heavy take names agents by the name the board shows; release with no pid points at --pid when that is all you have', async () => {
+  const r = await run(['heavy', 'take', 'suite'], () => [200, { ok: true, turn: false, place: 2, holder: { agent: 'ada', name: 'Ada', label: 'cut', pid: null, since: S }, ahead: [{ agent: 'bo', name: 'Bo', label: 'v', pid: null, since: S }] }]);
+  assert.equal(r.code, 3, r.err);
+  assert.match(r.out, /^Not yet: you are 2nd in line; Ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: Bo\./);
+  const rel = await run(['heavy', 'release'], () => [200, { ok: true, left: 0, ended: 0, others: 1 }]);
+  assert.equal(rel.code, 0, rel.err);
+  assert.match(rel.out, /^You had no turn and no place in line without a process\. Your 1 recorded job is tied to a process: release it with kosmos heavy release --pid N \(kosmos heavy lists them\)\.$/);
 });

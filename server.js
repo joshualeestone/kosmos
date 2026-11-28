@@ -3424,7 +3424,7 @@ function safeRoster() {
        same expression), so the project routes can tell a connection Kosmos has given up on. */
     /* #5811: `geminiSeen` comes off here too, as on /api/status's rows: the roster's consumers never need it, so no route
        that forwards a roster row can carry it (server.gemini-seen-5811.test.js). */
-    return agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => {
+    const rows = agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => {
       const withReconnect = a.state === 'connection_lost'
         ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
         : a;
@@ -3442,6 +3442,11 @@ function safeRoster() {
           })
         : withReconnect;
     });
+    // kosmos#9217 slice 2: whether this read could account for every pane, as /api/status's couldNotAccount says, so a
+    // route that judges an agent missing (the take of a turn) judges only on a complete read. A property of the array:
+    // JSON and every other caller ignore it.
+    rows.complete = !(board && board.counts && board.counts.unreadableLines > 0);
+    return rows;
   } catch {
     return null;
   }
@@ -28584,8 +28589,12 @@ const server = http.createServer(async (req, res) => {
         const ht = require('./engine/heavyturns');
         let alive = null;
         if (body.action === 'take') {
+          // The marks a status read keeps, refreshed by this read first (a complete roster starts a missing agent's
+          // HEAVY_AGENT_GRACE_MS, as /api/status does), so a holder or waiter that left is judged gone after the grace
+          // even when no page polls the board. Only a grace already run out judges anyone gone.
+          if (roster) heavyNow({ running: roster, offline: [], complete: roster.complete === true });
           const up = new Set((roster || []).map((a) => a && a.sessionName).filter(Boolean));
-          alive = (n) => {   // the same marks the board's reads keep: only a grace already run out judges a waiter gone
+          alive = (n) => {
             if (up.has(n)) return true;
             const since = heavyMissingSince.get(n);
             return since !== undefined && Date.now() - since >= HEAVY_AGENT_GRACE_MS ? false : null;
@@ -28596,8 +28605,9 @@ const server = http.createServer(async (req, res) => {
           : ht.release({ root: store.ROOT, agent: name, pid: body.pid });
         if (!t.ok) { sendJson(res, t.refused ? 400 : 503, { error: t.because }); return; }
         heavyMissingSince.delete(name);   // it just answered as itself: not missing
-        const brief = (j) => (j ? { agent: j.agent, label: j.label, pid: j.pid, since: j.since } : null);
-        sendJson(res, 200, body.action === 'release' ? { ok: true, left: t.left, ended: t.ended }
+        const display = new Map((roster || []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a.name || a.sessionName]));
+        const brief = (j) => (j ? { agent: j.agent, name: display.get(j.agent) || j.agent, label: j.label, pid: j.pid, since: j.since } : null);
+        sendJson(res, 200, body.action === 'release' ? { ok: true, left: t.left, ended: t.ended, others: typeof t.others === 'number' ? t.others : 0 }
           : t.turn ? { ok: true, turn: true, job: brief(t.job) }
             : { ok: true, turn: false, place: t.place, holder: brief(t.holder), ahead: t.ahead.map(brief) });
         return;
@@ -32835,7 +32845,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _clearSweepRosterForTest: () => { sweepRosterKept = null; } /* kosmos#8720 */, _idleRetireSweepDepsForTest: idleRetireSweepDeps, _idleRetireActiveForTest: idleRetireActive /* kosmos#9228 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+module.exports = { _heavyJobsNowForTest: heavyJobsNow /* kosmos#9217 */, _heavyMissingSinceForTest: heavyMissingSince /* kosmos#9217 slice 2 */, _clearSweepRosterForTest: () => { sweepRosterKept = null; } /* kosmos#8720 */, _idleRetireSweepDepsForTest: idleRetireSweepDeps, _idleRetireActiveForTest: idleRetireActive /* kosmos#9228 */, _setClaudeReadProblemForTest /* kosmos#9085 */, _setOutageChannelForTest /* kosmos#9087 */, _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
    _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it

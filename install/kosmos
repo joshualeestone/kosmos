@@ -4091,12 +4091,15 @@ cmd_heavy() {
       if (j && j.ok === true && j.turn === true && j.job) { console.log("Your turn: " + j.job.label + " is recorded as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy release" + how + " when it is done."); return; }
       if (j && j.ok === true && j.turn === false && Number.isSafeInteger(j.place)) {
         const ahead = Array.isArray(j.ahead) ? j.ahead : [];
-        const who = j.holder ? j.holder.agent + " has the turn (" + j.holder.label + ", since " + at(j.holder.since) + ")" : "the turn is free for " + (ahead[0] ? ahead[0].agent : "the agent ahead of you") + ", who has 2 minutes to take it";
-        console.log("Not yet: you are " + nth(j.place) + " in line; " + who + (ahead.length > 1 || (j.holder && ahead.length) ? ". Ahead of you: " + ahead.map((x) => x.agent).join(", ") : "") + ". Ask again with kosmos heavy take to keep your place.");
+        const nm = (x) => x.name || x.agent;
+        const who = j.holder ? nm(j.holder) + " has the turn (" + j.holder.label + ", since " + at(j.holder.since) + ")" : "the turn is free for " + (ahead[0] ? nm(ahead[0]) : "the agent ahead of you") + ", who has up to 2 minutes to take it";
+        console.log("Not yet: you are " + nth(j.place) + " in line; " + who + (ahead.length > 1 || (j.holder && ahead.length) ? ". Ahead of you: " + ahead.map(nm).join(", ") : "") + ". Ask again with kosmos heavy take to keep your place.");
         process.exit(3);
       }
       if (j && j.ok === true && typeof j.left === "number") {
         if (j.ended) { console.log("Released: your turn has ended, and it no longer shows on the board."); return; }
+        const rest = typeof j.others === "number" ? j.others : 0;
+        if (!j.left && rest && !process.argv[1]) { console.log("You had no turn and no place in line without a process. Your " + rest + " recorded " + (rest === 1 ? "job is" : "jobs are") + " tied to a process: release " + (rest === 1 ? "it" : "each") + " with kosmos heavy release --pid N (kosmos heavy lists them)."); return; }
         console.log(j.left ? "Released: you gave up your place in line." : "You had no turn and no place in line" + (process.argv[1] ? " for that process" : "") + "."); return;
       }
       if (j && j.ok === true && j.job) { console.log("Recorded: " + j.job.label + ". It shows on the board as running" + (j.job.pid ? " while process " + j.job.pid + " runs" : "") + ". kosmos heavy end" + (j.job.pid ? " --pid " + j.job.pid : "") + " when it is done."); return; }

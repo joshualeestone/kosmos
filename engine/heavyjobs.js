@@ -231,21 +231,24 @@ function end({ root, agent, pid }) {
    too, each marked unchecked: true. Stale ones are removed from the file when its
    lock can be had at once; a reader never waits for it, so the board's status poll is never held up, and a removal that
    could not be saved changes nothing the reader is told. */
+/* One read's start-time reader: at most PS_PER_READ ps runs, none started once PS_MS_PER_READ is spent. Only a ps run
+   spends the budget (a fresh cache hit costs none), and aged records are judged first, so the ones that need a read to
+   be shown get it (kosmos#9222). Exported so the line of turns (engine/heavyturns.js) shares one budget with the jobs. */
+function budgetedStartOf(now = Date.now()) {
+  let budget = PS_PER_READ;
+  const until = Date.now() + PS_MS_PER_READ;
+  const rs = require('./restoresink');
+  return (pid) => {
+    if (!rs.pidAlive(pid)) { startCache.delete(pid); return null; }   // gone: signal 0 says so, and no ps is spent
+    const hit = startCache.get(pid);
+    if (hit && now - hit.at < START_CACHE_MS) return defaultStartOf(pid, now, 'cached');
+    if (budget > 0 && Date.now() < until) { budget -= 1; return defaultStartOf(pid, now, 'cached'); }
+    return defaultStartOf(pid, now, 'alive');
+  };
+}
+
 function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = null, hidden = false }) {
-  if (startOf === defaultStartOf) {
-    // Only a ps run spends the budget (a fresh cache hit costs none), and aged records are judged first, so the ones
-    // that need a read to be shown get it (kosmos#9222).
-    let budget = PS_PER_READ;
-    const until = Date.now() + PS_MS_PER_READ;
-    const rs = require('./restoresink');
-    startOf = (pid) => {
-      if (!rs.pidAlive(pid)) { startCache.delete(pid); return null; }   // gone: signal 0 says so, and no ps is spent
-      const hit = startCache.get(pid);
-      if (hit && now - hit.at < START_CACHE_MS) return defaultStartOf(pid, now, 'cached');
-      if (budget > 0 && Date.now() < until) { budget -= 1; return defaultStartOf(pid, now, 'cached'); }
-      return defaultStartOf(pid, now, 'alive');
-    };
-  }
+  if (startOf === defaultStartOf) startOf = budgetedStartOf(now);
   const all = readAll(root);
   const order = all.map((_, i) => i).sort((a, b) => Number(agedOf(all[b], now)) - Number(agedOf(all[a], now)));
   const verdict = [];
@@ -267,4 +270,4 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
     .map(({ j, v }) => ({ agent: j.agent, label: j.label, pid: j.pid, since: j.since, ...(v === 'hide' ? { unchecked: true } : {}) }));
 }
 
-module.exports = { FILE, MAX_AGE_MS, MAX_LABEL, MAX_PER_AGENT, defaultStartOf, normalizeLabel, normalizePid, readAll, judge, isLive, start, end, live };
+module.exports = { FILE, MAX_AGE_MS, MAX_LABEL, MAX_PER_AGENT, defaultStartOf, budgetedStartOf, normalizeLabel, normalizePid, readAll, judge, isLive, start, end, live };

@@ -2942,12 +2942,14 @@ function heavySend(sub) {
       const n = j.place;
       const nth = n + (n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th');
       const ahead = Array.isArray(j.ahead) ? j.ahead : [];
-      const who = j.holder ? j.holder.agent + ' has the turn (' + j.holder.label + ', since ' + heavyWhen(j.holder.since) + ')' : 'the turn is free for ' + (ahead[0] ? ahead[0].agent : 'the agent ahead of you') + ', who has 2 minutes to take it';
-      ctx.out('Not yet: you are ' + nth + ' in line; ' + who + (ahead.length > 1 || (j.holder && ahead.length) ? '. Ahead of you: ' + ahead.map((x) => x.agent).join(', ') : '') + '. Ask again with kosmos heavy take to keep your place.');
+      const nm = (x) => x.name || x.agent;
+        const who = j.holder ? nm(j.holder) + ' has the turn (' + j.holder.label + ', since ' + heavyWhen(j.holder.since) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
+      ctx.out('Not yet: you are ' + nth + ' in line; ' + who + (ahead.length > 1 || (j.holder && ahead.length) ? '. Ahead of you: ' + ahead.map(nm).join(', ') : '') + '. Ask again with kosmos heavy take to keep your place.');
       return 3;
     }
     if (ok && typeof j.left === 'number') {
       if (j.ended) ctx.out('Released: your turn has ended, and it no longer shows on the board.');
+      else if (!j.left && typeof j.others === 'number' && j.others && !got.pid) ctx.out('You had no turn and no place in line without a process. Your ' + j.others + ' recorded ' + (j.others === 1 ? 'job is' : 'jobs are') + ' tied to a process: release ' + (j.others === 1 ? 'it' : 'each') + ' with kosmos heavy release --pid N (kosmos heavy lists them).');
       else ctx.out(j.left ? 'Released: you gave up your place in line.' : 'You had no turn and no place in line' + (got.pid ? ' for that process' : '') + '.');
       return 0;
     }

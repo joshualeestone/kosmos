@@ -176,11 +176,11 @@ test('kosmos heavy take: a kept place exits 3 and says the place, the holder and
     assert.match(r.out, /^Not yet: you are 2nd in line; ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: bo\. Ask again with kosmos heavy take to keep your place\.$/m);
   }));
 
-test('kosmos heavy take: behind a free turn, it names who has 2 minutes to take it', { skip: SKIP_POSIX_SHELL }, () =>
+test('kosmos heavy take: behind a free turn, it names who has up to 2 minutes to take it', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => turnAnswers.free, async (port) => {
     const r = await runCli(['heavy', 'take', 'suite'], envFor(port));
     assert.equal(r.code, 3, r.out);
-    assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/m);
+    assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has up to 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/m);
   }));
 
 test('kosmos heavy release: an ended turn, a given-up place, and nothing to release each say so and exit 0', { skip: SKIP_POSIX_SHELL }, async () => {
@@ -207,3 +207,16 @@ test('a bare kosmos heavy lists the line of turns after what is running', { skip
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^No heavy job is running on this computer\.\nWaiting 1: Bo, v \(in line since \d\d:\d\d\)$/m);
   }));
+
+test('kosmos heavy take names agents by the name the board shows; release with no pid points at --pid when that is all you have', { skip: SKIP_POSIX_SHELL }, async () => {
+  await withBoard(() => ({ ok: true, turn: false, place: 2, holder: { agent: 'ada', name: 'Ada', label: 'cut', pid: null, since: S }, ahead: [{ agent: 'bo', name: 'Bo', label: 'v', pid: null, since: S }] }), async (port) => {
+    const r = await runCli(['heavy', 'take', 'suite'], envFor(port));
+    assert.equal(r.code, 3, r.out);
+    assert.match(r.out, /^Not yet: you are 2nd in line; Ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: Bo\./m);
+  });
+  await withBoard(() => ({ ok: true, left: 0, ended: 0, others: 1 }), async (port) => {
+    const r = await runCli(['heavy', 'release'], envFor(port));
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^You had no turn and no place in line without a process\. Your 1 recorded job is tied to a process: release it with kosmos heavy release --pid N \(kosmos heavy lists them\)\.$/m);
+  });
+});
