@@ -90,6 +90,7 @@ function run(args, port, stdin) {
     child.on('error', reject);
     child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group already ended */ }
       LIVE_GROUPS.delete(child.pid);
       if (child.stdin) { try { child.stdin.destroy(); } catch {} }
       const res = { code: exitCode, out, cliDone };
@@ -254,7 +255,8 @@ for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoId
 }
 
 /* kosmos#9264: the peek's length, read from the CLI instead of timed, so a busy machine cannot trip it and a peek made
-   as long as the quiet read cannot pass. Returns the reasons the given CLI text fails, [] when it passes. */
+   as long as the quiet read cannot pass. Returns the reasons the given CLI text fails, [] when it passes.
+   It reads these lines only: a wait added anywhere else is not seen (the plan says where). */
 function peekProblems(cli) {
   const problems = [];
   const m = cli.match(/^KOSMOS_PIPED_PEEK_MS=(\d+)\b/m);
@@ -275,10 +277,12 @@ function peekProblems(cli) {
 test('#9264 the peek for words alone is under a second and is not the quiet read', () => {
   const cli = fs.readFileSync(CLI, 'utf8');
   assert.deepEqual(peekProblems(cli), []);
-  // CONTROL: the same check refuses a 3 s peek, a peek given the quiet read's length, and a scaled peek timer.
-  assert.notDeepEqual(peekProblems(cli.replace(/^KOSMOS_PIPED_PEEK_MS=\d+/m, 'KOSMOS_PIPED_PEEK_MS=3000')), []);
-  assert.notDeepEqual(peekProblems(cli.replace('KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS"', 'KOSMOS_PEEK_MS="$((KOSMOS_STDIN_QUIET_S * 1000))"')), []);
-  assert.notDeepEqual(peekProblems(cli.replace('Number(process.env.KOSMOS_PEEK_MS))', 'Number(process.env.KOSMOS_PEEK_MS) * 10)')), []);
+  // CONTROL: each rule refuses the change it names, alone (a control passing on another rule would prove nothing).
+  const only = (changed, rule) => { const got = peekProblems(changed); assert.ok(changed !== cli, 'the control changed nothing: ' + rule); assert.deepEqual(got.filter((x) => !rule.test(x)), [], 'another rule fired: ' + got.join('; ')); assert.ok(got.some((x) => rule.test(x)), 'the rule did not fire: ' + rule); };
+  only(cli.replace(/^KOSMOS_PIPED_PEEK_MS=\d+/m, 'KOSMOS_PIPED_PEEK_MS=3000'), /not under 1 s/);
+  only(cli.replace('KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS"', 'KOSMOS_PEEK_MS="$KOSMOS_OTHER_MS"'), /not given KOSMOS_PIPED_PEEK_MS/);
+  only(cli.replace('Number(process.env.KOSMOS_PEEK_MS))', 'Number(process.env.KOSMOS_PEEK_MS) * 10)'), /not exactly KOSMOS_PEEK_MS/);
+  only(cli.replace(/(\r?\n_words_and_piped\(\) \{\r?\n)/, '$1  _read_stdin_quiet 1\n'), /reaches the quiet read/);
 });
 
 for (const v of [
