@@ -281,8 +281,7 @@ rt_wd_loop() {
       # Looks come every 0.2 s until node is found, so a short run is seen too. node starts right after this loop
       # does, so 25 looks (5 s or more: each look also runs ps) without it means it is not where this looks; a node
       # that slow to start under load can print this on a green run too.
-      # kosmos#9278: not on Windows, where it can never be found and rt_file_watchdog_start already said so.
-      if [ -z "$node" ] && [ "$looks" = 25 ] && [ "$_RT_WIN" != 1 ]; then
+      if [ -z "$node" ] && [ "$looks" = 25 ]; then
         echo "run-tests: node --test not found yet; the per-file limit is off until it is (#6668)" >&2
       fi
     elif ! kill -0 "$node" 2>/dev/null; then
