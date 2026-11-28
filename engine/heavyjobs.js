@@ -164,9 +164,9 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     const s = startOf === defaultStartOf ? defaultStartOf(p, now, 'fresh') : startOf(p);
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
-    // kosmos#9222: announced again while ps cannot answer, the agent's own record for this process keeps the start it
-    // recorded (and with it its "since"), rather than becoming one the ceiling would drop while the process runs.
-    unread = pidStart === null && s === undefined;   // kosmos#9230: the carry-over is read under the lock, below
+    // kosmos#9222: ps could not answer. If the agent already has a record for this process, its recorded start is carried
+    // over under the lock below (kosmos#9230), so the job does not become one the ceiling would drop while it runs.
+    unread = pidStart === null && s === undefined;
   }
   const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };   // since: shown; at: the ceiling counts from it
   let othersOf = startOf;
@@ -192,11 +192,12 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     }
     // kosmos#9222/#9230: announced again while ps cannot answer, the agent's own record for this process keeps the start
     // it recorded (and with it its "since"); read here, under the lock, so a write made meanwhile is the one seen.
+    const here = readAll(root);
     if (unread) {
-      const had = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart);
+      const had = here.find((j) => j.agent === agent && j.pid === p && j.pidStart);
       if (had) job.pidStart = had.pidStart;
     }
-    const was = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
+    const was = here.find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
     if (was && judge(was, { now, startOf: othersOf, agentAlive: null }) !== 'drop') job.since = was.since;   // shown or hidden: still it   // announced again: since stays
     list.push(job);
     if (!writeAll(root, list.filter((j) => j.agent !== agent || judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop'))) out = { ok: false, because: NOT_SAVED };
