@@ -1869,6 +1869,10 @@ _kosmos_beside_lock() {
         tk="$$.$RANDOM$RANDOM"
         if { : > "$d.break/$tk"; } 2>/dev/null && ! _kosmos_beside_break_mine "$d.break" "$tk"; then
           rm -f "$d.break/$tk" 2>/dev/null || true   # review 8: another taker wrote into this dir too: both back off
+          # kosmos#9300: and the last one out removes the dir. rmdir takes only an EMPTY dir, so while the other taker's
+          # token is there this does nothing, and that taker removes it. Without it the empty dir stayed, and no writer
+          # could break a stale lock for 60 s. A taker killed holding its token still leaves the dir to that 60 s path.
+          rmdir "$d.break" 2>/dev/null || true
         elif [ -e "$d.break/$tk" ]; then
           h1="$(cat "$d/pid" 2>/dev/null)"
           if _kosmos_beside_stale_h "$d" "$h1" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ] \
@@ -1878,6 +1882,8 @@ _kosmos_beside_lock() {
             continue
           fi
           rm -f "$d.break/$tk" 2>/dev/null; rmdir "$d.break" 2>/dev/null || true   # declined: on to the sleep
+        else
+          rmdir "$d.break" 2>/dev/null || true   # kosmos#9300: the token could not be written, so its own empty dir goes too
         fi
       else
         t1=""; for t1 in "$d.break"/*; do break; done   # the name seen BEFORE the age is judged
