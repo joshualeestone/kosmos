@@ -48,3 +48,6 @@ Residual, stated: a Chrome path built entirely from variables is not readable as
   flag raising the prompt) is deliberately not run: it would put the dialog in front of the person. The measured arm is
   the fixed one: the flags are on the process and securityd logs nothing.
 - ignoreAllDefaultArgs: false is not refused.
+
+## Review 3
+A ternary must have both arms, and a value continues past a newline that starts ? : or . (Prettier style). Controls now hold every clause the review mutated (spawn/exec/Sync, org.chromium, Contents/MacOS/Chromium, ignoreAllDefaultArgs =, a safe value ended by ; or a newline). An escaped quote in open -a is read. osascript and a Chrome name held in a variable stay outside what text can show (stated in the header).
