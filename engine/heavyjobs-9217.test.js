@@ -512,3 +512,19 @@ test('kosmos#9230: a re-announce made between a read and its drop is not removed
   const rec = hj.readAll(r)[0];
   assert.deepEqual([rec.pidStart, rec.since, rec.at], ['A', T0, T0 + 5], 'control: the re-announce kept its start and since (only at differs), the case the key must tell apart');
 });
+
+test('kosmos#9230: a re-announce in the same millisecond as the record it replaces still gets its own drop key', () => {
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'first', pid: 4251, now: T0, startOf: () => 'A' }).ok, true);
+  let once = true;
+  const startOf = () => {
+    if (once) {   // the same job announced again, at the very millisecond of the record the read is about to drop
+      once = false;
+      assert.equal(hj.start({ root: r, agent: 'renet', label: 'again', pid: 4251, now: T0, startOf: () => undefined }).ok, true);
+    }
+    return null;
+  };
+  hj.live({ root: r, now: T0 + 1, startOf });
+  assert.deepEqual(hj.readAll(r).map((j) => j.label), ['again'], 'a same-millisecond re-announce was removed by the drop decided before it');
+  assert.equal(hj.readAll(r)[0].at, T0 + 1, 'the re-announce took an at one past the record it replaced');
+});
