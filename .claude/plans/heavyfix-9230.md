@@ -9,5 +9,6 @@
 3. The wall-clock arm "start stops reading ... once its time is spent" keeps only its upper bound: a stall can only
    lower the count.
 
-Tests: the carry-over arms (#9222) red when the block is removed. Weakest premise: no arm yet makes the key's `at`
-matter (it needs a write between a read's verdict and its drop); reasoned, not measured.
+Tests: the carry-over arms (#9222) red when the block is removed. A new arm re-announces from inside a read (the
+injected startOf runs before live() takes the lock), so a drop decided before the re-announce must spare it; removing
+`at` from the key reds it (review round 1 found the way in).
