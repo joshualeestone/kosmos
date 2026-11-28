@@ -42,6 +42,10 @@ const asyncDate = async (service) => JSON.parse(await le.readCredAsync(service))
    on Windows there is no keychain read to run; the arms with the variable set never reach a reader and run there. */
 const KEYCHAIN = require('../test-support/skip-on-win32').skipOnWin32('it reads the macOS Keychain through security, a #!/bin/sh stand-in run by its shebang line; off macOS the reader is the credentials file (loginexpiry-file-9097.test.js)');
 
+/* kosmos#8378: an arm that checks an ABSENCE (no date, no read) proves something only beside the CONTROL above, which
+   shows the readers do read when let. That control reads the Keychain and skips on Windows, and off macOS the reader
+   answers null either way, so these arms skip there too rather than pass for that reason (as machine.linux-8384's do). */
+const ABSENCE = require('../test-support/skip-on-win32').skipOnWin32('it checks an absence (no date, no read), and its CONTROL reads the macOS Keychain through a #!/bin/sh stand-in, which Windows cannot run; off macOS the reader answers null either way, so without the control the absence proves nothing');
 test('CONTROL: with the variable unset, both readers run security', { skip: KEYCHAIN }, async () => {
   assert.equal(le.refreshExpiryFor(undefined), FAKE_KEYCHAIN_DATE);
   assert.ok(fs.existsSync(marker), 'the sync reader did not run the fake, so the arms below prove nothing');
@@ -57,14 +61,14 @@ test('set: the default account reads the fixed date, and security never runs', a
   assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
 });
 
-test('set: any other account reads nothing, and security never runs', async () => {
+test('set: any other account reads nothing, and security never runs', { skip: ABSENCE }, async () => {
   process.env[VAR] = String(FIXTURE_DATE);
   assert.equal(le.refreshExpiryFor('/some/config/dir'), null);
   assert.equal(await le.readCredAsync(le.serviceNameFor('/some/config/dir')), null);
   assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
 });
 
-test('set on a board with no sandbox home: no date and no read, so a leak onto a real board cannot show a false one', async () => {
+test('set on a board with no sandbox home: no date and no read, so a leak onto a real board cannot show a false one', { skip: ABSENCE }, async () => {
   process.env[VAR] = String(FIXTURE_DATE);
   delete process.env.AGENT_WORKFORCE_HOME;
   assert.equal(le.refreshExpiryFor(undefined), null);
@@ -86,7 +90,7 @@ const homeCases = realHome ? [
 const sameRealPath = (a, b) => { try { return fs.realpathSync.native(a) === fs.realpathSync.native(b); } catch { return false; } };
 if (realHome && realHome !== realHome.toUpperCase() && sameRealPath(realHome.toUpperCase(), realHome)) homeCases.push(['the real home in another case', () => realHome.toUpperCase()]);
 for (const [label, homeOf] of homeCases) {
-  test(`set with a "sandbox home" that is ${label}: no date and no read`, async () => {
+  test(`set with a "sandbox home" that is ${label}: no date and no read`, { skip: ABSENCE }, async () => {
     process.env[VAR] = String(FIXTURE_DATE);
     process.env.AGENT_WORKFORCE_HOME = homeOf();
     assert.equal(le.refreshExpiryFor(undefined), null);
@@ -101,7 +105,7 @@ test('CONTROL: a sandbox home beside the real one, sharing its name as a prefix,
   assert.equal(le.refreshExpiryFor(undefined), FIXTURE_DATE);
 });
 
-test('a real home that cannot be read: no date and no read, and neither reader throws or rejects', async () => {
+test('a real home that cannot be read: no date and no read, and neither reader throws or rejects', { skip: ABSENCE }, async () => {
   process.env[VAR] = String(FIXTURE_DATE);
   const real = os.userInfo;
   os.userInfo = () => { throw new Error('no passwd entry'); };
@@ -113,7 +117,7 @@ test('a real home that cannot be read: no date and no read, and neither reader t
 });
 
 for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity', '9'.repeat(400), '9007199254740993']) {
-  test(`a value that is not a usable whole number reads nothing (${JSON.stringify(bad.slice(0, 20))}): it cannot fall through to the real read`, async () => {
+  test(`a value that is not a usable whole number reads nothing (${JSON.stringify(bad.slice(0, 20))}): it cannot fall through to the real read`, { skip: ABSENCE }, async () => {
     process.env[VAR] = bad;
     assert.equal(le.refreshExpiryFor(undefined), null);
     assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);

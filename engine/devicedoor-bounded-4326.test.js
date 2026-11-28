@@ -64,7 +64,7 @@ test('#4326 a child that IGNORES SIGTERM is answered at the timeout and then SIG
   const stub = path.join(DIR, 'stubborn.sh');
   fs.writeFileSync(stub, "#!/bin/sh\ntrap '' TERM\n: > " + JSON.stringify(armed) + "\nwhile :; do sleep 1; done\n");
   fs.chmodSync(stub, 0o755);
-  const T = 400;
+  const T = 2000;   // not a speed test (#4656): /bin/sh must only start and set its trap inside it
   const r = await run(stub, [], { timeoutMs: T, graceMs: 300 });
   try {
     assert.ok(fs.existsSync(armed), 'the stand-in was ended before its SIGTERM handler was in place, so this arm tested nothing (premise)');

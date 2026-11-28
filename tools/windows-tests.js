@@ -161,7 +161,7 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'firstrun.willinstall-wiring-1556.test.js',   // kosmos#8378: the first-run will-install wiring, with a runner stub Windows counts as runnable
   'delete-leftover.offthread-7835.test.js',   // kosmos#8378: the off-thread runner for deleting a leftover folder, with node standing in for /bin/cat and /bin/sleep
   'delete-leftover.running-8640.test.js',   // kosmos#8378: the session-name and claim arms run on Windows; the arms that hand it tmux pane folders (absolute POSIX paths) or run a fake tmux by its shebang skip there, since Kosmos runs no tmux on Windows
-  'devicedoor-bounded-4326.test.js',   // kosmos#8378: runBounded's timeout, cap, spawn failure and stream order with node stand-in probes; the SIGTERM-ignoring arm and the process-group arm skip there (Windows has no signals or POSIX process groups)
+  'devicedoor-bounded-4326.test.js',   // kosmos#8378: runBounded's output cap, spawn failure, a finishing probe's exit and output, and stream order, with node stand-in probes; the timeout arm (a SIGTERM-ignoring child) and the process-group arm skip there (Windows has no signals or POSIX process groups)
   'discover.location-2414.test.js',   // kosmos#8378: the bare home scan with a fixture home (HOME and USERPROFILE)
   'discover.register-1531.test.js',   // kosmos#8378: adopt and register with the main-path arms against the stand-in Task Scheduler
   'dmfiles.test.js',   // kosmos#8378: the Files folder and its refusals with native paths
@@ -179,7 +179,7 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'grokaccounts.subscription-3391.test.js',   // kosmos#8378: identity, checkLive and the refusal arms run on Windows (a runner stub where a start is refused); the driver arms skip there (stand-in grok is a #!/bin/bash script, kosmos#9269)
   'installroot-6713.test.js',   // kosmos#8378: the install rule (leaveAlone, ensureStatusLine) with a stand-in real home made through USERPROFILE; the install/setup.sh arms skip there (the Mac and Linux installer, two of them through /bin/sh)
   'loginended-9031.test.js',   // kosmos#8378: the ended-login readers and the probe folder run on Windows (the HOME arm with USERPROFILE); the two arms that fake tmux with a #!/bin/sh script skip there
-  'loginexpiry-sandbox-8050.test.js',   // kosmos#8378: the browser-checks login date runs on Windows; its Keychain arms skip there with their CONTROL, so its two sandbox arms there pass only because the off-macOS reader (the credentials file, loginexpiry-file-9097.test.js) also answers null
+  'loginexpiry-sandbox-8050.test.js',   // kosmos#8378: the browser-checks login date and the sandbox-prefix rule run on Windows; the Keychain CONTROL skips there, and so do the arms that check only an absence (off macOS the reader answers null either way, so without the control they prove nothing)
   'oldsigninline-9038.test.js',   // kosmos#8378: the old sign-in line through the real snapshot() runs on Windows; the readPaneLogin arm skips there (tmux and ps stand-ins; Kosmos runs no tmux on Windows)
   'feedbacksend.test.js',   // kosmos#8378: sending feedback on Windows; the arm that blocks saving a mark with chmod (owed a Windows arm, kosmos#9269) and the fixed POSIX temp-root arm (sandboxed() has none there by design) skip
   'guide-deny-4752.test.js',   // kosmos#8378: the guide's deny rules on Windows; the two arms that read rules built from this host's real folders back as absolute POSIX paths skip there
