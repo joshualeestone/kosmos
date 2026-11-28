@@ -534,7 +534,7 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-unsent-'));
     const file = path.join(dir, 'message.txt');
     fs.writeFileSync(file, text, { mode: 0o600 });
-    ctx.err(maybe ? 'The piped message may not have been sent; a copy is saved at ' + file + '. Check before sending it again.'
+    ctx.err(maybe ? 'The piped message may not have been sent; a copy is saved at ' + file + ', so nothing is lost if it did not arrive.'   // kosmos#9243
       : 'The piped message was not sent; it is saved at ' + file);
   } catch (e) {
     if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
@@ -658,7 +658,7 @@ async function verbMsg(ctx, args) {
     sayMsgId(ctx, d);
     return 0;
   }
-  if (d.state === 'unconfirmed') { const code = maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not send it again: if an id is shown below, kosmos msg --status says later whether they read it; if not, wait for their answer.'); sayMsgId(ctx, d); return code; }
+  if (d.state === 'unconfirmed') { const code = maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer.'); sayMsgId(ctx, d); return code; }
   // #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
   if (d.held === true && d.heldBy === 'limit' && d.behind === true && d.behindFor === 'input') {   // #6774
     ctx.out('Held for ' + to + ': it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or, after 2 hours with the box still full, drops it and tells you. Do not re-send.');   // kosmos#7936

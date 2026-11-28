@@ -17,7 +17,7 @@ const WIN = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli
 
 const TIMEOUT = 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.';
 const RETRIED = 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again.';
-const UNCONFIRMED = '. Do not send it again: if an id is shown below, kosmos msg --status says later whether they read it; if not, wait for their answer.';
+const UNCONFIRMED = '. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer.';
 
 test('#9243: a timed-out direct message points at waiting for an answer, on both CLIs', () => {
   assert.ok(MAC.includes(TIMEOUT), 'install/kosmos lost the timeout sentence');

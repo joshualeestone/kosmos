@@ -78,6 +78,24 @@ test('#4580 Windows: a msg whose reply is cut is asked once more, and the receip
   assert.equal(h.calls(), 2);
 });
 
+/* kosmos#9243: each direct-message outcome that may have arrived, run through the CLI: exit 3 (a maybe), and words that
+   point at the receipt or at waiting, never at checking with them. */
+const timeoutErr = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+test('#9243 Windows: a timed-out msg says wait for their answer (no id), exit 3, and is not sent again', async () => {
+  const h = sequence([timeoutErr(), timeoutErr()]);   // the CLI asks once more after a timeout; that times out too
+  assert.equal(await cli.main(['msg', 'mara', 'the lease is signed'], h.io), 3, h.out() + h.err());
+  assert.equal(h.calls(), 2, 'one retry, then stop');
+  assert.match(h.err(), /with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again\./);
+  assert.doesNotMatch(h.err() + h.out(), /check with them/);
+});
+test('#9243 Windows: an unconfirmed msg says do not send it again, exit 3, and prints its id', async () => {
+  const h = sequence(['{"delivery":{"state":"unconfirmed","because":"the text may be in their composer","id":"m7"}}']);
+  assert.equal(await cli.main(['msg', 'mara', 'the lease is signed'], h.io), 3, h.out() + h.err());
+  assert.match(h.err(), /^Not confirmed: the text may be in their composer\. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer\.$/m);
+  assert.match(h.out(), /^Its id is m7: kosmos msg --status m7 says later/m);
+  assert.doesNotMatch(h.err() + h.out(), /check with them/);
+});
+
 test('#4580 Windows: a post whose reply is cut is asked once more too', async () => {
   const h = sequence([reset(), kept]);
   assert.equal(await cli.main(['post', 'proj', 'draft is in the folder'], h.io), 0, h.err());
@@ -99,7 +117,7 @@ test('#4934 Windows: a post whose reply is cut and whose retry the loop guard re
   assert.equal(h2.calls(), 2, 'CONTROL: the retry was asked for piped post too');
   assert.doesNotMatch(h2.err(), /The piped message was not sent;/);
   assert.doesNotMatch(h2.err(), /Nothing was sent to anyone/);
-  const m = h2.err().match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+  const m = h2.err().match(/The piped message may not have been sent; a copy is saved at ([^\s,]+), so nothing is lost if it did not arrive\./);
   assert.ok(m, h2.err());
   assert.equal(fs.readFileSync(m[1], 'utf8'), 'piped draft in the folder');
   fs.rmSync(path.dirname(m[1]), { recursive: true, force: true });
