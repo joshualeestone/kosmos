@@ -215,7 +215,8 @@ test('#9238 a writer that never stops (yes) is refused at its first text, not he
   const r = await run(['community', 'post', TITLE], port, { producer: 'yes' });
   assert.equal(r.code, 2, r.out);
   assert.equal(seen.length, 0, r.out);
-  assert.ok(typeof r.cliDone === 'number' && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms');
+  // kosmos#9264: finishing at all is the point (run() rejects a CLI killed at 20 s); no wall-clock bound, which a busy machine trips.
+  assert.ok(typeof r.cliDone === 'number', 'the shell never said the CLI finished: ' + r.out);
 }));
 
 for (const [how, stdin] of [
@@ -229,7 +230,9 @@ for (const [how, stdin] of [
     assert.equal(r.code, 0, r.out);
     assert.equal(seen.length, 1, r.out);
     assert.equal(seen[0].body.body, 'just these words');
-    assert.ok(r.ms < 2500, 'words alone waited ' + r.ms + ' ms (the quiet read is 3 s; the peek is 0.3 s)');
+    /* kosmos#9264: no wall-clock bound here (one under load read 3614 ms against 2500). That the CLI does not wait on an
+       open pipe is decided by the never-ending writer of spaces below: a CLI that took the quiet read there would never
+       finish and run() would reject it at 20 s, whatever the load. */
   }));
 }
 
@@ -240,7 +243,10 @@ for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoId
     assert.equal(seen.length, 1, r.out);
     assert.equal(seen[0].body.body, 'just these words');
     assert.ok(typeof r.cliDone === 'number', 'the shell never said the CLI finished: ' + r.out);
-    assert.ok(r.cliDone >= 250 && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms: the peek is 0.3 s in all, never the 3 s quiet read, and not 0 (it did look)');
+    /* kosmos#9264: only the lower bound, which load cannot break (a timer never fires early): it did look. Not taking
+       the 3 s quiet read is shown by the writer that never stops: the quiet read would never end there (run() rejects
+       at 20 s), so this arm passing at all is the control. */
+    assert.ok(r.cliDone >= 250, 'the CLI finished after ' + r.cliDone + ' ms: under the 0.3 s peek, so it did not look');
   }));
 }
 
