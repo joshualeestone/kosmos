@@ -26,12 +26,13 @@ green.
   2. it runs install/kosmos through /bin/bash by an absolute POSIX path (community-quiet-stdin);
   3. it runs /bin/sh by an absolute POSIX path (exit-code-mapping, whose tests exercise its harness, not the CLI);
   4. it runs install/kosmos with a bare bash, which reaches Git Bash, where the Mac and Linux CLI's check for a running
-     board does not read the test board as Kosmos (observed; the cause inside Git Bash was not found; the skip reason names only the fact that a Windows computer never
-     runs that CLI); and a Windows computer never runs that CLI (it runs
-     tools/windows/kosmos-cli.js) (unknown-flag, open-1957).
+     board does not read the test board as Kosmos (observed; the cause inside Git Bash was not found). The skip reason
+     says a Windows computer never runs that CLI (it runs tools/windows/kosmos-cli.js) and names that observed symptom
+     (unknown-flag, open-1957).
 - Two are fixes, not skips, measured on the runner: feedback-note's control matched /feedback/ with forward slashes only
   (path.join on Windows gives backslashes), and version's warning names the installed command as KOSMOS_HOME +
-  "/bin/kosmos" (mixed slashes on Windows); both run on Windows now and need no Windows branch.
+  "/bin/kosmos" (mixed slashes on Windows); both passed on GitHub's Windows runner and need no Windows branch. Neither
+  is in ALSO_ROOT, so the Windows CI job does not run them and nothing keeps that green (see below).
 - A fifth reason, update-ifnewer's engine test ("the look never starts the board's own install"): what it checks exists
   on Windows, but its fixture builds the Mac installed layout and Windows reads the portable zip's (measured: the look
   answers "source" there), so it skips with that said and its Windows arm owed on kosmos#9280. Its file URL is built
@@ -63,4 +64,7 @@ the subject (the bash CLI) does not run on Windows at all.
   the bash CLI's own check for a running board under Git Bash (skipped: that CLI never runs on a Windows computer).
   They still make the Mac CLI's runtime symlink when they load, which the bash CLI needs, so on a Windows account
   without the symlink privilege they fail at load; the measured claim is for an account that can make symlinks.
+- Nothing on Windows keeps the 18 files outside ALSO_ROOT green: their unskipped tests passed in one measured run on
+  GitHub's runner (46119977052, 46120662018), and a later edit adding an unguarded Mac CLI call would go unseen there.
+  This is written on #8378 as owed work, so it is on the card and not only here.
 - Test titles that say "both CLIs" still read so on Windows, where only the Windows half runs; the comments say so.

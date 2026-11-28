@@ -17,7 +17,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * that neither arm reproduces the silent-exit-0 the card is about.
  */
 const test = require('node:test');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js)');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); under Git Bash the check that CLI makes for a running board does not see the test board');   // kosmos#8378
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const http = require('node:http');
