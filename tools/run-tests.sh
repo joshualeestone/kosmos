@@ -354,6 +354,10 @@ rt_wd_loop() {
 }
 rt_file_watchdog_start() {
   [ "$KOSMOS_TEST_PART" != shell ] || return 0
+  # kosmos#9278: on Windows the watchdog cannot see node (Git Bash has no pgrep, and its ps lists no native process
+  # with -A -o), so a file stuck in a sync call is not stopped; the process leak check reads the same ps. Said once, at
+  # the start, rather than as a limit that may still begin.
+  if [ "$_RT_WIN" = 1 ]; then echo "run-tests: on Windows the per-file limit (#6668) and the leftover-process check (#4273) do not run: Git Bash has no pgrep and its ps cannot list Windows processes (kosmos#9278)" >&2; fi
   # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
   # run root exists it lands in TMPDIR itself, which the tests then share. A signal in the microseconds between mktemp
   # creating the file and this assignment leaves it behind (the traps remove only a flag they can name).
@@ -837,6 +841,10 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # and a second INT or TERM, which would cut the clean-up short (review 3; a KILL still ends it).
   trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
+  # kosmos#9278: node on Windows takes os.tmpdir() from TEMP and TMP, never TMPDIR. Measured on a Windows runner: a test
+  # saw the computer's own temp folder, so the per-run root, its removal at exit and the temp leak check below held none
+  # of its files. Git Bash hands both to node in Windows form.
+  if [ "$_RT_WIN" = 1 ]; then export TEMP="$KOSMOS_RUN_TMPDIR" TMP="$KOSMOS_RUN_TMPDIR"; fi
   export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
   # Never fail a run over housekeeping: the suite is what matters.
