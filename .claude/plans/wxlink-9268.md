@@ -49,3 +49,6 @@ after review 1 checks the ordinary write.
   engine/securewrite.test.js: the new #9268 arm passes; 9 other arms fail there (the #1787 file-mode and #1793
   foreign-pid arms); a colleague measured 9 failing there on main too (#8378 comment 7235424591, fail=9 pass=20), so this
   branch leaves them to that cluster.
+- Windows, run 46119679376, after review 1: all three #9268 arms of engine/securewrite.test.js pass there (the
+  followed link, the name swapped after the open, and the ordinary-save control with atomicOnly), so an ordinary
+  save is not refused on Windows; trust.test.js 51 pass. The same 9 #1787 and #1793 arms as before fail, by name.
