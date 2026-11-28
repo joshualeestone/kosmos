@@ -203,7 +203,7 @@ test('kosmos#7989 slice 2 review 4: a pipe is said to be no ordinary file, not a
   assert.equal(r.about('gone-for-sure.md').notFile, undefined, 'CONTROL: a missing file is not marked notFile');
 });
 
-test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is answered without touching it', { skip: skipOnWin32('what it checks exists on Windows (a UNC share no project uses is answered as outside), but this arm names the macOS mount paths /net, /Volumes and /Network, absolute POSIX paths Windows does not have; a Windows arm with a UNC share is owed on kosmos#9269') }, () => {
+test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is answered without touching it', { skip: skipOnWin32('it names the macOS mount paths /net, /Volumes and /Network, absolute POSIX paths Windows does not have; the UNC share arm below is its Windows counterpart') }, () => {
   const r = room();
   const list = [{ id: r.id, folder: r.folder }];
   const native = fs.realpathSync.native;
@@ -221,6 +221,33 @@ test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is
     assert.ok(touched.some((t) => t.startsWith('/Volumes/NoSuchShare-7989')), 'CONTROL: a mount a project uses was refused: ' + JSON.stringify(touched));
   } finally { fs.realpathSync.native = native; }
   assert.match(renderWho({ ok: false, because: 'outside' })[0], /give the path as this computer names it/);
+});
+
+/* kosmos#9269: the Windows half of review 5. A UNC share no project uses is answered as outside without being resolved;
+   a project on that share lets its paths through. Windows only: on POSIX a \\\\host path is not absolute and //host
+   collapses to /host. The stub answers share paths itself, so the CONTROL never waits on a network lookup. */
+test('kosmos#9269: a path on a UNC share no project uses is answered without touching it (Windows)', { skip: process.platform !== 'win32' && 'a UNC share is a Windows path' }, () => {
+  const r = room();
+  const list = [{ id: r.id, folder: r.folder }];
+  const native = fs.realpathSync.native;
+  const touched = [];
+  const onShare = (p) => /^(\\\\|\/\/)somehost-9269/i.test(String(p));
+  fs.realpathSync.native = (p, ...rest) => {
+    touched.push(String(p));
+    if (onShare(p)) throw Object.assign(new Error('no such share'), { code: 'ENOENT' });
+    return native(p, ...rest);
+  };
+  try {
+    for (const p of ['\\\\somehost-9269\\share\\a.md', '//somehost-9269/share/a.md']) {
+      touched.length = 0;
+      assert.deepEqual(fw.about(p, { projects: list }), { ok: false, because: 'outside' }, p);
+      assert.deepEqual(touched.filter(onShare), [], 'a share path was resolved: ' + p);
+    }
+    // CONTROL: a project that lives on that share lets its paths through to be resolved.
+    touched.length = 0;
+    fw.about('\\\\somehost-9269\\share\\a.md', { projects: [...list, { id: 'unc', folder: '\\\\somehost-9269\\share\\proj' }] });
+    assert.ok(touched.some(onShare), 'CONTROL: a share a project uses was refused: ' + JSON.stringify(touched));
+  } finally { fs.realpathSync.native = native; }
 });
 
 test('kosmos#7989 slice 2 review 6: a folder above the file swapped for a link after the path was resolved says nothing about the target', { skip: NO_SYMLINK }, () => {
