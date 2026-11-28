@@ -99,20 +99,19 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
     const jobs = hj.live({ root, now, startOf: others, agentAlive, hidden: true });
     let held = jobs.find((j) => j.agent === agent && j.pid === p);
     // Round 7: the one case where an agent's own job is this take's turn. It holds the turn with no process and now
-    // takes it under a wrapper (--pid): the same turn moves to the wrapper, so it stays ONE job (the record without a
-    // process is replaced). Any other job of its own, under another pid, is busy like anyone's: a second wrapper waits.
+    // takes it under a wrapper (--pid): the turn moves to the wrapper, so it stays ONE job. Any other job of its own,
+    // under another pid, is busy like anyone's: a second wrapper waits. Round 8: the wrapper's record is made FIRST and
+    // the one without a process ended only once it exists, so a failed start leaves the turn where it was.
+    let bare = null;
     if (!held && p !== null) {
-      const bare = jobs.find((j) => j.agent === agent && j.pid === null && !j.unchecked);
-      if (bare) {
-        const e = hj.end({ root, agent, pid: null });
-        if (!e.ok) { out = { ok: false, because: e.because }; return; }
-        held = bare;
-      }
+      bare = jobs.find((j) => j.agent === agent && j.pid === null && !j.unchecked) || null;
+      if (bare) held = bare;
     }
     if (held) {   // already the holder: asking again is not a place in its own line, and re-announces (a new label shows)
       line = line.filter((e) => !mine(agent, p)(e));
       const again = hj.start({ root, agent, label: lab, pid: p, now, startOf });
-      if (!again.ok) { out = again; return; }
+      if (!again.ok) { out = again; return; }   // the old record, if this was a move, is untouched: the turn stays
+      if (bare) hj.end({ root, agent, pid: null });   // moved: a failed end leaves two of its own records, which the next take ends
       out = writeLine(root, line) ? { ok: true, turn: true, job: again.job } : { ok: true, turn: true, job: again.job, lineNotSaved: true };
       return;
     }
