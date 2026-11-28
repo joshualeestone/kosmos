@@ -17,6 +17,14 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (master plan 71204730
 ## Weakest premise
 That `/held` carries enough to draw each row honestly. It is the disk's record (what was saved), not a verified check, so a key that has since been revoked would read as connected. The row must say so in words (for example "saved on your computer"), or D2b reads the sweep once, on an explicit tap only.
 
+- **The page's badge words** (paintAccounts, web/index.html ~32310-32366) are about 12 ordered cases, not a 4-word map: a login that has run out but whose agents still work until a time ("stopsAt", outranks everything); "Login expired" (loginEnded, no stop time ahead); a login inside the notice's window ("expires today" / "in N days", loginExpiresInDays, with loginExpiresAt's date); "Signed in · login good until <date>" (working from login, or signed_in_unverified with a login date); "Signed in" for a login-green row with no date; "Signed in · checked/active <age>" (working); "Not connected · rejected <age>"; "Not confirmed since <date>" (signed_in_unverified with notConfirmedSince, the year only when not this year); plain "Signed in" (unverified); signed_out and unchecked use their own sentences (noneWhy, unknownWhy); then OpenAI's ChatGPT-subscription row has its own branch.
+- So `parseAccounts` needs more fields than the picker reads: connection.observedFrom, loginStopsAt, loginEnded, loginExpiresInDays, loginExpiresAt, notConfirmedSince, the login date and the age the page builds (to measure: loginDate's and ageStr's sources, a few lines above 32310), and authMode.
+
+## D2a design (draft)
+- **Logic:** `ModelsLogic.swift`, a pure `badge(for: Account, now:) -> (words, tone, why)` following the page's order exactly, plus the sentences noneWhy, unknownWhy, rejectedWhy and the others it uses. Extend NewAgentPicker.Account (or wrap it) with the extra fields, so the picker's parser stays the one parser.
+- **Parity:** `web.models-ios-parity-8959.test.js` lifts the page's own badge function (or its strings and order) and checks the phone's on the same rows, with the clock and locale pinned, as `web.usage-ios-parity-8959` does. This is the guard that the two never drift.
+- **Screen:** Settings > AI Models, native: one row per account grouped by provider, the name (acctChosenName / email / key tail), the badge and its why as the row's detail, and one footer line "Sign in, add or change an account on your computer." No buttons. Read on open and on pull only.
+- **Tests:** ios/LogicTests/models + run-models.sh (`-Onone`), a fixture with a row for every badge case, the UI test with a screenshot; tmpscope first in the new node test; run every iOS node test file before validating.
+
 ## Still to measure before building D2a
-- The page's paintAccounts: which badge values it words how (signed in, signed out, rejected, unknown), so the phone says the same words.
 - Whether any AI Models row the page shows reads a route the phone token is refused.
