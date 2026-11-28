@@ -31,3 +31,16 @@ That `/held` carries enough to draw each row honestly. It is the disk's record (
 
 ## Still to measure before building D2a
 - Whether any AI Models row the page shows reads a route the phone token is refused.
+
+## Challenge loop ledger
+
+### Round 1 (opus, 12:5x CST 11-28): no BLOCKER, 2 MAJOR, 6 MINOR. The reviewer read the chain line by line: case order, conditions and words all match.
+- MAJOR 1 the loginok pill (signed_in_unverified with a login date) drew the working green; the page draws it grey (ruling C, #874). Now Palette.secondary.
+- MAJOR 2 GLM and MiniMax accounts were sectioned and named as Claude (the picker's Provider lacks them). This screen sections them by their own row ("Z.ai GLM", "MiniMax", the page's words) and names a keyed one by its tail; the picker's gap is noted on the card, not widened (its menu is allCases).
+- M3 a 0 login or expiry time gave a 1970 date; the page treats 0 as no date. Fixed, and two fixture rows pin it against the page.
+- M4 the parity test could not see a page branch no row reached: it now counts the chain's connBadge assignments (14) and fails on any unreached (control: dropping the rejected row fails branch 7).
+- M5 the fixture's zone and locale were hard-coded on both sides: both read them from fixture.json.
+- M6 kept: a check still running stays "Signed in" until a pull. The page re-reads it on its own; this route's rule forbids a timer, and pull is the phone's re-read.
+- M7 the could-not-read line was red; the page's is a neutral hint. Now secondary.
+- M8 the UI test's header and footer checks waited for nothing, and grouped headers are uppercased: they wait, and the header keeps its case (textCase(nil)).
+- Measured: run-models.sh 94/94; parity 3/3; 20 iOS node files; app and UI typecheck.

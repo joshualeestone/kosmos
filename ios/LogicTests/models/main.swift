@@ -107,8 +107,12 @@ let fixtureObj = (try? JSONSerialization.jsonObject(with: Data(repoText("ios/Log
 let expectedRows = (try? JSONSerialization.jsonObject(with: Data(repoText("ios/LogicTests/models/expected.json").utf8))) as? [[String: String]] ?? []
 let fixtureRows = fixtureObj?["rows"] as? [[String: Any]] ?? []
 check(fixtureRows.count >= 20 && fixtureRows.count == expectedRows.count, "the fixture and expected.json were read, row for row")
+// Review 1: the zone and locale are the fixture's, as the page test's are, so the two sides cannot drift apart.
 var fixClock = clock
 fixClock.now = Date(timeIntervalSince1970: ((fixtureObj?["nowMs"] as? Double) ?? 0) / 1000)
+fixClock.timeZone = TimeZone(identifier: fixtureObj?["timeZone"] as? String ?? "") ?? fixClock.timeZone
+fixClock.locale = Locale(identifier: (fixtureObj?["locale"] as? String ?? "en-US").replacingOccurrences(of: "-", with: "_"))
+check(fixClock.timeZone.identifier == "America/Chicago" && fixClock.locale.identifier == "en_US", "the fixture's zone and locale were read")
 for (i, fr) in fixtureRows.enumerated() where i < expectedRows.count {
     let acct = fr["account"] ?? [:]
     let one = (try? JSONSerialization.data(withJSONObject: ["accounts": [acct]])) ?? Data()
@@ -121,7 +125,11 @@ for (i, fr) in fixtureRows.enumerated() where i < expectedRows.count {
 section("groups and the sample")
 let mixed = P.parseAccounts(Data(#"{"accounts":[{"dir":"/o1","provider":"openai"},{"dir":"/c1","provider":"anthropic"},{"dir":"/o2","provider":"openai"}]}"#.utf8)) ?? []
 let gs = M.groups(mixed)
-check(gs.map(\.provider) == [.openai, .anthropic], "a section per provider, in the order the board lists them")
+check(gs.map(\.id) == ["openai", "anthropic"] && gs.map(\.label) == ["OpenAI / Codex", "Anthropic / Claude"], "a section per provider, in the order the board lists them")
+let compat = P.parseAccounts(Data(#"{"accounts":[{"dir":"/g","provider":"glm","keyTail":"9z1b"},{"dir":"/m","provider":"minimax","email":"m@example.com"},{"dir":"/c","provider":"anthropic","email":"c@example.com"}]}"#.utf8)) ?? []
+check(M.groups(compat).map(\.label) == ["Z.ai GLM", "MiniMax", "Anthropic / Claude"], "GLM and MiniMax have their own sections (review 1: the picker files them under Claude)")
+check(M.name(compat[0]) == "API key ending 9z1b" && M.name(compat[1]) == "m@example.com" && M.name(compat[2]) == "c@example.com", "a GLM key is named by its tail; email first, as acctPrimaryName")
+check(page.contains("if (p === 'glm') return 'Z.ai GLM';") && page.contains("if (p === 'minimax') return 'MiniMax';"), "the page's words for the two")
 check(gs[0].rows.map(\.dir) == ["/o1", "/o2"] && gs[1].rows.map(\.dir) == ["/c1"], "rows keep the board's order inside their section")
 check(M.groups([]).isEmpty, "no accounts, no sections")
 let sampleRows = P.parseAccounts(Data(Models.sampleList.utf8)) ?? []

@@ -10,7 +10,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * If the page changes on purpose: run this test, copy the "actual" it prints into expected.json, then make the phone
  * match (run-models.sh).
  *   node --test web.models-ios-parity-8959.test.js */
-process.env.TZ = 'America/Chicago'; // before any Date: the fixture's dates are Chicago days
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -19,6 +18,13 @@ const path = require('node:path');
 const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const dir = path.join(__dirname, 'ios', 'LogicTests', 'models');
 const fixture = JSON.parse(fs.readFileSync(path.join(dir, 'fixture.json'), 'utf8'));
+// Review 1: the zone and locale come from the fixture, as the Swift suite's do, so the two cannot drift apart. Set
+// before any Date is made (reading the JSON above makes none).
+assert.ok(fixture.timeZone && fixture.locale, 'the fixture names its time zone and locale');
+process.env.TZ = fixture.timeZone;
+// Review 1: which of the chain's `connBadge = ` branches the fixture reached; every one must be.
+const hit = new Set();
+let branches = 0;
 
 function lift(startMark, endMark, what) {
   const a = page.indexOf(startMark);
@@ -45,8 +51,12 @@ function pagePill() {
   // isKeyed and canCheckSignIn only choose a tooltip's wording, which the phone does not show.
   // eslint-disable-next-line no-new-func
   // The helpers are declared once, then the per-row function runs the chain (a const used before its line would throw).
-  return new Function('esc', pin(helpers) + '\nreturn function (a) { const isOpenai = acctProvider(a) === "openai"; const isKeyed = false; '
-    + 'const canCheckSignIn = false; let connBadge; ' + pin(chain).replace(/^\s*let connBadge;\s*$/m, '') + '; return connBadge; };')(esc);
+  let n = 0;
+  const marked = chain.replace(/connBadge = /g, () => '__hit.add(' + (n++) + '); connBadge = ');
+  branches = n;
+  assert.ok(n >= 12, 'the chain has its branches (' + n + ')');
+  return new Function('esc', '__hit', pin(helpers) + '\nreturn function (a) { const isOpenai = acctProvider(a) === "openai"; const isKeyed = false; '
+    + 'const canCheckSignIn = false; let connBadge; ' + pin(marked).replace(/^\s*let connBadge;\s*$/m, '') + '; return connBadge; };')(esc, hit);
 }
 
 // The pill's visible words and its tone, read from the span the page builds.
@@ -83,6 +93,13 @@ test('#8959 D2a: the page draws each fixture row\'s pill exactly as expected.jso
   const want = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (JSON.stringify(got) !== JSON.stringify(want)) console.log('actual:\n' + JSON.stringify(got, null, 1));
   assert.deepEqual(got, want);
+});
+
+test('#8959 D2a: the fixture reaches every branch of the page\'s chain (a new branch fails here until a row covers it)', () => {
+  actual();
+  const missed = [];
+  for (let i = 0; i < branches; i++) if (!hit.has(i)) missed.push(i);
+  assert.deepEqual(missed, [], 'connBadge branches no fixture row reaches (0-based, in the chain\'s order)');
 });
 
 test('#8959 D2a: every row draws a tone and some words (the lift is not silently empty)', () => {

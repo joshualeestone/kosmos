@@ -275,6 +275,29 @@
     "provider": "openai",
     "connection": {}
    }
+  },
+  {
+   "name": "zero login date",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "loginValidUntil": 0
+    }
+   }
+  },
+  {
+   "name": "zero expiry date",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 2,
+     "loginExpiresAt": 0
+    }
+   }
   }
  ]
 }

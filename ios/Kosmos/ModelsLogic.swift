@@ -37,18 +37,33 @@ enum Models {
     }
 
     struct Group: Equatable {
-        let provider: NewAgentPicker.Provider
+        let id: String
+        let label: String
         let rows: [Account]
+    }
+    /* Review 1: the page's ACCT_KEYED_ROUTE also has glm and minimax (switchKeyedWord: "Z.ai GLM", "MiniMax"), which the
+       picker's Provider does not (it maps them to Claude). This screen states which provider an account is, so it
+       sections them by their own row; the picker's gap is noted on the card, not widened here. */
+    static let ownProviders: [String: String] = ["glm": "Z.ai GLM", "minimax": "MiniMax"]
+    static func section(_ a: Account) -> (id: String, label: String) {
+        if let label = ownProviders[a.rawProvider] { return (a.rawProvider, label) }
+        return (a.provider.rawValue, a.provider.label)
+    }
+    // acctPrimaryName, with glm and minimax as the keyed providers the page counts them (named by the key's tail).
+    static func name(_ a: Account) -> String {
+        if ownProviders[a.rawProvider] != nil, a.name == nil, a.email == nil, let t = a.keyTail { return "API key ending " + t }
+        return NewAgentPicker.primaryName(a)
     }
     // One section per provider, in the order the board lists them (its first row of each), rows in the board's order.
     static func groups(_ rows: [Account]) -> [Group] {
-        var order: [NewAgentPicker.Provider] = []
-        var by: [NewAgentPicker.Provider: [Account]] = [:]
+        var order: [(id: String, label: String)] = []
+        var by: [String: [Account]] = [:]
         for a in rows {
-            if by[a.provider] == nil { order.append(a.provider) }
-            by[a.provider, default: []].append(a)
+            let s = section(a)
+            if by[s.id] == nil { order.append(s) }
+            by[s.id, default: []].append(a)
         }
-        return order.map { Group(provider: $0, rows: by[$0] ?? []) }
+        return order.map { Group(id: $0.id, label: $0.label, rows: by[$0.id] ?? []) }
     }
 
     // The sample build's accounts: one of each pill colour, two providers.
@@ -141,12 +156,13 @@ enum Models {
         let fromCheck = l.observedFrom == "check"
         let noneWhy = l.because ?? "this account is not connected"
         let unknownWhy = l.because ?? "we could not check this account"
-        let loginDate = l.loginValidUntil.map { shortDate($0, clock, yearWhenOther: true) } ?? ""
+        // Review 1: the page tests these for truth (`loginUntil ? ... : ''`), so a 0 is no date, not 1 January 1970.
+        let loginDate = l.loginValidUntil.flatMap { $0 != 0 ? shortDate($0, clock, yearWhenOther: true) : nil } ?? ""
         let loginGreenNoDate = badge == "working" && l.observedFrom == "login" && loginDate.isEmpty
         let stopsAt = l.loginStopsAt.flatMap { $0 > nowMs ? $0 : nil }
         let expiresIn = l.loginExpiresInDays
         let expiresWords: String = expiresIn.map(expiryWords) ?? ""
-        let expiresDate = l.loginExpiresAt.map { shortDate($0, clock, yearWhenOther: false) } ?? ""
+        let expiresDate = l.loginExpiresAt.flatMap { $0 != 0 ? shortDate($0, clock, yearWhenOther: false) : nil } ?? ""
         let loginEnded = l.loginEnded && stopsAt == nil
         let isOpenai = a.provider == .openai
 

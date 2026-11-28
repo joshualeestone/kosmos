@@ -62,7 +62,7 @@ struct ModelsView: View {
             }
         case .failed(let why):
             Section {
-                Text(why).font(.subheadline).foregroundColor(Palette.dangerWord)
+                Text(why).font(.subheadline).foregroundColor(Palette.secondary)   // the page's neutral hint (review 1)
             } footer: { footer }
         case .got(let rows) where rows.isEmpty:
             Section {
@@ -74,7 +74,7 @@ struct ModelsView: View {
                 Section {
                     ForEach(Array(g.rows.enumerated()), id: \.offset) { _, a in accountRow(a) }
                 } header: {
-                    Text(g.provider.label)
+                    Text(g.label).textCase(nil)   // the provider's name as written (review 1)
                 } footer: {
                     if i == groups.count - 1 { footer }
                 }
@@ -88,7 +88,7 @@ struct ModelsView: View {
 
     private func accountRow(_ a: Models.Account) -> some View {
         let pill = Models.pill(a)
-        let name = NewAgentPicker.primaryName(a)
+        let name = Models.name(a)
         return VStack(alignment: .leading, spacing: 4) {
             Text(name).foregroundColor(Palette.primary)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -102,10 +102,13 @@ struct ModelsView: View {
         .accessibilityIdentifier("models-account")
     }
 
-    // The page's dot colours: green when working, amber when signed in but not confirmed, red when not connected.
+    // The page's dot colours: green when working, amber when signed in but not confirmed, red when not connected, grey
+    // for a login read from the computer's disk and for could-not-check.
     private static func colour(_ tone: Models.Tone) -> Color {
         switch tone {
-        case .connected, .loginok: return Palette.ringOk
+        case .connected: return Palette.ringOk
+        // Review 1: the page draws a login read from disk in the calm grey (ruling C), never the working green (#874).
+        case .loginok: return Palette.secondary
         case .unverified: return Palette.ringWarn
         case .none: return Palette.dangerWord
         case .unknown: return Palette.secondary

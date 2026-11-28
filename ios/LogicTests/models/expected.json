@@ -123,5 +123,15 @@
   "name": "key nothing",
   "words": "we could not check this account",
   "tone": "unknown"
+ },
+ {
+  "name": "zero login date",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "zero expiry date",
+  "words": "Signed in · login expires in 2 days",
+  "tone": "unverified"
  }
 ]
