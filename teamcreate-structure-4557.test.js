@@ -63,7 +63,9 @@ if (process.platform === 'win32') {
   const win32job = require('./engine/win32job');
   const win32sessions = require('./engine/win32sessions');
   let seq = 0;
-  require('./engine/status').setPaneSource(() => '');
+  /* Before each test, not once: fleet.install's restore (req 2) puts the seam back to null, which on a Mac falls through
+     to fake-tmux.sh and on Windows to nothing (measured: the three tests after req 2 refused "we could not check"). */
+  test.beforeEach(() => require('./engine/status').setPaneSource(() => ''));
   require('./engine/win32create').setPark(() => {});
   win32job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
   win32job.setRunner((args) => {
@@ -168,7 +170,9 @@ test('#4557 req 1: a member is the single-agent file of its role, plus its team 
   const strip = (text) => without(without(text, projects.TEAM_START, projects.TEAM_END), reports.START, reports.END)
     .replace(/\n{3,}/g, '\n\n');
   // The display name and the machine name (the agent's own folder path) are the only per-agent words.
-  const named = (text, shown, key) => text.split(shown).join('NAME').split('/workers/' + key + '/').join('/workers/KEY/');
+  // kosmos#9272: in either separator, since Windows writes the folder with backslashes (measured on GitHub's runner).
+  const named = (text, shown, key) => text.split(shown).join('NAME').split('/workers/' + key + '/').join('/workers/KEY/')
+    .split('\\workers\\' + key + '\\').join('\\workers\\KEY\\');
   assert.equal(named(strip(member), 'Leo', m.content), named(strip(file(solo.name)), 'Solo', solo.name),
     'a team member\'s file is not the single-agent file of its role apart from the team parts');
 });

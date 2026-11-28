@@ -502,12 +502,14 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
   for (const [v] of hostRedirect) delete process.env[v];
   t.after(() => { for (const [v, was] of hostRedirect) { if (was !== undefined) process.env[v] = was; } });
   // The shape accounts.list() really emits for a key account: a non-default folder, reached through CLAUDE_CONFIG_DIR.
-  process.env.CLAUDE_CONFIG_DIR = '/tmp/x-claude';
+  // kosmos#9272: resolved, as accounts.list() emits it and readAccount compares it: '/tmp/x-claude' is D:\tmp\x-claude on Windows.
+  const KEY_DIR = path.resolve('/tmp/x-claude');
+  process.env.CLAUDE_CONFIG_DIR = KEY_DIR;
   t.mock.method(runners, 'resolveBin', () => ({ present: true, bin: 'claude' }));
-  let rows = [{ dir: '/tmp/x-claude', isDefault: false, email: null, apiKey: true }];
+  let rows = [{ dir: KEY_DIR, isDefault: false, email: null, apiKey: true }];
   t.mock.method(accounts, 'list', () => rows);
   try {
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true, token: false, redirected: false });
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: KEY_DIR, apiKey: true, token: false, redirected: false });
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
     // The default account on a subscription: not a key, until the board's own environment carries one.
     delete process.env.CLAUDE_CONFIG_DIR;
