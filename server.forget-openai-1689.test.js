@@ -23,6 +23,7 @@
  */
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
+const SKIP_WIN_JOB = require('./test-support/skip-on-win32').skipOnWin32('it seeds its agents with a Mac launch file (test-support/jobfix), and on Windows the board reads which account an agent is on from its Scheduled Task instead, so the route answers that it could not check which agents are on the account; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
@@ -145,7 +146,7 @@ function board(seed) {
   return { code: parsed.code, json, target, ctx };
 }
 
-test('#1689: a STOPPED agent on the account blocks removal', () => {
+test('#1689: a STOPPED agent on the account blocks removal', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const dir = codexAccount(ctx.home, 'busy');
     agentOn(ctx, 'sleeper', dir, 'codex', false);   // no pane: invisible to liveness
@@ -158,7 +159,7 @@ test('#1689: a STOPPED agent on the account blocks removal', () => {
     + JSON.stringify(r.json));
 });
 
-test('#1689 CONTROL: a RUNNING agent still blocks, so the fix did not trade one arm for the other', () => {
+test('#1689 CONTROL: a RUNNING agent still blocks, so the fix did not trade one arm for the other', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const dir = codexAccount(ctx.home, 'busy2');
     agentOn(ctx, 'awake', dir, 'codex', true);

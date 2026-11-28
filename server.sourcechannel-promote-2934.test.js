@@ -19,6 +19,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.sourcechannel-promote-2934.test.js
  */
 
+const SKIP_WIN_CHANNEL = require('./test-support/skip-on-win32').skipOnWin32('it reads the update channel from the source-channel stamp of the install, which the Mac and Linux updater does and the Windows updater by design does not (it reads only KOSMOS_UPDATE_CHANNEL, engine/update.js)');   // kosmos#8378
 const test = require('node:test');
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
@@ -158,7 +159,7 @@ function statusWith({ content, latest, channel, look = true }) {
    by a box whose environment explicitly names prod. Every arm below that claims to exercise that
    comparison says channel: 'prod', or it would pass through the staging-pointer rung instead
    (null, keep the stamp) and test nothing it names. */
-test('#2969: installed from staging with no channel variable polls STAGING, so the badge stays STAGING even on a promoted build', () => {
+test('#2969: installed from staging with no channel variable polls STAGING, so the badge stays STAGING even on a promoted build', { skip: SKIP_WIN_CHANNEL }, () => {
   const got = statusWith({ content: 'staging', latest: RUNNING });
   assert.equal(got.updateChannel, 'staging', 'the install stamp is the subscription: no variable, still staging');
   assert.equal(got.sourceChannel, 'staging',
@@ -166,7 +167,7 @@ test('#2969: installed from staging with no channel variable polls STAGING, so t
 });
 
 
-test('THE CARD: installed from staging, build since promoted -- prod publishes our exact version -> prod', () => {
+test('THE CARD: installed from staging, build since promoted -- prod publishes our exact version -> prod', { skip: SKIP_WIN_CHANNEL }, () => {
   const got = statusWith({ content: 'staging', latest: RUNNING, channel: 'prod' }).sourceChannel;
   assert.equal(got, 'prod',
     'the prod pointer naming our exact version means our bytes ARE the prod bytes (#2036: same bytes promoted)');

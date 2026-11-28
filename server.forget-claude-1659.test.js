@@ -10,6 +10,7 @@
  */
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
+const SKIP_WIN_JOB = require('./test-support/skip-on-win32').skipOnWin32('it seeds its agents with a Mac launch file (test-support/jobfix), and on Windows the board reads which account an agent is on from its Scheduled Task instead, so the route answers that it could not check which agents are on the account; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
@@ -222,7 +223,7 @@ test('#1659 route FAIL-CLOSED: an unreadable launch file REFUSES instead of proc
   assert.ok(fs.existsSync(r.target), 'refusing means nothing moved');
 });
 
-test('#1659 route: an agent ON the account blocks removal and is NAMED', () => {
+test('#1659 route: an agent ON the account blocks removal and is NAMED', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'busy');
     agentOn(ctx, 'marlowe', dir, 'claude');
@@ -243,7 +244,7 @@ test('#1659 route: an agent ON the account blocks removal and is NAMED', () => {
    outcome never changed. So the guard was only half covered and the arm below
    is the missing half -- a CODEX agent whose recorded home IS the target
    directory, which the filter must skip. Delete the line and this goes red. */
-test('#1659 route: a CODEX agent on this directory does NOT block a Claude removal', () => {
+test('#1659 route: a CODEX agent on this directory does NOT block a Claude removal', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'mixed');
     agentOn(ctx, 'codexer', dir, 'codex');
@@ -259,7 +260,7 @@ test('#1659 route: a CODEX agent on this directory does NOT block a Claude remov
    because every plist written before runners existed carries none. If that
    default ever changed, an OLD Claude agent would stop being seen and its
    account could be renamed out from under it. */
-test('#1659 route: an agent whose plist PREDATES runners still blocks (absent runner means claude)', () => {
+test('#1659 route: an agent whose plist PREDATES runners still blocks (absent runner means claude)', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'legacy');
     agentOn(ctx, 'oldtimer', dir, null);
@@ -300,7 +301,7 @@ test('#1659 route: an agent whose plist PREDATES runners still blocks (absent ru
   assert.deepEqual(r.json.usedBy, ['oldtimer']);
 });
 
-test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block', () => {
+test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const target = account(ctx.home, 'quiet');
     const other = account(ctx.home, 'elsewhere');
@@ -323,7 +324,7 @@ test('#1659 route DISCRIMINATOR: an agent on a DIFFERENT account does not block'
    Every fixture wrote one because `agentOn` appends one, so the two
    implementations agreed on every case the suite could build, and I recorded a
    correct conclusion (uncovered) from a false mechanism, then stopped looking. */
-test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped agent keeps its launch file', () => {
+test('#1697: a REGISTERED but NOT RUNNING agent still blocks, because a stopped agent keeps its launch file', { skip: SKIP_WIN_JOB }, () => {
   const r = board((ctx) => {
     const dir = account(ctx.home, 'walk');
     account(ctx.home, 'default');

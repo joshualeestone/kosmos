@@ -15,6 +15,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * unreachable from a require, and deliberately so.
  */
 
+const SKIP_WIN_CHMOD = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -80,7 +81,7 @@ test('an old copy is replaced, which is the whole point', async () => {
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
-test('a refresh it cannot do is said, and does not stop the board', async () => {
+test('a refresh it cannot do is said, and does not stop the board', { skip: SKIP_WIN_CHMOD }, async () => {
   /* ⚠️ THE FAILURE DIRECTION. A board that refuses to start because it could not
      refresh a script is strictly worse than one running with the previous copy,
      which is the state every install is in today. */
