@@ -1006,7 +1006,7 @@ test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tic
   await run.tick(d, NOW);
   try {
     assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet');
-    assert.equal(automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 500, ON), true, 'CONTROL: the person line was written');
+    assert.equal(automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 500, ON), true, 'CONTROL: the person line was taken (written, with moves on)');
     assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: the last tick has not read the person line');
     assert.equal(run.leftAlone(NOW + 1000)('ada'), true, 'Settings would say Kosmos will move an agent a person just moved');
   } finally { automove.resetUnwrittenPeopleForTests(); }
