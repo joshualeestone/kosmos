@@ -51,3 +51,6 @@ Residual, stated: a Chrome path built entirely from variables is not readable as
 
 ## Review 3
 A ternary must have both arms, and a value continues past a newline that starts ? : or . (Prettier style). Controls now hold every clause the review mutated (spawn/exec/Sync, org.chromium, Contents/MacOS/Chromium, ignoreAllDefaultArgs =, a safe value ended by ; or a newline). An escaped quote in open -a is read. osascript and a Chrome name held in a variable stay outside what text can show (stated in the header).
+
+## Review 4
+A file that only names the option (a comment, shorthand) is reported by name, never a crash; the argv form open, [-a, Chrome] is read; the header names the one direct run text cannot see (agentbrowser.js execP(exe, [--version])); the MCP config is asserted headless.
