@@ -7,7 +7,7 @@ Routed by Splinter 19:53; shapes suggested by Renet Tilley (m7263), adopted with
    with them" (the probe #9240 removed):
    - timeout, and Windows' asked-once-more: "...may have been delivered; with no id, kosmos msg --status cannot check
      it, so wait for their answer before sending it again." (no id is printed on a timeout);
-   - unconfirmed: "Not confirmed: <why>. Do not send it again: if an id is shown below, kosmos msg --status says later
+   - unconfirmed: "Not confirmed: <why>. Do not send it again: if an id is shown, kosmos msg --status says later
      whether they read it; if not, wait for their answer." Changed from Renet's shape: the id line below prints only
      when the server returned an id (_say_msg_id, sayMsgId), so the sentence must not promise one.
    Pinned word for word in both files (cli.msg-noprobe-9243), red with the old Mac line put back.
@@ -26,3 +26,7 @@ engine/defaults.js (doctrine), on Renet's note: this is the project block, not d
 
 ## Weakest premise
 That agents read the CLI's line right after their own send. It is the likeliest thing they read at that moment.
+6. Review 2: the piped-copy "maybe" line on both CLIs said "Check before sending it again" right after the new
+   "wait for their answer"; it now says the copy is saved "so nothing is lost if it did not arrive". The unconfirmed
+   line no longer says "below" (on Windows the sentence and the id go to different streams). The timeout and the
+   unconfirmed outcomes are now run on both CLIs (exit 3 and their words; the unconfirmed arm is red with exit 1).

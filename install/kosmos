@@ -3165,7 +3165,7 @@ cmd_msg() {
     exit 3
   elif [ "$rc" -ne 0 ]; then
     say_unreached "send that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
-    case "$rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac
+    _keep_piped   # kosmos#9243: a cut reply (18/52/56) is always asked once more, so it ends above, as a maybe
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -3201,7 +3201,7 @@ cmd_msg() {
       # exit-code caller cannot read "maybe" as "delivered" -- but never
       # nonzero-1, which would invite the retry the state exists to stop.
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
-      say "Not confirmed: ${because:-the text may already be in their composer}. Do not send it again: if an id is shown below, kosmos msg --status says later whether they read it; if not, wait for their answer."
+      say "Not confirmed: ${because:-the text may already be in their composer}. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer."
       _say_msg_id "$body"   # kosmos#8961
       exit 3
       ;;
@@ -3504,7 +3504,7 @@ _keep_piped() {   # [maybe]: #4466, the board took the connection and cut it, so
   if [ "${1:-}" = maybe ]; then _was="may not have been sent"; fi
   if _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f"; then
     if [ "${1:-}" = maybe ]; then
-      say "The piped message $_was; a copy is saved at $_f. Check before sending it again."
+      say "The piped message $_was; a copy is saved at $_f, so nothing is lost if it did not arrive."   # kosmos#9243: no "check" (a probe)
     else
       say "The piped message $_was; it is saved at $_f"
     fi

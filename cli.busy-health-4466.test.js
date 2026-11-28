@@ -91,6 +91,13 @@ const server = http.createServer((req, res) => {
   if (health === 'reporthang' && req.method === 'GET' && !slowOnceDone) { slowOnceDone = true; setTimeout(reply, delayMs); return; }
   if (health === 'roomhang' && req.url.includes('/room')) return;
   if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
+  // kosmos#9243: a send answered as not confirmed, with its id; and a send never answered (curl's -m runs out), counted.
+  if (health === 'msgunconfirmed' && req.method === 'POST' && req.url.startsWith('/api/msg')) {
+    req.resume();
+    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"delivery":{"state":"unconfirmed","because":"the text may be in their composer","id":"m7"}}'); });
+    return;
+  }
+  if (health === 'msghang' && req.method === 'POST' && req.url.startsWith('/api/msg')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
   // Answers its health check, then cuts each data read (a board too busy to finish the request).
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
   // #4580: a send the board keeps but whose reply is cut. 'cutonce' cuts the FIRST send and answers the retry
@@ -262,6 +269,22 @@ test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may s
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
 }));
 
+/* kosmos#9243: the Mac CLI's other maybe outcomes, run: exit 3 and words that point at the receipt or at waiting. */
+test('#9243 `kosmos msg` not confirmed: exit 3, do not send it again, and its id', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgunconfirmed', async (port) => {
+  const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /Not confirmed: the text may be in their composer\. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer\.\n\s*Its id is m7: kosmos msg --status m7 says later/);
+  assert.doesNotMatch(out.stdout, /check with them/);
+}));
+
+test('#9243 `kosmos msg` that times out twice: exit 3, wait for their answer (no id), one retry', { skip: SKIP_POSIX_SHELL }, () => withBoard('msghang', async (port, firstFile) => {
+  const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }), 45000);
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /Kosmos was slow to answer and we stopped waiting\. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again\./);
+  assert.doesNotMatch(out.stdout, /check with them/);
+  assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'one retry, then stop');
+}));
+
 test('#4466 a READ that times out after the health check says busy, not "is it running?", and suggests waiting', { skip: SKIP_POSIX_SHELL }, () => withBoard('roomhang', async (port) => {
   const out = await runCli(['room', 'proj'], baseEnv(port, { TMUX_PANE: '%42' }));
   assert.equal(out.code, 1, out.stdout + out.stderr);
@@ -284,7 +307,7 @@ test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not 
   const out = await runCli(['msg', '--stdin', 'mara'], baseEnv(port, { TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'a piped message');
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /The message may have been delivered/);
-  const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+  const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at ([^\s,]+), so nothing is lost if it did not arrive\./);
   assert.ok(kept, out.stdout);
   assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
   assert.equal(fs.readFileSync(kept[1], 'utf8'), 'a piped message');
@@ -617,7 +640,7 @@ test('#4934: a post whose reply is CUT and whose retry the loop guard refuses ne
     assert.equal(out.code, 1, out.stdout + out.stderr);
     assert.doesNotMatch(out.stdout, /The piped message was not sent;/);
     assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
-    const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+    const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at ([^\s,]+), so nothing is lost if it did not arrive\./);
     assert.ok(kept, out.stdout);
     assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
     assert.equal(fs.readFileSync(kept[1], 'utf8'), 'piped draft in the folder');
