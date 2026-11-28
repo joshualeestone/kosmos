@@ -130,7 +130,9 @@ const KEEPS = {
     input: JSON.stringify({ hook_event_name: 'BeforeTool', session_id: 's', cwd: '/w', tool_name: 'write_file', tool_input: { file_path: '/w/a' } }) }) },
   grok: { bound: 800, run: (fetchImpl) => require('./bin/grok-report-bridge.js').main({ fetchImpl, keepTimeoutMs: 800, readBoardToken: () => TOK,
     env: { KOSMOS_PORT: '16999', KOSMOS_AGENT_TOKEN: '' },
-    input: JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd: '/w', tool_name: 'write', tool_input: { file_path: '/w/a' } }) }) },
+    // grok refuses a rooted path with no drive on Windows (bin/grok-report-bridge.js keepRequestFor), so its folder is
+    // absolute on this host: /w on the Mac, a drive letter then w on Windows (kosmos#8378).
+    input: JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd: path.resolve('/w'), tool_name: 'write', tool_input: { file_path: path.resolve('/w/a') } }) }) },
   codex: { bound: 800, run: (fetchImpl) => require('./bin/codex-report-bridge.js').hookMain({ fetchImpl, keepTimeoutMs: 800, headers: { 'x-kosmos-board-token': TOK },
     env: { KOSMOS_PORT: '16999' },
     input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'apply_patch', cwd: '/w', session_id: 's', tool_input: { command: '*** Add File: a\n' } }) }) },
