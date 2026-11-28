@@ -13,7 +13,9 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * What text can show, stated: a launch's ignoreDefaultArgs (the JavaScript spelling) wherever the name appears, and a
  * test browser run named by a literal path, app name or bundle id, as a shell string or an argv list. A path held only
  * in a variable cannot be seen: engine/agentbrowser.js runs the headless shell that way (execP(exe, ['--version']),
- * which exits before any keychain read). The MCP config the repo writes is pinned by engine/agentbrowser.test.js. The
+ * which exits before any keychain read). A .py file is read for direct runs only (Python's ignore_default_args is
+ * not matched; nothing here drives Playwright from Python). The MCP config the repo writes is pinned by
+ * engine/agentbrowser.test.js. The
  * fleet rule proposed on the card covers what no repo scan can.
  *
  *   node --test browser-launch-keychain-9254.test.js
@@ -85,13 +87,14 @@ const DEFAULTS_OFF = /ignoreAllDefaultArgs\s*:\s*true|ignoreAllDefaultArgs\s*=(?
    The person's own Google Chrome is not one: it already has its own keychain access, and a mock keychain against their
    profile would only lose their saved logins, so `open -a "Google Chrome" <url>` is fine. Case-insensitive; the
    keychain switch must be on the same call (that line or the three after it). */
-const TEST_BROWSER = String.raw`(?:google chrome for testing|chromium|chrome-headless-shell|org\.chromium|com\.google\.chrome\.for\.testing)`;
+const TEST_BROWSER = String.raw`(?:(?:google )?chrome for testing|chromium|chrome-headless-shell|org\.chromium|com\.google\.chrome\.for\.testing)`;
 const RUN_ARMS = [
   String.raw`contents\/macos\/${TEST_BROWSER}`,                                            // the binary inside an app
   String.raw`['"]contents['"]\s*,\s*['"]macos['"]\s*,\s*['"]${TEST_BROWSER}`,               // the same, by path.join
   String.raw`\b(?:spawn|execFile|exec)(?:Sync)?\(\s*[^)\n]*chrome-headless-shell\b`,       // the headless shell run
   String.raw`\b(?:spawn|execFile|exec)(?:Sync)?\(\s*[\w.]*executablePath\(\)`,             // Playwright's own binary, run raw
-  String.raw`\bopen\s+(?:-[a-z]+\s+)*\\?["']?(?:\/[^"'\\]*\/)?${TEST_BROWSER}`,           // open (-a/-b) an app, or a .app path
+  String.raw`\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^"'\\]*\/)?${TEST_BROWSER}`,   // open -a/-b an app
+  String.raw`\bopen\s+(?:-[a-z]+\s+)*\\?["']?\/[^"'\\\n]*${TEST_BROWSER}[^"'\\\n]*\.app`,   // open a .app by its path (prose is neither)
   String.raw`['"]open['"]\s*,\s*\[[^\]]*?['"](?:\/[^'"]*\/)?${TEST_BROWSER}`,               // its argv form
 ];
 const RUNS_CHROME = new RegExp(RUN_ARMS.join('|'), 'i');
@@ -149,6 +152,11 @@ test('#9254: every rule fires on the shape it names, and not on the safe shapes 
   for (const l of ['open -a "Google Chrome" https://x', 'open -b com.google.Chrome', 'open -a Chrome https://x', "execFileSync('open', ['-a', 'Google Chrome', url])"]) {
     assert.ok(!RUNS_CHROME.test(l), 'the person\'s own Chrome was refused: ' + l);
   }
+  // Prose that names a test browser is not a launch.
+  for (const l of ['// we open Chromium once per run', 'throw new Error("cannot open chromium-profile dir")']) {
+    assert.ok(!RUNS_CHROME.test(l), 'prose was read as a launch: ' + l);
+  }
+  assert.ok(RUNS_CHROME.test('open -a "Chrome for Testing"'), 'the short app name was missed');
   assert.ok(DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: true })') && !DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: false })'));
   assert.ok(DEFAULTS_OFF.test('opts.ignoreAllDefaultArgs = true') && !DEFAULTS_OFF.test('if (opts.ignoreAllDefaultArgs === true) {}'));
 });
