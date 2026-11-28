@@ -145,8 +145,8 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'enrolsign-7116.test.js',   // kosmos#8378: the enrolment join codes, review and coordinator arms on Windows; the arms that need kosmos-se (the Mac's Secure Enclave signer), its file-mode check, and the unreadable or linked join-codes arm (chmod 0o000, a symlink) skip there
   'handoversign-8819.test.js',   // kosmos#8378: the hand-over bytes and their refusals on Windows; the arms that run a stand-in kosmos-se (the Mac's Secure Enclave signer) by its shebang line skip there
   'museinstall.test.js',   // kosmos#8378: the Muse Code install button's seams with a launcher Windows counts as runnable (writeRunnerStub). No win32 branch, so this listing is optional
-  'muserun.test.js',   // kosmos#8378: Muse turn parsing and onModel with a fake runMuse; its process arms already skip off a Mac, and its linked-workspace arm skips on Windows (symlinks need elevation)
-  'musestatus.test.js',   // kosmos#8378: Muse sign-in state; only the chmod 0o000 unread-file half skips there (POSIX modes)
+  'muserun.test.js',   // kosmos#8378: Muse turn parsing and onModel with a fake runMuse, its linked workspace a junction (no elevation needed); its process arms already skip off a Mac
+  'musestatus.test.js',   // kosmos#8378: Muse sign-in state; its Mac-only arms already skip off a Mac, and the chmod 0o000 unread-file half skips there (POSIX modes)
   'create.spoken-name-1367.test.js',   // kosmos#8378: a refusal speaks the display name, with runner stubs Windows counts as runnable and the stand-in Task Scheduler
   'create.switch-account-1373.test.js',   // kosmos#8378: switching an agent between accounts, with runner stubs Windows counts as runnable
   'create.setprovider-google-xai-3296.test.js',   // kosmos#8378: switching to and from Gemini, Grok and Antigravity, with runner stubs Windows counts as runnable

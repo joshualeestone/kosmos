@@ -1,6 +1,5 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
-const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 /*
  * #3939 slice 2: engine/muserun.js. A fake `muse` in a sandboxed home prints events in the shape
  * Homer captured on card #3939; the real Muse Code is never run here.
@@ -41,9 +40,10 @@ function fakeMuse(body) {
   fs.writeFileSync(BIN, '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
 }
 
-test('#3939: turnArgs passes the workspace (real path) on every turn, the session, and the prompt last', { skip: NO_SYMLINK }, () => {
+test('#3939: turnArgs passes the workspace (real path) on every turn, the session, and the prompt last', () => {
   const link = path.join(SANDBOX, 'via-link');
-  try { fs.symlinkSync(WORK, link); } catch { /* exists */ }
+  // 'junction': a folder link Windows makes without elevation; macOS and Linux ignore the type (kosmos#8378).
+  try { fs.symlinkSync(WORK, link, 'junction'); } catch (e) { if (e.code !== 'EEXIST') throw e; }
   const t = run.turnArgs({ workspace: link, sessionId: SID, prompt: '-x looks like a flag' });
   assert.equal(t.error, undefined, JSON.stringify(t));
   assert.equal(t.workspace, fs.realpathSync(WORK), 'the workspace was not resolved through the symlink (a precaution: Muse refused a data folder through one)');
