@@ -7,9 +7,11 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * securityd logs no request), so the danger is a launch that turns those defaults off, or one that runs a Chrome
  * binary itself. This reads the repo's tracked source as text and refuses both shapes.
  *
- * What text can show, stated: a launch's ignoreDefaultArgs, in any spelling the name appears in, and a Chrome run
- * named by a literal path, app name or bundle id. A Chrome path held only in a variable cannot be seen; the fleet
- * rule on the card covers what no repo scan can.
+ * What text can show, stated: a launch's ignoreDefaultArgs (the JavaScript spelling) wherever the name appears, and a
+ * Chrome run named by a literal path, app name or bundle id, as a shell string or as an argv list ('open', ['-a', ...]).
+ * A Chrome path held only in a variable cannot be seen: engine/agentbrowser.js runs the headless shell that way
+ * (execP(exe, ['--version']), which exits before any keychain read). The fleet rule proposed on the card covers what
+ * no repo scan can.
  *
  *   node --test browser-launch-keychain-9254.test.js
  */
@@ -73,10 +75,12 @@ function unsafeDrop(value) {
   const strs = [...v.matchAll(/'([^'\\]*)'|"([^"\\]*)"/g)].map((x) => x[1] !== undefined ? x[1] : x[2]);
   return strs.some((x) => !SAFE_DROPS.has(x));
 }
+/* Not a Playwright option (its typed API has none): Puppeteer's name for turning every default off. Kept because an
+   agent's script may drive Chromium with Puppeteer. */
 const DEFAULTS_OFF = /ignoreAllDefaultArgs\s*:\s*true|ignoreAllDefaultArgs\s*=(?!=)/;
 /* Running a Chrome or Chromium binary or app itself, not through Playwright's launch (case-insensitive). The keychain
    switch must be on the same call: that line or the three after it. */
-const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell\b|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^\s"'\\]*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)/i;
+const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell\b|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^\s"'\\]*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)|['"]open['"]\s*,\s*\[[^\]]*?['"]-[a-z]*[ab][a-z]*['"]\s*,\s*['"](?:\/[^'"]*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)/i;
 
 function offenders(list) {
   const bad = [];
@@ -84,7 +88,7 @@ function offenders(list) {
     const src = fs.readFileSync(f, 'utf8');
     const rel = path.relative(__dirname, f) || f;
     if (DEFAULTS_OFF.test(src)) bad.push(rel + ': turns every default switch off (ignoreAllDefaultArgs)');
-    for (const v of dropValues(src)) if (unsafeDrop(v)) bad.push(rel + ': ignoreDefaultArgs drops more than a safe switch: ' + v.trim().slice(0, 80));
+    for (const v of dropValues(src)) if (unsafeDrop(v)) bad.push(rel + ': ignoreDefaultArgs drops more than a safe switch: ' + (v === null ? '(no value it can read)' : v.trim().slice(0, 80)));
     const lines = src.split('\n');
     lines.forEach((l, i) => {
       if (RUNS_CHROME.test(l) && !lines.slice(i, i + 4).join('\n').includes('--use-mock-keychain')) bad.push(rel + ':' + (i + 1) + ': runs a Chrome binary without --use-mock-keychain');
@@ -119,7 +123,8 @@ test('#9254: every rule fires on the shape it names, and not on the safe shapes 
   for (const l of ['spawn("/x/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")', 'open -na "Google Chrome" --args --new-window',
     "open -a 'google chrome'", 'open -b com.google.Chrome', 'open -a /Applications/Chromium.app/', "execFile('/x/chrome-headless-shell', [])",
     "spawnSync('/x/chrome-headless-shell', [])", "exec('/x/chrome-headless-shell --version')", 'open -b org.chromium.Chromium',
-    'run("/x/Chromium.app/Contents/MacOS/Chromium")', 'execSync("open -a \\"Google Chrome\\" https://x")']) {
+    'run("/x/Chromium.app/Contents/MacOS/Chromium")', 'execSync("open -a \\"Google Chrome\\" https://x")',
+    "execFileSync('open', ['-a', 'Google Chrome for Testing', '--args', '--new-window'])", "spawn('open', ['-na', '/Applications/Chromium.app'])"]) {
     assert.ok(RUNS_CHROME.test(l), 'missed: ' + l);
   }
   assert.ok(!RUNS_CHROME.test('chromium.launch({ headless: true })'), 'a Playwright launch is not a direct run');
@@ -134,6 +139,7 @@ test('#9254: the Playwright MCP config the repo writes launches the headless she
   const args = servers[Object.keys(servers)[0]].args;
   assert.deepEqual(args.slice(1, 5), ['--browser', 'chromium', '--executable-path', '/x/chrome-headless-shell'], 'the Mac browser is not Playwright\'s chromium at the given shell: ' + JSON.stringify(args));
   assert.ok(args.includes('--isolated'), 'the MCP browser is not isolated: ' + JSON.stringify(args));
+  assert.ok(args.includes('--headless'), 'the MCP browser is not headless: ' + JSON.stringify(args));
   assert.ok(!args.some((a) => /user-data-dir|--profile/.test(a)), 'the MCP browser was given a profile: ' + JSON.stringify(args));
 });
 
@@ -153,9 +159,10 @@ test('#9254 CONTROL: the scan reports each planted bad launch, and not the safe 
     const direct = put('direct.sh', 'open -a "Google Chrome for Testing" --args --user-data-dir=/tmp/x\n');
     const fixed = put('fixed.sh', 'open -a "Google Chrome for Testing" --args --use-mock-keychain --password-store=basic\n');
     const far = put('far.sh', 'open -a "Google Chrome for Testing" --args --user-data-dir=/tmp/x\n\n\n\n\n# later: --use-mock-keychain\n');
+    const named = put('named.js', '// ignoreDefaultArgs is never set here\nlaunch({ ignoreDefaultArgs })\n');
     const next = put('next.sh', 'open -a "Google Chrome for Testing" --args \\\n  --use-mock-keychain --password-store=basic\n');
-    const got = offenders([all, drops, direct, fixed, far, next]);
-    assert.equal(got.length, 4, JSON.stringify(got));
+    const got = offenders([all, drops, direct, fixed, far, next, named]);
+    assert.equal(got.length, 6, JSON.stringify(got));   // named.js twice: the comment and the shorthand, each with no value
     assert.ok(!got.some((x) => x.startsWith(path.relative(__dirname, next))), 'the switch on the next line of the same call was not read');
     assert.ok(!got.some((x) => x.startsWith(path.relative(__dirname, fixed))), 'the fixed launch was reported');
   } finally {
