@@ -13,6 +13,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * is a stub on PATH; nothing real opens. The stub board proves itself as the real one does (engine/boardproof).
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -110,14 +111,14 @@ function open(port, { display = false, tty = false, agent = false, wayland = fal
   });
 }
 
-test('#6361: on Linux with a display, kosmos open opens the sign-in address with xdg-open', () => withStub({ prove: true }, async (port) => {
+test('#6361: on Linux with a display, kosmos open opens the sign-in address with xdg-open', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port, { display: true });
   assert.equal(r.code, 0, r.out);
   assert.match(r.opened || '', new RegExp('/\\?boot=' + NONCE), 'xdg-open was not handed the one-time sign-in address');
 }));
 
-test('#6361: on Linux with no display and no terminal, the one-time address is not printed, and it says why', () => withStub({ prove: true }, async (port) => {
+test('#6361: on Linux with no display and no terminal, the one-time address is not printed, and it says why', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port);
   assert.equal(r.opened, null, 'an opener ran with no display');
@@ -129,7 +130,7 @@ test('#6361: on Linux with no display and no terminal, the one-time address is n
   assert.equal(r.code, 1, 'no way in was given, so it is not a success');
 }));
 
-test('#6361: on Linux with no display, at a terminal, the one-time sign-in address is printed for the person', () => withStub({ prove: true }, async (port) => {
+test('#6361: on Linux with no display, at a terminal, the one-time sign-in address is printed for the person', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port, { tty: true });
   assert.equal(r.opened, null, 'an opener ran with no display');
@@ -138,7 +139,7 @@ test('#6361: on Linux with no display, at a terminal, the one-time sign-in addre
   assert.equal(r.code, 0, r.out);
 }));
 
-test('#6361: a board with no token (not enforcing) is handed as its plain address, with no opener', () => withStub({ prove: true }, async (port) => {
+test('#6361: a board with no token (not enforcing) is handed as its plain address, with no opener', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(false);
   try {
     const r = await open(port);
@@ -148,7 +149,7 @@ test('#6361: a board with no token (not enforcing) is handed as its plain addres
   } finally { setToken(true); }
 }));
 
-test('#6361: a board that fails the proof is neither opened nor printed, even at a terminal (the #1765 refusal comes first)', () => withStub({ prove: false }, async (port) => {
+test('#6361: a board that fails the proof is neither opened nor printed, even at a terminal (the #1765 refusal comes first)', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port) => {
   setToken(true);
   const r = await open(port, { tty: true, display: true });
   assert.equal(r.opened, null, 'a browser was opened at an unproven listener');
@@ -166,7 +167,7 @@ test('#6361: in the source, Darwin keeps /usr/bin/open and the old macOS-only de
   assert.doesNotMatch(body, /\$\{KOSMOS_OPEN_BIN:-\/usr\/bin\/open\}/, 'the old macOS-only default is back');
 });
 
-test('#6361: an agent at a terminal is not handed the one-time address (its terminal is a transcript)', () => withStub({ prove: true }, async (port) => {
+test('#6361: an agent at a terminal is not handed the one-time address (its terminal is a transcript)', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port, { tty: true, agent: true });
   assert.doesNotMatch(r.out, new RegExp(NONCE), 'an agent was handed the one-time sign-in address');
@@ -177,7 +178,7 @@ test('#6361: an agent at a terminal is not handed the one-time address (its term
   assert.match(p.out, new RegExp('/\\?boot=' + NONCE), 'CONTROL: a person at the same terminal was not given the address');
 }));
 
-test('#6361: an opener that fails (a dead DISPLAY) still hands a person the one-time address, not just the plain one', () => withStub({ prove: true }, async (port) => {
+test('#6361: an opener that fails (a dead DISPLAY) still hands a person the one-time address, not just the plain one', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   fs.writeFileSync(path.join(BIN, 'fail'), '');
   try {
@@ -189,14 +190,14 @@ test('#6361: an opener that fails (a dead DISPLAY) still hands a person the one-
   } finally { fs.rmSync(path.join(BIN, 'fail'), { force: true }); }
 }));
 
-test('#6361: Wayland alone (no DISPLAY) counts as a display, so xdg-open opens the address', () => withStub({ prove: true }, async (port) => {
+test('#6361: Wayland alone (no DISPLAY) counts as a display, so xdg-open opens the address', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port, { wayland: true });
   assert.match(r.opened || '', new RegExp('/\\?boot=' + NONCE), 'a Wayland-only desktop got no opener');
   assert.equal(r.code, 0, r.out);
 }));
 
-test('#6361: a platform that is neither macOS nor Linux runs no opener, and is handed the address the safe way', () => withStub({ prove: true }, async (port) => {
+test('#6361: a platform that is neither macOS nor Linux runs no opener, and is handed the address the safe way', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port, { platform: 'FreeBSD', display: true });
   assert.equal(r.opened, null, 'an opener ran on a platform with none');
@@ -205,7 +206,7 @@ test('#6361: a platform that is neither macOS nor Linux runs no opener, and is h
   assert.notEqual(r.code, 0);
 }));
 
-test('#6361: an opener that fails on an enforcing board, not at a terminal, ends non-zero and prints no one-time address', () => withStub({ prove: true }, async (port) => {
+test('#6361: an opener that fails on an enforcing board, not at a terminal, ends non-zero and prints no one-time address', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const failing = path.join(BIN, 'fail-open.sh');
   fs.writeFileSync(failing, '#!/bin/sh\nexit 5\n', { mode: 0o755 });
@@ -217,14 +218,14 @@ test('#6361: an opener that fails on an enforcing board, not at a terminal, ends
   assert.notEqual(r.code, 0, 'a failed open must end non-zero (#1957)');
 }));
 
-test('#6361: an agent is told to ask the person, not given a step to take itself', () => withStub({ prove: true }, async (port) => {
+test('#6361: an agent is told to ask the person, not given a step to take itself', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   setToken(true);
   const r = await open(port, { agent: true });
   assert.match(r.out, /Tell the person who runs this computer to run, in a terminal on it: /);
   assert.doesNotMatch(r.out, new RegExp(NONCE));
 }));
 
-test('#6361: an enforcing board that answers without a nonce is not handed over as a dead-end plain address', () => withStub({ prove: true, noNonce: true }, async (port) => {
+test('#6361: an enforcing board that answers without a nonce is not handed over as a dead-end plain address', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true, noNonce: true }, async (port) => {
   setToken(true);
   const r = await open(port);
   assert.match(r.out, /could not make a one-time sign-in address/, 'a page that cannot sign in was handed over as the way in');

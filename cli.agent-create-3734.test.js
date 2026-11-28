@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * the only node the CLI can find (an agent's PATH may have none).
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -79,7 +80,7 @@ async function cli(port, args, token, home = HOME) {
   } catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
 
-test('#3734 agent create asks for a one-member team with the token, and names the agent the board made', () => withStub(
+test('#3734 agent create asks for a one-member team with the token, and names the agent the board made', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [200, { outcome: 'created', created: [{ name: 'pm', shownAs: 'PM one', id: 'a1' }], refused: [], creator: 'guidebot', purpose: 'x' }],
   async (port, seen) => {
     const r = await cli(port, ['agent', 'create', 'PM "one"', 'pm', 'they want a project manager'], 'abc123');
@@ -91,7 +92,7 @@ test('#3734 agent create asks for a one-member team with the token, and names th
     assert.match(r.out, /Made "PM one"\. It's on your board now: http/);
   }));
 
-test('#3734 with no node on PATH and no runtime, it says so instead of misreading a made agent', () => withStub(
+test('#3734 with no node on PATH and no runtime, it says so instead of misreading a made agent', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [200, { outcome: 'created', created: [{ name: 'pm' }] }],
   async (port) => {
     const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agent-bare-')));
@@ -102,7 +103,7 @@ test('#3734 with no node on PATH and no runtime, it says so instead of misreadin
     } finally { fs.rmSync(bare, { recursive: true, force: true }); }
   }));
 
-test('#3734 agent create says the board\'s reason when it refuses, and exits non-zero', () => withStub(
+test('#3734 agent create says the board\'s reason when it refuses, and exits non-zero', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [403, { error: 'that token does not belong to any agent Kosmos started' }],
   async (port) => {
     const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
@@ -110,7 +111,7 @@ test('#3734 agent create says the board\'s reason when it refuses, and exits non
     assert.match(r.out, /Kosmos did not make that agent: that token does not belong to any agent/);
   }));
 
-test('#3734 a member the board refused is said with its reason', () => withStub(
+test('#3734 a member the board refused is said with its reason', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: 'there is already an agent called PM' }], because: 'no member could be created' }],
   async (port) => {
     const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
@@ -119,7 +120,7 @@ test('#3734 a member the board refused is said with its reason', () => withStub(
   }));
 
 for (const [reason, want] of [['two stops..', 'two stops.'], ['a space. ', 'a space.'], ['a question?', 'a question?'], ['..', 'it did not say why.']]) {
-  test('#5127 the reason ' + JSON.stringify(reason) + ' ends the line once', () => withStub(
+  test('#5127 the reason ' + JSON.stringify(reason) + ' ends the line once', { skip: SKIP_POSIX_SHELL }, () => withStub(
     () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: reason }] }],
     async (port) => {
       const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
@@ -130,7 +131,7 @@ for (const [reason, want] of [['two stops..', 'two stops.'], ['a space. ', 'a sp
     }));
 }
 
-test('#5127 a reason that ends a sentence is printed with one full stop, not two', () => withStub(
+test('#5127 a reason that ends a sentence is printed with one full stop, not two', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: 'connect a Claude account in Settings, AI Models.' }] }],
   async (port) => {
     const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
@@ -139,7 +140,7 @@ test('#5127 a reason that ends a sentence is printed with one full stop, not two
     assert.doesNotMatch(r.out, /\.\./, 'a doubled full stop');
   }));
 
-test('#3734 agent roles lists the role keys, and a bad call is named before the board is asked', () => withStub(
+test('#3734 agent roles lists the role keys, and a bad call is named before the board is asked', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [500, {}],
   async (port, seen) => {
     const r = await cli(port, ['agent', 'roles']);
@@ -162,7 +163,7 @@ test('#3734 agent roles lists the role keys, and a bad call is named before the 
     assert.equal(seen.length, 0, 'a malformed call reached the board');
   }));
 
-test('#7748 kosmos agent list names each agent, its role, and whether it runs', () => withStub(
+test('#7748 kosmos agent list names each agent, its role, and whether it runs', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [500, {}],
   async (port) => {
     const r = await cli(port, ['agent', 'list']);
@@ -177,7 +178,7 @@ test('#7748 kosmos agent list names each agent, its role, and whether it runs', 
     assert.doesNotMatch(opt.out, /put -- before it/);
   }));
 
-test('#7748 project create names the command that makes a missing folder, quoted', () => withStub(
+test('#7748 project create names the command that makes a missing folder, quoted', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [500, {}],
   async (port) => {
     const r = await cli(port, ['project', 'create', 'P', '/tmp/a b']);
@@ -186,7 +187,7 @@ test('#7748 project create names the command that makes a missing folder, quoted
     assert.match(r.out, /mkdir -p \/tmp\/a\\ b/);
   }));
 
-test('#3734 kosmos agent --help and -h show the agent usage, not the top-level banner', () => withStub(
+test('#3734 kosmos agent --help and -h show the agent usage, not the top-level banner', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [500, {}],
   async (port, seen) => {
     for (const flag of ['--help', '-h']) {
@@ -199,7 +200,7 @@ test('#3734 kosmos agent --help and -h show the agent usage, not the top-level b
     assert.equal(seen.length, 0, 'asking for help reached the board');
   }));
 
-test('#3734 agent create with no launch token refuses before sending anything', () => withStub(
+test('#3734 agent create with no launch token refuses before sending anything', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [200, { outcome: 'created', created: [{ name: 'pm' }] }],
   async (port, seen) => {
     const r = await cli(port, ['agent', 'create', 'PM', 'pm']);

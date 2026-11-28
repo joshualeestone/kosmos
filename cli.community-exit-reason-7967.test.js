@@ -11,6 +11,7 @@ require('./test-support/tmpscope');   // #4273: first, so every temp dir this fi
  */
 
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -69,7 +70,7 @@ function withStubBoard(replies, fn) {
 
 const lines = (s) => s.split('\n').filter((l) => l !== '');
 
-test('#7967: a failed home read says why on stderr, in one line, and keeps its stdout and exit code', () => withStubBoard(
+test('#7967: a failed home read says why on stderr, in one line, and keeps its stdout and exit code', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/home': { status: 500, body: { error: 'the community is not answering' } } },
   async (port) => {
     const out = await run(CLI, ['community', 'home'], envFor(port));
@@ -79,7 +80,7 @@ test('#7967: a failed home read says why on stderr, in one line, and keeps its s
     assert.match(out.stderr, /^kosmos community home: Nothing was read: the community is not answering\. \(exit 1: /);
   }));
 
-test('#7967: a home read that works prints nothing on stderr', () => withStubBoard(
+test('#7967: a home read that works prints nothing on stderr', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/home': { status: 200, body: { ok: true, text: 'Nothing is waiting for you.' } } },
   async (port) => {
     const out = await run(CLI, ['community', 'home'], envFor(port));
@@ -88,7 +89,7 @@ test('#7967: a home read that works prints nothing on stderr', () => withStubBoa
     assert.equal(out.stderr, '');
   }));
 
-test('#7967: a maybe (exit 3) says on stderr to check before sending again', () => withStubBoard(
+test('#7967: a maybe (exit 3) says on stderr to check before sending again', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/service-comment': { status: 500, body: { error: 'we could not submit that comment' } } },
   async (port) => {
     const out = await run(CLI, ['community', 'comment', POST, 'x'], envFor(port));
@@ -97,7 +98,7 @@ test('#7967: a maybe (exit 3) says on stderr to check before sending again', () 
     assert.match(out.stderr, /^kosmos community comment: .*may have been taken.*\(exit 3: it may have happened; read the line before running it again\)$/m);
   }));
 
-test('#7967 review 6: with stderr closed, a maybe (exit 3) still exits 3, not 1', () => withStubBoard(
+test('#7967 review 6: with stderr closed, a maybe (exit 3) still exits 3, not 1', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/service-comment': { status: 500, body: { error: 'we could not submit that comment' } } },
   async (port) => {
     // A failed write to a closed stderr must not end the exit function under set -e before the real exit runs.
@@ -106,13 +107,13 @@ test('#7967 review 6: with stderr closed, a maybe (exit 3) still exits 3, not 1'
     assert.match(out.stdout, /may have been taken/, 'premise: this was the maybe path');
   }));
 
-test('#7967: a usage refusal (exit 2) says why on stderr', () => withStubBoard({}, async (port) => {
+test('#7967: a usage refusal (exit 2) says why on stderr', { skip: SKIP_POSIX_SHELL }, () => withStubBoard({}, async (port) => {
   const out = await run(CLI, ['community', 'read', '--channel'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stderr, /^kosmos community read: --channel needs a channel, like general or general\/tools\. \(exit 2: refused; the line says why\)$/m);
 }));
 
-test('#7967: the reported case: a chained check that drops stdout stops, and stderr says why', () => withStubBoard(
+test('#7967: the reported case: a chained check that drops stdout stops, and stderr says why', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/home': { status: 500, body: { error: 'the community is not answering' } } },
   async (port) => {
     const out = await run('/bin/sh', ['-c', '"$1" community home >/dev/null && echo NEXT-CHECK-RAN', 'sh', CLI], envFor(port));
@@ -121,7 +122,7 @@ test('#7967: the reported case: a chained check that drops stdout stops, and std
     assert.match(out.stderr, /kosmos community home: Nothing was read/, 'the stopped chain shows why');
   }));
 
-test('#7967: a failure and a real read leave nothing in TMPDIR', async () => {
+test('#7967: a failure and a real read leave nothing in TMPDIR', { skip: SKIP_POSIX_SHELL }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-exit-7967-tmp-'));
   await withStubBoard({ '/api/community/home': { status: 500, body: { error: 'no' } } }, async (port) => {
     const fail = await run(CLI, ['community', 'home'], envFor(port, { TMPDIR: tmp }));
@@ -135,7 +136,7 @@ test('#7967: a failure and a real read leave nothing in TMPDIR', async () => {
   assert.deepEqual(fs.readdirSync(tmp), [], 'nothing left behind in TMPDIR');
 });
 
-test('#7967 review 1: an exit 1 after a post the board may have taken never says nothing happened', () => withStubBoard(
+test('#7967 review 1: an exit 1 after a post the board may have taken never says nothing happened', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/post': 'cut' },
   async (port) => {
     const out = await run(CLI, ['community', 'post', 'hello'], envFor(port));
@@ -161,7 +162,7 @@ async function startPollingRead(port) {
 const groupGone = (pid) => { try { process.kill(-pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
 
 for (const [sig, group] of [['TERM', false], ['HUP', false], ['KILL', false], ['INT', true]]) {
-  test('#7967 review 5: a SIG' + sig + (group ? ' to the process group (Ctrl-C)' : ' to the command') + ' stops it at once and the board is asked nothing more', () => withStubBoard(READ_REPLIES, async (port) => {
+  test('#7967 review 5: a SIG' + sig + (group ? ' to the process group (Ctrl-C)' : ' to the command') + ' stops it at once and the board is asked nothing more', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(READ_REPLIES, async (port) => {
     const { child, done } = await startPollingRead(port);
     const sent = Date.now();
     process.kill(group ? -child.pid : child.pid, 'SIG' + sig);   // only the process (or group) this test started
@@ -178,7 +179,7 @@ for (const [sig, group] of [['TERM', false], ['HUP', false], ['KILL', false], ['
 /* Round 5's case: a Ctrl-C while a request hangs. A curl that ignored the interrupt (bash 3.2 cannot un-ignore SIGINT
    in a background job) would sit in the group for its whole 60 s; a polling read cannot show that (each ask ends in
    0.3 s by itself). */
-test('#7967 review 5: a Ctrl-C while a request hangs leaves nothing of the command running', () => withStubBoard(
+test('#7967 review 5: a Ctrl-C while a request hangs leaves nothing of the command running', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/home': 'hang' },
   async (port) => {
     seen.length = 0;
@@ -194,7 +195,7 @@ test('#7967 review 5: a Ctrl-C while a request hangs leaves nothing of the comma
     assert.ok(groupGone(child.pid), 'something of the command (its curl?) is still running after the Ctrl-C');
   }));
 
-test('#7967 review 5: --help says nothing on stderr (its bare re-dispatch exits 2 by design)', () => withStubBoard({}, async (port) => {
+test('#7967 review 5: --help says nothing on stderr (its bare re-dispatch exits 2 by design)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard({}, async (port) => {
   for (const args of [['community', '--help'], ['community', 'read', '--help'], ['community', 'home', '--help']]) {
     const out = await run(CLI, args, envFor(port));
     assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
@@ -202,7 +203,7 @@ test('#7967 review 5: --help says nothing on stderr (its bare re-dispatch exits 
   }
 }));
 
-test('#7967 review 4: a post body piped on stdin still reaches the board', () => {
+test('#7967 review 4: a post body piped on stdin still reaches the board', { skip: SKIP_POSIX_SHELL }, () => {
   const bodies = [];
   return withStubBoard(
     { '/api/community/post': (b) => { bodies.push(b); return { status: 200, body: { ok: true, status: 'published', id: 'p1' } }; } },
@@ -236,7 +237,7 @@ test('#7967 review 5: the wrapper runs the command in this shell: no subshell, b
 
 /* kosmos#7980: the --help marker silences only the bare verb (the one shape the re-dispatch runs), so one exported by
    hand cannot hide a real failure, and nothing the command starts inherits it. */
-test('#7980: an exported KOSMOS_HELP_REDISPATCH does not silence a failing command', () => withStubBoard(
+test('#7980: an exported KOSMOS_HELP_REDISPATCH does not silence a failing command', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(
   { '/api/community/home': { status: 500, body: { error: 'the community is not answering' } } },
   async (port) => {
     const out = await run(CLI, ['community', 'home'], envFor(port, { KOSMOS_HELP_REDISPATCH: '1' }));
@@ -266,7 +267,7 @@ function harness(body, env = {}) {
     });
   });
 }
-test('#7980: an exit inside $(...) writes no line; an exit in the command\'s own shell does (control)', async () => {
+test('#7980: an exit inside $(...) writes no line; an exit in the command\'s own shell does (control)', { skip: SKIP_POSIX_SHELL }, async () => {
   const sub = await harness('  x=$(say "inner"; exit 5) || true\n  say "all fine"\n  return 0');
   assert.equal(sub.code, 0, sub.stdout + sub.stderr);
   assert.equal(sub.stderr, '', 'an exit inside $(...) wrote a line: ' + JSON.stringify(sub.stderr));
@@ -274,7 +275,7 @@ test('#7980: an exit inside $(...) writes no line; an exit in the command\'s own
   assert.equal(own.code, 4, 'control: the exit code survives');
   assert.match(own.stderr, /^kosmos community home: the reason \(exit 4: read the line before running it again\)$/m, 'control: an exit in its own shell writes the line');
 });
-test('#7980: a command started by the community verb does not inherit KOSMOS_HELP_REDISPATCH', async () => {
+test('#7980: a command started by the community verb does not inherit KOSMOS_HELP_REDISPATCH', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await harness('  echo "child sees: $(/bin/bash -c \'echo ${KOSMOS_HELP_REDISPATCH-unset}\')"\n  return 0', { KOSMOS_HELP_REDISPATCH: '1' });
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /child sees: unset/, 'the marker reached a child: ' + JSON.stringify(r.stdout));

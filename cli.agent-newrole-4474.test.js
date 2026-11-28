@@ -7,6 +7,7 @@
  */
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -65,13 +66,13 @@ async function cli(port, args, token) {
 
 const MADE = () => [200, { outcome: 'created', created: [{ name: 'ann', shownAs: 'Ann', id: 'a1' }], refused: [], creator: 'pm', purpose: 'x' }];
 
-test('#4474 role-draft prints the default text to start a new role from, {{NAME}} left for Kosmos to fill', () => withStub(MADE, async (port) => {
+test('#4474 role-draft prints the default text to start a new role from, {{NAME}} left for Kosmos to fill', { skip: SKIP_POSIX_SHELL }, () => withStub(MADE, async (port) => {
   const r = await cli(port, ['agent', 'role-draft']);
   assert.equal(r.code, 0, r.out);
   assert.equal(r.stdout, OWN, 'the default text was not printed as the board gave it');
 }));
 
-test('#4474 create --new-role sends the own role with the label and the file\'s text, verbatim, with the token', () => withStub(MADE, async (port, seen) => {
+test('#4474 create --new-role sends the own role with the label and the file\'s text, verbatim, with the token', { skip: SKIP_POSIX_SHELL }, () => withStub(MADE, async (port, seen) => {
   const file = path.join(HOME, 'role.md');
   const text = 'You are **{{NAME}}**, a grant writer.\n\n## How you work\n- Quote "exactly", keep C:\\paths and $HOME as written.\n- Tabs\tand ünïcödé stay.\n';
   fs.writeFileSync(file, text);
@@ -84,7 +85,7 @@ test('#4474 create --new-role sends the own role with the label and the file\'s 
   assert.match(r.out, /Made "Ann"\. It's on your board now: http/);
 }));
 
-test('#4474 create --new-role without a readable file, or without --from, sends nothing and says how', () => withStub(MADE, async (port, seen) => {
+test('#4474 create --new-role without a readable file, or without --from, sends nothing and says how', { skip: SKIP_POSIX_SHELL }, () => withStub(MADE, async (port, seen) => {
   const noFile = await cli(port, ['agent', 'create', 'Ann', '--new-role', 'Grant writer', '--from', path.join(HOME, 'missing.md')], 'abc123');
   assert.equal(noFile.code, 2, noFile.out);
   assert.match(noFile.out, /could not read .*missing\.md.*role-draft/);
@@ -94,7 +95,7 @@ test('#4474 create --new-role without a readable file, or without --from, sends 
   assert.equal(seen.length, 0, 'a create went out without a role text');
 }));
 
-test('#4474 a refused new role says the board\'s reason', () => withStub(
+test('#4474 a refused new role says the board\'s reason', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => [400, { outcome: 'refused', created: [], refused: [{ name: 'Ann', because: 'the setup guide is Kosmos\'s own' }], because: '0 of 1' }],
   async (port) => {
     const file = path.join(HOME, 'role2.md');
@@ -104,13 +105,13 @@ test('#4474 a refused new role says the board\'s reason', () => withStub(
     assert.match(r.out, /Kosmos did not make that agent: the setup guide is Kosmos's own\./);
   }));
 
-test('#4474 CONTROL: the existing form still sends only a name and a role', () => withStub(MADE, async (port, seen) => {
+test('#4474 CONTROL: the existing form still sends only a name and a role', { skip: SKIP_POSIX_SHELL }, () => withStub(MADE, async (port, seen) => {
   const r = await cli(port, ['agent', 'create', 'Ann', 'pm', 'why'], 'abc123');
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen[0].body, { purpose: 'why', members: [{ name: 'Ann', role: 'pm' }] });
 }));
 
-test('#4474 role-draft --to writes the default text to the file as UTF-8, not through a shell redirect', () => withStub(MADE, async (port) => {
+test('#4474 role-draft --to writes the default text to the file as UTF-8, not through a shell redirect', { skip: SKIP_POSIX_SHELL }, () => withStub(MADE, async (port) => {
   const file = path.join(HOME, 'role-writer.md');
   const r = await cli(port, ['agent', 'role-draft', '--to', file]);
   assert.equal(r.code, 0, r.out);
@@ -120,7 +121,7 @@ test('#4474 role-draft --to writes the default text to the file as UTF-8, not th
   assert.equal(bad.code, 2, 'role-draft --to with no file did not say how');
 }));
 
-test('#4474 role-draft --to never replaces an existing file (it may hold another role)', () => withStub(MADE, async (port) => {
+test('#4474 role-draft --to never replaces an existing file (it may hold another role)', { skip: SKIP_POSIX_SHELL }, () => withStub(MADE, async (port) => {
   const file = path.join(HOME, 'role-taken.md');
   fs.writeFileSync(file, 'another role\n');
   const r = await cli(port, ['agent', 'role-draft', '--to', file]);

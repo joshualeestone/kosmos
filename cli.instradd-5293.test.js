@@ -6,6 +6,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -54,7 +55,7 @@ async function cli(port, args, extra) {
 function addFile() { const f = path.join(HOME, 'add.md'); fs.writeFileSync(f, ADD); return f; }
 const HELD = () => ({ ok: true, pending: { text: ADD, askedBy: 'Leo', askedAt: '2026-10-05T14:14:00.000Z' } });
 
-test('#5293 instructions-add sends the file verbatim with the pane and token, to that agent, and says it is held', () => withStub(HELD, async (port, seen) => {
+test('#5293 instructions-add sends the file verbatim with the pane and token, to that agent, and says it is held', { skip: SKIP_POSIX_SHELL }, () => withStub(HELD, async (port, seen) => {
   const r = await cli(port, ['agent', 'instructions-add', 'Sally Sales', '--from', addFile()], { TMUX_PANE: '%7', KOSMOS_AGENT_TOKEN: 'abc123' });
   assert.equal(r.code, 0, r.out);
   assert.equal(seen.length, 1);
@@ -66,7 +67,7 @@ test('#5293 instructions-add sends the file verbatim with the pane and token, to
   assert.match(r.out, /Held\. The person applies it on Sally Sales's page in Kosmos; nothing changes until they do\./);
 }));
 
-test('#5293 one already waiting: refused, naming who asked and when, and how the person clears it', () => withStub(
+test('#5293 one already waiting: refused, naming who asked and when, and how the person clears it', { skip: SKIP_POSIX_SHELL }, () => withStub(
   () => ({ ok: false, code: 'pending', pending: { askedBy: 'Ops lead', askedAt: '2026-10-05T14:14:00.000Z' }, because: 'an addition is already waiting' }),
   async (port) => {
     const r = await cli(port, ['agent', 'instructions-add', 'sally', '--from', addFile()], { TMUX_PANE: '%7' });
@@ -74,13 +75,13 @@ test('#5293 one already waiting: refused, naming who asked and when, and how the
     assert.match(r.out, /Not sent: sally already has an addition waiting, asked by Ops lead on Oct \d+\. The person can apply or dismiss it on sally's page first\./);
   }));
 
-test('#5293 a board refusal is said with its reason', () => withStub(() => ({ ok: false, because: 'we could not tell which agent is asking.' }), async (port) => {
+test('#5293 a board refusal is said with its reason', { skip: SKIP_POSIX_SHELL }, () => withStub(() => ({ ok: false, because: 'we could not tell which agent is asking.' }), async (port) => {
   const r = await cli(port, ['agent', 'instructions-add', 'sally', '--from', addFile()]);
   assert.equal(r.code, 1);
   assert.match(r.out, /Kosmos did not hold that addition: we could not tell which agent is asking\.$/m, 'a doubled full stop, or the reason was lost');
 }));
 
-test('#5293 usage: a missing --from, a missing file, or an extra word is refused before anything is sent', () => withStub(HELD, async (port, seen) => {
+test('#5293 usage: a missing --from, a missing file, or an extra word is refused before anything is sent', { skip: SKIP_POSIX_SHELL }, () => withStub(HELD, async (port, seen) => {
   assert.equal((await cli(port, ['agent', 'instructions-add', 'sally'])).code, 2);
   assert.equal((await cli(port, ['agent', 'instructions-add', 'sally', '--from', path.join(HOME, 'nope.md')])).code, 2);
   assert.equal((await cli(port, ['agent', 'instructions-add', 'sally', '--from', addFile(), 'extra'])).code, 2);
