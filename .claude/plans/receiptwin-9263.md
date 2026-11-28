@@ -28,7 +28,8 @@ Left out of the receipt, as paths that cannot be trusted whole:
 - an escape with no special meaning (`\U`). It is LEGAL JavaScript (an identity escape: `"C:\Users"` is `C:Users`), but
   in a path it is far likelier a single backslash written raw (String.raw), so it is treated as one. A judgement about how
   Codex writes paths, not a language rule (review round 5 corrected my comment, which said a string cannot hold it).
-- a decoded control character (`C:\tools.js` written raw decodes a tab), never part of a real file name.
+- a decoded control character (`\u0009`), never part of a real file name. (`C:\tools.js` written raw is left out
+  earlier, as `\t` is an escape a path is not trusted to mean.)
 - a path whose "newline" is followed by something that cannot begin a patch line (`+ - @ *`, a space) or end the
   string: a raw `src\new.md` stops at `src` there, and `src` is not the file edited (review round 6).
 A path that resolves to the agent's own folder is never listed: that is the card's symptom, and no patch line names the
@@ -38,8 +39,10 @@ Not covered: a single-backslash raw path whose escape decodes to a printable cha
 `C:A.js`, a WRONG name shown), or whose cut leaves a next line that begins like a patch line (`C:\n+x.js`). A real
 Codex script was not measured writing String.raw.
 Accepted risks, each an under-report chosen over a wrong name: an unknown escape drops a real edit from the receipt; so
-does a path line followed by something no apply_patch text puts there (a blank line, say). Round 7 added `'` (a
-single-quoted patch string ending after a path) to what may follow.
+does a path line followed by something no apply_patch text puts there (a blank line, say).
+Not handled (follow-up card): a patch in a single-quoted or backtick string that ends right after a path
+(`'*** Update File: a.js'`) still reads the closing quote into the name, as it did before this card; and no fixture
+asserts an escaped drive-letter absolute path read whole off Windows (on Windows the existing `src/new.js` arm does).
 Also not covered, and older than this card: the matcher is not anchored to the start of a patch line, so an added line
 that itself reads `+*** Update File: x.js` is still counted as an edit.
 
