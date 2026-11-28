@@ -29,5 +29,5 @@ jobs:
           SHARD: ${{ matrix.shard }}
           SHARDS: '8'
           WINCAND_LIST: tools/wincand-8378-list.txt
-          WINCAND_DETAIL: '1500'
+          WINCAND_DETAIL: '30000'
         run: node tools/wincand-8378.js
