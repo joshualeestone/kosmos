@@ -183,7 +183,8 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'oldsigninline-9038.test.js',   // kosmos#8378: the old sign-in line through the real snapshot() runs on Windows; the readPaneLogin arm skips there (tmux and ps stand-ins; Kosmos runs no tmux on Windows)
   'feedbacksend.test.js',   // kosmos#8378: sending feedback on Windows; the arm that blocks saving a mark with chmod (owed a Windows arm, kosmos#9269) and the fixed POSIX temp-root arm (sandboxed() has none there by design) skip
   'guide-deny-4752.test.js',   // kosmos#8378: the guide's deny rules on Windows; the two arms that read rules back as absolute POSIX paths, and the three that make a symlink (symlinks need elevation), skip there
-  'machine.agentautostart-4479.test.js'];   // kosmos#8378: the Windows autostart row runs there (through platform win32); the arms that drive the macOS arm through launchctl skip
+  'machine.agentautostart-4479.test.js',   // kosmos#8378: the Windows autostart row runs there (through platform win32); the arms that drive the macOS arm through launchctl skip
+  'disconnect-agent.test.js'];   // kosmos#9271: undoing an add against the stand-in Task Scheduler (test-support/jobfixture.js): the Scheduled Task goes too, so the agent can be added again
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
