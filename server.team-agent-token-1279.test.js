@@ -233,7 +233,7 @@ test('AUTH: an unreadable roster on the agent path fails closed with 503 (not a 
     );
     assert.equal(r.status, 503, 'an unreadable roster on the agent path must fail closed with 503: ' + JSON.stringify(r.json));
     assert.ok(!birthOf('rosterfailteam'), 'a 503 (roster unreadable) still created an agent');
-  } finally { status.setPaneSource(null); }
+  } finally { status.setPaneSource(require('./test-support/faketmux-win').current().source); }   // kosmos#8378: Windows: back to fake tmux's reads; elsewhere null
 });
 
 test('activeAgentsCreatedBy: the same creator recreating a name counts it ONCE, not once per birth', () => {

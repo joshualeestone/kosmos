@@ -94,7 +94,7 @@ test('an idle agent is asked with #3492\'s prompt naming its handoff path, witho
   const d = server._moveHandoffDepsForTest({ roster: () => cardIn('idle'), startedAt: async () => 100 });
   const got = await d.ask('mara');
   assert.equal(got.asked, true);
-  assert.match(got.path, /handoffs\/mara-discord\.md$/, 'the per-session path #3492 and auto-handoff use');
+  assert.match(got.path, /handoffs[\\/]mara-discord\.md$/, 'the per-session path #3492 and auto-handoff use');   // kosmos#8378: either separator
   assert.equal(sent.length, 1);
   assert.equal(sent[0][1], 'mara');
   assert.ok(sent[0][2].includes('Write your handoff now to ' + got.path), 'the prompt names that path');
