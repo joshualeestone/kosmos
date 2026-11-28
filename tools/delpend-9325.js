@@ -38,11 +38,12 @@ if (process.platform === 'win32') {
     const cs = `Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles;
 public static class D { [StructLayout(LayoutKind.Sequential)] public struct FDI { public byte Delete; }
-  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetFileInformationByHandle(SafeFileHandle h, int cls, ref FDI info, int size); }
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetFileInformationByHandle(SafeFileHandle h, int cls, ref FDI info, int size);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern SafeFileHandle CreateFileW(string n, uint a, uint s, IntPtr sec, uint d, uint f, IntPtr t); }
 '@
-$s=New-Object System.IO.FileStream('${c}',[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]'ReadWrite, Delete');
-$i=New-Object D+FDI; $i.Delete=1; $ok=[D]::SetFileInformationByHandle($s.SafeFileHandle,4,[ref]$i,1); Write-Output ("MEASURED C SetFileInformationByHandle " + $ok + " err " + [Runtime.InteropServices.Marshal]::GetLastWin32Error());
-New-Item -ItemType File -Path '${c}.ready' | Out-Null; Start-Sleep 20; $s.Close()`;
+$h=[D]::CreateFileW('${c}', [uint32]2147549184, 7, [IntPtr]::Zero, 1, 128, [IntPtr]::Zero); Write-Output ("MEASURED C CreateFileW invalid=" + $h.IsInvalid + " err " + [Runtime.InteropServices.Marshal]::GetLastWin32Error());
+$i=New-Object D+FDI; $i.Delete=1; $ok=[D]::SetFileInformationByHandle($h,4,[ref]$i,1); Write-Output ("MEASURED C SetFileInformationByHandle " + $ok + " err " + [Runtime.InteropServices.Marshal]::GetLastWin32Error());
+New-Item -ItemType File -Path '${c}.ready' | Out-Null; Start-Sleep 20; $h.Close()`;
     const cc = cp.spawn('powershell', ['-NoProfile', '-Command', cs], { stdio: 'inherit' });
     const t1 = Date.now(); while (!fs.existsSync(c + '.ready') && Date.now() - t1 < 30000) cp.execSync('ping -n 2 127.0.0.1 >NUL');
     probe('C classic delete disposition, held', 'legacy-pending');
