@@ -979,7 +979,7 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.ok(planted, 'the plant never happened, so this tests nothing');
     assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to where the link pointed');
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
-    // kosmos#9285: what was planted at the temp name is left as it was (a folder stays a folder; a removed name stays gone)
+    // kosmos#9285: a planted folder is left as it was
     if (label === 'replaced by a folder') assert.equal(fs.lstatSync(planted).isDirectory(), true, 'the planted folder was removed or replaced');
   });
 }
@@ -1125,4 +1125,37 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
   assert.equal(inPlace, 0, 'the in-place fallback opened the config');
   assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
   assert.equal(fs.readFileSync(planted[2], 'utf8'), 'planted', 'the planted file was touched');
+});
+
+/* kosmos#9285 review 5: the swap rule runs BEFORE the atomicOnly exit, so an atomicOnly write with a mixed plant (links
+   at two names, a plain file at the third, whose EEXIST is the last error) still gets ERR_KOSMOS_TEMP_SWAPPED, with
+   the first swap as its cause and the EEXIST kept beside it. */
+test('#9285: atomicOnly with a mixed plant raises ERR_KOSMOS_TEMP_SWAPPED, the first swap as its cause', (t) => {
+  const file = fresh('mixedatomic');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let opens = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      planted.push(String(p));
+      if (opens === 3) { fs.writeFileSync(String(p), 'planted'); return realOpen.call(fs, p, flags, ...rest); }   // EEXIST
+      const elsewhere = fresh('attacker10');
+      targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285c', 0o600, { atomicOnly: true }); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.ok(err, 'the write did not throw');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'atomicOnly took the last error (EEXIST) instead of the refusal');
+  assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'EEXIST', 'the last attempt\'s error was dropped');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
 });

@@ -45,8 +45,7 @@
  * have, and (kosmos#9268, #9285) any write whose three atomic attempts all fail, at least one of them refused because
  * its temp name was not the opened file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or not. No caller branches on it
  * (grep); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they already met. The three
- * token-door call sites catch ERR_KOSMOS_SYMLINK
- * directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
+ * token-door call sites catch ERR_KOSMOS_SYMLINK directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
  * moved it onto this writer).
@@ -182,8 +181,9 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     guessable, so a plain file at one of the three names must not open the way), and on Windows that fallback has no
  *     O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back would hand the same person a
  *     race at the config itself. On no measured mount does an ordinary save see this refusal (the Mac, GitHub's
- *     Windows runner, a Linux container); a share or a sync client that removed or replaced a fresh temp three times
- *     running would now fail that save rather than rewrite in place. Three failures with no such refusal fall back as
+ *     Windows runner, a Linux container). The cost is wider than three such refusals: ONE is enough when the other
+ *     two attempts fail for any reason, so a sync client or antivirus that moved one fresh temp, with two renames
+ *     failing EPERM (the usual reason Windows reaches the fallback), now fails that save rather than rewrite in place. Three failures with no such refusal fall back as
  *     before, and that includes a plain file planted at all three names (each create fails EEXIST): not closed here,
  *     as it was before #9268, and carded as kosmos#9307 (the same race at the config applies). EEXIST is what this
  *     module's own tests use to reach the fallback, so counting it as
@@ -485,6 +485,7 @@ function writeSecret(file, data, mode, opts) {
      it falls back, as it did before (refuseFollowedLink's doc). */
   let lastAtomicError = null;
   let swappedAttempts = 0;   // kosmos#9285: attempts refused because the temp name was not the opened file
+  let firstSwap = null;      // the first of them, kept as the refusal's cause (the last error may be another kind)
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
@@ -563,7 +564,7 @@ function writeSecret(file, data, mode, opts) {
          a writer-shaped one. Not done here. */
       const earlierAtomicError = lastAtomicError;   // #5434: an earlier attempt's, for the early exit below
       lastAtomicError = err;
-      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') swappedAttempts += 1;
+      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') { swappedAttempts += 1; firstSwap = firstSwap || err; }
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
          `created` is the FACT, and it is set the instant the open returns and the
@@ -583,9 +584,10 @@ function writeSecret(file, data, mode, opts) {
 
   // kosmos#9285: any attempt refused for a swapped temp name means somebody is planting; never fall back then (a plain
   // file planted at one name, a guessable one, must not be enough to reach the in-place open).
-  if (swappedAttempts > 0) {   // its cause is the last attempt's error, which may be a plain EEXIST, not the swap
+  if (swappedAttempts > 0) {
+    if (lastAtomicError && lastAtomicError.code === 'ERR_KOSMOS_TEMP_SWAPPED') throw lastAtomicError;
     throw Object.assign(new Error('the temp name is not the file this write opened'),
-      { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: lastAtomicError });
+      { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError });
   }
   if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
 

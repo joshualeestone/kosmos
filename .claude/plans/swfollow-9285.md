@@ -13,8 +13,10 @@ temp names are guessable, so a plain file planted at one name made it two of thr
 Why: one such refusal is positive evidence that somebody is planting in the config's folder, and on Windows
 the fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back hands the same
 person a race at the config itself, easiest when the config does not exist yet. On no measured mount does an ordinary
-save see this refusal; on a share or sync client that removed or replaced a fresh temp three times running, the save
-now fails instead of rewriting in place. That is the cost, and the unmeasured mounts below are where it would show.
+save see this refusal. The cost is wider than three such refusals (review 5): ONE is enough when the other two
+attempts fail for any reason, so a sync client or antivirus that moved one fresh temp, with two renames failing EPERM
+(the usual reason Windows reaches the fallback), now fails that save instead of rewriting in place. The unmeasured
+mounts below are where it would show.
 
 What I first decided, and what changed my mind: the first version of this branch kept the fallback and documented it
 ("costs a write its atomicity, not its secrecy"). Review 1 showed that is only true when nobody races the fallback, and
@@ -62,3 +64,6 @@ is carded as #9307 rather than called harmless.
   one named: every entry point catches (create, rename and remove in their server routes, touch inside itself,
   removeProject at its one caller in projects.js). The other callers' catches stay reasoned. Long lines rewrapped; the
   thrown error notes its cause may be a plain EEXIST; the reaper sentence says a later process does it.
+- Review 5: the stated cost says one swapped refusal is enough when the other two attempts fail for any reason (with
+  the EPERM-rename case named). The refusal keeps the first swap as its cause and the last attempt's error beside it;
+  a mixed-plant atomicOnly arm pins that the rule runs before the atomicOnly exit (it fails with the order swapped).
