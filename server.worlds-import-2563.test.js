@@ -76,7 +76,7 @@ test('#2563 POST /api/worlds importAgentsFrom copies agents into the new Kosmos,
   }).then(j);
   assert.equal(made.ok, true, made.because || '');
   assert.ok(made.imported, 'the response reports what it imported');
-  assert.deepEqual(made.imported.copied.map((c) => c.name), ['alice', 'bob'], 'both source agents were copied');
+  assert.deepEqual(made.imported.copied.map((c) => c.name), ['alice', 'bob'], 'both source agents were copied: ' + JSON.stringify(made.imported).slice(0, 600));
   assert.deepEqual(made.imported.refused, []);
 
   const b = worlds.baseRoot(process.env);

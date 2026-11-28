@@ -564,7 +564,9 @@ test('#6734: a reply copy that cannot be written says Kosmos could not store it,
   const replyfile = require('./engine/replyfile');
   const src = path.join(fs.mkdtempSync(path.join(SCRATCH, 'wfail-')), 'fine.bin');
   fs.writeFileSync(src, Buffer.alloc(64 * 1024, 2));
-  const real = fs.realpathSync(src);
+  // kosmos#8378: the on-disk spelling, as replyfile.realOf resolves it (realpathSync.native); on Windows the plain
+  // realpathSync can keep a temp folder's short 8.3 name, which readOwn rightly reads as a different file.
+  const real = fs.realpathSync.native(src);
   const ro = path.join(SCRATCH, 'wfail-out-' + process.pid);
   fs.writeFileSync(ro, '');
   const out = fs.openSync(ro, 'r');   // a descriptor writes cannot go to
