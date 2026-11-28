@@ -1155,7 +1155,7 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
    reached the in-place fallback (on Windows, a race at the config itself). A file already at a FRESH temp name is a plant,
    so it refuses the save as a swapped name does; one is enough when the other attempts fail for another reason. CONTROL:
    three EPERM failures still take the fallback and write, so the rule is about EEXIST, not about failing. A single plant
-   followed by a clean attempt still saves: the #1761 and #1787 retry tests in this file cover that. */
+   followed by a clean attempt still saves: the #1787 retry test here and the #1761 ones in sendertoken.test.js cover that. */
 test('#9307: plain files planted at the temp names refuse the save, with no in-place fallback; EPERM still falls back', (t) => {
   const realOpen = fs.openSync;
   const planted = [];

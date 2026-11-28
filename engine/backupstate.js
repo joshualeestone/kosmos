@@ -49,6 +49,8 @@
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
  *   caller can tell the person why. The refusal to replace a file not ours carries code 'refused' (and retry when the
  *   read was passing); a state that would not read back throws with no code (a caller mistake). EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
+ *   (kosmos#9307) Except a save securewrite refuses as ERR_KOSMOS_TEMP_SWAPPED (a swapped or planted temp name): its code
+ *   is not a retry code, so it is not retry, whatever the other attempts failed with.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must

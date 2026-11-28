@@ -47,8 +47,7 @@
  * not; its `planted` is true when an attempt found a file already at its temp name (kosmos#9307). No caller branches
  * on this code (grep; backupstate.js reads the code it carries, which is not one of its retry codes, so it does not
  * retry: refuseFollowedLink's doc); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they
- * already met. The three
- * token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
+ * already met. The three token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
  * `retire` catching one level up, which is true at one remove and worth knowing before you check the call site and
  * find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
@@ -205,7 +204,8 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     All four are near impossible, and each fails that save only when the other two attempts fail too (one EEXIST and a clean next
  *     attempt still saves). So three plain files planted at the three names no longer reach the in-place fallback (or
  *     its Windows race at the config). The module's own tests reach the fallback with EPERM now. A caller then sees
- *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES), which ride along as `lastAttempt`.
+ *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES): only the last attempt's error rides
+ *     along, as `lastAttempt` (a plant itself when it came last), and earlier ones are not kept.
  *     At least one caller branches on them: engine/backupstate.js marks a failed state save `retry` on EPERM or EACCES, so a
  *     save refused this way is not retried at once (as for a swap since #9285). That is meant: somebody is planting,
  *     and a prompt retry would only draw three more guessable names. githubdevice.js shows the code to a person, and
