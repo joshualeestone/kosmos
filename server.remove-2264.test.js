@@ -7,6 +7,7 @@
  * disk (and that WITHOUT the flag the route still only disconnects).
  */
 require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -76,7 +77,7 @@ function seedOpenai(home, label) {
   return dir;
 }
 
-test('#2264: DELETE claude with remove:true deletes the account directory', () => {
+test('#2264: DELETE claude with remove:true deletes the account directory', { skip: SKIP_FAKE_TMUX }, () => {
   const { res, home } = call('claude',
     (h) => ({ dir: nodePath.join(h, '.claude-gone'), remove: true }),
     (h) => seedClaude(h, 'gone'));
@@ -90,7 +91,7 @@ test('#2264: DELETE claude with remove:true deletes the account directory', () =
     'delete must not leave a .removed-* copy');
 });
 
-test('#2264: DELETE claude WITHOUT remove only disconnects (renamed aside, not deleted)', () => {
+test('#2264: DELETE claude WITHOUT remove only disconnects (renamed aside, not deleted)', { skip: SKIP_FAKE_TMUX }, () => {
   const { res, home } = call('claude',
     (h) => ({ dir: nodePath.join(h, '.claude-keep') }),
     (h) => seedClaude(h, 'keep'));
@@ -102,7 +103,7 @@ test('#2264: DELETE claude WITHOUT remove only disconnects (renamed aside, not d
     'disconnect keeps the credential under a renamed folder');
 });
 
-test('#2264: DELETE openai with remove:true deletes the account directory (route wiring symmetry)', () => {
+test('#2264: DELETE openai with remove:true deletes the account directory (route wiring symmetry)', { skip: SKIP_FAKE_TMUX }, () => {
   const { res, home } = call('openai',
     (h) => ({ dir: nodePath.join(h, '.codex-gone'), remove: true }),
     (h) => seedOpenai(h, 'gone'));

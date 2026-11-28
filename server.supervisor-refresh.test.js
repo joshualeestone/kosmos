@@ -15,6 +15,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * unreachable from a require, and deliberately so.
  */
 
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -59,7 +60,8 @@ test('starting the board puts the current script where the jobs point', async ()
   await boot(sb);
   assert.equal(fs.existsSync(dest), true, 'the board started without installing the script its agents run');
   assert.equal(fs.readFileSync(dest, 'utf8'), fs.readFileSync(SOURCE, 'utf8'));
-  assert.equal(fs.statSync(dest).mode & 0o111, 0o111, 'the script is not executable, so every job fails at once');
+  // kosmos#8378: Windows keeps no POSIX execute bit (a mode reads 0o666 there), so only the copy is checked on Windows.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(dest).mode & 0o111, 0o111, 'the script is not executable, so every job fails at once');
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
@@ -79,7 +81,7 @@ test('an old copy is replaced, which is the whole point', async () => {
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
-test('a refresh it cannot do is said, and does not stop the board', async () => {
+test('a refresh it cannot do is said, and does not stop the board', { skip: SKIP_FAKE_TMUX }, async () => {
   /* ⚠️ THE FAILURE DIRECTION. A board that refuses to start because it could not
      refresh a script is strictly worse than one running with the previous copy,
      which is the state every install is in today. */

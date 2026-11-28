@@ -14,6 +14,7 @@ require('./test-support/tmpscope');   // #4273: this file's temp dirs are remove
  *
  *   node --test server.dupname-5957.test.js
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -124,7 +125,7 @@ test('#5957: creating an agent under a name another agent has is refused at the 
   assert.doesNotMatch(String(free.because || ''), /already an agent called/);
 });
 
-test('#5957: a created agent that is not running still holds its name; a REMOVED one does not', async (t) => {
+test('#5957: a created agent that is not running still holds its name; a REMOVED one does not', { skip: SKIP_FAKE_TMUX }, async (t) => {
   /* createdKeys() is the board's list of agents Kosmos created, running or not, and it includes removed ones (for
      Restore). Stub it with one stopped agent and one removed agent, as the plist source would report them. */
   const status = require('./engine/status');
@@ -170,7 +171,7 @@ test('#5957: connecting a folder under a name another agent has is refused, on b
   assert.doesNotMatch(String(r3.because || ''), /already an agent called/);
 });
 
-test('#5957: an agent that already shares its name (made before this check) can still save other things', async (t) => {
+test('#5957: an agent that already shares its name (made before this check) can still save other things', { skip: SKIP_FAKE_TMUX }, async (t) => {
   /* Josh's two Geminis exist today. Make gemini and other share a name the way they would have, by the record. */
   const before = shownOf('gemini');
   const shared = shownOf('other');

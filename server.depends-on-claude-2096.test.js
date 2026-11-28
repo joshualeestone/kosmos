@@ -19,6 +19,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.depends-on-claude-2096.test.js
  */
+const SKIP_SH_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stands in tmux with a shell script, which Windows cannot run by name, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -111,10 +112,10 @@ function statusWith({ claudeAccount }) {
   return JSON.parse(out);
 }
 
-test('#2128: a configured Claude account with NO agents -> dependsOnClaude false (the regression Josh hit)', () => {
+test('#2128: a configured Claude account with NO agents -> dependsOnClaude false (the regression Josh hit)', { skip: SKIP_SH_TMUX }, () => {
   assert.equal(statusWith({ claudeAccount: true }).dependsOnClaude, false);
 });
 
-test('OpenAI-only (no Claude account, no non-codex agents) -> dependsOnClaude false (no warning)', () => {
+test('OpenAI-only (no Claude account, no non-codex agents) -> dependsOnClaude false (no warning)', { skip: SKIP_SH_TMUX }, () => {
   assert.equal(statusWith({ claudeAccount: false }).dependsOnClaude, false);
 });

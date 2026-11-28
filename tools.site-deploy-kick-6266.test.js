@@ -4,6 +4,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
    fired the site deploy only six times on 2026-10-15. A fake `gh` checks each call's exact arguments and applies the
    script's own --jq filter to sample runs with jq (a fake that ignored the filter could not see it wrong).
    The state folder and heartbeat are in a sandbox. */
+const SKIP_MAC_KICK = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/site-deploy-kick.sh by /bin/bash, an absolute POSIX path, and the script is the launchd backstop on the Mortals Mac, with no Windows use');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -75,7 +76,7 @@ const runs = (list) => JSON.stringify(list.map(([status, ago, upd, conclusion, s
   status, conclusion: conclusion || (status === 'completed' ? 'success' : ''), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd),
   startedAt: iso(started == null ? ago : started) })));
 /* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip. */
-const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
+const needJq = { skip: SKIP_MAC_KICK || (JQ || process.platform === 'darwin' ? false : 'jq is not installed here') };
 
 test('#6266: site main ahead, the last run over 14 minutes ago and finished: one dispatch on main, said once; heartbeat written', needJq, () => {
   const r = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_RUNS: runs([['completed', 3600]]) });
@@ -189,7 +190,7 @@ test('#6266: with no deploy state folder it asks nothing and exits 1 (fails clos
   assert.match(r.out, /no deploy state folder at .*no-such-state.*nothing asked/);
 });
 
-test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said as timed out, and asks nothing', () => {
+test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said as timed out, and asks nothing', { skip: SKIP_MAC_KICK }, () => {
   const t0 = Date.now();
   const r = kick(state({ 'last-deployed': OLD }), { FAKE_SLEEP: '20', FAKE_IGNORE_ALRM: '1', KOSMOS_KICK_GH_TIMEOUT: '1' });
   const took = (Date.now() - t0) / 1000;
@@ -200,7 +201,7 @@ test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said a
   assert.match(r.out, /could not read the site-deploy hold on owner\/site \(gh: timed out after 1 s\); treated as held, nothing asked/);
 });
 
-test('#6266: a tick that cannot make its temporary file still leaves its heartbeat and its result', () => {
+test('#6266: a tick that cannot make its temporary file still leaves its heartbeat and its result', { skip: SKIP_MAC_KICK }, () => {
   const beatDir = fs.mkdtempSync(path.join(SANDBOX, 'tmpfail-'));
   const r = kick(state({ 'last-deployed': OLD }), { TMPDIR: path.join(SANDBOX, 'no-such-tmp-dir'), KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
   assert.equal(r.status, 1);
@@ -210,7 +211,7 @@ test('#6266: a tick that cannot make its temporary file still leaves its heartbe
   assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=1 could not make a temporary file; nothing asked\n$/);
 });
 
-test('#6266: a mistyped --check runs nothing and exits 2', () => {
+test('#6266: a mistyped --check runs nothing and exits 2', { skip: SKIP_MAC_KICK }, () => {
   const r = kick(state({ 'last-deployed': OLD }), {}, ['--chek']);
   assert.equal(r.status, 2);
   assert.equal(r.calls.length, 0);
@@ -219,13 +220,13 @@ test('#6266: a mistyped --check runs nothing and exits 2', () => {
 
 /* The script falls back to gh on PATH, so this can only be asserted where PATH (/usr/bin:/bin here) holds no gh. */
 const systemGh = ['/usr/bin/gh', '/bin/gh'].some((p) => fs.existsSync(p));
-test('#6266: a gh that is not there says so', { skip: systemGh ? 'a gh on /usr/bin or /bin would be found by the fallback' : false }, () => {
+test('#6266: a gh that is not there says so', { skip: SKIP_MAC_KICK || (systemGh ? 'a gh on /usr/bin or /bin would be found by the fallback' : false) }, () => {
   const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
   assert.equal(none.status, 1);
   assert.match(none.out, /could not read the site-deploy hold on owner\/site \(gh: perl or gh could not be run \(.*no-gh-here: not found or not executable\?\)\); treated as held/);
 });
 
-test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a stopped job) takes gh with it', async () => {
+test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a stopped job) takes gh with it', { skip: SKIP_MAC_KICK }, async () => {
   const { spawn } = require('node:child_process');
   const pf = path.join(SANDBOX, 'gh-pid-' + Math.random().toString(36).slice(2));
   const log = path.join(SANDBOX, 'gh-term.log');
@@ -249,7 +250,7 @@ test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a s
   }
 });
 
-test('#6266: a TERM to the perl wrapper alone is passed on to gh', async () => {
+test('#6266: a TERM to the perl wrapper alone is passed on to gh', { skip: SKIP_MAC_KICK }, async () => {
   const { spawn } = require('node:child_process');
   const pf = path.join(SANDBOX, 'gh-pid-' + Math.random().toString(36).slice(2));
   const ppf = pf + '.perl';
@@ -312,7 +313,7 @@ test('#6266: each tick leaves its exit code and last line in last-result, and --
   assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=0 \(quiet\)\n$/);
 });
 
-test('#6266: the installer copies the script, writes a 15-minute launchd job, re-runs cleanly, and removes everything', () => {
+test('#6266: the installer copies the script, writes a 15-minute launchd job, re-runs cleanly, and removes everything', { skip: SKIP_MAC_KICK }, () => {
   const home = fs.mkdtempSync(path.join(SANDBOX, 'home-'));
   const lc = path.join(SANDBOX, 'launchctl.log');
   const fakeLc = path.join(SANDBOX, 'launchctl');
@@ -350,7 +351,7 @@ test('#6266: the installer copies the script, writes a 15-minute launchd job, re
   assert.match(fs.readFileSync(lc, 'utf8'), /bootout gui\/\d+\/com\.stonesyndicate\.kosmos-site-deploy-kick/);
 });
 
-test('#6266: the installer retries a refused load once, and says what to run when launchd still refuses', () => {
+test('#6266: the installer retries a refused load once, and says what to run when launchd still refuses', { skip: SKIP_MAC_KICK }, () => {
   const home = fs.mkdtempSync(path.join(SANDBOX, 'home-retry-'));
   const count = path.join(SANDBOX, 'bootstrap-count');
   const flaky = path.join(SANDBOX, 'launchctl-flaky');

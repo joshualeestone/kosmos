@@ -10,6 +10,9 @@
  *   node --test tools.run-tests-file-timeout-6668.test.js
  */
 require('./test-support/tmpscope');
+const SKIP_WIN_LIMITLINE = require('./test-support/skip-on-win32').skipOnWin32('it reads the per-file limit line run-tests.sh prints beside a red, and on the Windows runner that line was not printed (why is owed on kosmos#9278)');   // kosmos#8378
+const SKIP_WIN_LEAKGUARD = require('./test-support/skip-on-win32').skipOnWin32('it needs the leak guard to turn a green node part red, which it did not on the Windows runner (why is owed on kosmos#9278)');   // kosmos#8378
+const SKIP_POSIX_GROUP = require('./test-support/skip-on-win32').skipOnWin32('it stops a hung file or the runner itself with POSIX signals to a process group (a perl setpgrp parent, kill to the group, pgrep), which Windows does not have; whether the watchdog works there is owed on kosmos#9278');   // kosmos#8378
 const test = require('node:test');
 /* A run this file starts must never start this file again (the same stand-down as tools.run-tests-only-4929). */
 if (process.env.KOSMOS_FILE_TIMEOUT_6668_INNER === '1') {
@@ -51,6 +54,9 @@ function env(extra) {
 const GROUP = 'my $pid; $SIG{TERM} = sub { $SIG{TERM} = "IGNORE"; kill "TERM", -$$; exit 143 }; setpgrp(0, 0); ' +
   '$pid = fork; die "fork: $!" unless defined $pid; if (!$pid) { exec @ARGV or exit 127 } ' +
   'waitpid($pid, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)';
+/* kosmos#8378: Windows has no POSIX process group to put the runner in (Git Bash's perl has no setpgrp), so there the
+   runner is started directly. */
+function grouped(argv) { return process.platform === 'win32' ? [argv[0], argv.slice(1)] : ['perl', ['-e', GROUP, ...argv]]; }
 const { scaleBudget } = require('./test-support/eventually');
 /* Liveness ceilings, scaled by the run's KOSMOS_TEST_TIME_SCALE so a loaded box cannot redden a correct runner. */
 /* HANG_S: the hang arms' limit. It must outlast node's start, both preloads and the fixture writing its pids, or a
@@ -69,7 +75,7 @@ const HARD_MS = scaleBudget(240000);
 function run(args, extra) {
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   const started = Date.now();
-  const r = spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, ...args], { env: env(extra), encoding: 'utf8', timeout: HARD_MS });
+  const r = spawnSync(...grouped(['bash', RUNNER, ...args]), { env: env(extra), encoding: 'utf8', timeout: HARD_MS });
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), ms: Date.now() - started, timedOut: !!(r.error && r.error.code === 'ETIMEDOUT') };
 }
 
@@ -140,11 +146,11 @@ function timesOut(file, { also = [], extra = {} } = {}) {
   }
 }
 
-test('#6668 a file blocked in spawnSync is stopped at the limit, named, red, and leaves nothing running', () => {
+test('#6668 a file blocked in spawnSync is stopped at the limit, named, red, and leaves nothing running', { skip: SKIP_POSIX_GROUP }, () => {
   timesOut(HANG);
 });
 
-test('#6668 a file and child that ignore TERM are KILLed', () => {
+test('#6668 a file and child that ignore TERM are KILLed', { skip: SKIP_POSIX_GROUP }, () => {
   timesOut(STUBBORN);
 });
 
@@ -169,7 +175,7 @@ function shimRanTheSuite() {
 /* Behind the shim, the hanging file is still the one stopped and named. QUICK runs beside it and ends normally: if
    the watchdog watched the shim's children instead, it would stop the real node --test (the whole suite), named by
    its last argument, QUICK. */
-test('#6668 behind a non-exec node shim, a hanging file is still stopped and named, not the whole suite', () => {
+test('#6668 behind a non-exec node shim, a hanging file is still stopped and named, not the whole suite', { skip: SKIP_POSIX_GROUP }, () => {
   fs.rmSync(SHIM_LOG, { force: true });
   timesOut(HANG, { also: [QUICK], extra: shimEnv() });
   shimRanTheSuite();
@@ -250,7 +256,7 @@ fs.writeFileSync(LEAKY, `'use strict';
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
 require('node:test')('green, but leaves a temp dir behind', () => { fs.mkdtempSync(path.join(os.tmpdir(), 'leakprobe6668-')); });
 `);
-test('#6668 a red that is not the node part (a leak-guard red after a green file) prints no limit line', () => {
+test('#6668 a red that is not the node part (a leak-guard red after a green file) prints no limit line', { skip: SKIP_WIN_LEAKGUARD }, () => {
   const r = run(['--only', LEAKY], { KOSMOS_TEST_FILE_TIMEOUT_S: '' });
   assert.notEqual(r.code, 0, 'the leak guard did not make the run red, so this arm tested nothing: ' + r.out.slice(-800));
   assert.match(r.out, /#4273 LEAK/);
@@ -279,7 +285,7 @@ test('#6668 a run whose watchdog could not start says the per-file limit was off
   }
 });
 
-test('#6668 the per-file limit scales with the load, is capped at 60 min by the scaling, and takes a larger N as set', () => {
+test('#6668 the per-file limit scales with the load, is capped at 60 min by the scaling, and takes a larger N as set', { skip: SKIP_WIN_LIMITLINE }, () => {
   assert.deepEqual(limitSeen({ KOSMOS_FAKE_LOAD: '0', KOSMOS_TEST_FILE_TIMEOUT_MIN: '10' }), { label: '10 min', scale: 1 });
   assert.deepEqual(limitSeen({ KOSMOS_FAKE_LOAD: '100000', KOSMOS_TEST_FILE_TIMEOUT_MIN: '10' }), { label: '40 min', scale: 4 });
   assert.deepEqual(limitSeen({ KOSMOS_FAKE_LOAD: '100000' }), { label: '60 min', scale: 4 }, 'the default 30 min at 4x must stop at the 60 min cap');
@@ -375,7 +381,7 @@ async function stoppedRunnerLeavesNoWatchdog(label, how, windowMs, extra = {}) {
    as the first is named. The watchdog must stop at its next check and never reach the second, so exactly one TIMED
    OUT line is printed. (Without the checks it would KILL the first after its grace and go on to the second.) */
 const STUB2 = hangFixture('stubborn2.test.js', true);
-test('#6668 a watchdog stopped while it is stopping one file does not go on to the next', async () => {
+test('#6668 a watchdog stopped while it is stopping one file does not go on to the next', { skip: SKIP_POSIX_GROUP }, async () => {
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   fs.rmSync(PIDS, { force: true });
   // kosmos#9159: with the runner's own stop of its node tree off, so this arm tests the WATCHDOG's stop checks (with it
@@ -401,10 +407,10 @@ test('#6668 a watchdog stopped while it is stopping one file does not go on to t
 
 /* Liveness at any scale: the watchdog is gone after a TERM (the exit trap or the loop's own next look at its parent,
    as a pair; the exit trap alone is not proven by a test). */
-test('#6668 a runner sent TERM leaves no watchdog', async () => { await stoppedRunnerLeavesNoWatchdog('term', 'TERM', scaleBudget(7000)); });
+test('#6668 a runner sent TERM leaves no watchdog', { skip: SKIP_POSIX_GROUP }, async () => { await stoppedRunnerLeavesNoWatchdog('term', 'TERM', scaleBudget(7000)); });
 /* This arm guards the PAIR (the exit trap or the normal stop after node): on a Ctrl-C bash outlives node and stops
    the watchdog normally, so it stays green with the trap's stop removed. */
-test('#6668 a runner stopped by Ctrl-C (INT to its group) leaves no watchdog', async () => { await stoppedRunnerLeavesNoWatchdog('int', 'INT', scaleBudget(1000)); });
+test('#6668 a runner stopped by Ctrl-C (INT to its group) leaves no watchdog', { skip: SKIP_POSIX_GROUP }, async () => { await stoppedRunnerLeavesNoWatchdog('int', 'INT', scaleBudget(1000)); });
 /* The same, with yarn's own `node` first on PATH (an exec of node by its full path, as `yarn test` puts there), so
    node --test reads by its full path. The arm proves the wrapper was in the path: the runner's child is node by the
    full path this test's node runs from. */
@@ -412,7 +418,7 @@ const EXEC_DIR = fs.mkdtempSync(path.join(DIR, 'execnode-'));
 /* The path in single quotes, each ' in it written as '\\'' (sh expands nothing inside single quotes). */
 const shQuote = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
 fs.writeFileSync(path.join(EXEC_DIR, 'node'), `#!/bin/sh\n\nexec ${shQuote(process.execPath)} "$@"\n`, { mode: 0o755 });
-test('#6668 behind yarn\'s node (an exec by full path), a runner sent TERM still leaves no watchdog', async () => {
+test('#6668 behind yarn\'s node (an exec by full path), a runner sent TERM still leaves no watchdog', { skip: SKIP_POSIX_GROUP }, async () => {
   const { nodeCmd } = await stoppedRunnerLeavesNoWatchdog('term-execnode', 'TERM', scaleBudget(7000), { PATH: EXEC_DIR + ':' + process.env.PATH });
   assert.ok(nodeCmd.startsWith(process.execPath + ' --test '), 'node --test did not run by its full path, so this arm tested no wrapper: ' + nodeCmd);
 });

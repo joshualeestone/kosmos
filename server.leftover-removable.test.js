@@ -24,6 +24,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * `k.folder`-only filter: the leftover is simply absent from the roster.
  */
 
+const SKIP_SH_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stands in tmux with a shell script, which Windows cannot run by name, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
@@ -101,7 +102,7 @@ function boardWithJobOnlyLeftover() {
   return { status: JSON.parse(both.status), removal: JSON.parse(both.removal) };
 }
 
-test('#127: a job-only leftover (no folder) is visible in the roster', () => {
+test('#127: a job-only leftover (no folder) is visible in the roster', { skip: SKIP_SH_TMUX }, () => {
   const { status } = boardWithJobOnlyLeftover();
   const row = (status.agents || []).find((a) => a.sessionName === 'leftover');
   assert.ok(row, 'a leftover with a job but no folder was absent from the roster (the #127 defect)');
@@ -114,7 +115,7 @@ test('#127: a job-only leftover (no folder) is visible in the roster', () => {
     'the leftover was not counted among the not-running agents');
 });
 
-test('#127: the visible leftover is removable, so the name can be freed', () => {
+test('#127: the visible leftover is removable, so the name can be freed', { skip: SKIP_SH_TMUX }, () => {
   const { removal } = boardWithJobOnlyLeftover();
   // The removal plan (what a DELETE would do) must recognise the leftover and
   // offer to clear it. This is what the now-reachable Remove control drives.

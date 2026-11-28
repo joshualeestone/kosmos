@@ -17,6 +17,10 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.runners.test.js
  */
 
+const SKIP_UNKNOWN_WORDS = require('./test-support/skip-on-win32').skipOnWin32('on Windows an unknown runner name is refused as not supported on this computer instead of as unknown, so the sentence this arm checks is not given there (a product fix owed on kosmos#9287)');   // kosmos#8378
+const SKIP_ECHO_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the runner with /bin/echo, an absolute POSIX path Windows does not have; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
+const SKIP_INSTALL_WIN = require('./test-support/skip-on-win32').skipOnWin32('it installs claude from the board, which the board refuses on Windows by design (installing from here is not supported on this kind of computer; openai, gemini and grok do install there)');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -85,7 +89,7 @@ test('#979: GET /api/runners answers the documented shape, absent runner and hon
   assert.equal(r.openai.job, null, 'no install has run');
 });
 
-test('#979: a prototype-chain provider name in the URL is a refusal, not a job', async () => {
+test('#979: a prototype-chain provider name in the URL is a refusal, not a job', { skip: SKIP_UNKNOWN_WORDS }, async () => {
   const got = await post('/api/runners/constructor/install');
   assert.equal(got.status, 400);
   const j = json(got).job;
@@ -97,7 +101,7 @@ test('#979: a prototype-chain provider name in the URL is a refusal, not a job',
   assert.equal(json(got).error, j.because);
 });
 
-test('#979: install on an already-present runner answers installed without a job or a download', async () => {
+test('#979: install on an already-present runner answers installed without a job or a download', { skip: SKIP_ECHO_RUNNER }, async () => {
   process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo'; // exists on every Mac
   try {
     const got = await post('/api/runners/openai/install');
@@ -120,7 +124,7 @@ test('#979: Add with the runner missing is a STRUCTURED refusal the screen can a
   assert.equal(j.provider, 'openai');
 });
 
-test('#979: Add with the runner present passes the runner gate (no needsRunner in the answer)', async () => {
+test('#979: Add with the runner present passes the runner gate (no needsRunner in the answer)', { skip: SKIP_ECHO_RUNNER }, async () => {
   process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
   try {
     const got = await post('/api/accounts/openai', { key: 'sk-test-not-a-real-key' });
@@ -134,7 +138,7 @@ test('#979: Add with the runner present passes the runner gate (no needsRunner i
   }
 });
 
-test('#979: POST /api/runners/claude/install is reachable and answers a refusal over HTTP', async () => {
+test('#979: POST /api/runners/claude/install is reachable and answers a refusal over HTTP', { skip: SKIP_INSTALL_WIN }, async () => {
   /* ⚠️ THE ROUTE IS NEWLY REACHABLE FOR claude (the path regex matches any
      lowercase name) and nothing exercised it: every other POST test uses
      openai or a bogus provider.
@@ -168,7 +172,7 @@ test('#979: POST /api/runners/claude/install is reachable and answers a refusal 
   }
 });
 
-test('#979: claude is listed beside openai with the documented shape (vendor-external kind)', async () => {
+test('#979: claude is listed beside openai with the documented shape (vendor-external kind)', { skip: SKIP_ECHO_RUNNER }, async () => {
   const got = await req('/api/runners');
   assert.equal(got.status, 200);
   const r = json(got).runners;
@@ -208,7 +212,7 @@ test('#3568: /api/antigravity reports agy missing, and the check says so without
   } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });
 
-test('#3568: with agy installed, the check is signed in on "ok" and could-not-confirm otherwise', async () => {
+test('#3568: with agy installed, the check is signed in on "ok" and could-not-confirm otherwise', { skip: SKIP_FAKE_RUNNER }, async () => {
   const agystatus = require('./engine/agystatus');
   const dir = path.join(SANDBOX, 'agybin'); fs.mkdirSync(dir, { recursive: true });
   const bin = path.join(dir, 'agy'); fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });

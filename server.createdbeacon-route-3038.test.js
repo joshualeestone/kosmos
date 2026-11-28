@@ -17,6 +17,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * blocks a real send when no sender is injected), and we inject the sender only
  * inside each test body, so the capture holds only that test's created pings.
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -73,7 +74,7 @@ function captureBeacons() {
   return calls;
 }
 
-test('#3038: a create fires exactly one agent-created beacon with a real (>=1) count', async () => {
+test('#3038: a create fires exactly one agent-created beacon with a real (>=1) count', { skip: SKIP_FAKE_TMUX }, async () => {
   const calls = captureBeacons();
   create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok' }));
   try {
@@ -92,7 +93,7 @@ test('#3038: a create fires exactly one agent-created beacon with a real (>=1) c
   } finally { create.setClaudeProbe(null); createdbeacon.setSender(null); }
 });
 
-test('#3038: notifyCreated:false suppresses the agent-created beacon', async () => {
+test('#3038: notifyCreated:false suppresses the agent-created beacon', { skip: SKIP_FAKE_TMUX }, async () => {
   const calls = captureBeacons();
   create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok' }));
   try {

@@ -54,7 +54,12 @@ let scoped = null;
 function activate() {
   if (scoped) return scoped;
   try {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kts-'));
+    let dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kts-'));
+    /* kosmos#8378: on Windows os.tmpdir() can be an 8.3 short path (C:\Users\RUNNER~1\..., measured on GitHub's runner),
+       while the product resolves paths with realpath and gets the long form (C:\Users\runneradmin\...), so a test's
+       expected path and the product's answer named the same file differently. The scope is resolved to its long form
+       once, here, so every fixture under it is built from the name the product will see. */
+    if (process.platform === 'win32') { try { dir = fs.realpathSync.native(dir); } catch { /* keep the short form */ } }
     scoped = dir;
     process.env.TMPDIR = dir;
     /* kosmos#8378: on Windows `os.tmpdir()` reads TEMP, then TMP, and ignores TMPDIR (measured: TMPDIR alone left it on

@@ -11,6 +11,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.provider-accounts-3296.test.js
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -62,7 +63,8 @@ test('gemini store: a good key -> 200, connection state, and the response NEVER 
   // The key landed in a mode-600 file inside the account dir.
   const dir = nodePath.join(SANDBOX, '.gemini-work-key');
   const mode = fs.statSync(geminiAccounts.keyFile(dir)).mode & 0o777;
-  assert.equal(mode, 0o600, 'the stored key file is owner-only');
+  // kosmos#8378: Windows keeps no POSIX mode bits (a file reads 0o666 there), so owner-only is checked only off Windows.
+  if (process.platform !== 'win32') assert.equal(mode, 0o600, 'the stored key file is owner-only');
 });
 
 test('grok store: a positively-rejected key is refused at ENTRY, and no account dir is left behind', async () => {
@@ -154,7 +156,7 @@ test('GET /api/accounts merges gemini/grok rows with provider + a live connectio
   assert.ok(gem.connection && typeof gem.connection.state === 'string', 'the gemini row carries a live connection');
 });
 
-test('DELETE gemini (forget): renames the account aside; DELETE with remove:true deletes it', async () => {
+test('DELETE gemini (forget): renames the account aside; DELETE with remove:true deletes it', { skip: SKIP_FAKE_TMUX }, async () => {
   geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
   await post('/api/accounts/gemini/apikey', { label: 'gone-soon', key: 'AIzaSy-gonesoon-key-44445555' });
   const dir = nodePath.join(SANDBOX, '.gemini-gone-soon');
@@ -174,7 +176,7 @@ test('DELETE gemini (forget): renames the account aside; DELETE with remove:true
   assert.equal(fs.existsSync(dir2), false, 'the account dir and its key are gone');
 });
 
-test('DELETE grok: a name-shaped non-account is refused (defence in depth on a dir-renaming endpoint)', async () => {
+test('DELETE grok: a name-shaped non-account is refused (defence in depth on a dir-renaming endpoint)', { skip: SKIP_FAKE_TMUX }, async () => {
   const bogus = nodePath.join(SANDBOX, '.grok-notanaccount');
   fs.mkdirSync(bogus, { recursive: true });
   const r = await del('/api/accounts/grok', { dir: bogus });
@@ -237,7 +239,7 @@ test('#3566 store: a rejected label-less add gives its claimed slot back', async
   assert.deepEqual(after, before, 'a refused add left a claimed, empty account dir behind');
 });
 
-test('#3566 DELETE: disconnect and delete each say what happened (the row reports `because`)', async () => {
+test('#3566 DELETE: disconnect and delete each say what happened (the row reports `because`)', { skip: SKIP_FAKE_TMUX }, async () => {
   geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
   const add = await (await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-because-key-55556666' })).json();
   const f = await del('/api/accounts/gemini', { dir: add.account.dir });

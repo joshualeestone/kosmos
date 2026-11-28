@@ -11,6 +11,9 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+/* kosmos#8378: Windows does not allow * or a double quote in a file name, so on Windows the two name arms below use a name
+   without them; every other character those arms check (spaces, parentheses, an apostrophe, !, a non-ASCII letter) stays. */
+const WIN_NAMES = process.platform === 'win32';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -172,10 +175,13 @@ test('a file the gates pass but that cannot be opened is refused as unreadable (
 test('a name with characters RFC 5987 does not allow is percent-encoded in the download\u2019s name', async () => {
   const files = path.join(SANDBOX, 'workers', 'rfc', 'Files');
   fs.mkdirSync(files, { recursive: true });
-  fs.writeFileSync(path.join(files, "Q3 (final)'s*!.pptx"), PPTX);
-  const r = await fetch(base + '/api/agent/rfc/files/download?name=' + encodeURIComponent("Q3 (final)'s*!.pptx"));
+  const name = WIN_NAMES ? "Q3 (final)'s!.pptx" : "Q3 (final)'s*!.pptx";
+  fs.writeFileSync(path.join(files, name), PPTX);
+  const r = await fetch(base + '/api/agent/rfc/files/download?name=' + encodeURIComponent(name));
   assert.equal(r.status, 200);
-  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"Q3 (final)'s*!.pptx\"; filename*=UTF-8''Q3%20%28final%29%27s%2A%21.pptx");
+  assert.equal(r.headers.get('content-disposition'), WIN_NAMES
+    ? "attachment; filename=\"Q3 (final)'s!.pptx\"; filename*=UTF-8''Q3%20%28final%29%27s%21.pptx"
+    : "attachment; filename=\"Q3 (final)'s*!.pptx\"; filename*=UTF-8''Q3%20%28final%29%27s%2A%21.pptx");
 });
 
 test('?check=1 passes the same gates and answers 204 with no body; a refused check is the refusal', async () => {
@@ -215,10 +221,13 @@ test('the ASCII filename= replaces what a quoted string cannot carry (a quote, a
   // A backslash never reaches this header: resolveListedFile's first gate refuses a name holding one.
   const files = path.join(SANDBOX, 'workers', 'asc', 'Files');
   fs.mkdirSync(files, { recursive: true });
-  fs.writeFileSync(path.join(files, 'caf\u00e9 "q" x.txt'), 'x');
-  const r = await fetch(base + '/api/agent/asc/files/download?name=' + encodeURIComponent('caf\u00e9 "q" x.txt'));
+  const name = WIN_NAMES ? 'caf\u00e9 x.txt' : 'caf\u00e9 "q" x.txt';
+  fs.writeFileSync(path.join(files, name), 'x');
+  const r = await fetch(base + '/api/agent/asc/files/download?name=' + encodeURIComponent(name));
   assert.equal(r.status, 200);
-  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"caf_ _q_ x.txt\"; filename*=UTF-8''caf%C3%A9%20%22q%22%20x.txt");
+  assert.equal(r.headers.get('content-disposition'), WIN_NAMES
+    ? "attachment; filename=\"caf_ x.txt\"; filename*=UTF-8''caf%C3%A9%20x.txt"
+    : "attachment; filename=\"caf_ _q_ x.txt\"; filename*=UTF-8''caf%C3%A9%20%22q%22%20x.txt");
 });
 
 /* A GET carrying a header fetch() will not send: undici sets Sec-Fetch-Mode itself, so a navigation has to be made by hand. */
@@ -299,7 +308,8 @@ test('#4997 + #5165: a file swapped for a link, or for a FIFO, at the download\'
   const realOpen = fs.open;
   for (const [what, swap] of [
     ['a link out of the folder', () => fs.symlinkSync(path.join(outside, 'secret.pptx'), target)],
-    ['a FIFO', () => require('node:child_process').execFileSync('/usr/bin/mkfifo', [target])],
+    // kosmos#8378: Windows has no FIFO (/usr/bin/mkfifo), so that swap is made off Windows only; the link swap runs everywhere.
+    ...(process.platform === 'win32' ? [] : [['a FIFO', () => require('node:child_process').execFileSync('/usr/bin/mkfifo', [target])]]),
   ]) {
     fs.writeFileSync(target, PPTX);
     const control = await dl();

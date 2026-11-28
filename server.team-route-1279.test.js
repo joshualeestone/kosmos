@@ -18,6 +18,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * no fake -- an empty sandbox simply has no OpenAI sign-in, which is a real dead
  * account by construction.
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -84,7 +85,7 @@ function birthOf(name) {
   return create.createdLog().filter((e) => e && e.name === name).pop() || null;
 }
 
-test('happy path: a team of live-account members is CREATED, and every member records creator + purpose', async () => {
+test('happy path: a team of live-account members is CREATED, and every member records creator + purpose', { skip: SKIP_FAKE_TMUX }, async () => {
   create.setClaudeProbe(LIVE);
   try {
     const r = await postTeam({
@@ -106,7 +107,7 @@ test('happy path: a team of live-account members is CREATED, and every member re
   } finally { create.setClaudeProbe(null); }
 });
 
-test('provenance cannot be forged by a member: the TEAM is the authority on creator + purpose', async () => {
+test('provenance cannot be forged by a member: the TEAM is the authority on creator + purpose', { skip: SKIP_FAKE_TMUX }, async () => {
   create.setClaudeProbe(LIVE);
   try {
     const r = await postTeam({
@@ -122,7 +123,7 @@ test('provenance cannot be forged by a member: the TEAM is the authority on crea
   } finally { create.setClaudeProbe(null); }
 });
 
-test('#1903 rail: a member on a dead account is refused BEFORE any write; live members still created (PARTIAL)', async () => {
+test('#1903 rail: a member on a dead account is refused BEFORE any write; live members still created (PARTIAL)', { skip: SKIP_FAKE_TMUX }, async () => {
   create.setClaudeProbe(LIVE); // the Claude member is live; the OpenAI member is dead by empty-sandbox construction
   try {
     const r = await postTeam({
@@ -308,7 +309,7 @@ test('a non-object member entry is refused by shape, not created', async () => {
   } finally { create.setClaudeProbe(null); }
 });
 
-test('#2140 parity: an OpenAI member whose account cannot run the chosen model is refused (born-broken); a runnable one is created', async () => {
+test('#2140 parity: an OpenAI member whose account cannot run the chosen model is refused (born-broken); a runnable one is created', { skip: SKIP_FAKE_TMUX }, async () => {
   create.setClaudeProbe(LIVE);
   // The labelled OpenAI account can run gpt-4o only. A member asking for it is
   // created; one asking for a model the account cannot run is refused BEFORE any
@@ -333,7 +334,7 @@ test('#2140 parity: an OpenAI member whose account cannot run the chosen model i
   } finally { create.setClaudeProbe(null); openai.setFetcher(null); }
 });
 
-test('merge arithmetic under BOTH a createTeam per-member refusal AND a liveness refusal: X of Y counts the original total', async () => {
+test('merge arithmetic under BOTH a createTeam per-member refusal AND a liveness refusal: X of Y counts the original total', { skip: SKIP_FAKE_TMUX }, async () => {
   create.setClaudeProbe(LIVE);
   try {
     // One live Claude member (created), one bad-name member (createTeam/createAgent
@@ -410,7 +411,7 @@ test('#2972 a NUMERIC-STRING body.cap is accepted (a UI form value arrives as a 
   assert.match(r.json.because || '', /cap is 15/, 'the refusal must name the string-supplied cap 15');
 });
 
-test('#2972 positive path: with body.cap:15 the operator can CREATE a team larger than the default 12', async () => {
+test('#2972 positive path: with body.cap:15 the operator can CREATE a team larger than the default 12', { skip: SKIP_FAKE_TMUX }, async () => {
   // The direct end-to-end proof of the card's goal: 13 live members (over the
   // default cap 12) with cap:15 are all CREATED, where without the raise the same
   // request would refuse for the cap. Complements the refusal-boundary tests above.

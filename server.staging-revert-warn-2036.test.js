@@ -27,6 +27,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.staging-revert-warn-2036.test.js
  */
 
+const SKIP_WIN_CHANNEL = require('./test-support/skip-on-win32').skipOnWin32('it reads the update channel from the source-channel stamp of the install, which the Mac and Linux updater does and the Windows updater by design does not (it reads only KOSMOS_UPDATE_CHANNEL, engine/update.js)');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -154,14 +155,14 @@ function warnNowWith({ content, latest, channel, look = true }) {
 /* #2969: the updater now falls back to the install stamp, so a staging-stamped box with NO channel
    variable polls staging and is not in the revert state at all. The only way in is an explicit
    non-staging variable, so the revert-state arms below set channel: 'prod'. */
-test('#2969: installed from staging with NO channel variable resolves staging and does not warn (the silent revert is gone)', () => {
+test('#2969: installed from staging with NO channel variable resolves staging and does not warn (the silent revert is gone)', { skip: SKIP_WIN_CHANNEL }, () => {
   const got = warnNowWith({ content: 'staging', latest: RUNNING });
   assert.equal(got.resolved, 'staging', 'the install stamp is the subscription: the launchd job needs no channel variable');
   assert.equal(got.warn, false);
   assert.equal(got.fired, false);
 });
 
-test('WIRING: a promoted staging build (installed staging, prod publishes our version, channel env prod) still warns -- because the boot site reads the raw stamp, not the #2934 badge', () => {
+test('WIRING: a promoted staging build (installed staging, prod publishes our version, channel env prod) still warns -- because the boot site reads the raw stamp, not the #2934 badge', { skip: SKIP_WIN_CHANNEL }, () => {
   const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'prod' });
   // The divergence that makes this test meaningful: the badge re-derives to 'prod' here...
   assert.equal(got.badge, 'prod', 'a promoted staging build reads prod on the #2934 badge (sourceChannelNow)');
@@ -171,7 +172,7 @@ test('WIRING: a promoted staging build (installed staging, prod publishes our ve
   assert.equal(got.warn, true, 'the raw install stamp is still staging, so the silent revert is surfaced');
 });
 
-test('WIRING: a healthy staging subscriber (installed staging, channel env still staging) does not warn', () => {
+test('WIRING: a healthy staging subscriber (installed staging, channel env still staging) does not warn', { skip: SKIP_WIN_CHANNEL }, () => {
   const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'staging' });
   assert.equal(got.resolved, 'staging', 'the channel env survived, so the poller resolves staging');
   assert.equal(got.warn, false, 'still on staging: nothing reverted, no warn');
@@ -203,7 +204,7 @@ test('EMIT: on the promoted-staging revert, the emit fires and the message names
   assert.doesNotMatch(got.emitted, /not yet shipped|across login/, '#2969: the old "not carried across login" story is no longer true');
 });
 
-test('EMIT: a healthy staging subscriber emits nothing', () => {
+test('EMIT: a healthy staging subscriber emits nothing', { skip: SKIP_WIN_CHANNEL }, () => {
   const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'staging' });
   assert.equal(got.fired, false, 'no revert, so the emit does not fire');
   assert.equal(got.emitted, '', 'and writes nothing');
@@ -289,7 +290,7 @@ test('BOOT: a real app.start() on a promoted-staging revert box writes the warni
   assert.match(r.stderr, /source-channel=staging/, 'and it is the #2969 revert warning');
 });
 
-test('BOOT: a real app.start() on a healthy staging box writes NO warning', () => {
+test('BOOT: a real app.start() on a healthy staging box writes NO warning', { skip: SKIP_WIN_CHANNEL }, () => {
   const r = bootStderrWith({ content: 'staging', latest: RUNNING, channel: 'staging' });
   assert.equal(r.signal, null, 'the boot did not hang/timeout');
   assert.equal(r.status, 0, 'the board booted cleanly');
