@@ -12,13 +12,16 @@
  * same files and with the same defaults:
  *   list-panes    the lines in AGENT_WORKFORCE_FAKE_PANES, or none (an empty board), read on every call so a test that
  *                 rewrites the file sees it, as the script does;
- *   capture-pane  the text in AGENT_WORKFORCE_FAKE_SCREEN, or empty.
+ *   capture-pane  the text in AGENT_WORKFORCE_FAKE_SCREEN, or empty;
+ *   display-message  "whose session is this pane in" (engine/messages.js paneSession, through its setRunner seam):
+ *                 fixture-discord, for any pane, as the script answers #{session_name}.
  * It installs them through status.setPaneSource and status.setPaneCapture, and test-support/fleet.js restore() returns
  * to them (current()) instead of to "none", so a test that installs and restores a fleet keeps a board it can read.
  * On macOS and Linux it does nothing, so the script stays what those tests run.
  *
- * ⚠️ What it does not stand in for: fake tmux's WRITES (send-keys, new-session, kill-session) and its display-message
- * answer. On Windows the board delivers through the agent's supervisor, not tmux, so a test that checks a delivery
+ * ⚠️ What it does not stand in for: fake tmux's WRITES (send-keys, new-session, kill-session), its display-message
+ * answer to anything but messages.js's session question (chat.js asks its own), and a messages.resetForTests(), which
+ * clears that runner. On Windows the board delivers through the agent's supervisor, not tmux, so a test that checks a delivery
  * through tmux still needs a Windows arm, and skips on Windows under kosmos#9262. Nor does it make a Windows board read
  * tmux: on Windows the product's own roster is engine/win32roster; this only lets a route test reach the route.
  */
@@ -40,6 +43,7 @@ function serveOnWindows(platform = process.platform) {
   capture = () => readOr(process.env.AGENT_WORKFORCE_FAKE_SCREEN, '');
   status.setPaneSource(source);
   status.setPaneCapture(capture);
+  require('../engine/messages').setRunner(() => ({ ok: true, session: 'fixture-discord' }));
   return true;
 }
 
