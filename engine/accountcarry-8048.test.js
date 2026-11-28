@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const carry = require('./accountcarry');
+const NO_FIFO = require('../test-support/skip-on-win32').skipOnWin32('it makes a named pipe (mkfifo), which Windows does not have');   // kosmos#8378
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-carry-8048-'));
 test.after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -374,7 +375,7 @@ test('kosmos#8063 review 3: a script found only through the agent folder must be
   assert.deepEqual(carry.losses(w('bash /nonexistent-8063/g.sh'), none, P), { ok: true, skills: [], changed: [], hooks: [], hooksChanged: [] });
 });
 
-test('kosmos#8063 review 4: a named pipe in a skill or as a hook script is never opened', { timeout: 15000 }, () => {
+test('kosmos#8063 review 4: a named pipe in a skill or as a hook script is never opened', { timeout: 15000, skip: NO_FIFO }, () => {
   const { execFileSync } = require('node:child_process');
   const d = folder({ skills: ['piped'], settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash $CLAUDE_CONFIG_DIR/hooks/pipe.sh' }] }] } }) });
   try { execFileSync('mkfifo', [path.join(d, 'skills', 'piped', 'pipe')]); } catch { return; }   // no mkfifo here: nothing to show

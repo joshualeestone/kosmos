@@ -14,6 +14,8 @@ const bf = require('./backupformat');
 const { hpkeKeyPair } = require('./hpke');
 const br = require('./backuprestore');
 const snap = require('./backupsnapshot');
+const NO_MAC_NAMES = require('../test-support/skip-on-win32').skipOnWin32('it makes files whose names Windows cannot hold as written (a backslash, a control character, a colon, a trailing space, a reserved device name); what it checks exists on Windows (the name judgement) and needs a check that does not create the file (kosmos#9265)');   // kosmos#8378
+const NO_FIFO = require('../test-support/skip-on-win32').skipOnWin32('it makes a named pipe (mkfifo), which Windows does not have');   // kosmos#8378
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const PERIOD = '2026-W41';
@@ -29,7 +31,7 @@ function keys() {
 
 /* A work Kosmos on disk: nested files, one big enough for several chunks, a planted token, a .env, a link out. */
 function workKosmos() {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsnap-')));
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsnap-')));   // kosmos#8378: .native, as trust.canonicalOnDisk is: on Windows the plain form keeps an 8.3 short name (RUNNER~1), so every sandbox folder read as a second spelling
   const root = path.join(base, 'kosmos');
   const outside = path.join(base, 'outside');
   fs.mkdirSync(path.join(root, 'agents', 'a', 'memory'), { recursive: true });
@@ -316,7 +318,7 @@ test('a file whose real path resolves outside the work Kosmos is skipped', async
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a FIFO in the work Kosmos is skipped, never opened, and does not hang the snapshot', async () => {
+test('a FIFO in the work Kosmos is skipped, never opened, and does not hang the snapshot', { skip: NO_FIFO }, async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
     require('child_process').execFileSync('mkfifo', [path.join(w.root, 'agents', 'a', 'pipe')]);
@@ -401,7 +403,7 @@ test('a hard link is skipped: another name for it may be outside the work Kosmos
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a path restore would refuse, or two names restore treats as one, is skipped at backup time and named', async () => {
+test('a path restore would refuse, or two names restore treats as one, is skipped at backup time and named', { skip: NO_MAC_NAMES }, async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
     for (const n of ['aux.c', 'a:b.txt', 'trailing.txt ', 'Icon\r']) fs.writeFileSync(path.join(w.root, 'agents', 'a', n), 'x');
@@ -453,7 +455,7 @@ test('chunks stored in a batch are all kept for the index even when one comes ba
 
 test('whatever the ceiling, a run either stores a manifest that fits or uploads nothing at all (real-length keys)', async () => {
   const k = keys();
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsnap-')));
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsnap-')));   // kosmos#8378: .native, as trust.canonicalOnDisk is: on Windows the plain form keeps an 8.3 short name (RUNNER~1), so every sandbox folder read as a second spelling
   const root = path.join(base, 'kosmos');
   try {
     fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
@@ -476,7 +478,7 @@ test('whatever the ceiling, a run either stores a manifest that fits or uploads 
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
-test('a file whose name is another entry\'s folder, to restore, is skipped: restore would refuse both', async () => {
+test('a file whose name is another entry\'s folder, to restore, is skipped: restore would refuse both', { skip: NO_MAC_NAMES }, async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
     fs.writeFileSync(path.join(w.root, 'q'), 'a file named q');
@@ -993,7 +995,7 @@ test('stored chunks answered without a bucket are a failure, not recorded under 
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a Mac name with a backslash is judged as restore will write it: ".ssh\\id_rsa" is a credential path, never stored', async () => {
+test('a Mac name with a backslash is judged as restore will write it: ".ssh\\id_rsa" is a credential path, never stored', { skip: NO_MAC_NAMES }, async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
     for (const n of ['.ssh\\id_rsa', 'secrets\\db.txt', 'x\\.npmrc']) fs.writeFileSync(path.join(w.root, n), 'PLAIN-SECRET-BYTES');
@@ -1211,7 +1213,7 @@ test('a manifest grant in another bucket on a run with an index AND new uploads 
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a backslash and an invisible character together still read as the denied path restore would write', async () => {
+test('a backslash and an invisible character together still read as the denied path restore would write', { skip: NO_MAC_NAMES }, async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
     fs.writeFileSync(path.join(w.root, '.ssh\u200b\\id_rsa'), 'PRIVATE-KEY-BYTES');
@@ -1392,7 +1394,7 @@ test('a name masked on its own still has its split windows checked: a second tok
 /* #5686: several named roots. A world's work is not under one folder (the default world keeps data, agents and
    projects in three places), so a snapshot can take [{ name, path, exclude? }] and store each root's files under its name. */
 function threeRoots() {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbroots-')));
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kbroots-')));   // kosmos#8378: .native, as trust.canonicalOnDisk is: on Windows the plain form keeps an 8.3 short name (RUNNER~1), so every sandbox folder read as a second spelling
   const roots = { data: path.join(base, 'AppSupport', 'Kosmos'), workers: path.join(base, 'work', 'workers'), projects: path.join(base, 'Kosmos', 'Projects') };
   const files = {
     data: { 'chats/direct..a.json': '{"m":["hi"]}\n', 'messages.jsonl': '{"room":"r","text":"hello"}\n' },
@@ -1652,7 +1654,7 @@ test('#5686: sessionsFor\'s roots feed takeSnapshot: one agent\'s sessions store
 });
 
 test('#5686 review 9: with only, other files are never counted toward the file limit nor named, and their folders not walked', async () => {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbonly-')));
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kbonly-')));   // kosmos#8378: .native, as trust.canonicalOnDisk is: on Windows the plain form keeps an 8.3 short name (RUNNER~1), so every sandbox folder read as a second spelling
   try {
     const put = (rel) => { fs.mkdirSync(path.dirname(path.join(base, rel)), { recursive: true }); fs.writeFileSync(path.join(base, rel), 'x\n'); };
     for (let i = 0; i < 6; i++) put(`2026/10/0${i}/rollout-${i}.jsonl`);

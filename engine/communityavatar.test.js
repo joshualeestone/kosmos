@@ -22,6 +22,7 @@ const communitystore = require('./communitystore');
 const feedpublish = require('./feedpublish');
 const store = require('./store');
 const cs = require('./communitysend');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const png = (fill, size = 64) => Buffer.concat([PNG_SIG, Buffer.alloc(size - 8, fill)]);
@@ -356,7 +357,7 @@ test('an empty picture file takes nothing down, and is not called "not a picture
   assert.ok(held().raw.equals(png(2)));
 });
 
-test('a pictures folder that cannot be read takes nothing down, and is said once', async (t) => {
+test('a pictures folder that cannot be read takes nothing down, and is said once', { skip: NO_CHMOD_LOCK }, async (t) => {
   const lines = [];
   const real = console.error;
   console.error = (m) => { lines.push(String(m)); };

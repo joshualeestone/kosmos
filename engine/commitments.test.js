@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_DATA = TMP;
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const c = require('./commitments');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 test.after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
@@ -441,7 +442,7 @@ test('a reader never observes a torn record while writers are racing', async (t)
   assert.deepEqual(strays, [], `temp files left behind: ${strays.join(', ')}`);
 });
 
-test('an unreadable record is NOT treated as a missing one by add()', () => {
+test('an unreadable record is NOT treated as a missing one by add()', { skip: NO_CHMOD_LOCK }, () => {
   // The guard used to be a string comparison against a message that every read
   // failure produced, so a record behind a permissions error looked identical
   // to one that was never written, and add() overwrote it. Two real

@@ -7,6 +7,8 @@ const os = require('node:os');
 const nodePath = require('node:path');
 
 const ca = require('./claudeaccounts');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_QUOTE_IN_NAME = require('../test-support/skip-on-win32').skipOnWin32('it runs the helper command through the default shell (cmd.exe on Windows, which has no cat and no single quotes) from a folder whose name holds a double quote, which Windows does not allow; what it checks exists on Windows, and whether the command runs there is open (kosmos#9277)');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-claude-apikey-2420-'));
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -51,7 +53,7 @@ test('askModels sends x-api-key AND the required anthropic-version, and never th
   assert.equal(seen.headers.authorization, undefined, 'Anthropic uses x-api-key, not a Bearer Authorization header');
 });
 
-test('storeKey writes mode 0600 without a trailing newline, and readKey round-trips it', () => {
+test('storeKey writes mode 0600 without a trailing newline, and readKey round-trips it', { skip: NO_POSIX_MODES }, () => {
   const dir = freshDir('store1');
   ca.storeKey(dir, '  sk-ant-secret-123  ');
   const mode = fs.statSync(ca.keyFile(dir)).mode & 0o777;
@@ -59,7 +61,7 @@ test('storeKey writes mode 0600 without a trailing newline, and readKey round-tr
   assert.equal(fs.readFileSync(ca.keyFile(dir), 'utf8'), 'sk-ant-secret-123', 'stored trimmed, no trailing newline, so apiKeyHelper cats exactly the key');
 });
 
-test('apiKeyHelperCommand is shell-safe against a home path with metacharacters, and resolves to exactly the key', () => {
+test('apiKeyHelperCommand is shell-safe against a home path with metacharacters, and resolves to exactly the key', { skip: NO_QUOTE_IN_NAME }, () => {
   // A home dir carrying $, backtick, ", space and a single quote: the label is
   // sanitized by prepare, but homeDir() is interpolated too, so the command must
   // not let any of these break out. The command must still cat exactly the key.

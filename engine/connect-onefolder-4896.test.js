@@ -34,7 +34,12 @@ const remove = require('./remove');
 
 test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
 /* An empty board through the paneSource seam, as connect-agent.test.js does (#1794). */
-test.beforeEach(() => { status.setPaneSource(() => ''); });
+/* kosmos#8378: on Windows, connecting first asks Task Scheduler whether the agent already has a task, and refuses when it
+   cannot tell (the win32 arm launches the agent, so a look that failed must not proceed). A test process never reaches
+   the real Task Scheduler, so ask the shared fixture for a job path: on Windows that installs its stand-in Task Scheduler
+   (no task file is written, so the answer is "not registered"); on a Mac it only returns a path, and on Linux it
+   also makes the unit folder in this file's sandbox (AGENT_WORKFORCE_LAUNCH is set above). */
+test.beforeEach(() => { status.setPaneSource(() => ''); jobfix.jobPath('connect-standin'); });
 test.afterEach(() => { status.setPaneSource(null); });
 
 let seq = 0;
@@ -240,8 +245,16 @@ test('#4896 r5: an agent Kosmos CREATED (no recorded folder) holds its home; ano
 
 test('#4896 r5: a RELATIVE recorded dir holds nothing (no agent lives at a path relative to the board\'s cwd)', () => {
   const dir = folder('You are **Pia**, a poet.\n');
-  store.writeProfile('pia-rel', { dir: path.relative(process.cwd(), dir) });
-  const taken = discover.folderTakenBy(dir, 'pia2', { store });
+  /* kosmos#8378: the relative form is taken from inside the sandbox. path.relative(process.cwd(), dir) is absolute when the
+     working directory is on another drive (a Windows runner checks out on D: and makes its temp folders on C:), so that
+     case recorded an absolute folder there. */
+  const here = process.cwd();
+  process.chdir(SB);
+  let taken;
+  try {
+    store.writeProfile('pia-rel', { dir: path.relative(SB, dir) });
+    taken = discover.folderTakenBy(dir, 'pia2', { store });
+  } finally { process.chdir(here); }
   assert.equal(taken.ok, true);
   assert.equal(taken.other, null, 'a relative recorded dir was counted as holding the folder');
 });

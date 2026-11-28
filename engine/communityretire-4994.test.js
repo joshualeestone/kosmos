@@ -22,6 +22,7 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const cs = require('./communitysend');
 const communitystore = require('./communitystore');
 const feedpublish = require('./feedpublish');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 function backend() {
   const st = { seen: [], n: 0, agents: new Map([['tok_r1', 'r1']]), posts: new Map([['remote-1', 'r1']]) };
@@ -307,7 +308,7 @@ test('a send that got no answer, which the service cannot yet confirm either way
   assert.equal(postsBy().length, 0, 'it was sent again');
 });
 
-test('willSend says later, never no, for a name whose retirement FAILED on this service (a no is permanent)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+test('willSend says later, never no, for a name whose retirement FAILED on this service (a no is permanent)', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: REX_KEY });
   await cs.sweep();                                        // starts the ON period
   assert.deepEqual(cs.willSend('rex'), { sends: true, later: false }, 'CONTROL: the name sends on the next pass before any retirement');
@@ -361,7 +362,7 @@ test('a never-sent record of the name whose item is not the deleted agent\'s kee
   assert.equal(readJson(cs._paths.keysFile()).rex, undefined, 'CONTROL: the retirement did land');
 });
 
-test('a store mark that fails at the delete is made when the request lands, and the post never goes', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+test('a store mark that fails at the delete is made when the request lands, and the post never goes', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: REX_KEY });
   await cs.sweep();                                        // starts the ON period
   agentPost('rex', { topic: 'marked late', body: 'ten' });
@@ -377,7 +378,7 @@ test('a store mark that fails at the delete is made when the request lands, and 
   assert.equal(postsBy().length, 0, 'the deleted agent\'s post went out');
 });
 
-test('a store that stays unwritable through the first apply keeps the request and the name held, for an agent with no key', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+test('a store that stays unwritable through the first apply keeps the request and the name held, for an agent with no key', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, async () => {
   await cs.sweep();                                        // starts the ON period; rex never registered
   agentPost('rex', { topic: 'never registered', body: 'eleven' });
   const storeDir = path.join(require('./store').ROOT, 'community');   // communitystore's dir()
@@ -397,7 +398,7 @@ test('a store that stays unwritable through the first apply keeps the request an
   assert.equal(postsBy().length, 0, 'the deleted agent\'s post went out after the request finished');
 });
 
-test('a retire folder that cannot be read holds every name rather than freeing one', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a read with' : false }, async () => {
+test('a retire folder that cannot be read holds every name rather than freeing one', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a read with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: REX_KEY });
   await cs.sweep();                                        // starts the ON period
   cs.requestRetire('rex');
@@ -416,7 +417,7 @@ test('a retire folder that cannot be read holds every name rather than freeing o
   assert.equal(readJson(cs._paths.keysFile()).rex, undefined, 'CONTROL: the retirement lands once the folder can be read');
 });
 
-test('a request applied everywhere whose file cannot be removed does not hold the name afterwards', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails an unlink with' : false }, async () => {
+test('a request applied everywhere whose file cannot be removed does not hold the name afterwards', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails an unlink with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: REX_KEY });
   await cs.sweep();
   const rd = cs._paths.retireDir();
@@ -450,7 +451,7 @@ test('an agent deleted while its first registration is on the network does not t
   assert.deepEqual(retireFiles(), []);
 });
 
-test('willSend ignores the deleted agent\'s refused key while the name is held, and still records the ON period first', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+test('willSend ignores the deleted agent\'s refused key while the name is held, and still records the ON period first', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: { ...REX_KEY, refused: true } });
   assert.equal(cs.willSend('rex').sends, false, 'CONTROL: the refused old account is a no before any retirement');
   fs.rmSync(cs._paths.stateFile(), { force: true });       // no ON period recorded yet
@@ -499,7 +500,7 @@ test('an agent call whose registration is on the network when the agent is delet
   assert.equal(be.st.seen.filter((x) => x.url === '/agents/me').length, 0, 'the call reached the service as the deleted agent');
 });
 
-test('one failed read of the retire folder does not hold every name after it can be read again', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a read with' : false }, async () => {
+test('one failed read of the retire folder does not hold every name after it can be read again', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a read with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { other: { ...REX_KEY, name: 'other' } });
   await cs.sweep();                                        // starts the ON period
   fs.mkdirSync(cs._paths.retireDir(), { recursive: true });
@@ -515,7 +516,7 @@ test('one failed read of the retire folder does not hold every name after it can
   assert.equal(held.ok, true, `an agent call stayed refused after the folder could be read again: ${held.because}`);
 });
 
-test('an unanswered send of a name whose retirement is stuck is not settled until the record has moved', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+test('an unanswered send of a name whose retirement is stuck is not settled until the record has moved', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: REX_KEY });
   await cs.sweep();
   agentPost('rex', { topic: 'unanswered, stuck', body: 'fourteen' });
@@ -586,7 +587,7 @@ test('an unreadable retire request holds the install-group pass for live agents,
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
 
-test('no folder counts as done before the store mark lands, not even another service\'s, so a later switch cannot finish it unmarked', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+test('no folder counts as done before the store mark lands, not even another service\'s, so a later switch cannot finish it unmarked', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, async () => {
   writeJson(cs._paths.keysFile(), { rex: REX_KEY });
   await cs.sweep();
   agentPost('rex', { topic: 'switch', body: 'sixteen' });

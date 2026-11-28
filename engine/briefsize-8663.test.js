@@ -21,6 +21,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
+const ON_WINDOWS = process.platform === 'win32';   // kosmos#8378: one arm pins each platform's answer
 const assert = require('node:assert/strict');
 const brief = require('./brief');
 const projects = require('./projects');
@@ -106,8 +107,19 @@ test('nothing read: project show says which (missing, a link, not a file, unread
   assert.equal(brief.readBrief(asDir).why, 'not_a_file');
   assert.match(line(show(asDir), 'Brief:'), /is not a file/);
 
-  const notDir = path.join(SANDBOX, 'plain-file');   // a project folder path that is a file: lstat fails ENOTDIR
+});
+
+/* kosmos#8378: its own test, so the link and not-a-file arms above still run on Windows. */
+test('nothing read: a project folder that is a plain file says unreadable (POSIX) or missing (Windows)', () => {
+  /* kosmos#8378: a path under a plain file is ENOTDIR on POSIX, which reads as unreadable; Windows answers ENOENT, which
+     reads as missing. Both say nothing was read; this pins each platform's answer rather than skipping Windows. */
+  const notDir = path.join(SANDBOX, 'plain-file');   // a project folder path that is a file
   fs.writeFileSync(notDir, 'not a folder');
+  if (ON_WINDOWS) {
+    assert.equal(brief.readBrief(notDir).why, 'missing');
+    assert.equal(line(show(notDir), 'Brief:'), 'Brief: there is no readable BRIEF.md in the folder, so no goal or "done" is written down.');
+    return;
+  }
   assert.equal(brief.readBrief(notDir).why, 'unreadable');
   assert.equal(line(show(notDir), 'Brief:'), 'Brief: Kosmos could not read BRIEF.md just now, so no goal or "done" is read. Check that you can open it.');
 });

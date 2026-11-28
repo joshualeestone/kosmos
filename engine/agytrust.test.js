@@ -20,6 +20,7 @@ const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'agytr
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { trustAgyFolder, settingsPath } = require('./agytrust');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 let n = 0;
 function home() { n += 1; const h = nodePath.join(SANDBOX, `home${n}`); fs.mkdirSync(h, { recursive: true }); return h; }
@@ -83,7 +84,7 @@ test('a relative, missing or not-yet-created folder is refused and writes nothin
   assert.equal(fs.existsSync(settingsPath(h)), false);
 });
 
-test('the settings file keeps its permissions', () => {
+test('the settings file keeps its permissions', { skip: NO_POSIX_MODES }, () => {
   const h = home();
   fs.mkdirSync(nodePath.dirname(settingsPath(h)), { recursive: true });
   fs.writeFileSync(settingsPath(h), JSON.stringify({ trustedWorkspaces: [] }), { mode: 0o600 });
@@ -111,7 +112,7 @@ test('eight agents starting at once each end up trusted (none overwrites another
   const dirs = Array.from({ length: 8 }, (_, i) => folder(`many${i}`));
   const { spawn } = require('node:child_process');
   await Promise.all(dirs.map((d) => new Promise((resolve, reject) => {
-    const c = spawn(process.execPath, [script, d], { env: { PATH: process.env.PATH, HOME: h } });
+    const c = spawn(process.execPath, [script, d], { env: { PATH: process.env.PATH, HOME: h, USERPROFILE: h } });
     c.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('exit ' + code))));
   })));
   assert.deepEqual([...read(h).trustedWorkspaces].sort(), [...dirs].sort(), 'a concurrent start lost another agent\'s folder');
@@ -176,7 +177,7 @@ test('as a script it says why on stderr when it could not add the folder, and st
   fs.mkdirSync(nodePath.dirname(settingsPath(h)), { recursive: true });
   fs.writeFileSync(settingsPath(h), '{ not json');
   const r = require('node:child_process').spawnSync(process.execPath, [nodePath.join(__dirname, 'agytrust.js'), folder('jo')],
-    { env: { PATH: process.env.PATH, HOME: h }, encoding: 'utf8' });
+    { env: { PATH: process.env.PATH, HOME: h, USERPROFILE: h }, encoding: 'utf8' });
   assert.equal(r.status, 0);
   assert.match(r.stderr, /agytrust: agy settings could not be read/);
 });
@@ -185,9 +186,9 @@ test('as a script (how the supervisor calls it) it trusts the folder under HOME 
   const h = home();
   const dir = folder('fae');
   const script = nodePath.join(__dirname, 'agytrust.js');
-  execFileSync(process.execPath, [script, dir], { env: { PATH: process.env.PATH, HOME: h } });
+  execFileSync(process.execPath, [script, dir], { env: { PATH: process.env.PATH, HOME: h, USERPROFILE: h } });
   assert.deepEqual(read(h).trustedWorkspaces, [dir]);
-  execFileSync(process.execPath, [script], { env: { PATH: process.env.PATH, HOME: h } }); // throws if it exits non-zero
+  execFileSync(process.execPath, [script], { env: { PATH: process.env.PATH, HOME: h, USERPROFILE: h } }); // throws if it exits non-zero
 });
 
 test('#4039: with no home given (the supervisor\'s only call) the settings live in agy\'s dir, which a sandbox moves', () => {
@@ -195,9 +196,10 @@ test('#4039: with no home given (the supervisor\'s only call) the settings live 
   try {
     delete process.env.AGENT_WORKFORCE_AGY_HOME;
     process.env.AGENT_WORKFORCE_HOME = '/sandbox-4039';
-    assert.equal(settingsPath(), '/sandbox-4039/.gemini/antigravity-cli/settings.json');
+    /* kosmos#8378: built with path.join, so the expected path is this platform's own spelling of it. */
+    assert.equal(settingsPath(), nodePath.join('/sandbox-4039', '.gemini', 'antigravity-cli', 'settings.json'));
     process.env.AGENT_WORKFORCE_AGY_HOME = '/agy-4039';
-    assert.equal(settingsPath(), '/agy-4039/settings.json');
+    assert.equal(settingsPath(), nodePath.join('/agy-4039', 'settings.json'));
     assert.equal(require('./agysession').HOME(), '/agy-4039', 'the reader and the trust write disagree about agy\'s dir');
   } finally {
     if (saved.a === undefined) delete process.env.AGENT_WORKFORCE_AGY_HOME; else process.env.AGENT_WORKFORCE_AGY_HOME = saved.a;

@@ -33,8 +33,12 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 
 const connect = require('./connect');
-// #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
-// tmux still runs these tests for what they name.
+/* kosmos#8378: these arms test the post-install gate through the tmux sign-in the fake terminal stands in for, as
+   connect.test.js does; on Windows the sign-in would otherwise go to the Windows sign-in host, which nothing here models,
+   and on Linux its sign-in-time tmux and musl checks are asked as on a Mac (connect.test.js covers those). */
+connect.setSigninPlatformForTests('darwin');
+// #5419: download() refuses on a real Linux host with no tmux; pinned to "present" so a Linux box without tmux still
+// runs these tests for what they name.
 connect.setTmuxCheckForTests(() => false);
 connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl libraries
 const subscription = require('./subscription');
@@ -43,12 +47,19 @@ const PAID_FILE = { oauthAccount: { organizationType: 'claude_max' } };
 
 const http = require('node:http');
 const crypto = require('node:crypto');
+/* kosmos#8378: on Windows a stand-in Claude is runnable only by a PATHEXT name (runners.runnableExactly); its content is
+   never run here (each flow answers through connect.setRunner), so the name is all a Windows host needs. */
+const EXE = process.platform === 'win32' ? '.exe' : '';
+/* kosmos#8378: download() asks for the binary by the host's name for it (connect.js: claude.exe on win32, claude
+   elsewhere), as connect.test.js's BIN_LEAF serves it; serving only `claude` read a 404 on Windows and left every
+   install arm stuck at "we could not download Claude" (measured on windows-latest, run 46146320564). */
+const BIN_LEAF = process.platform === 'win32' ? 'claude.exe' : 'claude';
 
 function serveRelease(t, binary, checksum) {
   const paths = {
     '/latest': () => '9.9.5',
     '/9.9.5/manifest.json': () => JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } }),
-    [`/9.9.5/${connect.platformKey()}/claude`]: () => binary,
+    [`/9.9.5/${connect.platformKey()}/${BIN_LEAF}`]: () => binary,
   };
   const server = http.createServer((req, res) => {
     const answer = paths[req.url];
@@ -86,7 +97,7 @@ async function cell(t, { binary, fileSaysPaid, liveLoggedIn }) {
   const fixture = crypto.randomBytes(8 * 1024);
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(
     t, fixture, crypto.createHash('sha256').update(fixture).digest('hex'));
-  const bin = nodePath.join(SANDBOX, `claude-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-${Math.random().toString(36).slice(2, 8)}${EXE}`);
   if (binary) { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG,
@@ -185,7 +196,7 @@ test('#1580: no binary, signed out, stale paid file reaches SIGN-IN rather than 
   const binary = crypto.randomBytes(16 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
-  const bin = nodePath.join(SANDBOX, `claude-live-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-live-${Math.random().toString(36).slice(2, 8)}${EXE}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
@@ -231,7 +242,7 @@ test('#1580 part 2: installing the missing binary FINISHES the job for a signed-
   const binary = crypto.randomBytes(16 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
-  const bin = nodePath.join(SANDBOX, `claude-p2-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-p2-${Math.random().toString(36).slice(2, 8)}${EXE}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
@@ -268,7 +279,7 @@ test('#1937: a RE-AUTH whose binary was just installed RUNS the login, not a fal
   const binary = crypto.randomBytes(16 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
-  const bin = nodePath.join(SANDBOX, `claude-reauth-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-reauth-${Math.random().toString(36).slice(2, 8)}${EXE}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
@@ -318,7 +329,7 @@ test('#1580 part 2: an UNANSWERABLE post-install probe must not declare a stale 
   const binary = crypto.randomBytes(16 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
-  const bin = nodePath.join(SANDBOX, `claude-unk-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-unk-${Math.random().toString(36).slice(2, 8)}${EXE}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
   // first-run chatter rather than JSON: checkLive cannot parse it, so UNKNOWN
@@ -364,7 +375,7 @@ test('#1580: the !haveBinary guard stops a flow that ALREADY had a binary from r
   const fixture8 = crypto.randomBytes(8 * 1024);
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(
     t, fixture8, crypto.createHash('sha256').update(fixture8).digest('hex'));
-  const bin = nodePath.join(SANDBOX, `claude-flip-${Math.random().toString(36).slice(2, 8)}`);
+  const bin = nodePath.join(SANDBOX, `claude-flip-${Math.random().toString(36).slice(2, 8)}${EXE}`);
   fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755);   // PRESENT
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));

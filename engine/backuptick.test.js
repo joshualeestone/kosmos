@@ -12,6 +12,7 @@ const os = require('node:os');
 const path = require('node:path');
 const tick = require('./backuptick');
 const snap = require('./backupsnapshot');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 function sandbox() {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-backuptick-')));
@@ -318,7 +319,7 @@ test('review 7: a reason that comes back after runs that failed for other reason
   assert.deepEqual(d.said, [`company backup: ${missing.because}`, `company backup: ${missing.because}`]);
 });
 
-test('review 8: a folder named ..x inside a protected folder is inside it; protection that cannot be checked fails closed', { skip: process.getuid?.() === 0 && 'root reads anything' }, () => {
+test('review 8: a folder named ..x inside a protected folder is inside it; protection that cannot be checked fails closed', () => {
   const s = sandbox();
   try {
     const workers = s.mk('w');
@@ -326,14 +327,17 @@ test('review 8: a folder named ..x inside a protected folder is inside it; prote
     const dotdot = s.mk('home', '.ssh', '..x');
     const r = tick.rootsFor({ workersDir: workers, protect: [ssh], projects: [{ slug: 'odd', folder: dotdot }] });
     assert.deepEqual(r.roots.map((x) => x.name), ['workers'], 'a ..x folder inside a protected folder was added');
-    // A protected folder that exists but cannot be resolved (its parent unreadable): no roots, said.
-    const locked = s.mk('locked');
-    const inner = s.mk('locked', 'data');
-    fs.chmodSync(locked, 0o000);
-    try {
-      const c = tick.rootsFor({ workersDir: workers, protect: [inner], projects: [{ slug: 'far', folder: s.mk('far') }] });
-      assert.deepEqual([c.roots.length, c.left[0].what], [0, 'everything'], JSON.stringify(c));
-    } finally { fs.chmodSync(locked, 0o700); }
+    // A protected folder that exists but cannot be resolved (its parent unreadable): no roots, said. Only this part
+    // needs a chmod lock that holds (kosmos#8378: not on Windows, nor for root); the rest of the arm runs everywhere.
+    if (!NO_CHMOD_LOCK && process.getuid?.() !== 0) {
+      const locked = s.mk('locked');
+      const inner = s.mk('locked', 'data');
+      fs.chmodSync(locked, 0o000);
+      try {
+        const c = tick.rootsFor({ workersDir: workers, protect: [inner], projects: [{ slug: 'far', folder: s.mk('far') }] });
+        assert.deepEqual([c.roots.length, c.left[0].what], [0, 'everything'], JSON.stringify(c));
+      } finally { fs.chmodSync(locked, 0o700); }
+    }
     // inputsHere's flag: a home it could not list.
     const f = tick.rootsFor({ workersDir: workers, protectIncomplete: true });
     assert.deepEqual([f.roots.length, f.left[0].what], [0, 'everything']);
