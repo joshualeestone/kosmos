@@ -102,6 +102,27 @@ final class AutomationUITests: XCTestCase {
         XCTAssertTrue(eli.waitForExistence(timeout: 5), "the second agent's row is missing")
         shot(app, "automation-ready")
 
+        // kosmos#8959 slice D1d3b: the posts and comments, in a closed fold, each with Delete behind the page's ask.
+        // Found by its identifier OR its words: in a List a DisclosureGroup's label becomes the group's own button, and the
+        // identifier set on the label Text did not reach it (UI run 1, light and dark: the hierarchy at the failure shows
+        // the screen already scrolled past the Community section, so the fold was passed, never matched).
+        let foldIs = NSPredicate(format: "identifier == %@ OR label == %@ OR label == %@",
+                                 "automation-mine-fold", "View all of them here, to delete one", "Hide them")
+        let fold = app.descendants(matching: .any).matching(foldIs).firstMatch
+        reveal(app, fold, swipes: 4)
+        XCTAssertTrue(fold.waitForExistence(timeout: 5), "the posts and comments fold is missing")
+        fold.tap()
+        let del = app.buttons["automation-mine-delete-m1"]
+        reveal(app, del, swipes: 3)
+        XCTAssertTrue(del.waitForExistence(timeout: 5), "the post's Delete is missing")
+        XCTAssertEqual(del.label, "Delete “What we shipped this week” from the community")
+        shot(app, "automation-mine")
+        // Closed again, so the screens below are where the rest of the test expects them: back UP to the fold first.
+        let foldAgain = app.descendants(matching: .any).matching(foldIs).firstMatch
+        for _ in 0..<4 where !(foldAgain.exists && foldAgain.isHittable) { app.swipeDown() }
+        XCTAssertTrue(foldAgain.isHittable, "could not get back to the fold to close it")
+        foldAgain.tap()
+
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
         // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
         // first guard being on screen did not mean the other two were drawn yet (D1d1's light run failed here while its
@@ -119,7 +140,7 @@ final class AutomationUITests: XCTestCase {
         }
 
         // A predicate, not a subscript: XCUI refuses a string query longer than 128 characters (the 02:09 UI run).
-        let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The Community's posts and the rest of your computer's settings are in Settings on your computer's board.")).firstMatch
+        let elsewhere = app.staticTexts.matching(NSPredicate(format: "label == %@", "The rest of your computer's settings are in Settings on your computer's board.")).firstMatch
         reveal(app, elsewhere, swipes: 12)
         XCTAssertTrue(elsewhere.exists, "the screen does not say where the other settings are")
         shot(app, "automation-end")

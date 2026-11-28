@@ -15,6 +15,7 @@ const automove = require('./automove');
 const sweep = require('./autobalance-sweep');
 const accountmove = require('./accountmove');
 const fleet = require('../test-support/fleet');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-automove-7548-'));
 test.after(() => { fleet.restore(); fs.rmSync(TMP, { recursive: true, force: true }); });
@@ -637,7 +638,7 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
   assert.match(src, /autobalance\.moving = autobalance\.recording === true && !!automoveRun && automove\.movesOn\(\);/, 'Settings says moving with moves off');
 });
 
-test('#7548 review round 2: no move the record cannot keep', async () => {
+test('#7548 review round 2: no move the record cannot keep', { skip: NO_CHMOD_LOCK }, async () => {
   const dir = fs.mkdtempSync(path.join(TMP, 'ro-'));
   const file = path.join(dir, 'record.jsonl');
   const run = automove.create({ file });
@@ -664,7 +665,7 @@ test('#7548 review round 2: a person\'s move made while the tick runs is read ag
   assert.deepEqual(calls.starts, [], 'a person\'s move made during the tick was undone');
 });
 
-test('#7548 review round 6: a person\'s move the record could not keep waits, moves nobody, and is written once it can be', async () => {
+test('#7548 review round 6: a person\'s move the record could not keep waits, moves nobody, and is written once it can be', { skip: NO_CHMOD_LOCK }, async () => {
   const dir = fs.mkdtempSync(path.join(TMP, 'pm-'));
   const file = path.join(dir, 'r.jsonl');
   const run = automove.create({ file });
@@ -877,7 +878,7 @@ test('#7548 review round 5: a tick that throws does not leave the mover busy', a
   assert.equal(calls.starts.length, 1, 'a tick that threw left every later tick answering busy');
 });
 
-test('#7548 review round 5: while moves wait for the record, a moved agent\'s refused first request is still told', async () => {
+test('#7548 review round 5: while moves wait for the record, a moved agent\'s refused first request is still told', { skip: NO_CHMOD_LOCK }, async () => {
   const dir = fs.mkdtempSync(path.join(TMP, 'told-'));
   const file = path.join(dir, 'r.jsonl');
   const run = automove.create({ file });
@@ -998,7 +999,7 @@ test('kosmos#7621 item 4: a partial or unknown move tells the agent\'s thread wh
   assert.equal(cc.tells.filter(([, x]) => /could not tell|could not start/.test(x)).length, 0, 'CONTROL: a clean move said it did not finish');
 });
 
-test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tick, written or still waiting', async () => {
+test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tick, written or still waiting', { skip: NO_CHMOD_LOCK }, async () => {
   const file = fileFor();
   const run = automove.create({ file });
   const { d } = deps();

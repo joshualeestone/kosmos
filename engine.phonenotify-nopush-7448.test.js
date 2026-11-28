@@ -1,6 +1,5 @@
 'use strict';
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
-const { skipOnWin32 } = require('./test-support/skip-on-win32.js');
 
 /**
  * kosmos#7448 (after #7446: a demo board signed in to a real account pushed its made-up agents to that person's phone):
@@ -97,14 +96,25 @@ test('review 1: the mark survives Forget computer (the state dir emptied), which
   } finally { fs.rmSync(mark, { force: true }); }
 });
 
-test('review 1: a mark that cannot be looked at counts as marked (never send)', { skip: skipOnWin32('what it checks exists on Windows, but it makes the look fail by putting a file where a folder goes, and on Windows that look answers not there (ENOENT) rather than ENOTDIR; its Windows arm is owed on kosmos#9313') }, () => {
+/* kosmos#9313: on Windows a lookup through a file where a folder goes answers ENOENT, not ENOTDIR, so there (and on any
+   host with KOSMOS_TEST_CHMOD_STUB=1) the same failure is forced through noPush's own call, fs.lstatSync, for paths
+   under the blocker. Elsewhere the real file-in-the-way fixture runs, as before. */
+const LOOK_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+test('review 1: a mark that cannot be looked at counts as marked (never send)', () => {
   // A path through a file where a folder should be: lstat fails with ENOTDIR, not ENOENT.
   const blocker = path.join(dir, 'not-a-dir');
   fs.writeFileSync(blocker, '');
   const real = remote.FILE;
   try {
     Object.defineProperty(remote, 'FILE', { value: path.join(blocker, 'remote.json'), configurable: true, writable: true });
-    assert.equal(pn.noPush(), true);
+    const realLstat = fs.lstatSync;
+    if (LOOK_VIA_STUB) {
+      fs.lstatSync = (p, ...rest) => {
+        if (String(p).startsWith(blocker + path.sep)) throw Object.assign(new Error('ENOTDIR: not a directory, lstat ' + p), { code: 'ENOTDIR', syscall: 'lstat', path: String(p) });
+        return realLstat(p, ...rest);
+      };
+    }
+    try { assert.equal(pn.noPush(), true); } finally { fs.lstatSync = realLstat; }
   } finally { Object.defineProperty(remote, 'FILE', { value: real, configurable: true, writable: true }); }
   assert.equal(pn.noPush(), false, 'CONTROL: the real place, unmarked');
 });

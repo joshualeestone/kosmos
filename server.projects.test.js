@@ -2916,22 +2916,18 @@ test('#3745: a room post can reply to another post in the same room, and only th
     assert.equal(JSON.parse(across.body).delivery.state, 'could_not', across.body);
     const final = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
     assert.equal(final.length, rows.length, 'a reply to another room\'s post was posted');
-    // kosmos#8378: off Windows only; there the log reader takes a folder for an empty log (#9279).
-    if (process.platform === 'win32') t.diagnostic('the unreadable-record arm is left out on Windows, where the message log reader takes a folder for an empty log (kosmos#9279)');
-    else {
-      // An unreadable record fails CLOSED: 200 with could_not, never a 500 and never a blind post.
-      const messages = require('./engine/messages');
-      const aside = messages.LOG + '.aside-3745';
-      fs.renameSync(messages.LOG, aside);
-      fs.mkdirSync(messages.LOG);
-      messages.resetForTests();
-      let blind;
-      try { blind = await post(`/api/project/${project.id}/room`, { text: 'while unreadable', reply_to: firstId }); }
-      finally { fs.rmSync(messages.LOG, { recursive: true, force: true }); fs.renameSync(aside, messages.LOG); messages.resetForTests(); }
-      assert.equal(blind.status, 200, blind.body);
-      assert.equal(JSON.parse(blind.body).delivery.state, 'could_not', blind.body);
-      assert.match(JSON.parse(blind.body).delivery.because, /could not check/);
-    }
+    // An unreadable record fails CLOSED: 200 with could_not, never a 500 and never a blind post.
+    const messages = require('./engine/messages');
+    const aside = messages.LOG + '.aside-3745';
+    fs.renameSync(messages.LOG, aside);
+    fs.mkdirSync(messages.LOG);
+    messages.resetForTests();
+    let blind;
+    try { blind = await post(`/api/project/${project.id}/room`, { text: 'while unreadable', reply_to: firstId }); }
+    finally { fs.rmSync(messages.LOG, { recursive: true, force: true }); fs.renameSync(aside, messages.LOG); messages.resetForTests(); }
+    assert.equal(blind.status, 200, blind.body);
+    assert.equal(JSON.parse(blind.body).delivery.state, 'could_not', blind.body);
+    assert.match(JSON.parse(blind.body).delivery.because, /could not check/);
     const still = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
     assert.equal(still.length, rows.length, 'a reply was posted while the record could not be read');
   });

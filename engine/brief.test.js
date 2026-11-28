@@ -68,7 +68,14 @@ test('readGoal: a real file is read; missing, a symlink, a directory and an over
   fs.writeFileSync(path.join(big, 'BRIEF.md'), '## Goal\n\nBig.\n' + 'y'.repeat(brief.MAX_BYTES));
   assert.equal(brief.readGoal(big), null, 'an oversize brief was read');
   assert.equal(brief.readGoal(''), null);
-  assert.equal(brief.readGoal(path.relative(process.cwd(), dir)), null, 'a relative folder was read against the working directory');
+  /* kosmos#8378: the relative form is taken from inside the sandbox. path.relative(process.cwd(), dir) is absolute when the
+     working directory is on another drive (a Windows runner checks out on D: and makes its temp folders on C:), so that
+     case tested nothing there. */
+  const here = process.cwd();
+  process.chdir(SANDBOX);
+  try {
+    assert.equal(brief.readGoal(path.relative(SANDBOX, dir)), null, 'a relative folder was read against the working directory');
+  } finally { process.chdir(here); }
 });
 
 test('#4583 a done left blank (the "Not set yet" placeholder) is no done; one written is read as written', () => {

@@ -13,6 +13,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  * ran the suite. `setDryRun` is armed at load, before anything can run.
  */
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // kosmos#8378: the stand-in Task Scheduler on Windows
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -39,7 +40,12 @@ test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
    paneRoster ("could not check what is running") and the connect-succeeds tests
    fail. The tests that need a populated or unreadable roster set their own
    paneSource in-body (and reset it), which runs AFTER this and overrides it. */
-test.beforeEach(() => { status.setPaneSource(() => ''); });
+/* kosmos#8378: on Windows, connecting first asks Task Scheduler whether the agent already has a task, and refuses when it
+   cannot tell (the win32 arm launches the agent, so a look that failed must not proceed). A test process never reaches
+   the real Task Scheduler, so ask the shared fixture for a job path: on Windows that installs its stand-in Task Scheduler
+   (no task file is written, so the answer is "not registered"); on a Mac it only returns a path, and on Linux it
+   also makes the unit folder in this file's sandbox (AGENT_WORKFORCE_LAUNCH is set above). */
+test.beforeEach(() => { status.setPaneSource(() => ''); jobfix.jobPath('connect-standin'); });
 test.afterEach(() => { status.setPaneSource(null); });
 
 function theirAgent(name, body) {

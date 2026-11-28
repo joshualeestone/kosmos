@@ -978,6 +978,10 @@ function record() {
     if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, stampsUnknown: false, rows: [], parsed: [] }; }   // #7367: no rows to filter
     return { ok: false, rows: [], parsed: [] };
   }
+  /* kosmos#9279: anything in the log's place that is not a regular file is unreadable, on every platform. On Windows a
+     folder's size reads 0 and opening it succeeds, so the read below found nothing and answered an empty, readable log;
+     a Mac failed closed only because the open threw EISDIR. */
+  if (!st.isFile()) return { ok: false, rows: [], parsed: [] };
   let cache = READ_CACHE;
   if (cache && (cache.ino !== st.ino || st.size < cache.offset
     || (st.size === cache.size && st.mtimeMs !== cache.mtimeMs))) {

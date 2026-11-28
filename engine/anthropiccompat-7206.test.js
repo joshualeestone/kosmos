@@ -18,6 +18,8 @@ const { execFileSync } = require('node:child_process');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 const compat = require('./anthropiccompat');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_LAUNCH_ENV = require('../test-support/skip-on-win32').skipOnWin32('vendor providers are switched on only on macOS (anthropiccompat enabled() answers only on darwin), so on Windows launch-env answers exit 2. Linux would refuse the same way; skipped here for Windows only');   // kosmos#8378
 
 test.after(() => { compat.setFetcher(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -96,7 +98,7 @@ test('review 2: an inherited name is never a vendor, and one bad folder never ta
   } finally { process.env.AGENT_WORKFORCE_HOME = prev; fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('storeAccount writes mode 600 under a mode 700 folder, and reads back exactly what was stored', () => {
+test('storeAccount writes mode 600 under a mode 700 folder, and reads back exactly what was stored', { skip: NO_POSIX_MODES }, () => {
   const dir = account();
   assert.equal(fs.statSync(compat.endpointFile(dir)).mode & 0o777, 0o600);
   assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
@@ -229,7 +231,7 @@ test('launchEnv refuses an account file that is a link', () => {
   assert.match(r.because, /is a link/);
 });
 
-test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', () => {
+test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', { skip: NO_LAUNCH_ENV }, () => {
   const script = nodePath.join(__dirname, 'anthropiccompat.js');
   const dataOn = nodePath.join(SANDBOX, 'cli-data-on'); require('../test-support/compat-switch').setAt(dataOn, true);   // slice 1b: launch-env obeys the switch
   const on = { ...process.env, AGENT_WORKFORCE_DATA: dataOn };

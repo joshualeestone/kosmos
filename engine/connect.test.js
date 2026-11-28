@@ -42,6 +42,8 @@ const MUSL_LIBS_PRESENT = () => false;
 connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
 const subscription = require('./subscription');
 const store = require('./store');
+const NO_LINUX_HOST = require('../test-support/skip-on-win32').skipOnWin32('it compares the Linux tmux and musl lookups, whose paths the path module of this host builds, against POSIX spellings such as /usr/bin/tmux; on Windows path.join gives backslashes, and a Windows host never runs those lookups');   // kosmos#8378
+const NO_EXEC_BIT = require('../test-support/skip-on-win32').skipOnWin32('it checks the executable bit, a POSIX file mode the Windows host does not keep (the #3159 arm tests a Windows download)');   // kosmos#8378
 
 /* The driver arms below drive the MAC sign-in host: tmux, observed through
    fakeTerminal. Pinned so they still do on a Windows box, where the platform would
@@ -168,12 +170,19 @@ test('codes are one clean token or they are refused', () => {
 
 /* ── the download ────────────────────────────────────────────────────────── */
 
+/* kosmos#8378: the binary's file name as download() asks for it (connect.js: claude.exe on win32, claude elsewhere), for
+   the platform asked about or, by default, this process's own. The fakes used to take it from the platform argument
+   alone, so on Windows they served `claude` while download() asked for `claude.exe` and every download arm read a 404. */
+const BIN_LEAF = (platform = process.platform) => (platform === 'win32' ? 'claude.exe' : 'claude');
+/* The suffix download() gives the kept file and its .part on this platform: .exe on win32 (#3159). */
+const BIN_SUFFIX = BIN_LEAF() === 'claude.exe' ? '.exe' : '';
+
 function serveRelease(t, { version, binary, checksum, platform }) {
   // `platform` (default this process's) picks the manifest key and the binary leaf:
   // darwin fetches `.../claude`, win32 fetches `.../claude.exe` (#3159). platformKey
   // takes the same seam download() does, so the fake and the code agree on the key.
   const key = connect.platformKey(platform);
-  const leaf = platform === 'win32' ? 'claude.exe' : 'claude';
+  const leaf = BIN_LEAF(platform);
   const paths = {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({
@@ -211,7 +220,7 @@ test('a verified download lands executable, with progress that adds up', async (
   const onDisk = fs.readFileSync(got.path);
   assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum,
     'what landed is not what was served');
-  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+  if (!NO_EXEC_BIT) assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
   assert.ok(seen.length > 0, 'no progress was ever reported');
   const [lastGot, lastTotal] = seen[seen.length - 1];
   assert.equal(lastGot, binary.length, 'progress never reached the full size');
@@ -289,7 +298,7 @@ test('#3229: a range-capable download resumes a partial segment, and the sha gat
       const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
       res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
     }
-    if (req.url === `/${version}/${key}/claude`) {
+    if (req.url === `/${version}/${key}/${BIN_LEAF()}`) {
       const range = req.headers.range;
       if (!range) {
         // Plain GET: advertise ranges and the size, then let the client abort
@@ -326,7 +335,7 @@ test('#3229: a range-capable download resumes a partial segment, and the sha gat
 
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   fs.mkdirSync(dir, { recursive: true });
-  const part = nodePath.join(dir, `claude-${version}-${key}.part`);
+  const part = nodePath.join(dir, `claude-${version}-${key}${BIN_SUFFIX}.part`);
   // The segment layout download() will use, replicated here so we can pre-seed
   // ONE segment. It is coupled to the implementation on purpose: a wrong layout
   // seeds wrong bytes, and the sha gate then FAILS this test loudly rather than
@@ -341,7 +350,7 @@ test('#3229: a range-capable download resumes a partial segment, and the sha gat
   const onDisk = fs.readFileSync(got.path);
   assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum,
     'the resumed + assembled binary is not what was served');
-  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+  if (!NO_EXEC_BIT) assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
   assert.equal(served, total - seg0.length,
     'resume must fetch only the missing bytes, not re-download the seeded segment');
   const after1 = fs.readdirSync(dir).filter((f) => f.includes('.part'));
@@ -385,7 +394,7 @@ test('#3229: a service that advertises ranges then ignores them falls back to a 
       const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
       res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
     }
-    if (req.url === `/${version}/${key}/claude`) {
+    if (req.url === `/${version}/${key}/${BIN_LEAF()}`) {
       if (req.headers.range) rangeRequests++;
       // Advertise ranges, but ALWAYS answer 200 (never 206) with the whole body,
       // even to a Range request -- the "advertises ranges, does not honour them"
@@ -407,7 +416,7 @@ test('#3229: a service that advertises ranges then ignores them falls back to a 
   assert.equal(got.version, version);
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(got.path)).digest('hex'), checksum,
     'the single-stream fallback did not land the served bytes');
-  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+  if (!NO_EXEC_BIT) assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
   assert.ok(rangeRequests > 0, 'the parallel path should have attempted at least one Range request before falling back');
 });
 
@@ -435,7 +444,7 @@ test('#3229: an assembly write error rejects cleanly instead of crashing the pro
       const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
       res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
     }
-    if (req.url === `/${version}/${key}/claude`) {
+    if (req.url === `/${version}/${key}/${BIN_LEAF()}`) {
       const range = req.headers.range;
       if (!range) { res.writeHead(200, { 'content-length': String(total), 'accept-ranges': 'bytes' }); res.end(); return; }
       const m = /^bytes=(\d+)-(\d+)$/.exec(range);
@@ -455,7 +464,7 @@ test('#3229: an assembly write error rejects cleanly instead of crashing the pro
 
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   fs.mkdirSync(dir, { recursive: true });
-  const partDir = nodePath.join(dir, `claude-${version}-${key}.part`);
+  const partDir = nodePath.join(dir, `claude-${version}-${key}${BIN_SUFFIX}.part`);
   // Occupy `part`'s path with a DIRECTORY so the assembly write stream fails.
   fs.mkdirSync(partDir, { recursive: true });
   // A directory cannot be unlinked by any later test's dir-sweep, so clean it
@@ -533,7 +542,7 @@ test('#875: a stuck install KEEPS the verified download so a retry reuses it', a
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const kept = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
     .filter((f) => f.includes('9.9.7'));
-  assert.deepEqual(kept, [`claude-9.9.7-${connect.platformKey()}`],
+  assert.deepEqual(kept, [`claude-9.9.7-${connect.platformKey()}${BIN_SUFFIX}`],
     `the verified binary should be kept for reuse, found: ${kept.join(', ') || '(nothing)'}`);
   // And it is intact -- a retry's reuse check will hash it and accept it.
   const onDisk = fs.readFileSync(nodePath.join(dir, kept[0]));
@@ -737,7 +746,7 @@ test('#3229: cancel mid parallel-range download aborts every segment and leaves 
       const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
       res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
     }
-    if (req.url === `/${version}/${key}/claude`) {
+    if (req.url === `/${version}/${key}/${BIN_LEAF()}`) {
       const range = req.headers.range;
       if (!range) {
         // Plain GET: advertise ranges + the size; the client aborts and switches
@@ -917,9 +926,9 @@ test('a fresh download sweeps other versions\' leftovers', async (t) => {
 
   await connect.download();
   const left = fs.readdirSync(dir).sort();
-  assert.deepEqual(left, [`claude-9.9.5-${connect.platformKey()}`],
+  assert.deepEqual(left, [`claude-9.9.5-${connect.platformKey()}${BIN_SUFFIX}`],
     `stale leftovers survived the fresh download: ${left.join(', ')}`);
-  fs.rmSync(nodePath.join(dir, `claude-9.9.5-${connect.platformKey()}`), { force: true });
+  fs.rmSync(nodePath.join(dir, `claude-9.9.5-${connect.platformKey()}${BIN_SUFFIX}`), { force: true });
 });
 
 driverTest('a binary that exists but does not run is re-downloaded, not trusted', async () => {
@@ -929,7 +938,7 @@ driverTest('a binary that exists but does not run is re-downloaded, not trusted'
    * on the same broken binary. The probe turns "a file is there" into "the
    * thing runs"; a probe failure must route to the download path.
    */
-  const broken = nodePath.join(SANDBOX, 'broken-claude');
+  const broken = nodePath.join(SANDBOX, 'broken-claude' + BIN_SUFFIX);   // kosmos#8378: Windows runs a file only by a PATHEXT name
   fs.writeFileSync(broken, '#!/no/such/interpreter\n');
   fs.chmodSync(broken, 0o755);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = broken;
@@ -2328,7 +2337,7 @@ test('#1922/#2645: a dead credential discovered AFTER an install still finishes 
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.6', binary, checksum });
   // No binary at start() -> start()'s live check is UNKNOWN (not NONE), so needsLogin stays false
   // and the dead credential must be caught by runFlow's post-install re-check, the site under test.
-  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-postinstall');
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-postinstall' + BIN_SUFFIX);
   writeClaudeConfig(CONNECTED_CONFIG); // present-but-dead: file says CONNECTED, live says NONE (below)
   const term = fakeTerminal();
   let failCaptures = false;
@@ -2392,7 +2401,7 @@ test('#1922: a reauth with NO binary at start still finishes a landed login on a
   const binary = crypto.randomBytes(64 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.4', binary, checksum });
-  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-reauth');
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-reauth' + BIN_SUFFIX);
   writeClaudeConfig(CONNECTED_CONFIG); // dead: file CONNECTED, live NONE (below) until the login lands
   const term = fakeTerminal();
   let failCaptures = false;
@@ -3014,7 +3023,7 @@ test('#5419 a linux download fetches the linux build (glibc), verified and execu
   const got = await connect.download(() => {}, undefined, 'linux');
   assert.match(nodePath.basename(got.path), /^claude-9\.9\.4-linux-(x64|arm64)$/, 'not the linux build: ' + got.path);
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(got.path)).digest('hex'), checksum);
-  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+  if (!NO_EXEC_BIT) assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
 });
 
 test('#5419 the linux key follows the C library: linux-<arch> on glibc, linux-<arch>-musl on musl', () => {
@@ -3061,7 +3070,7 @@ test('#5419 a manifest with no build for this linux key refuses before anything 
   await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /no build for this kind of computer \(linux-(x64|arm64)-musl\)/);
 });
 
-test('#5419: on Linux the tmux for sign-in is create\'s picker (PATH, then the usual folders), never Homebrew\'s', () => {
+test('#5419: on Linux the tmux for sign-in is create\'s picker (PATH, then the usual folders), never Homebrew\'s', { skip: NO_LINUX_HOST }, () => {
   // literal expectations, with the picker's PATH and runnable check injected, so a return of the hardcoded
   // Homebrew path fails here (on this Mac the real picker would find /opt/homebrew/bin/tmux and hide it).
   const onPath = '/opt/custom/bin/tmux';
@@ -3120,7 +3129,7 @@ test('#5419: the C-library report is read with network handles excluded, and the
   } finally { process.report.getReport = prevGet; }
 });
 
-test('#5419: on Linux a missing tmux is caught before a download, not at sign-in', () => {
+test('#5419: on Linux a missing tmux is caught before a download, not at sign-in', { skip: NO_LINUX_HOST }, () => {
   const none = () => false;
   assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, none), true, 'no tmux anywhere: missing');
   assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux/bin/tmux', PATH: '/nowhere' }, none), true, 'the launcher named a tmux that is not there (a bundle with no Linux tmux): missing');
@@ -3128,7 +3137,7 @@ test('#5419: on Linux a missing tmux is caught before a download, not at sign-in
   assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', PATH: '/nowhere' }, (f) => f === '/k/tmux'), false, 'CONTROL: the launcher\'s runnable pick');
 });
 
-test('#5419: on Linux a launcher tmux pick that is not there falls through to the real picker', () => {
+test('#5419: on Linux a launcher tmux pick that is not there falls through to the real picker', { skip: NO_LINUX_HOST }, () => {
   const runnable = (f) => f === '/usr/bin/tmux';
   const env = { AGENT_WORKFORCE_TMUX_BIN: '/home/u/.local/share/kosmos/tmux/bin/tmux', PATH: '/nowhere' };
   assert.equal(connect.tmuxBinPath('linux', env, runnable), '/usr/bin/tmux', 'a missing bundle path won over an installed tmux');
@@ -3180,11 +3189,13 @@ test('#5419: download refuses a musl host missing libstdc++/libgcc before any re
 
 test('#5419: muslLibsPresent needs both libraries, in any of the usual folders; off Linux nothing is asked', () => {
   const at = (...files) => (p) => files.includes(p);
-  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/usr/lib/libgcc_s.so.1')), true);
-  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/lib/libgcc_s.so.1')), true, 'split across folders');
-  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6')), false, 'libgcc_s missing');
-  assert.equal(connect.muslLibsPresent(at('/usr/lib/libgcc_s.so.1')), false, 'libstdc++ missing');
-  assert.equal(connect.muslLibsPresent(at()), false);
+  if (!NO_LINUX_HOST) {   // kosmos#8378: the /usr/lib spellings are POSIX; the off-Linux half below runs on Windows too
+    assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/usr/lib/libgcc_s.so.1')), true);
+    assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/lib/libgcc_s.so.1')), true, 'split across folders');
+    assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6')), false, 'libgcc_s missing');
+    assert.equal(connect.muslLibsPresent(at('/usr/lib/libgcc_s.so.1')), false, 'libstdc++ missing');
+    assert.equal(connect.muslLibsPresent(at()), false);
+  }
   for (const p of ['darwin', 'win32']) assert.equal(connect.muslLibsMissing(p), false, p + ' is never asked');
   if (process.platform !== 'linux') assert.equal(connect.muslLibsMissing('linux'), false, 'a test host that is not Linux never reads its own folders');
 });

@@ -690,7 +690,7 @@ pre9118=0; free9118 || pre9118=1
 RS9118=2 qh9118 sigkill 60 sh -c "sleep $((U+5)) & wait"
 # Review 6: KILL only once the watcher exists (two group-leading children of the wrapper: the command and the watcher).
 wl9118() { local n=0 c; for c in $(pgrep -P $Q9); do [ "$(ps -o pgid= -p $c 2>/dev/null | tr -d ' ')" = "$c" ] && n=$((n+1)); done; [ "$n" -ge 2 ]; }
-until_true 30 'grep -q "TURN: running t9118-sigkill" $L9 && ! gone $((U+5)) && wl9118'; s5=$?
+until_true 30 'grep -q "TURN: running t9118-sigkill" $L9 && ! gone $((U+5)) && wl9118'; s5=$?   # pipe-status-ok
 kill -KILL $Q9; until_true 40 'gone $((U+5))'; r5=$?; reap $Q9 40 2>/dev/null
 ok "#9118: a SIGKILLed main turn's command is stopped by its watcher" '[ "$pre9118" = 0 ] && [ "$s5" = 0 ] && [ "$r5" = 0 ]'
 for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p 2>/dev/null; done; until_true 10 'gone $((U+5))'   # so a red here cannot cascade
@@ -816,12 +816,12 @@ for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p 2>/dev/null; done; for
 bash -c "exec -a 'bash /x/queued-heavy.sh --queued-args y' sleep $((U+5))" & RP=$!; BG="$BG $RP"
 until_true 10 '[ "$(ps -o command= -p $RP 2>/dev/null | cut -c1-12)" = "bash /x/queu" ]'
 printf 'rp\nbg\nMon Jan  1 00:00:00 2001\n' > $S/mwd/qh-label.$RP
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?   # pipe-status-ok
 ok "#9118: --withdraw does not signal a pid whose start time is not the one its label recorded (a reused pid)" '[ "$rw" = 1 ] && [[ "$o" == *"no live run labelled"* ]] && kill -0 $RP 2>/dev/null'
 # The same reading queued-heavy.sh's _qh_pid_start makes (/proc on Linux, ps lstart elsewhere).
 pstart9118() { if [ -r "/proc/$1/stat" ]; then sed 's/.*) //' "/proc/$1/stat" | awk '{print "t" $20}'; else TZ=UTC LC_ALL=C ps -o lstart= -p "$1" | tr -s ' ' | sed 's/^ //; s/ $//'; fi; }
 printf 'rp\nbg\n%s\n' "$(pstart9118 $RP)" > $S/mwd/qh-label.$RP
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mwd /bin/bash $QH --withdraw "rp" 2>&1); rw=$?   # pipe-status-ok
 ok "#9118: control: the same process with its real start time is withdrawn" '[ "$rw" = 0 ] && ! kill -0 $RP 2>/dev/null'
 reap $RP 20 2>/dev/null; rm -f $S/mwd/qh-label.$RP
 # #9118 A2 review 1: a holder on a terminal (foreground) is NOT signalled: a TERM there releases the claim and leaves the
@@ -865,7 +865,8 @@ reap $D1 20 2>/dev/null; reap $D2 20 2>/dev/null; rm -f $S/mdup/machine-claim
 # bg one was withdrawn before, because the count left the fg one out).
 bash -c "exec -a 'bash /x/queued-heavy.sh --queued-args f' sleep $((U+5))" & TF=$!; BG="$BG $TF"
 bash -c "exec -a 'bash /x/queued-heavy.sh --queued-args b' sleep $((U+6))" & TB=$!; BG="$BG $TB"
-until_true 10 '[ "$(ps -o command= -p $TF 2>/dev/null | cut -c1-12)" = "bash /x/queu" ] && [ "$(ps -o command= -p $TB 2>/dev/null | cut -c1-12)" = "bash /x/queu" ]'; st=$?
+tftb_up() { [ "$(ps -o command= -p $TF 2>/dev/null | cut -c1-12)" = "bash /x/queu" ] && [ "$(ps -o command= -p $TB 2>/dev/null | cut -c1-12)" = "bash /x/queu" ]; }
+until_true 10 tftb_up; st=$?   # pipe-status-ok
 mkdir -p $S/mtwin; printf 'twin\nfg\n%s\n60\n' "$(pstart9118 $TF)" > $S/mtwin/qh-label.$TF; printf 'twin\nbg\n%s\n60\n' "$(pstart9118 $TB)" > $S/mtwin/qh-label.$TB
 o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mtwin /bin/bash $QH --withdraw "twin" 2>&1); rw=$?
 ok "#9118: a foreground and a background run with one label: --withdraw refuses both without --all (exit 6)" '[ "$st" = 0 ] && [ "$rw" = 6 ] && kill -0 $TF 2>/dev/null && kill -0 $TB 2>/dev/null'
@@ -892,7 +893,8 @@ bash -c 'exec -a "bash tools/test-queued-heavy-4977.sh kg9191" sleep 60' & KG919
 ( bash -c 'exec -a "bash tools/test-queued-heavy-4977.sh kh9191" sleep 60' & echo $! > $K/kh.pid ); KH9191=$(cat $K/kh.pid)
 # Ready once each has exec'd: before that its bash -c line already holds the words it will take, unexpanded.
 cmd9191() { ps -ww -o command= -p "$1" 2>/dev/null; }
-until_true 10 'cmd9191 $KA9191 | grep -q "^/bin/bash $K/fakeqh9191.sh" && cmd9191 $KB9191 | grep -q "^/bin/bash $K/fakeqh9191.sh" && cmd9191 $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && cmd9191 $KF9191 | grep -q "^/bin/bash $K/fakeqh9191.sh --queued-args /tmp/" && cmd9191 $KD9191 | grep -q "^/bin/bash $K/fakeqh9191.sh stale" && cmd9191 $KE9191 | grep -q "^perl -e alarm" && cmd9191 $KG9191 | grep -q "^bash tools/test-queued-heavy-4977.sh kg9191" && cmd9191 $KH9191 | grep -q "^bash tools/test-queued-heavy-4977.sh kh9191" && [ "$(ps -o ppid= -p $KH9191 | tr -d " ")" != "$$" ]'; k9191_up=$?
+k9191_ready() { cmd9191 $KA9191 | grep -q "^/bin/bash $K/fakeqh9191.sh" && cmd9191 $KB9191 | grep -q "^/bin/bash $K/fakeqh9191.sh" && cmd9191 $KC9191 | grep -q "^/bin/bash /nowhere/fakeqh9191.sh" && cmd9191 $KF9191 | grep -q "^/bin/bash $K/fakeqh9191.sh --queued-args /tmp/" && cmd9191 $KD9191 | grep -q "^/bin/bash $K/fakeqh9191.sh stale" && cmd9191 $KE9191 | grep -q "^perl -e alarm" && cmd9191 $KG9191 | grep -q "^bash tools/test-queued-heavy-4977.sh kg9191" && cmd9191 $KH9191 | grep -q "^bash tools/test-queued-heavy-4977.sh kh9191" && [ "$(ps -o ppid= -p $KH9191 | tr -d " ")" != "$$" ]; }
+until_true 10 k9191_ready; k9191_up=$?   # pipe-status-ok
 for p in $KB9191 $KC9191 $KD9191 $KE9191 $KG9191 $KH9191; do S="$K" own_waiter $p; done
 S="$K" REAL_QH="$K/fakeqh9191.sh" kill_waiters   # temporary assignments on a function call, restored after it (bash, not posix mode)
 dead9191() { local st; st="$(ps -o stat= -p "$1" 2>/dev/null)"; st="${st// /}"; [ -z "$st" ] || [ "${st#Z}" != "$st" ]; }   # gone, or a zombie not yet reaped (kill -0 succeeds on those)
@@ -909,7 +911,7 @@ JW9191="/bin/bash $S/fakeqh9191.sh --queued-args "
 bash -c 'exec -a "$1$2/tmp/queued-heavy-args.stray9191" sleep 60' _ "$JW9191" "$S" & JD9191=$!
 until_true 10 'ps -ww -o command= -p $JD9191 | grep -q "^$JW9191"'; sleep 1.2   # pgrep -o orders by start time, to the second
 ( bash -c 'exec -a "$1$2/tmp/queued-heavy-args.mine9191" sleep 60' _ "$JW9191" "$S"; true ) & JP9191=$!
-until_true 10 'jw9191="$(joiner_under $JP9191 "$JW9191")"'; j9191=$?
+until_true 10 'jw9191="$(joiner_under $JP9191 "$JW9191")"'; j9191=$?   # pipe-status-ok
 jo9191="$(LC_ALL=C pgrep -o -f -- "^$JW9191")"   # the old pick, as a CONTROL: it must name the stray
 ok "#9191: joiner_under finds the arm's own waiter, not an older one with the same command line (pgrep -o picks the older)" '[ "$j9191" = 0 ] && [ -n "$jw9191" ] && [ "$jw9191" != "$JD9191" ] && [[ "$(ps -ww -o command= -p $jw9191)" == *mine9191* ]] && [ "$jo9191" = "$JD9191" ] && ! joiner_under $$ "/bin/bash /nowhere9191 --queued-args " >/dev/null'
 kill -KILL $JD9191 $jw9191 2>/dev/null; pkill -KILL -P $JP9191 2>/dev/null; wait $JD9191 $JP9191 2>/dev/null
@@ -948,7 +950,7 @@ ok "#9139: a beside command gets a main turn's environment (no ceiling, kept mar
 # spin, and goes beside after at most one lost take. The waiter is a live shell marked 100 s ago.
 mkdir -p $S/mcap7; ( KOSMOS_RUN_MARKER_DIR=$S/mcap7 exec bash -c '. "$1/tools/lib/cut-guard.sh"; kosmos_mark_suite_waiting $(( $(date +%s) - 100 )); while :; do sleep 1; done' _ "$ROOT" ) & EWP=$!
 until_true 10 '[ -n "$(ls $S/mcap7 | grep "^suitewait\.")" ]'
-o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap7 QUEUED_HEAVY_CAP_S=0 perl -e 'alarm(shift); exec @ARGV or die' 30 /bin/bash $QH "cap-order" sh -c 'echo ORDER-RAN' 2>&1); r=$?
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mcap7 QUEUED_HEAVY_CAP_S=0 perl -e 'alarm(shift); exec @ARGV or die' 30 /bin/bash $QH "cap-order" sh -c 'echo ORDER-RAN' 2>&1); r=$?   # pipe-status-ok
 n=$(printf '%s\n' "$o" | grep -c "did not get the turn"); kill "$EWP" 2>/dev/null; wait "$EWP" 2>/dev/null
 ok "#9139: behind an earlier waiter, a capped run does not take the turn or spin; it goes beside after at most one lost take (lost: $n)" '[ "$r" = 0 ] && [ "$n" -le 1 ] && [[ "$o" == *"RUNNING BESIDE"* && "$o" == *ORDER-RAN* && "$o" != *"TURN: running"* ]]'
 # Review 2: a cut with no claim (the cut probe sees release.sh) is waited out too, then the run goes beside.

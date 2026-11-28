@@ -14,6 +14,7 @@ const nodePath = require('node:path');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-communityswitch-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const sw = require('./communityswitch');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 function fresh() {
   try { fs.chmodSync(sw.FILE, 0o600); } catch { /* absent is fine */ }
@@ -117,7 +118,7 @@ test('migrate: a stat error other than ENOENT is not treated as no file (a self-
   } finally { fs.rmSync(sw.FILE, { force: true }); }
 });
 
-test('a failed save says so and leaves the old value', () => {
+test('a failed save says so and leaves the old value', { skip: NO_CHMOD_LOCK }, () => {
   sw.setOn(false);
   const dir = nodePath.dirname(sw.FILE);
   fs.chmodSync(dir, 0o500);

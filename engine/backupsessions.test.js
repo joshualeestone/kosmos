@@ -14,7 +14,7 @@ const bs = require('./backupsessions');
 const transcript = (cwd) => `{"type":"start","sessionId":"s"}\n{"type":"user","cwd":${JSON.stringify(cwd)},"m":"hi"}\n`;
 
 function world() {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsess-')));
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsess-')));   // kosmos#8378: .native, as trust.canonicalOnDisk is: on Windows the plain form keeps an 8.3 short name (RUNNER~1), so every sandbox folder read as a second spelling
   const agent = path.join(base, 'work', 'workers', 'mikey');
   const other = path.join(base, 'work', 'workers', 'leo');
   for (const d of [agent, other]) fs.mkdirSync(d, { recursive: true });

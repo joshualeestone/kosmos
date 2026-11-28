@@ -12,6 +12,7 @@ const path = require('node:path');
 const ab = require('./autobalance');
 const sweep = require('./autobalance-sweep');
 const fleet = require('../test-support/fleet');
+const NO_CHMOD_LOCK = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or read-only with chmod, which Windows does not enforce');   // kosmos#8378
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-absweep-7152-'));
 test.after(() => { fleet.restore(); fs.rmSync(TMP, { recursive: true, force: true }); });
@@ -93,7 +94,7 @@ test('#7152 slice 3: with the setting off nothing is recorded; with one account 
   assert.equal(walks, 0, 'the agents were walked with one account');
 });
 
-test('#7152 slice 3: a decision whose line could not be written is written on a later tick, and the sweep says it failed', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'chmod does not stop root writing' : false }, async () => {
+test('#7152 slice 3: a decision whose line could not be written is written on a later tick, and the sweep says it failed', { skip: NO_CHMOD_LOCK || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'chmod does not stop root writing' : false) }, async () => {
   const dir = path.join(TMP, `readonly-${++n}`);
   fs.mkdirSync(dir);
   const file = path.join(dir, 'record.jsonl');
@@ -338,7 +339,7 @@ test('#7152 slice 3 review 17: a gap does not make the same decision read as new
   assert.equal(sweep.readLines(file).length, 1);
 });
 
-test('#7152 slice 3 review 17: a failed write followed by a return to the recorded decision clears the failure', async () => {
+test('#7152 slice 3 review 17: a failed write followed by a return to the recorded decision clears the failure', { skip: NO_CHMOD_LOCK }, async () => {
   const dir = path.join(TMP, `readonly-${++n}`);
   fs.mkdirSync(dir);
   const file = path.join(dir, 'record.jsonl');

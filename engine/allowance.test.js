@@ -16,6 +16,8 @@ const assert = require('node:assert/strict');
 const allowance = require('./allowance');
 const statusline = require('./kosmos-statusline');
 const accounts = require('./accounts');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_SETUP_SH = require('../test-support/skip-on-win32').skipOnWin32('it checks what setup.sh, the Mac and Linux installer, writes into the default account (the runtime node it bakes into the command, the status line it names); setup.sh never runs on Windows, which installs through its own installer');   // kosmos#8378
 
 const SCRIPT = allowance.scriptPath();
 const NODE = allowance.stableNode();
@@ -44,6 +46,10 @@ test('the script ships where the bundle takes engine files from', () => {
   assert.ok(!/\.test\.js$/.test(SCRIPT));
 });
 
+/* kosmos#8378: the command ensureStatusLine writes is this platform's form: quoted on a Mac or Linux (commandFor),
+   unquoted with forward slashes on Windows (winCommandFor, kosmos#6213). */
+const ourCommand = (node, script, dir) => (process.platform === 'win32' ? allowance.winCommandFor(node, script, dir) : allowance.commandFor(node, script, dir));
+
 test('a fresh account gets our statusline, with its own dir baked into the command', () => {
   const dir = freshDir();
   const p = path.join(dir, 'settings.json');
@@ -51,7 +57,7 @@ test('a fresh account gets our statusline, with its own dir baked into the comma
   assert.deepEqual(got, { wired: true, changed: true });
   const sl = readJson(p).statusLine;
   assert.equal(sl.type, 'command');
-  assert.equal(sl.command, allowance.commandFor(NODE, SCRIPT, dir));
+  assert.equal(sl.command, ourCommand(NODE, SCRIPT, dir));
   assert.ok(allowance.isOurs(sl));
 });
 
@@ -63,7 +69,7 @@ test('merge, never clobber: the rest of settings.json survives, and a second run
   const data = readJson(p);
   assert.equal(data.model, 'opus');
   assert.equal(data.hooks.Stop[0].hooks[0].command, 'mine');
-  assert.equal(fs.statSync(p).mode & 0o777, 0o600, 'the file mode changed');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(p).mode & 0o777, 0o600, 'the file mode changed');
   const before = fs.readFileSync(p, 'utf8');
   assert.deepEqual(allowance.ensureStatusLine(p), { wired: true, changed: false });
   assert.equal(fs.readFileSync(p, 'utf8'), before);
@@ -88,7 +94,7 @@ test('ours, aimed at another copy, is repointed and keeps the person\'s other fi
   const got = allowance.ensureStatusLine(p);
   assert.deepEqual(got, { wired: true, changed: true });
   const sl = readJson(p).statusLine;
-  assert.equal(sl.command, allowance.commandFor(NODE, SCRIPT, dir));
+  assert.equal(sl.command, ourCommand(NODE, SCRIPT, dir));
   assert.equal(sl.padding, 2);
 });
 
@@ -210,7 +216,7 @@ test('an account Kosmos prepares is born with the statusline, and prepare says s
   assert.equal(got.ok, true, JSON.stringify(got));
   assert.equal(got.weeklyWired, true, JSON.stringify(got));
   const sl = readJson(path.join(got.dir, 'settings.json')).statusLine;
-  assert.equal(sl.command, allowance.commandFor(NODE, SCRIPT, got.dir));
+  assert.equal(sl.command, ourCommand(NODE, SCRIPT, got.dir));
 });
 
 /* setup.sh's hook block, run for real (#3946 review): its node program is extracted
@@ -253,7 +259,7 @@ function runSetupBlock({ withAllowance }) {
   return { r, data: fs.existsSync(settings) ? readJson(settings) : null };
 }
 
-test('setup.sh wires the default account with the report hooks AND the statusline', () => {
+test('setup.sh wires the default account with the report hooks AND the statusline', { skip: NO_SETUP_SH }, () => {
   const { r, data } = runSetupBlock({ withAllowance: true });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
@@ -287,7 +293,7 @@ test('setup.sh: a statusline that cannot be wired does not change the hooks\' an
 /* Uninstall NAMES the status line it cannot remove (setup.sh's rule: anything not
    removed is left alone and named). The block is extracted from setup.sh and run
    under bash, both arms: ours is named, somebody else's is not. */
-test('uninstall names our status line, and only ours', () => {
+test('uninstall names our status line, and only ours', { skip: NO_SETUP_SH }, () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
   const start = sh.indexOf('  # #3946: the status line Kosmos adds to record weekly usage');
   assert.ok(start > 0, 'the uninstall naming block moved in setup.sh');

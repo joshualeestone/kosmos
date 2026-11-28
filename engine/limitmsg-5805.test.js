@@ -1,6 +1,5 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
-const { skipOnWin32 } = require('../test-support/skip-on-win32.js');
 
 /**
  * #5805 slice 2a: `kosmos msg` to a Claude agent out of usage (a dated reset still ahead) is kept, not typed; the
@@ -371,18 +370,43 @@ test('#5805 2a review 5: after the held copy was typed and the two have spoken s
   });
 });
 
-test('#5805 2a review 6: a typed message whose removal from the file fails is not typed again next minute', { skip: skipOnWin32('what it checks exists on Windows, but it makes the removal fail by making the folder read-only with chmod, which Windows does not enforce; its Windows arm is owed on kosmos#9313') }, async () => {
+/* kosmos#9313: these arms make the queue file's folder unwritable with chmod 0500 on the Mac and Linux, so the removal
+   (limitqueue's save, writeSecret atomic-only) cannot make its temp. Windows does not enforce chmod, so there (and on
+   any host with KOSMOS_TEST_CHMOD_STUB=1) the call the chmod makes fail, writeSecret's fs.openSync of that temp, is made
+   to fail with the chmod's code (EACCES), for a file created or deleted in that folder only. #9305's feedbacksend shape. */
+const REMOVAL_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function unwritableFolder(dir) {
+  if (!REMOVAL_VIA_STUB) { fs.chmodSync(dir, 0o500); return () => fs.chmodSync(dir, 0o700); }
+  const locked = path.resolve(dir);
+  const orig = fs.openSync;
+  const creates = (flags) => (typeof flags === 'string' ? /[wa]/.test(flags) : typeof flags === 'number' && (flags & fs.constants.O_CREAT) !== 0);
+  fs.openSync = function openSync(p, flags) {
+    if (creates(flags) && path.dirname(path.resolve(String(p))) === locked) throw Object.assign(new Error('EACCES: permission denied, open (a stand-in for chmod 0500, kosmos#9313)'), { code: 'EACCES', syscall: 'open', path: String(p) });
+    return orig.apply(this, arguments);
+  };
+  /* And a delete of a file in that folder: when the last message goes, limitqueue's write removes the file with
+     fs.rmSync, which chmod 0500 refuses too (EACCES). */
+  const origRm = fs.rmSync, origUnlink = fs.unlinkSync;
+  const inLocked = (p) => path.dirname(path.resolve(String(p))) === locked;
+  const denied = (p, syscall) => Object.assign(new Error('EACCES: permission denied, ' + syscall + ' (a stand-in for chmod 0500, kosmos#9313)'), { code: 'EACCES', syscall, path: String(p) });
+  fs.rmSync = function rmSync(p) { if (inLocked(p)) throw denied(p, 'rm'); return origRm.apply(this, arguments); };
+  fs.unlinkSync = function unlinkSync(p) { if (inLocked(p)) throw denied(p, 'unlink'); return origUnlink.apply(this, arguments); };
+  return () => { fs.openSync = orig; fs.rmSync = origRm; fs.unlinkSync = origUnlink; };
+}
+
+test('#5805 2a review 6: a typed message whose removal from the file fails is not typed again next minute', async () => {
   const t = new Date().toISOString();
   limitqueue.add('casey', { id: 'm1020', from: 'leo', envelope: 'once', at: t, reset: t });
   const file = limitqueue.fileFor('casey');
   const typed = [];
-  const o = { deliver: async (n, env) => { typed.push(bare(env)); fs.chmodSync(path.dirname(file), 0o500); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
+  let unlock = null;
+  const o = { deliver: async (n, env) => { typed.push(bare(env)); if (!unlock) unlock = unwritableFolder(path.dirname(file)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
   try {
     await limitqueue.flush(caseyRoster(), o);
     assert.equal(limitqueue.list('casey').length, 1, 'CONTROL: the removal did fail (the file still holds it)');
     await limitqueue.flush(caseyRoster(), o);
     assert.deepEqual(typed, ['once'], 'typed twice after a failed removal');
-  } finally { fs.chmodSync(path.dirname(file), 0o700); }
+  } finally { if (unlock) unlock(); }
   await limitqueue.flush(caseyRoster(), o);
   assert.deepEqual(limitqueue.list('casey'), [], 'the removal was not tried again once it could succeed');
   assert.deepEqual(typed, ['once']);
@@ -574,13 +598,14 @@ test('#5805 2a review 15: the board wires the sweep to the automatic gate, the r
   }
 });
 
-test('#5805 2a review 15: a repeat of a message typed but not removed from the file answers as that delivery, not held', { skip: skipOnWin32('what it checks exists on Windows, but it makes the removal fail by making the folder read-only with chmod, which Windows does not enforce; its Windows arm is owed on kosmos#9313') }, async () => {
+test('#5805 2a review 15: a repeat of a message typed but not removed from the file answers as that delivery, not held', async () => {
   let first;
   await withFleet(AHEAD(), 'rate_limited', async (board) => { first = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'typed once' }, board.agents); });
   await withFleet(undefined, 'idle', async (board) => {
     const folder = path.dirname(limitqueue.fileFor('casey'));
-    const o = { ...opts(), deliver: async () => { fs.chmodSync(folder, 0o500); return { state: chat.DELIVERY.PLACED }; } };
-    try { await limitqueue.flush(board.agents, o); } finally { fs.chmodSync(folder, 0o700); }
+    let unlock = null;
+    const o = { ...opts(), deliver: async () => { if (!unlock) unlock = unwritableFolder(folder); return { state: chat.DELIVERY.PLACED }; } };
+    try { await limitqueue.flush(board.agents, o); } finally { if (unlock) unlock(); }
     assert.equal(limitqueue.isDone(first.id), true, 'CONTROL: the removal did fail');
     fs.rmSync(messages.LOG, { recursive: true, force: true });   // past the recent-send window
     messages.resetForTests();

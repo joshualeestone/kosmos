@@ -445,9 +445,23 @@ test('kosmos#8484: the first leftover is named only when the last name was refus
   } finally { fs.rmSync(task, { force: true }); }
 });
 
-test('kosmos#8484: a guide known only by its birth line whose marker will not write is not adopted (the board would not treat it as the guide)', { skip: skipOnWin32('what it checks exists on Windows, but the fixture makes the folder read-only with a file mode, which Windows does not enforce, so the marker writes anyway; its Windows arm is owed on kosmos#9313') }, () => {
+/* kosmos#9313: this arm makes the guide's folder read-only with chmod 0555 on the Mac and Linux, so markGuideFolder's
+   fs.writeFileSync of the marker cannot create it. Windows does not enforce chmod, so there (and on any host with
+   KOSMOS_TEST_CHMOD_STUB=1) that same call is made to fail with the chmod's code (EACCES), for a file in that folder only. */
+const MARKER_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function readOnlyFolder(dir) {
+  if (!MARKER_VIA_STUB) { fs.chmodSync(dir, 0o555); return () => fs.chmodSync(dir, 0o755); }
+  const locked = path.resolve(dir);
+  const orig = fs.writeFileSync;
+  fs.writeFileSync = function writeFileSync(p) {
+    if (typeof p === 'string' && path.dirname(path.resolve(p)) === locked) throw Object.assign(new Error('EACCES: permission denied, open (a stand-in for chmod 0555, kosmos#9313)'), { code: 'EACCES', syscall: 'open', path: p });
+    return orig.apply(this, arguments);
+  };
+  return () => { fs.writeFileSync = orig; };
+}
+test('kosmos#8484: a guide known only by its birth line whose marker will not write is not adopted (the board would not treat it as the guide)', () => {
   const g = agent(sa.GUIDE_NAME);
-  fs.chmodSync(g.dir, 0o555);   // the folder is read-only: the marker write fails
+  const unlock = readOnlyFolder(g.dir);   // the folder is read-only: the marker write fails
   try {
     const calls = [];
     const r = seed(created(calls), { jobPresence: () => 'yes', birthLog: () => [guideBirth(g.slug, g.id)] });
@@ -456,7 +470,7 @@ test('kosmos#8484: a guide known only by its birth line whose marker will not wr
     assert.equal('because' in r, false);
     assert.deepEqual(calls, []);
     assert.equal(sa.isGuideFolder(g.slug), false, 'CONTROL: the marker really did not write');
-  } finally { fs.chmodSync(g.dir, 0o755); }
+  } finally { unlock(); }
 });
 
 /* kosmos#8491: create's three loaded-job refusals. Reaching them through the real create needs launchd or systemd

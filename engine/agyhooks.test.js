@@ -20,6 +20,7 @@ const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agyhooks-'));
 process.on('exit', () => { try { fs.rmSync(SB, { recursive: true, force: true }); } catch { /* best effort */ } });
 const hooks = require('./agyhooks');
 const bridge = require('../bin/agy-report-bridge');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const BRIDGE_FILE = path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
 
 let n = 0;
@@ -553,7 +554,7 @@ test('#4043: a symlinked hooks.json stays a link and keeps its mode; a dangling 
   assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js').changed, true);
   assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link was replaced by a plain file');
   assert.ok(JSON.parse(fs.readFileSync(real, 'utf8'))[hooks.HOOK_NAME], 'the entry did not reach the link\'s target');
-  assert.equal(fs.statSync(real).mode & 0o777, 0o640, 'the file\'s mode was reset');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(real).mode & 0o777, 0o640, 'the file\'s mode was reset');
   const d2 = workdir();
   fs.mkdirSync(path.join(d2, '.agents'));
   fs.symlinkSync(path.join(SB, 'gone.json'), path.join(d2, '.agents', 'hooks.json'));

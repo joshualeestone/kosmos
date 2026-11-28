@@ -357,12 +357,14 @@ test('a test run that did not sandbox the data root never reads the stored catal
   const { spawnSync } = require('node:child_process');
   // A home of its own, with a stored copy planted where an unsandboxed run would look.
   const home = fs.mkdtempSync(path.join(SANDBOX, 'home-'));
-  const root = path.join(home, 'Library', 'Application Support', 'Kosmos', 'catalogue');
+  /* kosmos#8378: where THIS platform's data root is for that home (the Mac's Library/Application Support, Windows's
+     AppData/Roaming), from the store's own rule, so the planted copy is where the child looks on either. */
+  const root = path.join(require('./store').dataRootFor(process.platform, home, { AGENT_WORKFORCE_HOME: home }), 'catalogue');
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'catalogue.json'), '{"sig":"x","text":"planted"}');
   const script = `process.stdout.write(JSON.stringify(require(${JSON.stringify(path.join(__dirname, 'catalogue.js'))}).status().error))`;
   const run = (testContext) => {
-    const env = { ...process.env, HOME: home, AGENT_WORKFORCE_HOME: home };
+    const env = { ...process.env, HOME: home, USERPROFILE: home, AGENT_WORKFORCE_HOME: home };
     delete env.AGENT_WORKFORCE_DATA;
     if (testContext) env.NODE_TEST_CONTEXT = 'child-v8'; else delete env.NODE_TEST_CONTEXT;
     return spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env });

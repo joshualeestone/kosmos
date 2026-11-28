@@ -21,6 +21,11 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = mk('claude');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = mk('gemini');
 process.env.AGENT_WORKFORCE_CODEX_HOME = mk('codex');
 process.env.AGENT_WORKFORCE_HOME = mk('home');
+/* kosmos#8378: on Windows inputsHere protects %USERPROFILE%\AppData whole (review 9), and a test's temp folder sits under
+   it (C:\Users\<you>\AppData\Local\Temp), so every root here would be refused there. A sandbox folder of its own stands in
+   for the person's profile: not the AGENT_WORKFORCE_HOME folder, so review 6 still compares two different homes. On a Mac
+   or Linux os.homedir() reads HOME, so this changes nothing there. */
+process.env.USERPROFILE = mk('userprofile');
 delete process.env.AGENT_WORKFORCE_GROK_HOME;
 const store = require('./store');
 const tick = require('./backuptick');
@@ -117,7 +122,7 @@ test('#5883: a Codex agent on a named account is backed up from THAT account\'s 
   const r = roots.find((x) => /^sessions\/cody\/codex-a[0-9a-f]{8}$/.test(x.name));
   assert.ok(r, `no transcript root for the agent on a named account: ${JSON.stringify(roots.map((x) => x.name))}`);
   assert.equal(fs.realpathSync(r.path), fs.realpathSync(path.join(acct, 'sessions')));
-  assert.deepEqual(r.only, [path.join('2026', '10', '11', 'rollout-a.jsonl')]);
+  assert.deepEqual(r.only, ['2026/10/11/rollout-a.jsonl']);   // kosmos#8378: '/'-separated, as the session walk writes them on every platform
   // CONTROL: with no job read, the default Codex home (which holds no rollout of this agent) gives none.
   const none = tick.rootsFor(tick.inputsHere({ readJob: () => null })).roots.find((x) => x.name.startsWith('sessions/cody/codex'));
   assert.equal(none, undefined);
@@ -213,9 +218,9 @@ test('kosmos#8530: the sessions of a Muse agent are looked for in XDG_DATA_HOME,
     assert.equal(look('claude'), undefined, 'a Claude agent was looked up in Muse sessions');
     assert.equal(look(), '/data/home-8530');
     delete process.env.XDG_DATA_HOME;
-    assert.equal(look(), path.join(process.env.HOME, '.local', 'share'));
+    assert.equal(look(), path.join(os.homedir(), '.local', 'share'));
     process.env.XDG_DATA_HOME = 'relative/not-taken';
-    assert.equal(look(), path.join(process.env.HOME, '.local', 'share'), 'a relative XDG_DATA_HOME was used');
+    assert.equal(look(), path.join(os.homedir(), '.local', 'share'), 'a relative XDG_DATA_HOME was used');
   } finally {
     if (saved.x === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = saved.x;
   }
