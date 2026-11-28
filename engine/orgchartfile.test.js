@@ -756,3 +756,80 @@ test('#7742: only what really says so counts as sent elsewhere, and what cannot 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/* kosmos#9272: the Windows arms of the four real-runner tests above, which stand claude in with a #!/bin/sh script
+   that Windows cannot run. Here claude is a node script started through setClaudeLaunchForTest, so these run on
+   every platform, Windows included; the rest of the call (its flags, its env, stdin, reading the answer) is the real
+   one. AGENT_WORKFORCE_CLAUDE_BIN names this node only so the reader finds a runnable claude, as it would find
+   claude.exe; the launch hook decides what is started. */
+async function withNodeClaude(script, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-node-'));
+  const stub = path.join(dir, 'claude-stub.js');
+  fs.writeFileSync(stub, script);
+  const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = process.execPath;
+  let started = 0;
+  o.setClaudeLaunchForTest((bin, args) => { started += 1; return [process.execPath, [stub, ...args]]; });
+  o.setModelRunner(null);   // the real runner
+  try { await fn(dir, () => started); } finally {
+    o.setClaudeLaunchForTest(null);
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+/* A stub that reads its stdin to the end (as claude does), records what it was started with in seen.json beside it,
+   then runs `then` (stdout lines, stderr, exit code). */
+const nodeClaude = (then) => 'const fs = require("node:fs"), path = require("node:path");\n' +
+  'let input = "";\nprocess.stdin.on("data", (d) => { input += d; }).on("end", () => {\n' +
+  '  const ccd = Object.prototype.hasOwnProperty.call(process.env, "CLAUDE_CONFIG_DIR") ? process.env.CLAUDE_CONFIG_DIR : "UNSET";\n' +
+  '  fs.writeFileSync(path.join(__dirname, "seen.json"), JSON.stringify({ args: process.argv.slice(2), ccd, bytes: input.length }));\n' +
+  '  ' + then + '\n});\n';
+const seenIn = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'seen.json'), 'utf8'));
+
+test('#9272: the real runner reads a stream-json result from claude, on every platform (a node stand-in, no provider)', async () => {
+  const answer = { type: 'result', is_error: false, structured_output: { people: [
+    { person: 'Avery Quill', title: 'CEO', reportsTo: null, sure: true },
+    { person: 'Bo Linden', title: 'VP', reportsTo: 'Avery Quill', sure: true },
+  ] } };
+  await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(JSON.stringify({ type: 'system', subtype: 'init' }) + '\n' + JSON.stringify(answer) + '\n') + ');'), async (dir, started) => {
+    const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+    assert.equal(started(), 1, 'CONTROL: the read went through the launch hook, once');
+    assert.deepEqual(r.rows.map((x) => [x.person, x.reportsTo]), [['Avery Quill', null], ['Bo Linden', 0]], JSON.stringify(r));
+    const seen = seenIn(dir);
+    assert.deepEqual(seen.args, o.readArgs(), 'claude was started with the reader\'s own flags, every tool off');
+    assert.ok(seen.bytes > 0, 'the request went in on stdin');
+  });
+});
+
+test('#9272: a Claude Code too old for these flags says so, on every platform (a node stand-in, no provider)', async () => {
+  const warn = console.warn; const warned = [];
+  console.warn = (m) => warned.push(String(m));
+  try {
+    await withNodeClaude(nodeClaude('process.stderr.write("error: unknown option \'--tools\'\\n"); process.exitCode = 1;'), async () => {
+      const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.match(r.problems[0], /too old to read files/, JSON.stringify(r));
+      assert.ok(warned.some((w) => /unknown option/.test(w)), 'the boundary logs what claude said');
+    });
+    // CONTROL: the same exit with other words is "did not answer", so the match above is on what claude said.
+    await withNodeClaude(nodeClaude('process.stderr.write("something else\\n"); process.exitCode = 1;'), async () => {
+      const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.match(r.problems[0], /Claude did not answer/, JSON.stringify(r));
+    });
+  } finally { console.warn = warn; }
+});
+
+test('#9272: the read runs claude with CLAUDE_CONFIG_DIR unset on the default account and set on the board\'s own, on every platform', async () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const answer = JSON.stringify({ type: 'result', is_error: false, structured_output: { people: [] } });
+  try {
+    await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(answer + '\n') + ');'), async (dir) => {
+      delete process.env.CLAUDE_CONFIG_DIR;
+      await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.equal(seenIn(dir).ccd, 'UNSET', 'the default account must run with CLAUDE_CONFIG_DIR unset');
+      const own = path.join(dir, 'own-account');
+      process.env.CLAUDE_CONFIG_DIR = own;
+      await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.equal(seenIn(dir).ccd, own, 'a board on its own account passes that one');
+    });
+  } finally { if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved; }
+});
