@@ -1,0 +1,34 @@
+# kosmos#8378 MEASUREMENT ONLY. This branch is NEVER merged and has no PR; a push to it runs this. Every other workflow is removed in this
+# branch so it uses no fleet runner; this one runs the candidate test files on GitHub's Windows runner, 8 shards.
+name: wincand-8378
+on:
+  push:
+    branches: ["wincand-8378-never-merge", "wincl1b-8378-never-merge", "tildehook-9273-never-merge"]
+permissions:
+  contents: read
+jobs:
+  candidates:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+    steps:
+      - name: keep LF line endings, as shipped
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: candidates, shard ${{ matrix.shard }} of 8
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '8'
+          WINCAND_LIST: tools/wincand-8378-list.txt
+          WINCAND_DETAIL: '12000'
+          WINCAND_ALL_NAMES: '1'
+        run: node tools/wincand-8378.js
