@@ -453,7 +453,7 @@ test('kosmos#9222: an aged record with no recorded start is dropped without aski
   assert.equal(asked, 0, 'a read was spent on a record the ceiling had already settled');
 });
 
-test('kosmos#9222: start reads no more than its time allows (that it reads at all is the seen.ps === 4 arm)', () => {
+test('kosmos#9222: start reads no more than its time allows (that it reads at all: "one start asks each of the agent\'s pids once")', () => {
   const rs = require('./restoresink');
   const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
   let ps = 0;
@@ -508,4 +508,6 @@ test('kosmos#9230: a re-announce made between a read and its drop is not removed
   };
   hj.live({ root: r, now: T0 + 1, startOf });
   assert.deepEqual(hj.readAll(r).map((j) => j.label), ['again'], 'the drop decided before the re-announce removed it');
+  const rec = hj.readAll(r)[0];
+  assert.deepEqual([rec.pidStart, rec.since, rec.at], ['A', T0, T0 + 5], 'control: the re-announce kept its start and since (only at differs), the case the key must tell apart');
 });
