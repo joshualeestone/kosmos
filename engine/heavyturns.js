@@ -97,7 +97,18 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
     let line = readLine(root).filter((e) => keeps(e, opts));   // the caller's own lapsed place too: it rejoins at the back
     // hidden: a job this read could not check still holds the turn, so the turn never looks free for want of a ps read.
     const jobs = hj.live({ root, now, startOf: others, agentAlive, hidden: true });
-    const held = jobs.find((j) => j.agent === agent && j.pid === p);
+    let held = jobs.find((j) => j.agent === agent && j.pid === p);
+    // Round 7: the one case where an agent's own job is this take's turn. It holds the turn with no process and now
+    // takes it under a wrapper (--pid): the same turn moves to the wrapper, so it stays ONE job (the record without a
+    // process is replaced). Any other job of its own, under another pid, is busy like anyone's: a second wrapper waits.
+    if (!held && p !== null) {
+      const bare = jobs.find((j) => j.agent === agent && j.pid === null && !j.unchecked);
+      if (bare) {
+        const e = hj.end({ root, agent, pid: null });
+        if (!e.ok) { out = { ok: false, because: e.because }; return; }
+        held = bare;
+      }
+    }
     if (held) {   // already the holder: asking again is not a place in its own line, and re-announces (a new label shows)
       line = line.filter((e) => !mine(agent, p)(e));
       const again = hj.start({ root, agent, label: lab, pid: p, now, startOf });
@@ -105,9 +116,7 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
       out = writeLine(root, line) ? { ok: true, turn: true, job: again.job } : { ok: true, turn: true, job: again.job, lineNotSaved: true };
       return;
     }
-    // Only another agent's job holds the turn against the caller (round 6): an agent holding a job of its own under another
-    // pid (or none) is not made to wait behind itself; it waits only behind the places ahead of it.
-    const busy = jobs.filter((j) => j.agent !== agent);
+    const busy = jobs;   // any live job, the caller's own included (round 7: excluding them let one agent hold two turns)
     let me = line.find(mine(agent, p));
     if (!me) {
       if (line.length >= MAX_LINE) { out = { ok: false, because: 'the line already has ' + MAX_LINE + ' places; try again later', refused: true }; return; }

@@ -237,12 +237,26 @@ test('round 4: the caller\'s own lapsed place goes too: back after PLACE_IDLE_MS
   assert.deepEqual([a.place, names(a.ahead)], [2, ['mona']], 'a place that stopped asking kept its old position');
 });
 
-test('round 6: an agent holding a job of its own (no pid) is not made to wait behind itself by a take with --pid', () => {
+test('round 6/7: an agent holding the turn with no process that takes it under a wrapper keeps ONE turn, moved to the wrapper', () => {
   const r = root();
   const startOf = () => 'W';
   assert.equal(ht.take({ root: r, agent: 'renet', label: 'first', now: T0 }).turn, true);
   const t = ht.take({ root: r, agent: 'renet', label: 'wrapper', pid: 5100, now: T0 + 5, startOf });
   assert.equal(t.turn, true, 'the agent waited behind its own job: ' + JSON.stringify(t));
-  const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 6 });
+  assert.deepEqual(hj.live({ root: r, now: T0 + 6, startOf }).map((j) => [j.agent, j.pid, j.label]), [['renet', 5100, 'wrapper']], 'two jobs, or the wrong one, after the move');
+  const a = ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 6, startOf });
   assert.deepEqual([a.turn, a.holder && a.holder.agent], [false, 'renet'], 'control: another agent still waits behind it');
+});
+
+test('round 7: a second wrapper of the same agent waits, and its asking never runs a waiting agent\'s grace', () => {
+  const r = root();
+  const startOf = () => 'W';
+  assert.equal(ht.take({ root: r, agent: 'renet', label: 'one', pid: 5200, now: T0, startOf }).turn, true);
+  assert.equal(ht.take({ root: r, agent: 'angel', label: 'v', now: T0 + 1, startOf }).place, 1);
+  const two = ht.take({ root: r, agent: 'renet', label: 'two', pid: 5300, now: T0 + 2, startOf });
+  assert.deepEqual([two.turn, two.place], [false, 2], 'a second wrapper took a second turn');
+  const again = ht.take({ root: r, agent: 'renet', label: 'two', pid: 5300, now: T0 + 3 + 3 * ht.GRACE_MS, startOf });
+  assert.equal(again.turn, false, 'the second wrapper took the turn while its own first job runs');
+  assert.deepEqual(ht.readLine(r).map((e) => [e.agent, e.missed, e.front]), [['angel', 0, null], ['renet', 0, null]], 'a waiting agent was given a miss for a turn that was never free');
+  assert.deepEqual(hj.live({ root: r, now: T0 + 4 + 3 * ht.GRACE_MS, startOf }).map((j) => j.pid), [5200], 'more than one job ran');
 });
