@@ -14,8 +14,8 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
   `%TEMP%` read as temp and the #525 temp-folder refusal never fired. It joins with `path.sep` now, compares each temp
   root both as given and resolved (an 8.3 name), and on Windows compares case-blind. engine/projects.test.js moves from
   HOST_BRANCH_EXCLUDED into the Windows job's ALSO list (it passed there in full: run 46118283614, 162 pass, 0 fail),
-  so the fix is guarded where it matters; on the Mac `path.sep` is `/` and no arm could see it. Note for Windows: a
-  folder under `C:\tmp` now reads as temp too (`/tmp` resolves there), as `/tmp/anything` already did on the Mac.
+  so the fix is guarded where it matters; on the Mac `path.sep` is `/` and no arm could see it. `/tmp` is a temp root
+  only off Windows (review 5): there it resolves to `C:\tmp`, a person's own folder that Windows never clears.
 - **#9268, carded, not fixed, and its arm left red.** securewrite's create-exclusive (`'wx'`) temp file follows a
   planted dangling symbolic link on Windows (engine/trust.test.js "a file planted at the temp path"). A skip would
   hide a guarantee that does not hold, so the test is not skipped. It is red only where somebody runs trust.test.js
