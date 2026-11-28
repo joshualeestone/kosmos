@@ -10,6 +10,9 @@
  * INJECTED, NOT MOCKED WHOLE: the field rides the board's REAL /api/status 200, so tick() runs its real success path,
  * modelled on render-update-abort-2055.js.
  *
+ * Slice 2: /api/status also carries `heavyLine`, the line of turns (engine/heavyturns.js), shown as "Next: A, then B",
+ * or alone when the turn is free; a job not started today shows its day.
+ *
  * Run: NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-heavy-9217.js http://127.0.0.1:PORT
  */
 'use strict';
@@ -28,9 +31,10 @@ function check(name, pass, detail) {
 (async () => {
   const browser = await playwright.chromium.launch({ headless: !HEADED });
 
-  // `inject === undefined` leaves the real board's heavyJobs untouched (the board under test runs none).
-  async function slotAfter(inject) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  // `inject === undefined` leaves the real board's heavyJobs untouched (the board under test runs none); `line` likewise.
+  async function slotAfter(inject, line) {
+    // en-US: the day the page prints and the one this check expects are worded in one locale, whatever LANG says.
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'en-US' });
     const page = await ctx.newPage();
     await page.route('**/api/status*', async (route) => {
       try {
@@ -39,6 +43,7 @@ function check(name, pass, detail) {
         const json = await resp.json().catch(() => NOT_JSON);
         if (json === NOT_JSON) return await route.fulfill({ response: resp });
         if (inject !== undefined) json.heavyJobs = inject;
+        if (line !== undefined) json.heavyLine = line;
         await route.fulfill({ response: resp, json });
       } catch { await route.abort().catch(() => {}); }
     });
@@ -54,7 +59,9 @@ function check(name, pass, detail) {
     return got;
   }
 
-  const since = new Date(2026, 10, 27, 9, 5).getTime(); // the browser runs in this machine's zone, so 09:05 local
+  // Today at 09:05 in this machine's zone (the browser's too), so the line prints no day whenever the check runs.
+  const today = new Date();
+  const since = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 5).getTime();
 
   const one = await slotAfter([{ agent: 'Angel', label: 'cargo test (kosmos-relay)', since }]);
   check('the board has a #heavy-slot', one !== null);
@@ -72,11 +79,22 @@ function check(name, pass, detail) {
   check('a label with markup stays text: no B or IMG element in the slot',
     !!tagged && /<b>bold<\/b>/.test(tagged.text) && !tagged.tags.includes('B') && !tagged.tags.includes('IMG'), JSON.stringify(tagged && tagged.tags));
 
+  const queued = await slotAfter([{ agent: 'Angel', label: 'cargo test', since }], [{ agent: 'mona', name: 'Mona Lisa', label: 'v', since }, { agent: 'Renet', label: 'cut', since }]);
+  check('slice 2: the line of turns follows the job, in order, by display name',
+    !!queued && queued.text === 'A heavy job is running on this computer: cargo test (Angel, since 09:05). Next: Mona Lisa, then Renet.', JSON.stringify(queued && queued.text));
+  const free = await slotAfter([], [{ agent: 'mona', name: 'Mona Lisa', label: 'v', since }]);
+  check('slice 2: a free turn with a line still shows, and takes space',
+    !!free && free.text === 'No heavy job is running; next in line: Mona Lisa.' && free.display !== 'none' && free.h > 0, JSON.stringify(free));
+  const older = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 22, 30);
+  const day = older.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const old = await slotAfter([{ agent: 'Angel', label: 'overnight', since: older.getTime() }]);
+  check('a job not started today shows its day', !!old && old.text === 'A heavy job is running on this computer: overnight (Angel, since ' + day + ' 22:30).', JSON.stringify(old && old.text) + ' want day ' + day);
+
   // CONTROL (the dangerous answer): the real board, which runs no heavy job, shows nothing and the slot takes no space.
   const clean = await slotAfter(undefined);
   check('CONTROL nothing running: no line, and the empty slot is hidden', !!clean && clean.text === '' && clean.display === 'none' && clean.h === 0,
     JSON.stringify(clean));
-  const empty = await slotAfter([]);
+  const empty = await slotAfter([], []);
   check('CONTROL an empty list: no line', !!empty && empty.text === '' && empty.display === 'none', JSON.stringify(empty));
 
   await browser.close();

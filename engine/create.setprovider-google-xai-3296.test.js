@@ -49,8 +49,9 @@ const GEMINI_BIN = nodePath.join(BIN, 'gemini');
 const GROK_BIN = nodePath.join(BIN, 'grok');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
 const AGY_BIN = nodePath.join(BIN, 'agy'); // #3568: must be named agy
+// kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js)
 for (const b of [CLAUDE_BIN, CODEX_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN, AGY_BIN]) {
-  fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 }
 const BINS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, geminiBin: GEMINI_BIN, grokBin: GROK_BIN, tmuxBin: TMUX_BIN };
 

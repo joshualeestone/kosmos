@@ -45,6 +45,10 @@ function fileStdin(text, keepName) {
    long (the CLI's own exit time is taken from the shell, not from the pipeline's end); { socket: text } and
    { open: true } node's own stdin pipe, which is a socket pair, with text then closed or left open with nothing on it;
    { devnull: true } /dev/null. An open pipe is closed after the CLI exits, so it cannot leak. */
+/* kosmos#9264: run() puts each child in its own session and process group, which an interrupt to this file does not
+   reach; a group whose pipes are still open when the file ends is killed here (exit, SIGINT, SIGTERM, SIGHUP). */
+const LIVE_GROUPS = new Set();
+require('./test-support/remove-at-end').removeAtEnd(() => { for (const pid of LIVE_GROUPS) { try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ } } });
 function run(args, port, stdin) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN };
@@ -75,17 +79,20 @@ function run(args, port, stdin) {
       env.CLI9238 = CLI;
     }
     const started = Date.now();
-    const child = spawn(cmd, argv, { env, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
+    // kosmos#9264: its own session and process group, so the 20 s kill below reaches the CLI and its peek under a /bin/sh parent too
+    const child = spawn(cmd, argv, { env, detached: true, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
+    if (child.pid) LIVE_GROUPS.add(child.pid);
     if (fd !== null) fs.closeSync(fd);
     let out = '', cliDone = null;
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; if (cliDone === null && out.includes('CLI_DONE_9238')) cliDone = Date.now() - started; });
-    const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
+    const killer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } }, 20000);
     child.on('error', reject);
     child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
+      LIVE_GROUPS.delete(child.pid);
       if (child.stdin) { try { child.stdin.destroy(); } catch {} }
-      const res = { code: exitCode, out, ms: Date.now() - started, cliDone };
+      const res = { code: exitCode, out, cliDone };
       if (typeof res.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + '): it hung. ' + out)); return; }
       resolve(res);
     });
@@ -215,7 +222,8 @@ test('#9238 a writer that never stops (yes) is refused at its first text, not he
   const r = await run(['community', 'post', TITLE], port, { producer: 'yes' });
   assert.equal(r.code, 2, r.out);
   assert.equal(seen.length, 0, r.out);
-  assert.ok(typeof r.cliDone === 'number' && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms');
+  // kosmos#9264: finishing at all is the point (run() rejects a CLI killed at 20 s); no wall-clock bound, which a busy machine trips.
+  assert.ok(typeof r.cliDone === 'number', 'the shell never said the CLI finished: ' + r.out);
 }));
 
 for (const [how, stdin] of [
@@ -224,25 +232,67 @@ for (const [how, stdin] of [
   ['a heredoc of white space only', { file: '  \n\n' }],
   ['node\'s own pipe left open with nothing on it', { open: true }],
 ]) {
-  test('#9238 words alone with ' + how + ' on stdin still post the words, at once', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  test('#9238 words alone with ' + how + ' on stdin still post the words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(['community', 'post', 'just these words'], port, stdin);
     assert.equal(r.code, 0, r.out);
     assert.equal(seen.length, 1, r.out);
     assert.equal(seen[0].body.body, 'just these words');
-    assert.ok(r.ms < 2500, 'words alone waited ' + r.ms + ' ms (the quiet read is 3 s; the peek is 0.3 s)');
+    // kosmos#9264: no wall-clock bound (a busy machine trips one); the #9264 test below checks the peek's length in the CLI.
   }));
 }
 
 for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoIdle: 4 }], ['a writer of spaces that never stops', { producer: "yes ' '" }]]) {
-  test('#9238 words alone with ' + how + ' wait only the short peek, then post the words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  test('#9238 words alone with ' + how + ' look, then post the words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
     const r = await run(['community', 'post', 'just these words'], port, stdin);
     assert.equal(r.code, 0, r.out);
     assert.equal(seen.length, 1, r.out);
     assert.equal(seen[0].body.body, 'just these words');
     assert.ok(typeof r.cliDone === 'number', 'the shell never said the CLI finished: ' + r.out);
-    assert.ok(r.cliDone >= 250 && r.cliDone < 2500, 'the CLI finished after ' + r.cliDone + ' ms: the peek is 0.3 s in all, never the 3 s quiet read, and not 0 (it did look)');
+    // kosmos#9264: a lower bound only (a timer never fires early, so load cannot break it).
+    assert.ok(r.cliDone >= 250, 'the CLI finished after ' + r.cliDone + ' ms: under the 0.3 s peek, so it did not look');
   }));
 }
+
+/* kosmos#9264: the peek's length, read from the CLI instead of timed, so a busy machine cannot trip it and a peek made
+   as long as the quiet read cannot pass. Returns the reasons the given CLI text fails, [] when it passes.
+   It reads these lines only: a wait added anywhere else is not seen (the plan says where). */
+const codeOf = (text) => text.split(/\r?\n/).filter((l) => !/^\s*(#|\/\/)/.test(l)).join('\n');   // comment lines are not code
+function peekProblems(cli) {
+  const problems = [];
+  const sets = codeOf(cli).match(/(?<![$\w{])KOSMOS_PIPED_PEEK_MS=/g) || [];
+  if (sets.length > 1) problems.push('KOSMOS_PIPED_PEEK_MS is set ' + sets.length + ' times');
+  const m = cli.match(/^KOSMOS_PIPED_PEEK_MS=(\d+)(?=\s|$)/m);
+  if (!m) problems.push('no KOSMOS_PIPED_PEEK_MS line of a plain number');
+  else if (Number(m[1]) >= 1000) problems.push('KOSMOS_PIPED_PEEK_MS is ' + m[1] + ' ms, not under 1 s');
+  else if (Number(m[1]) < 100) problems.push('KOSMOS_PIPED_PEEK_MS is ' + m[1] + ' ms, too short to look');
+  const start = cli.search(/\r?\n_words_and_piped\(\) \{/);
+  const rel = start < 0 ? -1 : cli.slice(start).search(/\r?\n\}\r?\n/);
+  const end = rel < 0 ? -1 : start + rel;
+  if (start < 0 || end < 0) { problems.push('no _words_and_piped function'); return problems; }
+  const body = cli.slice(start, end);
+  if (!/\bKOSMOS_PEEK_MS="?\$\{?KOSMOS_PIPED_PEEK_MS\}?"?(\s|$)/.test(body)) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
+  if (!/setTimeout\([^,;]*,\s*Number\(\s*process\.env\.KOSMOS_PEEK_MS\s*\)\s*\)/.test(body)) problems.push('the peek timer is not exactly KOSMOS_PEEK_MS');
+  const code = codeOf(body);
+  const timers = (code.match(/\bsetTimeout\(/g) || []).length;
+  if (timers !== 1) problems.push('the peek has ' + timers + ' timers, not one');
+  if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(code)) problems.push('the peek reaches the quiet read');
+  return problems;
+}
+
+test('#9264 the peek for words alone is under a second and is not the quiet read', () => {
+  const cli = fs.readFileSync(CLI, 'utf8');
+  assert.deepEqual(peekProblems(cli), []);
+  // CONTROL: each rule refuses the change it names, alone (a control passing on another rule would prove nothing).
+  const only = (changed, rule) => { const got = peekProblems(changed); assert.ok(changed !== cli, 'the control changed nothing: ' + rule); assert.deepEqual(got.filter((x) => !rule.test(x)), [], 'another rule fired: ' + got.join('; ')); assert.ok(got.some((x) => rule.test(x)), 'the rule did not fire: ' + rule); };
+  only(cli.replace(/^KOSMOS_PIPED_PEEK_MS=\d+/m, 'KOSMOS_PIPED_PEEK_MS=3000'), /not under 1 s/);
+  only(cli.replace('KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS"', 'KOSMOS_PEEK_MS="$KOSMOS_OTHER_MS"'), /not given KOSMOS_PIPED_PEEK_MS/);
+  only(cli.replace('Number(process.env.KOSMOS_PEEK_MS))', 'Number(process.env.KOSMOS_PEEK_MS) * 10)'), /not exactly KOSMOS_PEEK_MS/);
+  only(cli.replace(/(\r?\n_words_and_piped\(\) \{\r?\n)/, '$1  _read_stdin_quiet 1\n'), /reaches the quiet read/);
+  only(cli.replace('process.stdin.on("end"', 'setTimeout(() => {}, 3000); process.stdin.on("end"'), /timers, not one/);
+  only(cli.replace(/^(KOSMOS_PIPED_PEEK_MS=\d+.*)$/m, '$1\nKOSMOS_PIPED_PEEK_MS=3000'), /is set 2 times/);
+  only(cli.replace(/^(KOSMOS_PIPED_PEEK_MS=\d+.*)$/m, '$1\n[ -n "$X" ] || KOSMOS_PIPED_PEEK_MS=5000 true'), /is set 2 times/);
+  only(cli.replace(/^KOSMOS_PIPED_PEEK_MS=\d+/m, 'KOSMOS_PIPED_PEEK_MS=0'), /too short to look/);
+});
 
 for (const v of [
   { args: ['community', 'comment', ID, 'a reply'], verbed: 'sent', hint: ALONE_HINT },

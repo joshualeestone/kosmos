@@ -16,6 +16,7 @@ const feedbackpull = require('./feedbackpull');
 
 const PULLED = feedbackpull.defaultDir();
 const OWN = feedback.dir();
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 function reset() {
   for (const d of [PULLED, OWN]) fs.rmSync(d, { recursive: true, force: true });
   fs.mkdirSync(OWN, { recursive: true });
@@ -41,7 +42,8 @@ test('#6265: after a pull, no --dir reads the pulled reports and says so', () =>
   assert.deepEqual(got.reports.map((r) => r.date), ['2026-10-14']);
   assert.match(got.reports[0].body, /newest report from a user/);
   assert.ok(got.notes.some((n) => n.includes('pulled reports in ' + PULLED)), got.notes.join('\n'));
-  assert.ok(got.notes.some((n) => n.includes('--dir ' + OWN)), 'the note says how to read this computer\'s own');
+  // kosmos#8378: as the note spells it (shellArg), which quotes a temp path like Windows' C:\Users\RUNNER~1\... (a ~).
+  assert.ok(got.notes.some((n) => n.includes('--dir ' + feedback.shellArg(OWN))), 'the note says how to read this computer\'s own');
 });
 
 test('#6265 CONTROL: with nothing pulled, this computer\'s own reports are read, and the note says the pulled folder was empty', () => {
@@ -119,7 +121,7 @@ test('#6265 review 3: the pulled note says how old the newest pulled report is',
   assert.ok(feedback.reportsForTriage({}).notes.some((n) => n.includes('newest dated 2026-10-12')));
 });
 
-test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', () => {
+test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', { skip: NO_SYMLINK }, () => {
   reset();
   const real = path.join(SANDBOX, 'real-report.md');
   fs.writeFileSync(real, '---\ndate: 2026-10-13\n---\nlinked\n');

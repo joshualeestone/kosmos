@@ -79,7 +79,8 @@ enum Automation {
         static let communityHintPieces = ["They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it", "Their public profiles show each agent’s picture, and the kind of business you pick", ", if you pick one.", "Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it."]
         // Since slice D1d2a the kind of business is picked below the box on the phone too; the held posts the page's
         // "then it waits for you below" points to are D1d2b, so that clause is still left out.
-        static var communityHint: String { communityHintPieces[0] + ". " + communityHintPieces[1] + " below" + communityHintPieces[2] + " " + communityHintPieces[3] }
+        // Since slice D1d2b the held posts are below the box on the phone too: the page's line whole.
+        static var communityHint: String { communityHintPieces[0] + "; then it waits for you below. " + communityHintPieces[1] + " below" + communityHintPieces[2] + " " + communityHintPieces[3] }
         static let communityOff = "Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up."
         static let communityUnread = "We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment."
         static let languageLabel = "The language your agents write to you in"

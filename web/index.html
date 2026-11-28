@@ -13379,7 +13379,7 @@ window.kosmosMeasureScrollbarWidth();
          machine that cannot update is a state worth its own line. -->
     <div id="uabort-slot"></div>
     <!-- kosmos#9217: the heavy jobs recorded with kosmos heavy start, whose and since when.
-         Painted by paintHeavyJobs from data.heavyJobs; empty, and so hidden, when nothing is running. -->
+         Painted by paintHeavyJobs from data.heavyJobs and data.heavyLine (kosmos#9217 slice 2); empty, and so hidden, when nothing is running and nobody waits. -->
     <div id="heavy-slot"></div>
     <!-- #3532: login-expiry advisory. Warns, per account, before a Claude login
          expires so agents do not silently die. Its own slot so it co-occurs with
@@ -25368,18 +25368,23 @@ let ENGINE_STALE = null;
 
 /* kosmos#9217: one line naming each heavy job an agent said is running here (engine/heavyjobs.js clears a record whose
  * process or agent is gone). Built from text nodes, so a label can never become markup; repainted only on a change. */
-function paintHeavyJobs(jobs) {
+function paintHeavyJobs(jobs, line, now = Date.now()) {
   const slot = document.getElementById('heavy-slot');
   if (!slot) return;
-  const list = Array.isArray(jobs) ? jobs.filter((j) => j && typeof j.label === 'string' && typeof j.agent === 'string' && Number.isFinite(j.since)) : [];
+  const ok = (j) => j && typeof j.label === 'string' && typeof j.agent === 'string' && Number.isFinite(j.since);
+  const list = Array.isArray(jobs) ? jobs.filter(ok) : [];
+  const next = Array.isArray(line) ? line.filter(ok) : [];   // kosmos#9217 slice 2: the line of turns, oldest place first
   const who = (j) => (typeof j.name === 'string' && j.name ? j.name : j.agent);   // the display name the server adds
-  const key = JSON.stringify(list.map((j) => [who(j), j.label, j.since]));
+  const today = new Date(now).toDateString();
+  const key = JSON.stringify([list.map((j) => [who(j), j.label, j.since]), next.map(who), today]);
   if (slot.dataset.k === key) return;
   slot.dataset.k = key;
   slot.textContent = '';
-  if (!list.length) return;
+  if (!list.length && !next.length) return;
   const two = (n) => String(n).padStart(2, '0');
-  const parts = list.map((j) => { const t = new Date(j.since); return j.label + ' (' + who(j) + ', since ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ')'; });
+  // A job not started today says its day too (Baron, 0.8.29 review): "since 14:05" alone is ambiguous past midnight.
+  const when = (t) => (t.toDateString() === today ? '' : t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ') + two(t.getHours()) + ':' + two(t.getMinutes());
+  const parts = list.map((j) => j.label + ' (' + who(j) + ', since ' + when(new Date(j.since)) + ')');
   const box = document.createElement('div');
   box.className = 'utoast heavy';
   box.setAttribute('role', 'status');
@@ -25388,7 +25393,8 @@ function paintHeavyJobs(jobs) {
   dot.setAttribute('aria-hidden', 'true');
   const txt = document.createElement('div');
   txt.className = 'utxt';
-  txt.textContent = (list.length === 1 ? 'A heavy job is running on this computer: ' : 'Heavy jobs are running on this computer: ') + parts.join('; ') + '.';
+  const then = next.length ? (list.length ? ' Next: ' : 'No heavy job is running; next in line: ') + next.map(who).join(', then ') + '.' : '';
+  txt.textContent = (list.length ? (list.length === 1 ? 'A heavy job is running on this computer: ' : 'Heavy jobs are running on this computer: ') + parts.join('; ') + '.' : '') + then;
   box.appendChild(dot);
   box.appendChild(txt);
   slot.appendChild(box);
@@ -28327,7 +28333,7 @@ async function tick() {
     renderUpdateToast(data.update, data.updateManual);   // kosmos#7938
     paintLoginAdvisories(data.loginAdvisories); // #3532: warn before a login expires
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
-    paintHeavyJobs(data.heavyJobs);     // kosmos#9217
+    paintHeavyJobs(data.heavyJobs, data.heavyLine);     // kosmos#9217 (and slice 2's line of turns)
     paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;

@@ -7,7 +7,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  *
  *   node --test engine/linuxwiring-4918.test.js
  */
-const { test, before, after } = require('node:test');
+const { test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -19,6 +19,10 @@ const unitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-units-'));
 
 const linuxjob = require('./linuxjob');
 const remove = require('./remove');
+const status = require('./status');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+const SKIP_ESCAPED_NAME = skipOnWin32('it writes a named world\'s unit file, whose name carries systemd\'s \\x2b escape, and a backslash in a file name is a folder separator on Windows');
+const SKIP_SYSTEMD_UNIT = skipOnWin32('the systemd board is Linux only, and linuxboard refuses a folder with a backslash in a systemd unit, which every Windows folder has');
 
 let calls = [];
 let answer = () => ({ ok: true, stdout: '' });
@@ -26,6 +30,12 @@ before(() => {
   linuxjob.setSystemdDirForTests(() => unitDir);
   linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
 });
+/* kosmos#8378: the running checks (delete-leftover's plan, remove) read this computer's panes unless they are handed
+   some. On Windows there is no tmux, so that read failed and every plan refused ("we could not check whether ... is
+   running"); an empty board is the same answer on every host, and no test here is about the host's panes. A test that
+   sets its own source still does (it runs after this). */
+beforeEach(() => { status.setPaneSource(() => ''); });
+afterEach(() => { status.setPaneSource(null); });
 after(() => {
   fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true });
   fs.rmSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true, force: true });
@@ -61,7 +71,7 @@ test('#4918 remove.jobOps(linux) drives systemctl with the agent\'s (escaped) un
   } finally { answer = () => ({ ok: true, stdout: '' }); }
 });
 
-test('#4918 remove.jobFor(linux) finds the agent by its unit file, and only then', () => {
+test('#4918 remove.jobFor(linux) finds the agent by its unit file, and only then', { skip: SKIP_ESCAPED_NAME }, () => {
   assert.equal(remove.jobFor('kenshi', 'linux', 'w1'), null, 'CONTROL: no unit file, no job');
   fs.writeFileSync(linuxjob.unitPath('kenshi', 'w1'), '[Service]\nExecStart="/bin/true"\n');
   try {
@@ -71,7 +81,7 @@ test('#4918 remove.jobFor(linux) finds the agent by its unit file, and only then
   } finally { fs.rmSync(linuxjob.unitPath('kenshi', 'w1'), { force: true }); }
 });
 
-test('#4918 linuxjob.remove says when the unit file survived, so delete never lists it as gone', () => {
+test('#4918 linuxjob.remove says when the unit file survived, so delete never lists it as gone', { skip: SKIP_ESCAPED_NAME }, () => {
   const file = linuxjob.unitPath('kenshi', 'w1');
   fs.writeFileSync(file, '[Service]\n');
   assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true });
@@ -115,7 +125,7 @@ test('#4918 delete-leftover: the folder goes to the Trash, the unit is removed, 
   }
 });
 
-test('#4918 review 2: a stop systemd refused (bus unreachable) makes remove not ok, and the file stays for a retry', () => {
+test('#4918 review 2: a stop systemd refused (bus unreachable) makes remove not ok, and the file stays for a retry', { skip: SKIP_ESCAPED_NAME }, () => {
   const file = linuxjob.unitPath('kenshi', 'w1');
   fs.writeFileSync(file, '[Service]\n');
   answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No medium found' } : { ok: true, stdout: '' });
@@ -131,7 +141,7 @@ test('#4918 review 2: a stop systemd refused (bus unreachable) makes remove not 
   try { assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }); } finally { answer = () => ({ ok: true, stdout: '' }); }
 });
 
-test('#4918 review 3: the bus failure ("No such file or directory") is a failure, not "not loaded"', () => {
+test('#4918 review 3: the bus failure ("No such file or directory") is a failure, not "not loaded"', { skip: SKIP_ESCAPED_NAME }, () => {
   const file = linuxjob.unitPath('kenshi', 'w1');
   fs.writeFileSync(file, '[Service]\n');
   answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' });
@@ -442,7 +452,7 @@ test('#4918 review 11: the register survey sees a Linux agent\'s systemd unit as
   assert.equal(reader.of('survlin'), true, 'the survey says this agent does not come back after a restart');
 });
 
-test('#4918 review 12: installBoard ensures linger and says whether it is on, read back', (t) => {
+test('#4918 review 12: installBoard ensures linger and says whether it is on, read back', { skip: SKIP_SYSTEMD_UNIT }, (t) => {
   const linuxboard = require('./linuxboard');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-board-'));
   linuxboard.setSystemdDirForTests(() => unitDir);

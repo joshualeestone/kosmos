@@ -213,8 +213,9 @@ let pageWords = [W.autoSaveLabel, W.autoSaveHint, W.autoSaveLevel, W.prompterLab
                  "Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.",
                  "Saved. Your agents switch to it once they finish what they are doing."]
 check(W.prompterHint.contains("shows a check-in below") && W.communityHint.contains("the kind of business you pick below, if you pick one.")
-      && !W.communityHint.contains("waits for you below") && !W.communityOff.contains("below"),
-      "a line points below only to what is below on the phone: the check-ins (D1d1), the kind of business (D1d2a); not the held posts (D1d2b)")
+      && W.communityHint.contains("; then it waits for you below.") && !W.communityOff.contains("below"),
+      "a line points below only to what is below on the phone: the check-ins (D1d1), the kind of business (D1d2a), the held posts (D1d2b)")
+check(page.contains("unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one."), "the page's Community line, whole")
 check(page.contains("and the kind of business you pick below, if you pick one."), "the page's own words for it")
 for w in pageWords { check(page.contains(w), "on the page: \(w.prefix(48))") }
 for b in Automation.Box.allCases { check(page.contains(">\(b.title)<"), "heading on the page: \(b.title)") }

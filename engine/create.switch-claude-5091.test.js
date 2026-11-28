@@ -39,7 +39,8 @@ delete process.env.CLAUDE_CONFIG_DIR;
 const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const CODEX_BIN = nodePath.join(BIN, 'codex');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js)
+for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 const BINS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN };
 
 /* The main account (~/.claude beside ~/.claude.json), one account sharing the agents' history (its projects is a link to
@@ -51,7 +52,9 @@ function claudeAccount(label, email, shared) {
   const dir = nodePath.join(HOME, `.claude-${label}`);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: email } }));
-  if (shared) fs.symlinkSync(SHARED_PROJECTS, nodePath.join(dir, 'projects'));
+  /* 'junction': on Windows a folder link without elevation (Node reads it as a symbolic link, as accounts.js asks);
+     macOS and Linux ignore the type (kosmos#8378). */
+  if (shared) fs.symlinkSync(SHARED_PROJECTS, nodePath.join(dir, 'projects'), 'junction');
   else fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
   return dir;
 }

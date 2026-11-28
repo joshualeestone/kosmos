@@ -31,20 +31,29 @@ const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-loc2414-'));
 const HOME = path.join(SB, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 
+/* kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked, so a fixture home sets both.
+   Returns the function that puts both back. */
+function setHome(dir) {
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
+  return () => { for (const [k, v] of Object.entries(saved)) { if (v !== undefined) process.env[k] = v; else delete process.env[k]; } };
+}
+
 /* A consistent sandbox: home AND data both under the temp root. */
-const savedHome = process.env.HOME;
 const savedData = process.env.AGENT_WORKFORCE_DATA;
 const savedConfig = process.env.AGENT_WORKFORCE_CONFIG_ROOT;
 const savedRoots = process.env.AGENT_WORKFORCE_SCAN_ROOTS;
-process.env.HOME = HOME;
+const restoreHome = setHome(HOME);
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
 delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;   // force the default-roots path (defaultScanRoots)
 
 const discover = require('./discover');
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 
 test.after(() => {
-  if (savedHome !== undefined) process.env.HOME = savedHome; else delete process.env.HOME;
+  restoreHome();
   if (savedData !== undefined) process.env.AGENT_WORKFORCE_DATA = savedData; else delete process.env.AGENT_WORKFORCE_DATA;
   if (savedConfig !== undefined) process.env.AGENT_WORKFORCE_CONFIG_ROOT = savedConfig; else delete process.env.AGENT_WORKFORCE_CONFIG_ROOT;
   if (savedRoots !== undefined) process.env.AGENT_WORKFORCE_SCAN_ROOTS = savedRoots; else delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;
@@ -128,7 +137,7 @@ test('#2414 heavyweight non-agent trees (~/go, ~/anaconda3, ~/miniconda3) are no
   assert.ok(!dirs.includes(mini), '~/miniconda3 was promoted to a deep scan root');
 });
 
-test('an arbitrary top-level SYMLINK is NOT followed (no escape via a discovered parent)', () => {
+test('an arbitrary top-level SYMLINK is NOT followed (no escape via a discovered parent)', { skip: NO_SYMLINK }, () => {
   /* ⚠️ A discovered name is untrusted (unlike a curated root name). An agent reachable
      only through an arbitrary top-level symlink out of $HOME must NOT surface -- the
      no-symlink-escape rule. Contrast with a curated ~/work symlink, which IS followed
@@ -161,15 +170,14 @@ test('#2125 case-insensitive: a lowercase ~/downloads (case variant of a TCC fol
      -- if the platform up-cased it, the arm proves nothing and must skip. */
   const stored = fs.readdirSync(H2);
   if (!stored.includes('downloads')) return;   // stored case is not lowercase here; the case-variant cannot be exercised
-  const saved = process.env.HOME;
-  process.env.HOME = H2;
+  const restore = setHome(H2);
   try {
     assert.equal(os.homedir(), H2, 'HOME override did not take -- cannot trust this arm');
     const dirs = discover.scan().candidates.map((c) => c.dir);
     assert.ok(!dirs.includes(path.join(H2, 'downloads', 'proj')),
       'a lowercase ~/downloads was walked (case-sensitive SCAN_SKIP reintroduced the #2125 TCC ambush)');
   } finally {
-    if (saved !== undefined) process.env.HOME = saved; else delete process.env.HOME;
+    restore();
   }
 });
 
@@ -227,15 +235,14 @@ test('#2414 the depth-0 home read does NOT raise bounded.depth (it is read-only 
   const H3 = path.join(SB, 'home-depthflag');
   fs.mkdirSync(path.join(H3, 'Reachable', 'proj'), { recursive: true });
   fs.writeFileSync(path.join(H3, 'Reachable', 'proj', 'CLAUDE.md'), 'You are **Depth Flag Agent**, a tester.\n');
-  const saved = process.env.HOME;
-  process.env.HOME = H3;
+  const restore = setHome(H3);
   try {
     assert.equal(os.homedir(), H3, 'HOME override did not take -- cannot trust this arm');
     const r = discover.scan();
     assert.ok(r.candidates.some((c) => c.name === 'Depth Flag Agent'), 'the fixture was not scanned -- the arm would be vacuous');
     assert.equal(r.bounded.depth, false, 'the depth-0 home read falsely raised bounded.depth');
   } finally {
-    if (saved !== undefined) process.env.HOME = saved; else delete process.env.HOME;
+    restore();
   }
 });
 

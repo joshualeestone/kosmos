@@ -27,6 +27,11 @@ process.env.AGENT_WORKFORCE_SYSTEMD_DIR = path.join(SANDBOX, 'systemd-user');
 
 const create = require('./create');
 const linuxjob = require('./linuxjob');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+// createAgent first asks tmux who is already running (Kosmos runs no tmux on Windows, so it fails closed there), then
+// writes a systemd agent unit, which is Linux only and which linuxjob refuses for a folder with a backslash.
+const SKIP_LINUX_CREATE = skipOnWin32('it creates a Linux agent end to end: its name check asks tmux, which Kosmos does not run on Windows, and the systemd agent unit is Linux only, and linuxjob refuses a folder with a backslash in a systemd unit, which every Windows folder has');
+const SKIP_LINUX_INSTALL = skipOnWin32('it installs a systemd agent unit (Linux only) with /bin/echo as its programs, an absolute POSIX path Windows does not have, and linuxjob refuses a folder with a backslash in a systemd unit, which every Windows folder has');
 
 /* review 7: create's systemd calls go through create's own runner (linuxRun). This fake behaves like the real one,
    execFileSync: it RETURNS stdout on exit 0 and THROWS (status, stdout, stderr) otherwise. A fake that returned
@@ -59,7 +64,7 @@ const lingerIs = (yes) => (cmd, args) => (cmd === 'loginctl' && args[0] === 'sho
   : (cmd === 'systemctl' && args[1] === 'is-active') ? { ok: false, code: 3, stdout: 'inactive\n' }
   : { ok: true, stdout: '' });
 
-test('#4918 create on Linux writes the unit under the sandbox and starts it through systemd', () => {
+test('#4918 create on Linux writes the unit under the sandbox and starts it through systemd', { skip: SKIP_LINUX_CREATE }, () => {
   systemd = lingerIs(true);
   calls.length = 0;
   const r = create.createAgent({ ...BINS, name: 'linbot', role: 'pm', platform: 'linux' });
@@ -73,7 +78,7 @@ test('#4918 create on Linux writes the unit under the sandbox and starts it thro
   assert.ok(kept && kept.ok === true, 'CONTROL: with linger on, the step is done');
 });
 
-test('#4918 with linger off, create says the agent stops at logout (a visible step and the sentence)', () => {
+test('#4918 with linger off, create says the agent stops at logout (a visible step and the sentence)', { skip: SKIP_LINUX_CREATE }, () => {
   systemd = lingerIs(false);
   const r = create.createAgent({ ...BINS, name: 'linbot2', role: 'pm', platform: 'linux' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, JSON.stringify(r));
@@ -82,7 +87,7 @@ test('#4918 with linger off, create says the agent stops at logout (a visible st
   assert.match(r.because, /stops when you log out/);
 });
 
-test('#4918 a start systemd refuses is not reported as created', () => {
+test('#4918 a start systemd refuses is not reported as created', { skip: SKIP_LINUX_CREATE }, () => {
   systemd = (cmd, args) => (args[1] === 'enable' ? { ok: false, stderr: 'Unit file is not valid' } : lingerIs(true)(cmd, args));
   const r = create.createAgent({ ...BINS, name: 'linbot3', role: 'pm', platform: 'linux' });
   assert.equal(r.outcome, create.OUTCOME.PARTIAL, 'a refused start reads as something other than taken back: ' + JSON.stringify(r));
@@ -97,7 +102,7 @@ test('#4918 review 7: a name systemd still runs with no unit file left gets the 
   assert.match(r.because, /systemctl --user stop 'kosmos-agent-ghostbot\.service'/, 'the unit is quoted so a pasted \\x2b survives the shell');
 });
 
-test('#4918 review 23: a dry-run Linux board creates; create\'s name check reads a dry run as not running', () => {
+test('#4918 review 23: a dry-run Linux board creates; create\'s name check reads a dry run as not running', { skip: SKIP_LINUX_CREATE }, () => {
   systemd = lingerIs(true);
   // The real dry-run shape: no runner (run() checks the runner first, so a fake would hide it).
   create.setRunner(null);
@@ -108,7 +113,7 @@ test('#4918 review 23: a dry-run Linux board creates; create\'s name check reads
   } finally { create.setRunner(fakeRunner); create.setDryRun(false); }
 });
 
-test('#4918 review 23: an install over a unit that is already active is not "started now"', () => {
+test('#4918 review 23: an install over a unit that is already active is not "started now"', { skip: SKIP_LINUX_INSTALL }, () => {
   fs.mkdirSync(create.workerDir('activebot'), { recursive: true });
   systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' } : lingerIs(true)(cmd, args));
   const r = create.installJob('activebot', { ...BINS, platform: 'linux' });
@@ -132,7 +137,7 @@ test('#4918 review 27: an orphan unit with no folder holds its name on Linux, as
   } finally { fs.rmSync(u, { force: true }); }
 });
 
-test('#4918 review 27: with the user bus unreachable, the roll back removes the never-loaded unit, so the name is free', () => {
+test('#4918 review 27: with the user bus unreachable, the roll back removes the never-loaded unit, so the name is free', { skip: SKIP_LINUX_CREATE }, () => {
   const bus = { ok: false, code: 1, stderr: 'Failed to connect to bus: No such file or directory' };
   systemd = (cmd, args) => (cmd === 'systemctl' && args[1] !== 'is-active' ? bus : lingerIs(true)(cmd, args));
   const r = create.createAgent({ ...BINS, name: 'busbot', role: 'pm', platform: 'linux' });
@@ -141,7 +146,7 @@ test('#4918 review 27: with the user bus unreachable, the roll back removes the 
   assert.match(r.because, /user services are not reachable/);
 });
 
-test('#4918 review 35: a value a systemd unit cannot hold is said to the person, not "try that name again"', () => {
+test('#4918 review 35: a value a systemd unit cannot hold is said to the person, not "try that name again"', { skip: SKIP_LINUX_CREATE }, () => {
   systemd = lingerIs(true);
   const saved = process.env.TMUX_TMPDIR;
   process.env.TMUX_TMPDIR = '/tmp/a%b';
@@ -153,7 +158,7 @@ test('#4918 review 35: a value a systemd unit cannot hold is said to the person,
   } finally { if (saved === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = saved; }
 });
 
-test('#4918 review 37: an active unit whose enable systemd refuses (masked) is not "already loaded"', () => {
+test('#4918 review 37: an active unit whose enable systemd refuses (masked) is not "already loaded"', { skip: SKIP_LINUX_INSTALL }, () => {
   fs.mkdirSync(create.workerDir('maskbot'), { recursive: true });
   systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' }
     : (cmd === 'systemctl' && args[1] === 'enable') ? { ok: false, code: 1, stderr: 'Failed to enable unit: Unit file kosmos-agent-maskbot.service is masked.' }

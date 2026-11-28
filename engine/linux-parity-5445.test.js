@@ -27,6 +27,12 @@ const create = require('./create');
 const linuxjob = require('./linuxjob');
 const createdroster = require('./createdroster');
 const launchidentity = require('./launchidentity');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+// A unit's ExecStart and WorkingDirectory carry the Kosmos folder and the agent folder, and linuxjob refuses a backslash
+// in a systemd unit, which every Windows folder has; systemd itself is Linux only.
+const SKIP_SYSTEMD_UNIT = skipOnWin32('the systemd agent unit is Linux only, and linuxjob refuses a folder with a backslash in a systemd unit, which every Windows folder has');
+const SKIP_MASK = skipOnWin32('it masks a unit with a symlink to /dev/null, an absolute POSIX path Windows does not have');
+const NO_POSIX_PATH = skipOnWin32('it checks the put-back record names an absolute POSIX path, and the sandbox folder on Windows is a drive path');
 
 // The real runner's shape: stdout on exit 0, a throw (status, stdout, stderr) otherwise.
 let systemd = () => ({ ok: true, stdout: '' });
@@ -55,7 +61,7 @@ const unit = (name, world) => {
 const clearUnits = () => { for (const f of fs.readdirSync(process.env.AGENT_WORKFORCE_SYSTEMD_DIR)) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_SYSTEMD_DIR, f), { force: true }); };
 const myWorld = () => launchidentity.currentWorldId();
 
-test('#5445 the created roster lists a stopped Linux agent from its unit, and only this Kosmos\'s', () => {
+test('#5445 the created roster lists a stopped Linux agent from its unit, and only this Kosmos\'s', { skip: SKIP_SYSTEMD_UNIT }, () => {
   clearUnits();
   unit('linus', myWorld());
   unit('other', 'elsewhere');                                   // another Kosmos's agent
@@ -97,7 +103,7 @@ test('#5445 the created roster lists a stopped Linux agent from its unit, and on
   } finally { fs.rmSync(plist, { force: true }); }
 });
 
-test('#5445 the created roster fails closed when the unit folder cannot be read', () => {
+test('#5445 the created roster fails closed when the unit folder cannot be read', { skip: SKIP_SYSTEMD_UNIT }, () => {
   fs.mkdirSync(create.workerDir('listedbot'), { recursive: true });
   clearUnits();
   unit('listedbot', myWorld());
@@ -114,7 +120,7 @@ test('#5445 the created roster fails closed when the unit folder cannot be read'
   assert.deepEqual(make(() => { const e = new Error('EACCES'); e.code = 'EACCES'; throw e; })(), []);
 });
 
-test('#5445 the stray sweep reads Linux units, not plists', () => {
+test('#5445 the stray sweep reads Linux units, not plists', { skip: SKIP_SYSTEMD_UNIT }, () => {
   clearUnits();
   unit('strayunit', myWorld());
   const register = require('./register');
@@ -151,7 +157,7 @@ test('#5445 runningJobs on Linux reads the active agent units', () => {
   assert.deepEqual([...create.runningJobs('linux')], [], 'fail-soft to empty, as the Mac arm');
 });
 
-test('#5445 a masked agent stays on the created roster (switched off, not gone)', () => {
+test('#5445 a masked agent stays on the created roster (switched off, not gone)', { skip: SKIP_MASK }, () => {
   clearUnits();
   fs.mkdirSync(create.workerDir('maskrow'), { recursive: true });
   fs.symlinkSync('/dev/null', linuxjob.unitPath('maskrow', myWorld()));
@@ -166,7 +172,7 @@ test('#5445 a masked agent stays on the created roster (switched off, not gone)'
   assert.equal(create.readJob('maskrow', undefined, 'linux'), null, 'CONTROL: the masked unit itself reads as no job');
 });
 
-test('#5445 a masked unit reads as masked, not as a broken unit', () => {
+test('#5445 a masked unit reads as masked, not as a broken unit', { skip: SKIP_MASK }, () => {
   clearUnits();
   fs.symlinkSync('/dev/null', linuxjob.unitPath('maskedbot', myWorld()));
   const v = create.readJobVerdict('maskedbot', undefined, 'linux');
@@ -201,7 +207,7 @@ test('#5445 the self-starts sentence is true on Linux with linger off', () => {
   assert.match(create.selfStarts('linux', false), /while you are logged in/);
 });
 
-test('#5445 "already loaded" says it stops at logout when linger is off', () => {
+test('#5445 "already loaded" says it stops at logout when linger is off', { skip: skipOnWin32('it makes a systemd agent unit (Linux only) with /bin/echo as its programs, an absolute POSIX path Windows does not have, and linuxjob refuses a backslash folder in the unit') }, () => {
   fs.mkdirSync(create.workerDir('loadedbot'), { recursive: true });
   const lingerIs = (yes) => (cmd, args) => (cmd === 'loginctl' && args[0] === 'show-user'
     ? { ok: true, stdout: yes ? 'Linger=yes\n' : 'Linger=no\n' }
@@ -235,7 +241,7 @@ test('#5445 the Linux Trash is the desktop one, and a trashed folder gets its pu
     const to = path.join(dl.TRASH('linux'), 'old bot (Kosmos 2026-10-07T03-00-00)');
     dl.writeTrashInfo(from, to);
     const info = fs.readFileSync(path.join(SANDBOX, '.local', 'share', 'Trash', 'info', path.basename(to) + '.trashinfo'), 'utf8');
-    assert.match(info, /^\[Trash Info\]\nPath=\/.*\/workers\/old%20bot\nDeletionDate=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\n$/);
+    if (!NO_POSIX_PATH) assert.match(info, /^\[Trash Info\]\nPath=\/.*\/workers\/old%20bot\nDeletionDate=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\n$/);
   } finally {
     delete process.env.XDG_DATA_HOME;
     if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash;
@@ -252,11 +258,16 @@ test('#5445 a missing Linux Trash still takes the folder (the move makes it)', (
   fs.rmSync(path.join(SANDBOX, '.local'), { recursive: true, force: true });
   const folder = path.join(SANDBOX, 'workers', 'trashme');
   fs.mkdirSync(folder, { recursive: true });
+  /* kosmos#8378: the running check reads this computer's panes unless it is handed some. On Windows there is no tmux, so
+     that read failed and the plan refused ("we could not check whether trashme is running"); with none running here the
+     check reads an empty roster on every host, and the test is about the Trash, not the host. */
+  const status = require('./status');
+  status.setPaneSource(() => '');
   try {
     // No Trash yet: the folder and the home share a volume, so the Trash can take it (the move makes the Trash).
     const p = dl.plan('trashme', { platform: 'linux' });
     assert.equal(p.toTrash, true, JSON.stringify(p));
-  } finally { if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash; }
+  } finally { status.setPaneSource(null); if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash; }
 });
 
 test('#5445 a board test can pin the fleet probes to the Mac arm on any runner', () => {
@@ -280,7 +291,7 @@ test('#5445 the two fleet polls fail soft on a refused runner, as the Mac arm do
   } finally { create.setRunner(fakeRunner); }
 });
 
-test('#5445 the board says where a switched-off agent was switched off, per platform, and a masked one says masked', () => {
+test('#5445 the board says where a switched-off agent was switched off, per platform, and a masked one says masked', { skip: SKIP_MASK }, () => {
   clearUnits();
   const off = new Set(['offrow']);
   // Mac: unchanged, System Settings.
@@ -302,7 +313,7 @@ test('#5445 the board says where a switched-off agent was switched off, per plat
   assert.equal(create.switchedOffSentence('maskrow2', new Set(), 'darwin'), null, 'CONTROL: the Mac never reads units');
 });
 
-test('#5445 the folder-trust step says a masked agent is masked, not that it has no job', () => {
+test('#5445 the folder-trust step says a masked agent is masked, not that it has no job', { skip: SKIP_MASK }, () => {
   clearUnits();
   fs.symlinkSync('/dev/null', linuxjob.unitPath('trustmask'));
   const r = create.trustAgentFolder('trustmask', { platform: 'linux' });
@@ -314,7 +325,7 @@ test('#5445 the folder-trust step says a masked agent is masked, not that it has
   assert.match(create.trustAgentFolder('trustmask', { platform: 'linux' }).because, /no Kosmos launch job/);
 });
 
-test('#5445 writing a unit over a masked link refuses instead of writing to /dev/null', () => {
+test('#5445 writing a unit over a masked link refuses instead of writing to /dev/null', { skip: SKIP_MASK }, () => {
   clearUnits();
   const f = linuxjob.unitPath('maskwrite');
   fs.symlinkSync('/dev/null', f);

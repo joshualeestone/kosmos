@@ -1,5 +1,7 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
+const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 /**
  * kosmos#7116 step 2, the caller (engine/enrolsign.js): finding kosmos-se in the app's own bundle, the inviter's kept
  * join codes, reviewing an enrolment with them, and approving it. The Enclave is stood in for by a small helper script
@@ -14,6 +16,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_SE_STUB = skipOnWin32("it runs a stand-in for kosmos-se (the Mac's Secure Enclave admin signer, which Windows has no counterpart to) as a script by its shebang line, which Windows cannot do");   // kosmos#8378
 const es = require('./enrolsign');
 const dk = require('./devkeyenrol');
 const se = require('./seadmin');
@@ -57,7 +62,7 @@ process.stderr.write('kosmos-se: usage\\n'); process.exit(2);
   return { app, helper, keyFile, expectedKey, publicKey };
 }
 
-test('#7116 step 2 caller: kosmos-se is found only as a plain executable file in the app\'s own bin', () => {
+test('#7116 step 2 caller: kosmos-se is found only as a plain executable file in the app\'s own bin', { skip: require('../test-support/skip-on-win32').skipOnWin32('it checks that kosmos-se is found by its exec bit and not through a symlink, POSIX file properties Windows does not have (there a file runs by its extension); kosmos-se is the Mac\'s Secure Enclave signer') }, () => {
   const none = fresh();
   assert.equal(es.helperPath(none), null, 'no bin');
   const { app, helper } = appWithHelper();
@@ -81,7 +86,7 @@ test('#7116 step 2 caller: a kept join code is owner-only, keyed by company and 
   const code = dk.newJoinCode();
   assert.equal(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), null, 'none kept yet');
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root, now: 1000 });
-  assert.equal(fs.statSync(path.join(root, 'devkey-join-codes.json')).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(path.join(root, 'devkey-join-codes.json')).mode & 0o777, 0o600);
   assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root, now: 2000 }).equals(code));
   assert.equal(es.joinCodeFor(ORG, 'member-8', { dataRoot: root, now: 2000 }), null, 'another member');
   assert.equal(es.joinCodeFor('org-2', MEMBER, { dataRoot: root, now: 2000 }), null, 'another company');
@@ -121,7 +126,7 @@ test('#7116 step 2 caller: review uses the kept code for the DECODED company and
   assert.throws(() => es.review(badTag, { dataRoot: root }), /does not match that enrolment/);
 });
 
-test('#7116 step 2 caller review 7: another admin\'s invite for the same member is offered to this Mac as a second admin; a tie refuses others for its hour only', async () => {
+test('#7116 step 2 caller review 7: another admin\'s invite for the same member is offered to this Mac as a second admin; a tie refuses others for its hour only', { skip: NO_SE_STUB }, async () => {
   const root = fresh();
   const mine = enrolment();
   es.keepJoinCode(ORG, MEMBER, mine.code, { dataRoot: root });
@@ -167,7 +172,7 @@ test('#7116 step 2 caller review 7: another admin\'s invite for the same member 
   await assert.rejects(es.approve(unchecked, { adminId: OTHER_ADMIN, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root3, appDir: h.app }), /review it again/);
 });
 
-test('#7116 step 2 caller review 7: a re-invite kept while the accept is in flight is not dropped by it', async () => {
+test('#7116 step 2 caller review 7: a re-invite kept while the accept is in flight is not dropped by it', { skip: NO_SE_STUB }, async () => {
   const root = fresh();
   const e = enrolment();
   es.keepJoinCode(ORG, MEMBER, e.code, { dataRoot: root });
@@ -180,7 +185,7 @@ test('#7116 step 2 caller review 7: a re-invite kept while the accept is in flig
   assert.ok(left && left.equals(Buffer.from(fresher)), 'the new invite\'s code survives the old entry\'s accept');
 });
 
-test('#7116 step 2 caller: approve signs with this app\'s helper (refuses with none), keeps the code; approveAndSend drops it only once escrowd accepts', async () => {
+test('#7116 step 2 caller: approve signs with this app\'s helper (refuses with none), keeps the code; approveAndSend drops it only once escrowd accepts', { skip: NO_SE_STUB }, async () => {
   const root = fresh();
   const e = enrolment();
   es.keepJoinCode(ORG, MEMBER, e.code, { dataRoot: root });
@@ -205,7 +210,7 @@ test('#7116 step 2 caller: approve signs with this app\'s helper (refuses with n
   assert.equal((await es.approve(es.review(e.bytes, { dataRoot: root }), opts(OTHER_ADMIN))).adminId, OTHER_ADMIN);
 });
 
-test('#7116 step 2 caller review 1: holding the code makes this Mac the inviter, whatever the bytes name; a bad entry or store is said, not fatal', async () => {
+test('#7116 step 2 caller review 1: holding the code makes this Mac the inviter, whatever the bytes name; a bad entry or store is said, not fatal', { skip: NO_SE_STUB }, async () => {
   const root = fresh();
   const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
@@ -323,7 +328,7 @@ test('#7116 step 2 caller: adminQueue lists what an admin can sign, says why it 
   assert.equal((await es.adminQueue({ adminId: OTHER_ADMIN, send: signedSend, dataRoot: root })).length, 0);
 });
 
-test('#7116 step 2 caller review 2: one invite enrols one computer; the queue refuses an inviter in disguise; a second admin leaves the codes; errors are fixed sentences', async () => {
+test('#7116 step 2 caller review 2: one invite enrols one computer; the queue refuses an inviter in disguise; a second admin leaves the codes; errors are fixed sentences', { skip: NO_SE_STUB }, async () => {
   const root = fresh(); const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
   const mk = (inviter) => { const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
@@ -352,7 +357,7 @@ test('#7116 step 2 caller review 2: one invite enrols one computer; the queue re
   assert.doesNotMatch(err.message, /\/Users\//);
 });
 
-test('#7116 step 2 caller review 2: a store that cannot be READ is never set aside; a link is refused, not followed', () => {
+test('#7116 step 2 caller review 2: a store that cannot be READ is never set aside; a link is refused, not followed', { skip: NO_SYMLINK || NO_CHMOD_READ }, () => {
   const root = fresh(); const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
   const file = path.join(root, 'devkey-join-codes.json');
@@ -367,7 +372,7 @@ test('#7116 step 2 caller review 2: a store that cannot be READ is never set asi
   assert.throws(() => es.joinCodeFor(ORG, MEMBER, { dataRoot: linked }), /not readable/);
 });
 
-test('#7116 step 2 caller review 3: the inviter\'s code is tied to the first computer BEFORE signing; a lost answer or a second entry cannot free it', async () => {
+test('#7116 step 2 caller review 3: the inviter\'s code is tied to the first computer BEFORE signing; a lost answer or a second entry cannot free it', { skip: NO_SE_STUB }, async () => {
   const root = fresh(); const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
   const mk = () => { const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
@@ -386,7 +391,7 @@ test('#7116 step 2 caller review 3: the inviter\'s code is tied to the first com
   assert.equal((await es.approve(es.review(one, { dataRoot: root }), opts())).adminId, INVITER);
 });
 
-test('#7116 step 2 caller review 4: a tied code ends with its entry\'s life; a re-invite since review refuses; a wrong-shaped store is damage', async () => {
+test('#7116 step 2 caller review 4: a tied code ends with its entry\'s life; a re-invite since review refuses; a wrong-shaped store is damage', { skip: NO_SE_STUB }, async () => {
   const root = fresh(); const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
   const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);

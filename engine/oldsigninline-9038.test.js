@@ -371,7 +371,9 @@ test('#9038: nor when the first thing asked on the right clock is a read', async
   assert.equal(loginlive.signedInAfter(row, clock), null, 'a date from the fast clock was taken as the earlier one');
 });
 
-test('#9038: readPaneLogin: the pane\'s own process, its arguments apart from its environment', async () => {
+/* kosmos#8378: readPaneLogin reads a pane's process through tmux and ps (#!/bin/sh stand-ins here), and answers null on
+   Windows, where Kosmos runs neither. */
+test('#9038: readPaneLogin: the pane\'s own process, its arguments apart from its environment', { skip: require('../test-support/skip-on-win32').skipOnWin32('it reads a pane through tmux and ps, #!/bin/sh stand-ins run by their shebang line; Kosmos runs no tmux on Windows, so readPaneLogin answers null there') }, async () => {
   const bin = path.join(SANDBOX, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   const put = (name, body) => fs.writeFileSync(path.join(bin, name), '#!/bin/sh\n' + body + '\n', { mode: 0o755 });

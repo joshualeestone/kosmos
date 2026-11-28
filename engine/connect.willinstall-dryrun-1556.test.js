@@ -25,7 +25,6 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 
 const { mkTemp } = require('../test-support/tmpdir.js');
@@ -34,9 +33,9 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_HOME = SB;
 const connect = require('./connect');
 
-const bin = path.join(SB, 'claude-broken');
-fs.writeFileSync(bin, '#!/bin/sh\nexit 1\n');
-fs.chmodSync(bin, 0o755);
+/* kosmos#8378: a stub this platform counts as runnable (test-support/runnerstub.js: on Windows a .cmd beside it, since a
+   file runs there by its extension). Its own exit code never matters: arm 1 executes nothing and arm 2's seam answers. */
+const bin = require('../test-support/runnerstub').writeRunnerStub(SB, 'claude-broken');
 
 test('#1556 a dry-run result is NOT a passing probe: nothing was executed', async () => {
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
