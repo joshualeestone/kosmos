@@ -23,5 +23,5 @@ jobs:
           for f in $(cat .github/ftw9262b-files.txt); do
             timeout 300 node --test --test-timeout=60000 "$f" > out.txt 2>&1; rc=$?
             echo "=== $f rc=$rc $(grep -E '^ℹ (pass|fail|skipped)' out.txt | tr '\n' ' ')"
-            grep -E '^✖ ' out.txt | grep -v 'failing tests' | sort -u | head -12 | cut -c1-200
+            sed -n '/failing tests:/,$p' out.txt | grep -E '^test at|^✖|AssertionError|Error:|message|expected|actual|^  +[a-z]' | head -80 | cut -c1-300
           done
