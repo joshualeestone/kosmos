@@ -42,7 +42,7 @@
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
- * have, and (kosmos#9268) an atomicOnly write whose three temp names were all refused raises
+ * have, and (kosmos#9268) an atomicOnly write whose last of three attempts is refused this way raises
  * ERR_KOSMOS_TEMP_SWAPPED, on which no caller branches. The three token-door call sites catch ERR_KOSMOS_SYMLINK
  * directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
@@ -162,9 +162,14 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  * chose. After a swap the made file has no name this can find, so it stays where it is, empty; nothing is ever written
  * to it. The temp name itself is never touched. Returns true when it refused.
  *
- * Not closed, and accepted: the check runs once, right after the open, so a name swapped between it and the rename
- * still goes over the config. That window is the rename's own (it takes a path) and was there before #9268 on every
- * platform; this closes the larger one Windows added, the open itself following a planted link.
+ * Not closed, and accepted:
+ *   - the check runs once, right after the open, so a name swapped between it and the rename still goes over the
+ *     config. That window is the rename's own (it takes a path) and was there before #9268 on every platform.
+ *   - on Windows, somebody who can write in the config's folder can plant the link, let the open follow it, and move
+ *     the made file back to the temp name before this check (Windows lets a file held open be renamed). The name is
+ *     then the opened file and passes, and the saved config keeps the access list it was created with where the link
+ *     pointed. Closing it needs the file's own access list set or checked at the open; that is not done here.
+ * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
   let made = null;

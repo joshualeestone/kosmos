@@ -65,3 +65,9 @@ the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac a
   rule stays for a mount whose identities cannot be read, where no test can reach it, and the code says so.
 - Accepted residue, stated in the code: the check runs once, right after the open, so a name swapped between it and
   the rename still goes over the config. That window is the rename's own (it takes a path) and predates #9268.
+- Review 5: an arm with a link followed at every attempt and atomicOnly pins the error code (fails with
+  ERR_KOSMOS_SYMLINK in its place), the config left as it was, three fresh names, and each refused fd closed once
+  (fails with the close removed). A second accepted residue is stated in the code: on Windows, somebody who can write
+  in the config's folder can move the made file back to the temp name before the check, so it passes, and the config
+  keeps the access list it was created with where the link pointed. Closing that needs the access list set or checked
+  at the open, which this does not do; it is reasoned from Windows semantics, not measured.

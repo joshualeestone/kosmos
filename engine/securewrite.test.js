@@ -980,3 +980,40 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
   });
 }
+
+/* kosmos#9268 review 5: every attempt meets a followed link, and the caller asked for no in-place rewrite. It must get
+   ERR_KOSMOS_TEMP_SWAPPED (not ERR_KOSMOS_SYMLINK, which callers read as "the config is a link"), its config must be
+   left as it was, each refused open's fd closed exactly once, and the loop must have tried three fresh names. */
+test('#9268: atomicOnly with a link followed at every attempt throws ERR_KOSMOS_TEMP_SWAPPED, leaves the config, and closes each refused fd once', (t) => {
+  const file = fresh('allrefused');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const realClose = fs.closeSync;
+  const planted = [];
+  const opened = [];   // one entry per refused open: { fd, closes } (a closed fd number is reused, so not keyed by it)
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      const elsewhere = fresh('attacker6');
+      planted.push(String(p), elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      const fd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link, every time
+      opened.push({ fd, closes: 0 });
+      return fd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  fs.closeSync = function (fd) {
+    const open = opened.filter((o) => o.fd === fd).pop();   // the newest open of that number
+    if (open) open.closes += 1;
+    return realClose.call(fs, fd);
+  };
+  t.after(() => { fs.openSync = realOpen; fs.closeSync = realClose; for (const p of planted) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9268f', 0o600, { atomicOnly: true }); } catch (e) { err = e; }
+  fs.openSync = realOpen; fs.closeSync = realClose;
+  assert.ok(err, 'a write with every temp name refused did not throw');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  assert.equal(opened.length, 3, 'the loop did not try three fresh names');
+  opened.forEach((o, i) => assert.equal(o.closes, 1, `refused open ${i + 1} was closed ${o.closes} times, not once`));
+});
