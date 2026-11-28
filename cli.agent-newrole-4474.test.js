@@ -19,7 +19,7 @@ const run = promisify(execFile);
 
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-newrole-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const OWN = 'You are **{{NAME}}**, an assistant.\n\n## Who you are\nThe default text.\n';

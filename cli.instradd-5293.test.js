@@ -18,7 +18,7 @@ const run = promisify(execFile);
 
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-instradd-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const ADD = 'When a lead goes quiet for two days, write to them once.\nDo not chase twice; tell me "instead".\n';
 

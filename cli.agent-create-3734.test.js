@@ -22,7 +22,7 @@ const run = promisify(execFile);
 // node through the engine's runtime, as it does on an installed Mac where an agent's PATH has none.
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agent-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 fs.mkdirSync(path.join(HOME, 'engine'));
 fs.copyFileSync(path.join(__dirname, 'engine', 'clilists.js'), path.join(HOME, 'engine', 'clilists.js'));
 fs.copyFileSync(path.join(__dirname, 'engine', 'localstamp.js'), path.join(HOME, 'engine', 'localstamp.js'));

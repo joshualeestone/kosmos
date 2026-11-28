@@ -21,7 +21,7 @@ const { earlyReaders } = require('./test-support/early-readers');
 
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agentrm-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 

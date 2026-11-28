@@ -225,7 +225,7 @@ function cliAtTerminal(port, args, answer) {
   return run('/bin/sh', ['-c', sh], { env, timeout: 40000 }).then(() => false, (e) => Boolean(e && e.killed))
     .then((timedOut) => { let t = ''; try { t = fs.readFileSync(out, 'utf8'); } catch { /* none */ } return { out: t.replace(/\r/g, ''), timedOut }; });
 }
-test('#8547 Mac: at a terminal, n sends nothing and y deletes the full and task-only leftovers (control: y sends)', { skip: process.platform !== 'darwin' }, () => withStub(MIXED, async (port, seen) => {
+test('#8547 Mac: at a terminal, n sends nothing and y deletes the full and task-only leftovers (control: y sends)', { skip: process.platform !== 'darwin' && 'it drives a terminal through /usr/bin/script -q /dev/null (the macOS form) run by /bin/sh, which Linux and Windows do not have in that form' }, () => withStub(MIXED, async (port, seen) => {
   const no = await cliAtTerminal(port, ['agent', 'delete-leftovers'], 'n');
   assert.equal(no.timedOut, false, 'the terminal run timed out: ' + no.out);
   assert.match(no.out, /Delete all 3 \(1 cannot be put back afterwards\)\? \[y\/N\]/, 'the prompt was not shown: ' + no.out);

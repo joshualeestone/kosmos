@@ -47,5 +47,17 @@ GitHub's runner is a Windows Server image run as admin, not Homer's box; the box
 (each fails there too). Reason 4 records an observed symptom without the root cause inside Git Bash; its defence is that
 the subject (the bash CLI) does not run on Windows at all.
 
-## Measured on GitHub's Windows runner at this branch
-Run 46119977052 (8 shards, all 25 files): 24 with 0 failing; version-4892 then fixed and rerun alone (run 46120197214): 4 of 4 pass. Every file passes in full on the Mac; engine/windows-tests-1777 24/24.
+## Measured on GitHub's Windows runner at this branch (an admin account, so symlinks work there)
+- Run 46119977052 (all 25, 8 shards): 24 with 0 failing; version-4892 fixed and rerun alone (run 46120197214): 4 of 4.
+- Run 46120662018 (all 25 at edf5373387, after the symlink guards in the both-CLI files and the ALSO_ROOT move): 24 with
+  0 failing; update-ifnewer's engine test answered "source", hence the fifth reason and kosmos#9280.
+- Every file passes in full on the Mac; engine/windows-tests-1777 24/24. The seven ALSO_ROOT files are first judged by
+  tools/windows-tests.js itself in this PR's own Windows job.
+
+## Left as it is, deliberately
+- version-4892 and feedback-note run on Windows now (fixes), and like unknown-flag and open-1957 they run install/kosmos
+  with a bare bash; the difference is what fails: theirs was a test assumption about a path (fixed), the other two hit
+  the bash CLI's own check for a running board under Git Bash (skipped: that CLI never runs on a Windows computer).
+  They still make the Mac CLI's runtime symlink when they load, which the bash CLI needs, so on a Windows account
+  without the symlink privilege they fail at load; the measured claim is for an account that can make symlinks.
+- Test titles that say "both CLIs" still read so on Windows, where only the Windows half runs; the comments say so.

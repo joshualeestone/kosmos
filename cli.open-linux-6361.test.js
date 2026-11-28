@@ -36,9 +36,9 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-home-6361-'));
 process.on('exit', () => { try { fs.rmSync(HOME, { recursive: true, force: true }); } catch { /* best effort */ } });
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 fs.mkdirSync(path.join(HOME, 'app'), { recursive: true });
-fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'app', 'engine'));
+if (!SKIP_POSIX_SHELL) fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'app', 'engine'));   // kosmos#8378: only the Mac CLI's tests use it, and a symlink needs a privilege on Windows
 
 // A stub xdg-open on PATH that records what it was handed.
 const BIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-xdg-6361-'));
