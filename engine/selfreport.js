@@ -416,7 +416,7 @@ function record(sessionName, entry) {
      the agent saying its wait is answered, nor for an automatic write (refused over a deliberate wait above), nor over
      an automatic permission prompt, which nobody asked. */
   let replacedQuestion;
-  if (entry.auto !== true && state !== 'needs_you' && entry.clear !== true) {
+  if (entry.auto !== true && entry.by !== 'operator' && state !== 'needs_you' && entry.clear !== true) {   // an operator clear means it
     const standing = read(sessionName);
     if (standing.found === true && standing.state === 'needs_you' && !isAutoPermissionWait(standing)) {
       replacedQuestion = typeof standing.because === 'string' ? standing.because : '';
@@ -810,8 +810,10 @@ const NEEDS_YOU_HELD_NOTE = 'Held: the board shows this question as held until t
    quote (install/kosmos), so the question is quoted with single quotes and cleaned of quotes, backslashes and line
    breaks, and cut short. */
 function replacedQuestionNote(question) {
-  const q = String(question || '').replace(/["\\]/g, "'").replace(/\s+/g, ' ').trim();
-  const shown = q.length > 120 ? q.slice(0, 117).trimEnd() + '...' : q;
+  /* Control characters go first: JSON would escape them as backslash-u sequences, which the macOS CLI would print. The cut
+     keeps whole characters (#7108, cutUnits): a split emoji would be escaped the same way. */
+  const q = String(question || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/["\\]/g, "'").replace(/\s+/g, ' ').trim();
+  const shown = q.length > 120 ? cutUnits(q, 117).trimEnd() + '...' : q;
   return 'This also took your open question to the person off the board' + (shown ? " ('" + shown + "')" : '')
     + '. If it still stands, ask it again with kosmos report needs_you.';
 }

@@ -112,4 +112,9 @@ test('kosmos#9320: the note is one plain line the macOS CLI can lift, whatever t
   const long = selfreport.replacedQuestionNote('x'.repeat(400));
   assert.ok(long.length < 260, 'a long question is cut short: ' + long.length);
   assert.match(selfreport.replacedQuestionNote(''), /off the board\. If it still stands/, 'an empty question still says it went');
+  // Review 1: neither a split emoji nor a control character may reach the reply as an escape (a backslash in its JSON).
+  for (const q of ['a'.repeat(116) + '\u{1F600}' + 'b'.repeat(40), 'one\u0001two\u001bthree\u007f']) {
+    const n = selfreport.replacedQuestionNote(q);
+    assert.doesNotMatch(JSON.stringify(n), /\\/, 'the reply would carry an escape the macOS CLI prints: ' + JSON.stringify(n));
+  }
 });
