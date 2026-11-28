@@ -154,6 +154,27 @@ test('#3380 mayStart:false does not start an agent for a task that was just ende
   assert.ok(events.includes('not-starting'));
 });
 
+test('#9236 a task ended after the start refuses a send and runs no turn; CONTROL: a live task takes it', async () => {
+  const seen = [];
+  let hostAlive = true;
+  const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex' },
+    baseOpts({ mayStart: () => hostAlive, runTurn: async (o) => { seen.push(o.message); return { ok: true, response: 'x', sessionId: 't' }; } }));
+  assert.ok(h.sessionId, 'it started');
+  const ok = await new Promise((res) => h.send('one', res));
+  assert.equal(ok.ok, true, 'control: a live task takes the message');
+  for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r));
+  const turnsBefore = seen.length;
+  assert.ok(turnsBefore >= 1, 'control: and runs a turn');
+  hostAlive = false;
+  const r = await new Promise((res) => h.send('two', res));
+  assert.equal(r.ok, false);
+  assert.ok(!r.unsure, 'nothing was queued, so it is a definite no');
+  assert.match(r.because, /task was ended/);
+  for (let i = 0; i < 3; i++) await new Promise((r2) => setImmediate(r2));
+  assert.equal(seen.length, turnsBefore, 'no turn ran for it');
+  h.stop();
+});
+
 /* #4003: a backlog is ONE turn. A Gemini agent in a busy room on Windows fell minutes
    behind because every post that arrived during a turn got its own full turn afterwards,
    each answering a message the room had moved past. */

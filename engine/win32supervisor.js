@@ -959,14 +959,15 @@ function superviseStreaming(spec, opts) {
     }, registrationGraceMs);
   }
 
+  /* Is this supervisor's task still alive? A throw reads as yes, as it always has. */
+  function taskAlive() {
+    try { return mayStart() !== false; } catch { return true; }
+  }
+
   function startOnce() {
     if (!running) return;
-    let may = true;
-    try { may = mayStart() !== false; } catch { may = true; }
-    if (!may) {
-      onEvent({ action: 'not-starting', because: 'its task was ended, so it is not starting its agent again' });
-      return;
-    }
+    const NOT_AGAIN = 'its task was ended, so it is not starting its agent again';
+    if (!taskAlive()) { onEvent({ action: 'not-starting', because: NOT_AGAIN }); return; }
     const blocked = blockedBy();
     if (blocked) {
       /* 🔑 THE THROTTLE IS NOT BURNED BY WAITING. `lastStart` is untouched here, so
@@ -976,6 +977,11 @@ function superviseStreaming(spec, opts) {
       timer(() => { if (running) startOnce(); }, pollMs);
       return;
     }
+    /* 🛑 kosmos#9236: ASKED AGAIN AFTER THE LOOKUP. `blockedBy` runs `claude agents --json`, which can take up to 15 s,
+       and a board restart ends this task during it: Homer measured the old supervisor launching `--resume <old id>`
+       beside the new one in 2 of 15 restarts on 0.8.29, both alive for about a second. The question asked before the
+       lookup is a second stale by the time the launch comes; this one is asked with nothing slow left in between. */
+    if (!taskAlive()) { onEvent({ action: 'not-starting', because: NOT_AGAIN }); return; }
     const r = launcher({
       name: s.name, runner: s.runner, cwd: s.cwd, claudeBin: s.claudeBin,
       configDir: s.configDir, model: s.model, platform: s.platform || 'win32',
@@ -1029,6 +1035,12 @@ function superviseStreaming(spec, opts) {
     const answer = (r) => { if (typeof done === 'function') { try { done(r); } catch { /* the caller's problem, not ours */ } } return r; };
     if (!child || !child.stdin || child.stdin.destroyed) {
       return answer({ ok: false, because: 'it is not running just now, so we did not type anything' });
+    }
+    /* kosmos#9236: a supervisor whose task was ended can still hold the channel for a moment while the next one starts,
+       and a message it took would go to an agent on its way out (an /End or a remove ends the task the same way, with no
+       new one). Nothing has been written, so this is a definite no. win32codexsup.js's send asks the same question. */
+    if (!taskAlive()) {
+      return answer({ ok: false, because: 'its task was ended, so we did not type anything' });
     }
     /* 🔑 `done` IS CALLED WHEN THE BYTES HAVE FLUSHED, NOT WHEN THEY WERE HANDED
        TO A STREAM (7c-3). The return value is a PRE-CHECK -- it says the pipe was

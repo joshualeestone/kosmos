@@ -315,6 +315,11 @@ function superviseCodexStreaming(spec, opts) {
     if (!running || !sessionId) {
       return answer({ ok: false, because: 'it is not running just now, so we did not hand it the message' });
     }
+    /* kosmos#9236, as win32supervisor.js's send: a supervisor whose task was ended can hold the channel for a moment,
+       and a message queued here would start a turn for an agent that is going away. Nothing was queued: a definite no. */
+    let alive = true;
+    try { alive = mayStart() !== false; } catch { alive = true; }
+    if (!alive) return answer({ ok: false, because: 'its task was ended, so we did not hand it the message' });
     queue.push(String(text));
     pump();
     return answer({ ok: true });
