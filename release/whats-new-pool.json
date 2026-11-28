@@ -3099,40 +3099,49 @@
       "notesOnly": true
     },
     {
-      "since": "0.8.31",
-      "status": "pending",
       "title": "Undo takes back a found Windows agent",
+      "line": "On Windows, Undo after adding a found agent now also deletes its Scheduled Task, so the agent can be added again.",
       "icon": "tasks",
-      "rank": 164,
-      "notesOnly": true,
       "platforms": [
         "windows"
       ],
-      "line": "On Windows, Undo after adding a found agent now also deletes its Scheduled Task, so the agent can be added again."
-    },
-    {
+      "rank": 164,
       "since": "0.8.31",
       "status": "pending",
-      "title": "The Muse turn log keeps going after a cut",
+      "notesOnly": true
+    },
+    {
+      "title": "The Muse turn log keeps going when full",
+      "line": "On Windows, an agent's Muse turn log keeps logging after it is cut to size.",
       "icon": "list",
-      "rank": 165,
-      "notesOnly": true,
       "platforms": [
         "windows"
       ],
-      "line": "On Windows, an agent's Muse turn log keeps logging after it is cut to size."
+      "rank": 165,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true
     },
     {
+      "title": "A receipt names a Codex agent's files",
+      "line": "A task receipt now lists the files a Codex agent edited through a Windows path, never the agent's own folder.",
+      "icon": "tasks",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 166,
       "since": "0.8.32",
       "status": "pending",
-      "title": "A receipt names a Codex agent's files",
+      "notesOnly": true
+    },
+    {
+      "title": "A receipt keeps a file name whole",
+      "line": "A task receipt no longer adds a closing quote to the name of a file a Codex agent edited.",
       "icon": "tasks",
-      "rank": 166,
-      "notesOnly": true,
-      "platforms": [
-        "windows"
-      ],
-      "line": "A task receipt now lists the files a Codex agent edited by a Windows path, never the agent's own folder."
+      "rank": 167,
+      "since": "0.8.32",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
   "lastProdWin": "0.8.31"
