@@ -3,16 +3,18 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
 /**
  * kosmos#9254: a test browser must never read the person's login keychain. On 2026-11-27 a Chrome for Testing asked
  * for "Chromium Safe Storage", and the dialog reached the person. What launched that browser is not covered by any
- * record we hold, so this guard does not prove that launch is fixed: it keeps this repo's own launches from being one. Playwright adds --use-mock-keychain and
- * --password-store=basic to every Chromium it launches (measured on this Mac: the browser process carries both, and
- * securityd logs no request), so the danger is a launch that turns those defaults off, or one that runs a Chrome
- * binary itself. This reads the repo's tracked source as text and refuses both shapes.
+ * record we hold, so this guard does not prove that launch is fixed: it keeps this repo's own launches from being one.
+ *
+ * Playwright adds --use-mock-keychain and --password-store=basic to every Chromium it launches (measured on this Mac:
+ * the browser process carries both, and securityd logs no request), so the danger is a launch that turns those
+ * defaults off, or one that runs a test browser binary itself. This reads the repo's tracked source as text and
+ * refuses both shapes. The person's own Google Chrome is left alone (see RUN_ARMS).
  *
  * What text can show, stated: a launch's ignoreDefaultArgs (the JavaScript spelling) wherever the name appears, and a
- * Chrome run named by a literal path, app name or bundle id, as a shell string or as an argv list ('open', ['-a', ...]).
- * A Chrome path held only in a variable cannot be seen: engine/agentbrowser.js runs the headless shell that way
- * (execP(exe, ['--version']), which exits before any keychain read). The fleet rule proposed on the card covers what
- * no repo scan can.
+ * test browser run named by a literal path, app name or bundle id, as a shell string or an argv list. A path held only
+ * in a variable cannot be seen: engine/agentbrowser.js runs the headless shell that way (execP(exe, ['--version']),
+ * which exits before any keychain read). The MCP config the repo writes is pinned by engine/agentbrowser.test.js. The
+ * fleet rule proposed on the card covers what no repo scan can.
  *
  *   node --test browser-launch-keychain-9254.test.js
  */
