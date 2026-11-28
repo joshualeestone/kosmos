@@ -304,8 +304,11 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     return row ? row.weeklyBlocked : 'unlisted';
   };
   if (process.platform === 'win32') {
+    // kosmos#8378: Windows wires the reading too since #6213 (engine/allowance.js winCommandFor, 10-19), after this arm
+    // was written expecting 409. The arms below link and mode the settings file, so they stay Mac and Linux only.
     const r = await post({ dir: def });
-    assert.equal(r.status, 409, 'Windows has no weekly reading to wire: ' + JSON.stringify(r));
+    assert.equal(r.status, 200, 'Windows wires the weekly reading (#6213): ' + JSON.stringify(r));
+    assert.equal(r.j.wired, true, JSON.stringify(r));
     return;
   }
   const keyed = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-keyed6175');

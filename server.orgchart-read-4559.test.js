@@ -29,7 +29,7 @@ delete process.env.CLAUDE_CONFIG_DIR;
 /* The VERTICAL test creates agents: Claude Code's own config is sandboxed (fixture discipline), and the binary is
    /bin/echo, so nothing it runs is a provider. Every model test here fakes the runner and availability. */
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
-process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = require('./test-support/runnerstub').writeRunnerStub(path.join(SANDBOX, 'bin'), 'claude');   // kosmos#8378: runnable on Windows too (a .cmd beside it); /bin/echo is not
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
