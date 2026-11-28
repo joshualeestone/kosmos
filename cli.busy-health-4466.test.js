@@ -253,11 +253,12 @@ test('#4466 an --auto report stays inside the hook timeout END TO END: a slow he
 }, 2500));
 
 test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgcut', async (port) => {
-  // The health check passes; the send's connection is then dropped (curl 52/56). The timeout case keeps its
-  // own exit 3 "maybe delivered" sentence; this is every other failure of the send.
+  // The health check passes; the send's connection is then dropped (curl 52/56), and the one retry is cut too.
+  // kosmos#9243: a maybe, as the timeout and the Windows CLI: exit 3 and wait for their answer, never a probe.
   const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }));
-  assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.match(out.stdout, /did not answer in time, so we could not send that\. It may still have happened: check before doing it again\. It does not need a restart\./);
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /Kosmos did not answer, and did not answer when asked once more\. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again\./);
+  assert.doesNotMatch(out.stdout, /check before doing it again/);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
 }));
 
@@ -281,8 +282,8 @@ test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not 
   // The kept copy goes to $TMPDIR: point it inside SCRATCH_HOME so the #4273 leak guard sees nothing left behind.
   const tmp = fs.mkdtempSync(path.join(SCRATCH_HOME, 'tmp-'));
   const out = await runCli(['msg', '--stdin', 'mara'], baseEnv(port, { TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'a piped message');
-  assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.match(out.stdout, /It may still have happened/);
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /The message may have been delivered/);
   const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
   assert.ok(kept, out.stdout);
   assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
@@ -635,7 +636,8 @@ test('#4580 a post whose reply is CUT is asked once more too; a board that keeps
     await withBoard('cutalways', async (port, firstFile) => {
       const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
       assert.notEqual(out.code, 0, args[0]);
-      assert.match(out.stdout, /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      // kosmos#9243: msg says wait for their answer (no id to check); post keeps its own sentence.
+      assert.match(out.stdout, args[0] === 'msg' ? /with no id, kosmos msg --status cannot check it/ : /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
       assert.doesNotMatch(out.stdout, /not running|Is it running/);
       assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, args[0] + ': one retry, then stop');
     });
@@ -656,7 +658,7 @@ test('#4580 cut, then refused (the board restarted): still "may have happened", 
       const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
       assert.notEqual(out.code, 0, args[0]);
       assert.match(out.stderr, /asking once more/, args[0]);
-      assert.match(out.stdout, /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      assert.match(out.stdout, args[0] === 'msg' ? /with no id, kosmos msg --status cannot check it/ : /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
       assert.doesNotMatch(out.stdout, /Is it running|not running/, args[0]);
     });
   }

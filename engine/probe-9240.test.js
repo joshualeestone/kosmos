@@ -20,8 +20,8 @@ test('kosmos#9240: a member is told to send no test message, and to check the re
   assert.ok(flat.includes('that they have not read it yet, may read it later, or that Kosmos cannot tell, is no reason to send it again.'),
     'a not-read-yet or cannot-tell answer invites the next probe');
   // kosmos#9243: nothing real to send yet still gets no test message.
-  assert.ok(flat.includes('With nothing real to send yet, a real message is the check: there is no test message to send.'),
-    'an agent with nothing to say yet is left to probe');
+  assert.ok(flat.includes('With nothing real to send yet, there is no test message to send: `' + kosmosCliShown() + ' agent list` shows each agent\'s state now.'),
+    'an agent with nothing to say yet is left to probe, or told of no read that answers it');
   assert.ok(flat.includes('A room post needs no test either: the post command says whom it reached, or that it could not post.'),
     'a room post is left with no guidance, so it gets the unmarked probe');
 });

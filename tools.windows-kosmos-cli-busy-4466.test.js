@@ -72,7 +72,8 @@ const kept = '{"delivery":{"state":"placed","because":null,"id":"m1","duplicate"
 test('#4580 Windows: a msg whose reply is cut is asked once more, and the receipt says it arrived', async () => {
   const h = sequence([reset(), kept]);
   assert.equal(await cli.main(['msg', 'mara', 'the lease is signed'], h.io), 0, h.err());
-  assert.match(h.out(), /^Placed with mara \(it had arrived the first time; it was not sent twice\)\.$/);
+  // kosmos#9243: the duplicate prints its id too, since this retry's first attempt printed none.
+  assert.match(h.out(), /^Placed with mara \(it had arrived the first time; it was not sent twice\)\.\nIts id is m1: kosmos msg --status m1 says later/);
   assert.match(h.err(), /asking once more/, 'the retry says so, on the captured stderr');
   assert.equal(h.calls(), 2);
 });

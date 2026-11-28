@@ -23,6 +23,7 @@ test('#9243: a timed-out direct message points at waiting for an answer, on both
   assert.ok(MAC.includes(TIMEOUT), 'install/kosmos lost the timeout sentence');
   assert.ok(WIN.includes(TIMEOUT), 'the Windows CLI lost the timeout sentence');
   assert.ok(WIN.includes(RETRIED), 'the Windows CLI lost the asked-once-more sentence');
+  assert.ok(MAC.includes(RETRIED), 'install/kosmos lost the asked-once-more sentence (a cut reply and a cut retry)');
 });
 
 test('#9243: an unconfirmed direct message points at msg --status, on both CLIs', () => {
