@@ -1156,6 +1156,41 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
    so it refuses the save as a swapped name does; one is enough when the other attempts fail for another reason. CONTROL:
    three EPERM failures still take the fallback and write, so the rule is about EEXIST, not about failing. A single plant
    followed by a clean attempt still saves: the #1787 retry test here and the #1761 ones in sendertoken.test.js cover that. */
+/* kosmos#9325: on Windows a delete-pending file (held open, marked for deletion the classic way) keeps its name and
+   makes the create fail EPERM (measured on Windows build 26100). Simulated on any host: a file at the name and an EPERM
+   from the create. An EPERM with the name present refuses as a plant; CONTROL: an EPERM with no name still falls back. */
+test('#9325: an EPERM on the temp create with a file at its name refuses the save; an EPERM with no name falls back', (t) => {
+  const realOpen = fs.openSync;
+  const made = [];
+  t.after(() => { fs.openSync = realOpen; for (const p of made) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  const run = (name, withName) => {
+    const file = fresh(name);
+    fs.writeFileSync(file, 'old config');
+    let inPlace = 0;
+    fs.openSync = function (p, flags, ...rest) {
+      if (flags === 'wx' && String(p).includes('.kosmos-')) {
+        if (withName) { made.push(String(p)); fs.writeFileSync(String(p), 'pending'); }
+        throw Object.assign(new Error('access denied'), { code: 'EPERM' });
+      }
+      if (String(p) === file) inPlace += 1;
+      return realOpen.call(fs, p, flags, ...rest);
+    };
+    let err = null;
+    try { securewrite.writeSecret(file, 'secret-9325', 0o600); } catch (e) { err = e; }
+    fs.openSync = realOpen;
+    return { err, inPlace, after: fs.readFileSync(file, 'utf8') };
+  };
+  const pend = run('pend3', true);
+  assert.equal(pend.err && pend.err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'a delete-pending name did not refuse: ' + (pend.err && pend.err.code));
+  assert.equal(pend.err.planted, true);
+  assert.equal(pend.inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(pend.after, 'old config');
+  for (const p of made) assert.equal(fs.readFileSync(p, 'utf8'), 'pending', 'a pending file was removed');
+  const ctl = run('eperm3b', false);
+  assert.equal(ctl.err, null, 'CONTROL: an EPERM with no name should fall back: ' + (ctl.err && ctl.err.code));
+  assert.equal(ctl.after, 'secret-9325', 'CONTROL: the fallback did not write');
+});
+
 test('#9307: plain files planted at the temp names refuse the save, with no in-place fallback; EPERM still falls back', (t) => {
   const realOpen = fs.openSync;
   const planted = [];
