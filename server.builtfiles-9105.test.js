@@ -394,14 +394,18 @@ test('#9105 review 5: one withdrawal of several files is named; show says none c
   assert.match(r.json.summary, /This mark sent no file, so 'a\.md', which you sent, is withdrawn; the other files stay\./);
   const tok = sendertoken.mint('mona').token;
   await mark(n, asAgent('ivy'), { note: 'mine too' });
-  const show = await mac(['task', 'show', projectId, String(n)], { KOSMOS_AGENT_TOKEN: tok });
-  assert.match(show.out, /Delivered files: +none current: every file sent was withdrawn/, show.out);
-  assert.doesNotMatch(show.out, /check them again/);
+  if (process.platform !== 'win32') {   // kosmos#8378: the Mac CLI (install/kosmos, bash) reads it back; the route checks above run everywhere
+    const show = await mac(['task', 'show', projectId, String(n)], { KOSMOS_AGENT_TOKEN: tok });
+    assert.match(show.out, /Delivered files: +none current: every file sent was withdrawn/, show.out);
+    assert.doesNotMatch(show.out, /check them again/);
+  }
   const m = tasks.create(projectId, { sentence: 'Unnamed then named', who: 'mona' }).number;
   tasks.setBuilt(projectId, m, { by: 'mona', fingerprint: A });
   await mark(m, asAgent('mona'), { files: two() });
-  const show2 = await mac(['task', 'show', projectId, String(m)], { KOSMOS_AGENT_TOKEN: tok });
-  assert.match(show2.out, /File sent without a name, by an older Kosmos command or with a path Kosmos does not keep \(it may be one of the others, sent again\)/, show2.out);
+  if (process.platform !== 'win32') {   // kosmos#8378: the Mac CLI again
+    const show2 = await mac(['task', 'show', projectId, String(m)], { KOSMOS_AGENT_TOKEN: tok });
+    assert.match(show2.out, /File sent without a name, by an older Kosmos command or with a path Kosmos does not keep \(it may be one of the others, sent again\)/, show2.out);
+  }
 });
 
 test('#9105 review 5 Mac: a name typed in another case is the name the folder lists', macOnly, async () => {

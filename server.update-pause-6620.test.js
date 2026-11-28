@@ -47,7 +47,7 @@ test.before(async () => {
 });
 test.after(() => {
   if (before === undefined) delete process.env.KOSMOS_UPDATE_PAUSE_URL; else process.env.KOSMOS_UPDATE_PAUSE_URL = before;
-  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.resetCache();
+  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.setPlatform(null); update.resetCache();
   try { server.closeAllConnections(); server.close(); } catch { /* best effort */ }
   try { meta.close(); } catch { /* best effort */ }
 });
@@ -55,6 +55,10 @@ test.after(() => {
 /** A board offered `version`, installed (a stub root), automatic updates off, and an installer that runs nothing. */
 async function offer(version) {
   update.resetCache();
+  /* kosmos#8378: the Mac arm on every host, as server.version-5084 does. On a Windows host the update takes the Windows
+     arm, which finds its build through win32board rather than setInstalledRoot, so nothing was on offer; what this file
+     pins (an Install press during a pause) is the same refusal on both. */
+  update.setPlatform('darwin');
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version }) }));
   update.setInstalledRoot(() => path.join(SANDBOX, 'kosmos-install-root'));
   update.setAutoPref(() => ({ on: false, ok: true }));

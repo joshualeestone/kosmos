@@ -46,7 +46,7 @@ function boot(box, extraEnv) {
       AGENT_WORKFORCE_LAUNCH: path.join(box.sb, 'launch'),
       AGENT_WORKFORCE_PROJECTS: path.join(box.sb, 'projects'),
       AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(box.sb, 'claude-config.json'),
-      AGENT_WORKFORCE_CLAUDE_BIN: '/bin/echo',
+      AGENT_WORKFORCE_CLAUDE_BIN: require('./test-support/runnerstub').writeRunnerStub(path.join(box.sb, 'bin'), 'claude'),   // kosmos#8378: runnable on Windows too
       AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
       AGENT_WORKFORCE_FAKE_PANES: path.join(box.sb, 'panes.txt'),
       AGENT_WORKFORCE_DRY_RUN: '1',
@@ -102,7 +102,7 @@ test('#4405: switched ON with no model, it says no-model and makes nothing; OFF 
     assert.equal(fs.existsSync(flagFile(box)), false, 'a guide was made with no model');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
 
@@ -131,7 +131,7 @@ test('#4405: switched ON with a model and no guide, it makes the guide once; ON 
     assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).at, flag.at, 'the guide record was rewritten');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
 
@@ -159,7 +159,7 @@ test('#4405: a guide that was made and then REMOVED is put back by switching ON 
     assert.equal(fs.existsSync(path.join(box.sb, 'workers', 'josh-ai')), false, 'a second guide (Josh AI) was made');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
 
@@ -179,7 +179,7 @@ test('#4405: a recorded guide whose folder is GONE from disk is NOT forgotten or
     assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).via, 'first-run', 'the record was forgotten or rewritten');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
 
@@ -202,6 +202,6 @@ test('kosmos#8484: switched ON while a leftover folder holds the guide\'s name, 
     assert.equal(fs.existsSync(path.join(box.sb, 'workers', 'josh-ai')), false, 'a second guide was made under the fallback name');
   } finally {
     if (child) await stopBoard(child);
-    fs.rmSync(box.sb, { recursive: true, force: true });
+    fs.rmSync(box.sb, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });   // kosmos#8378: Windows frees a stopped board's files a moment later (EPERM)
   }
 });
