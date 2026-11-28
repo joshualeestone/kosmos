@@ -92,6 +92,7 @@ chmod +x $S/qh
 QH=$S/qh
 # Fake package managers first on PATH: the test cases spell real `yarn test` commands, and none may ever reach the
 # real suite (a stray one joined the real queue once, from an unquoted heredoc that built the harness).
+REAL_NODE="$(command -v node)"   # kosmos#9246: the real one, before the stand-in below shadows it (the board-text arm needs it)
 mkdir -p $S/bin; for t in yarn npm pnpm bun deno npm-run-all run-s run-p node npx; do printf '#!/bin/sh\necho "FAKE-%s $*"\n' "$t" > $S/bin/$t; chmod +x $S/bin/$t; done
 export PATH="$S/bin:$PATH"
 # kosmos#9217: no case here may announce to a real board; the arms that test the announcement turn it on, with a
@@ -1127,7 +1128,80 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_H
 ok "#9217: a beside run (past the cap) announces too" '[[ "$o" == *"RUNNING BESIDE"* ]] && grep -qE "^heavy start beside job --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 
-EXPECTED=217   # one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+# kosmos#9246: a caller that names the real marker folder itself is on the real markers, so it announces (trailing
+# slash and a symlink to it alike); control characters in the name become spaces, so the board does not refuse it.
+mkdir -p $S/home/.cache/kosmos-run-markers; ln -sfn $S/home/.cache/kosmos-run-markers $S/markers-link
+o=$(cd /tmp && unset QUEUED_HEAVY_ANNOUNCE; HOME=$S/home KOSMOS_RUN_MARKER_DIR=$S/home/.cache/kosmos-run-markers/ TMUX_PANE=%42 /bin/bash $QH "named real" true 2>&1); calls
+ok "#9246: the real marker folder named explicitly (with a trailing slash) announces, as unset does" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board"* ]] && grep -qE "^heavy start named real --pid [0-9]+$" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && unset QUEUED_HEAVY_ANNOUNCE; HOME=$S/home KOSMOS_RUN_MARKER_DIR=$S/markers-link TMUX_PANE=%42 /bin/bash $QH "linked real" true 2>&1); calls
+ok "#9246: a symlink to the real marker folder announces too" '[[ "$o" == *"asked the board"* ]] && grep -qE "^heavy start linked real --pid [0-9]+$" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+# Round 7: the negative, where the real folder exists (so both physical paths resolve): another folder named under the
+# same HOME stays quiet, whatever this computer's own ~/.cache holds.
+o=$(cd /tmp && unset QUEUED_HEAVY_ANNOUNCE; HOME=$S/home KOSMOS_RUN_MARKER_DIR=$S/mannother TMUX_PANE=%42 /bin/bash $QH "other folder" true 2>&1); sleep 3
+ok "#9246: with the real folder present, another folder named explicitly still asks nothing and says nothing" '[[ "$o" == *"END rc=0"* && "$o" != *"the board"* ]] && [ ! -e $S/kosmos-calls ]'
+rm -f $S/kosmos-calls
+# Round 8: end to end, a non-ASCII space reaches the leading-dash check as a space (under a C locale, where bash's
+# [[:space:]] would not see an NBSP), so the name is not sent and the line says why.
+o=$(cd /tmp && LC_ALL=C KOSMOS_RUN_MARKER_DIR=$S/mannnbsp QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "$(printf '\302\240-x')" true 2>&1); sleep 3
+ok "#9246: under a C locale, a name of an NBSP then -x is not sent, and the line says why" '[[ "$o" == *"a name starting with - cannot be a label"* ]] && [ ! -e $S/kosmos-calls ]'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannctl QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "$(printf 'ctl\tjob\nx\033y')" true 2>&1); calls
+ok "#9246: a tab, a newline and an escape in the name are sent as spaces, on one line" '[ "$(wc -l < $S/kosmos-calls | tr -d " ")" = 1 ] && grep -qxE "heavy start ctl job x y --pid [0-9]+" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && LC_ALL=C KOSMOS_RUN_MARKER_DIR=$S/mannsep QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "$(printf 'sep\342\200\250rlo\342\200\256c1\302\205end')" true 2>&1); calls
+ok "#9246: under a C locale, a line separator, a direction mark and a C1 control are sent as spaces too" 'grep -qxE "heavy start sep rlo c1 end --pid [0-9]+" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+# kosmos#9246 round 2: every BMP character the board's own normalizeLabel refuses inside a label, or reads as a space,
+# comes out of queued-heavy's _qh_board_text as exactly a space, in a C locale and in this computer's UTF-8 one. The list
+# is the board's, not a copy of the script's, so a character missing from the script reds here. (Round 3: the function
+# is read from the real script, not the shim; node is the real one; and LC_ALL is exported in the subshell, as bash 3.2
+# ignores a temporary LC_ALL on a function call. A UTF-8 locale is where [[:cntrl:]] already catches most of the list,
+# so the C pass is the one that pins it.)
+sed -n '/^_qh_board_text() {$/,/^}$/p' "$REAL_QH" > $S/boardtext.sh
+btutf=$(locale -a 2>/dev/null | grep -ixE 'en_US\.utf-?8' | head -n 1)
+[ -n "$btutf" ] || btutf=$(locale -a 2>/dev/null | grep -iE '\.utf-?8$' | head -n 1)
+"$REAL_NODE" - "$ROOT/engine/heavyjobs.js" > $S/bt-chars <<'JS'
+const hj = require(process.argv[2]);
+for (let cp = 0x01; cp <= 0xffff; cp++) {   // NUL cannot be in a bash string; round 6: the ASCII controls and DEL too
+  if (cp >= 0xd800 && cp <= 0xdfff) continue;
+  const c = String.fromCodePoint(cp);
+  let kind = null;
+  try { hj.normalizeLabel('a' + c + 'b'); } catch { kind = 'refused'; }
+  if (!kind && /\s/.test(c)) kind = 'space';
+  if (kind) console.log(Buffer.from(c).toString('hex') + ' ' + kind);
+}
+JS
+for loc in C ${btutf:-}; do
+  ( export LC_ALL=$loc; . $S/boardtext.sh
+    while read -r hex kind; do
+      in=$(printf "a$(printf '%s' "$hex" | sed 's/../\\x&/g')b")
+      printf '%s %s %s\n' "$loc" "$kind" "$(_qh_board_text "$in" | od -An -tx1 | tr -d ' \n')"
+    done < $S/bt-chars )
+done > $S/bt-out
+btbad=$("$REAL_NODE" - "$ROOT/engine/heavyjobs.js" "$S/bt-out" "$(wc -l < $S/bt-chars | tr -d ' ')" "C ${btutf:-}" <<'JS'
+const hj = require(process.argv[2]);
+const rows = require('fs').readFileSync(process.argv[3], 'utf8').split('\n').filter(Boolean);
+const want = Number(process.argv[4]), locs = process.argv[5].trim().split(/\s+/);
+let bad = 0;
+for (const loc of locs) if (rows.filter((r) => r.startsWith(loc + ' ')).length !== want) { bad++; console.error('BAD board text: ' + loc + ' has the wrong number of rows'); }
+for (const r of rows) {
+  const [loc, kind, hex] = r.split(' ');
+  const out = Buffer.from(hex || '', 'hex').toString('utf8');
+  let ok = out === 'a b';
+  try { hj.normalizeLabel(out); } catch { ok = false; }
+  if (!ok) { bad++; if (bad <= 5) console.error('BAD board text: ' + loc + ' ' + kind + ' ' + hex); }
+}
+console.log(rows.length + ' ' + bad);
+JS
+)
+# A computer with no UTF-8 locale (a minimal Linux image) runs the C pass alone and says so: that pass is the one that
+# pins the list (round 4), and the node check above still holds each pass that ran to the full count of characters.
+btnote=" and $btutf"; [ -n "$btutf" ] || btnote=" (UTF-8 pass skipped: no UTF-8 locale on this computer)"
+ok "#9246: every character the board refuses or trims becomes a space, in C$btnote ($btbad: rows, bad)" '[ -s $S/boardtext.sh ] && [ "${btbad#* }" = 0 ] && [ "${btbad% *}" -ge 60 ]'
+
+EXPECTED=224   # seven #9246 arms (an NBSP before -x under a C locale is refused as a leading -, the real marker folder named with a trailing slash, a symlink to it, another folder under the same HOME stays quiet, control characters in a name, separators and marks under a C locale, every character the board refuses or trims); one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
