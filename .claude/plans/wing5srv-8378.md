@@ -59,4 +59,5 @@ Tests passing went from 344 to 459; skips from 13 to 24, each new one named belo
 ## Weakest premises
 - The GitHub runner is a Windows Server image run as admin, not Homer's box; his next inventory confirms it.
 - These files are not added to the Windows CI selection (tools/windows-tests.js ALSO_ROOT), so nothing keeps them green on
-  Windows after this; Homer's full inventory is what would see a regression.
+  Windows after this; Homer's full inventory is what would see a regression. Card #9286 (filed in
+  review round 1) asks for that decision.

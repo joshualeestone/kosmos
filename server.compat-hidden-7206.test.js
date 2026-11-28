@@ -91,7 +91,8 @@ test('switch OFF: every route refuses or shows nothing, and no key is sent to De
   assert.deepEqual(r.status, { enabled: false, vendors: [] }, 'the page is offered DeepSeek');
   assert.equal(r.add.status, 400);
   /* kosmos#8378: on Windows the add route refuses DeepSeek before the switch is asked (it runs on a Mac for now), so the
-     same refusal comes in the platform's words; everything else below holds there as it does here. */
+     refusal comes in the platform's words, and there the add checks (this one, no key sent, nothing stored) pass whatever
+     the switch says: only the create, switch and check routes below show the switch's gate on Windows. */
   const ADD_REFUSAL = process.platform === 'win32' ? 'DeepSeek agents run on a Mac for now; this computer cannot run them yet' : NOT_YET;
   assert.equal(r.addBody.error, ADD_REFUSAL, 'add: ' + says(r.addBody));
   assert.equal(r.list.accounts.some((a) => a.provider === 'deepseek' || a.dir === DIR), false, 'list: a DeepSeek row is shown');
