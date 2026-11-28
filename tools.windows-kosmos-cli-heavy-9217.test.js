@@ -185,5 +185,5 @@ test('heavy take: another agent\'s job Kosmos could not check is named as the ho
 
 test('heavy take: a take that timed out is "maybe" (3), never the "wait" code (10)', async () => {
   const r = await run(['heavy', 'take', 'suite'], () => { throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); });
-  assert.notEqual(r.code, 10, 'a timed-out take read as "you are waiting"');
+  assert.equal(r.code, 3, 'a timed-out take must be "maybe" (3): never 0 (run the job) and never 10 (wait)');
 });

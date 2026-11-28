@@ -105,6 +105,9 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
       out = writeLine(root, line) ? { ok: true, turn: true, job: again.job } : { ok: true, turn: true, job: again.job, lineNotSaved: true };
       return;
     }
+    // Only another agent's job holds the turn against the caller (round 6): an agent holding a job of its own under another
+    // pid (or none) is not made to wait behind itself; it waits only behind the places ahead of it.
+    const busy = jobs.filter((j) => j.agent !== agent);
     let me = line.find(mine(agent, p));
     if (!me) {
       if (line.length >= MAX_LINE) { out = { ok: false, because: 'the line already has ' + MAX_LINE + ' places; try again later', refused: true }; return; }
@@ -117,7 +120,7 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
     }
     me.label = lab; me.at = now;
     if (pidStart) me.pidStart = pidStart;
-    if (jobs.length) {
+    if (busy.length) {
       for (const e of line) e.front = null;   // the turn is not free, so nobody's grace is running
     } else {
       // The turn is free. A front place that has had it free for GRACE_MS without taking it goes to the back once, then
@@ -130,6 +133,8 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
         const s = hj.start({ root, agent, label: lab, pid: p, now, startOf });
         if (!s.ok) { out = s; return; }   // refused or not saved: the place is kept, unwritten, as it was
         line = line.slice(1);
+        // Not saved: the turn is recorded, but the caller's old place stays in the file until its release (which removes
+        // it) or the idle limit; meanwhile it counts as a place ahead of others. Rare: it needs a failed write.
         out = writeLine(root, line) ? { ok: true, turn: true, job: s.job } : { ok: true, turn: true, job: s.job, lineNotSaved: true };
         return;
       }
@@ -137,7 +142,7 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
     }
     const at = line.indexOf(me);
     out = writeLine(root, line)
-      ? { ok: true, turn: false, place: at + 1, holder: jobs.length ? jobs[0] : null, ahead: line.slice(0, at).map(shown) }
+      ? { ok: true, turn: false, place: at + 1, holder: busy.length ? busy[0] : null, ahead: line.slice(0, at).map(shown) }
       : { ok: false, because: NOT_SAVED };
   });
   if (!r.ok) return { ok: false, because: r.because };
