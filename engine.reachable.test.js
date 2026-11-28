@@ -400,6 +400,7 @@ const SEAMS_5548 = {
   setReaderForTest: 'engine/orgchartfile.js',
   setManagedSourcesForTest: 'engine/orgchartfile.js',
   setModelRunner: 'engine/orgchartfile.js',
+  setClaudeLaunchForTest: 'engine/orgchartfile.js',   // kosmos#9272: what the real Claude call starts, so a node stand-in runs on Windows
   setModelAvailable: 'engine/orgchartfile.js',
   _ageFallbackForTests: 'engine/personlanguage.js',
   setAvailableForTests: 'engine/phonenotify.js',

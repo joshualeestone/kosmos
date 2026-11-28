@@ -609,6 +609,17 @@ function readArgs() {
   return claudeArgs(keyHelperFor(account && account.dir));
 }
 
+/* kosmos#9272: what the real call starts, as [file, args]. A test that stands claude in with a node script hands
+   (bin, args) => [process.execPath, [script, ...args]]: Windows cannot run a #!/bin/sh stand-in, and since Node's
+   CVE-2024-27980 fix execFile refuses a .cmd without a shell, which this call rightly never asks for. Everything
+   else in the call (the flags, the env, stdin, reading the answer) stays real. Null puts the real launch back. */
+const realLaunch = (bin, args) => [bin, args];
+let claudeLaunch = realLaunch;
+function setClaudeLaunchForTest(fn) {
+  if (fn !== null && typeof fn !== 'function') throw new TypeError('setClaudeLaunchForTest takes a function, or null for the real launch');
+  claudeLaunch = fn || realLaunch;
+}
+
 /* The real call: Claude Code, headless, in an empty temporary folder, on the default account, or the board's own.
    Resolves { ok, structured } or { ok:false, because }. Replaceable for tests (setModelRunner). */
 function defaultModelRunner(line, signal) {
@@ -638,7 +649,8 @@ function defaultModelRunner(line, signal) {
     /* maxBuffer: well past the largest request (a 10 MB PDF is about 13.3 MB as base64), in case this output format
        ever echoes the request back; not measured against a real multi-MB PDF (a fake binary cannot say what claude
        prints). A real answer is a few kilobytes. */
-    const child = execFile(bin, readArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 32 << 20, killSignal: 'SIGKILL', signal },
+    const [file, args] = claudeLaunch(bin, readArgs());
+    const child = execFile(file, args, { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 32 << 20, killSignal: 'SIGKILL', signal },
       (err, stdout, stderr) => {
         let result = null;
         for (const l of String(stdout || '').split('\n')) {
@@ -920,5 +932,5 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = { MODEL_TIMEOUT_MS, keyHelperFor, readArgs,
-  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, setManagedSourcesForTest, claudeRedirected, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, setManagedSourcesForTest, claudeRedirected, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, setClaudeLaunchForTest, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
    markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

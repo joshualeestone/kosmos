@@ -7,6 +7,7 @@ require('../test-support/tmpscope');
  * the fixtures end to end; this file pins what a real export can throw at the reader. Synthetic names only.
  */
 const test = require('node:test');
+const SKIP_SH_CLAUDE = require('../test-support/skip-on-win32').skipOnWin32('it stands claude in with a #!/bin/sh script run by its shebang line, which Windows cannot run; its Windows arm is the matching #9272 test at the end of this file, which starts a node stand-in');   // kosmos#9272
 const assert = require('node:assert/strict');
 const zlib = require('node:zlib');
 const fs = require('node:fs');
@@ -390,7 +391,7 @@ test('an answer that leaves out sure is treated as unsure (fails closed)', () =>
   assert.match(r.rows[0].why || '', /not sure/);
 });
 
-test('the real runner reads a stream-json result from claude (a fake binary, no provider)', async () => {
+test('the real runner reads a stream-json result from claude (a fake binary, no provider)', { skip: SKIP_SH_CLAUDE }, async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -457,7 +458,7 @@ test('#4559: a file with no manager column says so, rather than reading as every
   assert.ok(!withBoss.problems.includes(o.NO_MANAGER_COLUMN), 'CONTROL: a manager column, even with an empty top cell, is not flagged');
 });
 
-test('#4559: a Claude Code too old for these flags says so, instead of "did not answer" (a fake binary, no provider)', async () => {
+test('#4559: a Claude Code too old for these flags says so, instead of "did not answer" (a fake binary, no provider)', { skip: SKIP_SH_CLAUDE }, async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -502,12 +503,14 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
   for (const [v] of hostRedirect) delete process.env[v];
   t.after(() => { for (const [v, was] of hostRedirect) { if (was !== undefined) process.env[v] = was; } });
   // The shape accounts.list() really emits for a key account: a non-default folder, reached through CLAUDE_CONFIG_DIR.
-  process.env.CLAUDE_CONFIG_DIR = '/tmp/x-claude';
+  // kosmos#9272: resolved, as accounts.list() emits it and readAccount compares it: '/tmp/x-claude' is D:\tmp\x-claude on Windows.
+  const KEY_DIR = path.resolve('/tmp/x-claude');
+  process.env.CLAUDE_CONFIG_DIR = KEY_DIR;
   t.mock.method(runners, 'resolveBin', () => ({ present: true, bin: 'claude' }));
-  let rows = [{ dir: '/tmp/x-claude', isDefault: false, email: null, apiKey: true }];
+  let rows = [{ dir: KEY_DIR, isDefault: false, email: null, apiKey: true }];
   t.mock.method(accounts, 'list', () => rows);
   try {
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true, token: false, redirected: false });
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: KEY_DIR, apiKey: true, token: false, redirected: false });
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
     // The default account on a subscription: not a key, until the board's own environment carries one.
     delete process.env.CLAUDE_CONFIG_DIR;
@@ -588,7 +591,7 @@ test('#4559: the heaviest workbook under the caps is read on the board thread in
   assert.ok(ms < 1500, `the read held the board's thread for ${Math.round(ms)}ms`);
 });
 
-test('#4559: the read runs claude on the default account with CLAUDE_CONFIG_DIR unset, as an agent on it runs; a board on its own account passes that one as set', async () => {
+test('#4559: the read runs claude on the default account with CLAUDE_CONFIG_DIR unset, as an agent on it runs; a board on its own account passes that one as set', { skip: SKIP_SH_CLAUDE }, async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -755,4 +758,112 @@ test('#7742: only what really says so counts as sent elsewhere, and what cannot 
     for (const [k, v] of keep) process.env[k] = v;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* kosmos#9272: the Windows arms of the three real-runner tests above (SKIP_SH_CLAUDE), which stand claude in with a #!/bin/sh script
+   that Windows cannot run. Here claude is a node script started through setClaudeLaunchForTest, so these run on
+   every platform, Windows included; the rest of the call (its flags, its env, stdin, reading the answer) is the real
+   one. AGENT_WORKFORCE_CLAUDE_BIN names this node only so the reader finds a runnable claude, as it would find
+   claude.exe; the launch hook decides what is started. */
+async function withNodeClaude(script, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-node-'));
+  const stub = path.join(dir, 'claude-stub.js');
+  fs.writeFileSync(stub, script);
+  const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = process.execPath;
+  let started = 0;
+  const bins = [];
+  o.setClaudeLaunchForTest((bin, args) => { started += 1; bins.push(bin); return [process.execPath, [stub, ...args]]; });
+  o.setModelRunner(null);   // the real runner
+  try {
+    await fn(dir, () => started);
+    // The hook is handed the claude the reader resolved (AGENT_WORKFORCE_CLAUDE_BIN here), never another binary.
+    assert.deepEqual(bins, bins.map(() => process.execPath), 'the launch was handed another binary than the resolved claude');
+  } finally {
+    o.setClaudeLaunchForTest(null);
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+/* A stub that reads its stdin to the end (as claude does), records what it was started with in seen.json beside it,
+   then runs `then` (stdout lines, stderr, exit code). */
+const nodeClaude = (then) => 'const fs = require("node:fs"), path = require("node:path");\n' +
+  'let input = "";\nprocess.stdin.on("data", (d) => { input += d; }).on("end", () => {\n' +
+  '  const ccd = Object.prototype.hasOwnProperty.call(process.env, "CLAUDE_CONFIG_DIR") ? process.env.CLAUDE_CONFIG_DIR : "UNSET";\n' +
+  '  const spellings = Object.keys(process.env).filter((k) => k.toUpperCase() === "CLAUDE_CONFIG_DIR");\n' +
+  '  fs.writeFileSync(path.join(__dirname, "seen.json"), JSON.stringify({ args: process.argv.slice(2), ccd, spellings, bytes: input.length }));\n' +
+  '  ' + then + '\n});\n';
+const seenIn = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'seen.json'), 'utf8'));
+
+test('#9272: the real runner reads a stream-json result from claude, on every platform (a node stand-in, no provider)', async () => {
+  const answer = { type: 'result', is_error: false, structured_output: { people: [
+    { person: 'Avery Quill', title: 'CEO', reportsTo: null, sure: true },
+    { person: 'Bo Linden', title: 'VP', reportsTo: 'Avery Quill', sure: true },
+  ] } };
+  await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(JSON.stringify({ type: 'system', subtype: 'init' }) + '\n' + JSON.stringify(answer) + '\n') + ');'), async (dir, started) => {
+    const flags = o.readArgs();   // before the read, so the expected value does not come from the path under test
+    const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+    assert.equal(started(), 1, 'CONTROL: the read went through the launch hook, once');
+    assert.deepEqual(r.rows.map((x) => [x.person, x.reportsTo]), [['Avery Quill', null], ['Bo Linden', 0]], JSON.stringify(r));
+    const seen = seenIn(dir);
+    assert.deepEqual(seen.args, flags, 'claude was started with the reader\'s own flags, every tool off');
+    assert.ok(seen.bytes > 0, 'the request went in on stdin');
+  });
+});
+
+test('#9272: a Claude Code too old for these flags says so, on every platform (a node stand-in, no provider)', async () => {
+  const warn = console.warn; const warned = [];
+  console.warn = (m) => warned.push(String(m));
+  try {
+    await withNodeClaude(nodeClaude('process.stderr.write("error: unknown option \'--tools\'\\n"); process.exitCode = 1;'), async (dir, started) => {
+      const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.equal(started(), 1, 'CONTROL: the read went through the launch hook');
+      assert.match(r.problems[0], /too old to read files/, JSON.stringify(r));
+      assert.ok(warned.some((w) => /unknown option/.test(w)), 'the boundary logs what claude said');
+    });
+    // CONTROL: the same exit with other words is "did not answer", so the match above is on what claude said.
+    await withNodeClaude(nodeClaude('process.stderr.write("something else\\n"); process.exitCode = 1;'), async () => {
+      const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.match(r.problems[0], /Claude did not answer/, JSON.stringify(r));
+    });
+  } finally { console.warn = warn; }
+});
+
+test('#9272: the read runs claude with CLAUDE_CONFIG_DIR unset on the default account and set on the board\'s own, on every platform', async () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const answer = JSON.stringify({ type: 'result', is_error: false, structured_output: { people: [] } });
+  // Off Windows a name is case-sensitive, so another spelling is another variable, and the runner must remove every
+  // spelling (#5386), not only the one this test deletes. On Windows the spellings are one variable, so it is not set.
+  const variant = process.platform === 'win32' ? null : 'claude_config_dir';
+  try {
+    await withNodeClaude(nodeClaude('process.stdout.write(' + JSON.stringify(answer + '\n') + ');'), async (dir, started) => {
+      delete process.env.CLAUDE_CONFIG_DIR;
+      if (variant) process.env[variant] = path.join(dir, 'another-spelling');
+      try {
+        await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      } finally { if (variant) delete process.env[variant]; }
+      assert.equal(started(), 1, 'CONTROL: the read went through the launch hook');
+      assert.equal(seenIn(dir).ccd, 'UNSET', 'the default account must run with CLAUDE_CONFIG_DIR unset');
+      assert.deepEqual(seenIn(dir).spellings, [], 'no spelling of CLAUDE_CONFIG_DIR reaches a read on the default account');
+      const own = path.join(dir, 'own-account');
+      process.env.CLAUDE_CONFIG_DIR = own;
+      await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+      assert.equal(started(), 2, 'CONTROL: the second read went through the launch hook too');
+      assert.equal(seenIn(dir).ccd, own, 'a board on its own account passes that one');
+    });
+  } finally { if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved; }
+});
+
+test('#9272: setClaudeLaunchForTest is named only by its own module and by test files (it decides what the reader starts)', () => {
+  // Needs a git checkout and git on PATH, as the 13 other test files here that call git ls-files do.
+  const { execFileSync } = require('node:child_process');
+  const root = path.join(__dirname, '..');
+  const files = execFileSync('git', ['ls-files', '-z', '--', '*.js', '*.mjs', '*.cjs'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
+  assert.ok(files.length > 100, 'CONTROL: git listed the repo\'s scripts (' + files.length + ')');
+  // A tracked file missing from the working tree (an unstaged git rm, a rename in progress) names nothing.
+  const read = (f) => { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; } };
+  const named = files.filter((f) => read(f).includes('setClaudeLaunchForTest'));
+  assert.ok(named.includes('engine/orgchartfile.js') && named.includes('engine/orgchartfile.test.js'), 'CONTROL: the search finds the hook where it is: ' + named.join(', '));
+  const outside = named.filter((f) => f !== 'engine/orgchartfile.js' && !/\.test\.(js|mjs|cjs)$/.test(f));
+  assert.deepEqual(outside, [], 'a file that is not a test names the launch hook, so it may decide what the org chart reader runs (test-support/ helpers count as not a test, on purpose: a helper is reachable from more than this file)');
 });
