@@ -4,7 +4,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * kosmos#9278: on Windows (Git Bash), tools/run-tests.sh points TEMP and TMP at the run's temp root as well as TMPDIR,
  * because node there takes os.tmpdir() from TEMP/TMP (measured on a Windows runner: without it a test saw the computer's
  * own temp folder, and the temp leak check caught nothing; with it, a folder left behind was reported). It also says
- * once that the per-file limit and the leftover-process check do not run there. Both are behind the Windows flag only,
+ * once that the leftover-process checks do not run there (the per-file limit does since winwd-9278: rt_wd_loop_win). Both are behind the Windows flag only,
  * so a Mac or Linux run is unchanged: the lines are cut out of the script and run with the flag set and not set.
  */
 const test = require('node:test');
@@ -22,7 +22,7 @@ function line(re) {
   return hits[0];
 }
 const TEMP_LINE = line(/export TEMP="\$KOSMOS_RUN_TMPDIR" TMP="\$KOSMOS_RUN_TMPDIR"/);
-const SAY_LINE = line(/per-file limit \(#6668\) and the leftover-process checks and stops \(#4273, #8890, #9159\) do not run/);
+const SAY_LINE = line(/on Windows the leftover-process checks and stops \(#4273, #8890, #9159\) do not run/);
 
 function runWith(win, body) {
   const script = '_RT_WIN=' + win + '; KOSMOS_RUN_TMPDIR=/run/root; TEMP=/orig; TMP=/orig\n' + body
@@ -52,23 +52,10 @@ test('#9278: the TEMP line sits right after the TMPDIR export, in the branch tha
 
 test('#9278: the Windows line is said only on Windows, once, from the watchdog start', { skip: !BASH && 'no bash' }, () => {
   const on = runWith(1, SAY_LINE);
-  assert.match(on.stderr, /^run-tests: on Windows the per-file limit .* \(kosmos#9278\)\n$/);
+  assert.match(on.stderr, /^run-tests: on Windows the leftover-process checks and stops .* \(kosmos#9278\)\n$/);
   const off = runWith(0, SAY_LINE);
   assert.equal(off.stderr, '', 'a Mac or Linux run printed the Windows line');
   const fn = SRC.slice(SRC.indexOf('rt_file_watchdog_start() {'), SRC.indexOf('\n}\n', SRC.indexOf('rt_file_watchdog_start() {')));
   assert.ok(fn.includes(SAY_LINE), 'the line is not inside rt_file_watchdog_start');
   assert.ok(fn.indexOf('[ "$KOSMOS_TEST_PART" != shell ] || return 0') < fn.indexOf(SAY_LINE), 'a shell-only run (no node) would say it');
-});
-
-test('#9278: the watchdog\u2019s "not found yet" line is not said on Windows, and still is elsewhere', { skip: !BASH && 'no bash' }, () => {
-  const lines = SRC.split('\n');
-  const k = lines.findIndex((l) => l.includes('echo "run-tests: node --test not found yet'));
-  assert.ok(k > 0, 'the line moved');
-  const cond = lines[k - 1].trim();
-  assert.match(cond, /^if .*\[ "\$_RT_WIN" != 1 \]; then$/, 'the not-found line is not guarded off Windows');
-  const body = cond + '\n  echo said\nfi';
-  for (const [win, want] of [[1, ''], [0, 'said\n']]) {
-    const r = spawnSync('bash', ['-c', 'node=""; looks=25; _RT_WIN=' + win + '\n' + body], { encoding: 'utf8' });
-    assert.equal(r.stdout, want, 'with _RT_WIN=' + win);
-  }
 });
