@@ -202,5 +202,59 @@
   "shown": "API key ending 9z1b",
   "words": "Signed in",
   "tone": "connected"
+ },
+ {
+  "name": "email",
+  "shown": "ann@example.com",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "chosen name",
+  "shown": "Team key",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "openai key tail",
+  "shown": "API key ending b3c4",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "grok key tail",
+  "shown": "API key ending x9x9",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "label only",
+  "shown": "Work Mac",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "qwen host",
+  "shown": "qwen.example.com:8443",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "qwen local",
+  "shown": "Qwen on this computer",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "stops on a weekday",
+  "shown": "/a",
+  "words": "Signed in · stops working on Monday, Nov 30 at about 12:00 PM",
+  "tone": "unverified"
+ },
+ {
+  "name": "ended is 1",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "connected"
  }
 ]

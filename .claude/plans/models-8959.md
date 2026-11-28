@@ -52,3 +52,15 @@ That `/held` carries enough to draw each row honestly. It is the disk's record (
 - M fixed: the previous computer's rows for the frame before .task resets (the list shows only for shownURL == mac.url); the UI test finds rows by identifier whatever element type, and the vacuous "no Check now" assertion is gone.
 - M kept: the page's qualifier tags beside look-alike names, the organization line and a key tail under a chosen name (a second line per row; a follow-up if two accounts read alike in use); a failed pull replaces the list, as the page's non-follow-up read does; the dot colours are the app's palette, not the page's CSS values (the parity test pins the class); the picker's primaryName still lacks glm and minimax (noted on the card, outside this slice).
 - Measured: run-models.sh 102/102; parity 4/4; room 965/965; 20 iOS node files 113/113; app and UI typecheck (only the known RoomView.swift:762 at a 1 s limit).
+
+### Round 3 (opus, 13:4x CST 11-28): no BLOCKER, no MAJOR, 8 MINOR. The reviewer found every fixture row matching the page (order, words, colours, names, sections) and the picker unaffected.
+- M1 names were checked against the page mostly on the dir fallback: 9 rows added (email, a chosen name trimmed, OpenAI and Grok key tails, a label, a Qwen host and Qwen on this computer), now 43 rows.
+- M2 isOpenai was written into the test: it is lifted from the page's own line now.
+- M3 loginAdvWhen's "on <weekday>" arm was never reached: a stop three days out pins it ("on Monday, Nov 30 at about 12:00 PM").
+- M4 the no-providerName fallback lowercased the provider; the page compares `provider === 'openai'` exactly: the row's provider as sent is kept and compared (a groupRows row "OpenAI" pins it).
+- M5 loginEnded: 1 read as true; the page needs === true: a JSON boolean only (a fixture row pins it).
+- M6 a huge finite age could trap Int(): capped.
+- M8 the UI test counted rows exactly and read labels by position: at least three, each found by its whole label.
+- M7 kept: VoiceOver reads the pill's words, which are the page's; three "Signed in" differ only by dot colour, as on the page's visible text. Adding spoken tone words is new copy, a separate decision.
+- Loop ends here: round 3 found nothing at BLOCKER or MAJOR, and its MINORs are fixed or kept with reasons.
+- Measured: run-models.sh 111/111; parity 4/4; room 965/965; 20 iOS node files 113/113; app and UI typecheck 0.

@@ -107,6 +107,7 @@ enum NewAgentPicker {
         var loginExpiresAt: Double? = nil        // connection.loginExpiresAt, ms
         var notConfirmedSince: Double? = nil     // connection.notConfirmedSince, ms
         var providerName: String? = nil          // the row's providerName (the page's group heading)
+        var provider: String? = nil              // the row's provider as sent, not lowercased (accountGroupsHtml's ===)
     }
     // Number.isFinite: a real number, never a boolean (JSONSerialization reads true as 1).
     static func finite(_ v: Any?) -> Double? {
@@ -118,15 +119,21 @@ enum NewAgentPicker {
         guard let d = finite(v), d == d.rounded(), abs(d) < 1e15 else { return nil }
         return Int(d)
     }
+    // === true: a JSON boolean true only, never the number 1 (JSONSerialization bridges both to true). Review 3.
+    static func isTrue(_ v: Any?) -> Bool {
+        guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return false }
+        return n.boolValue
+    }
     static func live(of r: [String: Any]) -> Live {
         let c = r["connection"] as? [String: Any]
         return Live(authMode: r["authMode"] as? String, observedFrom: c?["observedFrom"] as? String,
                     observedAgeMs: finite(c?["observedAgeMs"]),
                     because: (c?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                     loginValidUntil: finite(c?["loginValidUntil"]), loginStopsAt: finite(c?["loginStopsAt"]),
-                    loginEnded: c?["loginEnded"] as? Bool == true, loginExpiresInDays: integer(c?["loginExpiresInDays"]),
+                    loginEnded: isTrue(c?["loginEnded"]), loginExpiresInDays: integer(c?["loginExpiresInDays"]),
                     loginExpiresAt: finite(c?["loginExpiresAt"]), notConfirmedSince: finite(c?["notConfirmedSince"]),
-                    providerName: (r["providerName"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                    providerName: (r["providerName"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                    provider: r["provider"] as? String)
     }
 
     // acctProvider: 'antigravity' and 'meta' by provider or authMode, a keyed provider by its id, else Claude.

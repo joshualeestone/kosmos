@@ -63,11 +63,13 @@ function pagePill() {
   // isKeyed and canCheckSignIn only choose a tooltip's wording, which the phone does not show.
   // eslint-disable-next-line no-new-func
   // The helpers are declared once, then the per-row function runs the chain (a const used before its line would throw).
+  // Review 3: isOpenai is the page's own line, not a copy, so a change to how the page decides it is seen here.
+  const isOpenaiLine = lift("const isOpenai = acctProvider(a) === 'openai';", '\n', 'isOpenai');
   let n = 0;
   const marked = chain.replace(/connBadge = /g, () => '__hit.add(' + (n++) + '); connBadge = ');
   branches = n;
   assert.ok(n >= 12, 'the chain has its branches (' + n + ')');
-  return new Function('esc', '__hit', pin(helpers) + '\nreturn { chain: function (a) { const isOpenai = acctProvider(a) === "openai"; const isKeyed = false; '
+  return new Function('esc', '__hit', pin(helpers) + '\nreturn { chain: function (a) { ' + isOpenaiLine + ' const isKeyed = false; '
     + 'const canCheckSignIn = false; let connBadge; ' + pin(marked).replace(/^\s*let connBadge;\s*$/m, '') + '; return connBadge; }, specialRow, acctPrimaryName, accountGroupsHtml };')(esc, hit);
 }
 

@@ -70,7 +70,8 @@ enum Models {
         var order: [String] = []
         var by: [String: [Account]] = [:]
         for a in rows {
-            let name = a.live.providerName ?? (a.rawProvider == "openai" ? "OpenAI" : "Anthropic / Claude")
+            // Review 3: the page tests `a.provider === 'openai'` exactly, so "OpenAI" in another case is not it.
+            let name = a.live.providerName ?? (a.live.provider == "openai" ? "OpenAI" : "Anthropic / Claude")
             if by[name] == nil { order.append(name) }
             by[name, default: []].append(a)
         }
@@ -113,7 +114,8 @@ enum Models {
     // agoWords: the page's relative age, in whole seconds, minutes, hours or days.
     static func agoWords(_ ms: Double?) -> String {
         guard let ms, ms.isFinite, ms >= 0 else { return "" }
-        let n = Int((ms / 1000).rounded(.down))
+        // Review 3: a finite but huge age would trap Int(); past ~3e16 days every answer is "N days ago" anyway.
+        let n = Int(min((ms / 1000).rounded(.down), 9e15))
         if n < 5 { return "just now" }
         if n < 90 { return "\(n) seconds ago" }
         let mins = n / 60

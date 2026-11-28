@@ -376,6 +376,106 @@
      "state": "connected"
     }
    }
+  },
+  {
+   "name": "email",
+   "account": {
+    "dir": "/e",
+    "provider": "anthropic",
+    "email": "ann@example.com",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "chosen name",
+   "account": {
+    "dir": "/n",
+    "provider": "openai",
+    "name": "  Team key  ",
+    "keyTail": "77aa",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "openai key tail",
+   "account": {
+    "dir": "/k",
+    "provider": "openai",
+    "keyTail": "b3c4",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "grok key tail",
+   "account": {
+    "dir": "/x",
+    "provider": "xai",
+    "keyTail": "x9x9",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "label only",
+   "account": {
+    "dir": "/l",
+    "provider": "anthropic",
+    "label": "Work Mac",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "qwen host",
+   "account": {
+    "dir": "/q",
+    "provider": "alibaba",
+    "baseUrl": "https://qwen.example.com:8443/v1",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "qwen local",
+   "account": {
+    "dir": "/q2",
+    "provider": "alibaba",
+    "local": true,
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "stops on a weekday",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1796061600000
+    }
+   }
+  },
+  {
+   "name": "ended is 1",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginEnded": 1
+    }
+   }
   }
  ],
  "groupRows": [
@@ -413,6 +513,10 @@
    "dir": "/x",
    "provider": "mystery",
    "providerName": "Somebody new"
+  },
+  {
+   "dir": "/oc",
+   "provider": "OpenAI"
   }
  ],
  "expectedGroups": [

@@ -23,10 +23,13 @@ final class ModelsUITests: XCTestCase {
         let rows = app.descendants(matching: .any).matching(identifier: "models-account")
         let first = rows.element(boundBy: 0)
         XCTAssertTrue(first.waitForExistence(timeout: 10), "no account rows")
-        XCTAssertEqual(rows.count, 3, "the sample's three accounts")
-        XCTAssertEqual(first.label, "dana@example.com, Signed in · active 2 minutes ago", "the working row is not in the page's words")
-        XCTAssertEqual(rows.element(boundBy: 1).label, "Team account, Signed in", "the unverified row")
-        XCTAssertEqual(rows.element(boundBy: 2).label, "API key ending 4f2a, The key was refused.", "the refused key row")
+        // At least three: on some iOS versions a cell and its inner element both carry the identifier (review 3).
+        XCTAssertGreaterThanOrEqual(rows.count, 3, "the sample's three accounts")
+        // By their whole labels, not by position (a duplicated element would shift positions).
+        for label in ["dana@example.com, Signed in · active 2 minutes ago", "Team account, Signed in", "API key ending 4f2a, The key was refused."] {
+            XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "models-account").matching(NSPredicate(format: "label == %@", label)).firstMatch.exists,
+                          "no row reads: " + label)
+        }
         XCTAssertTrue(app.staticTexts["Anthropic / Claude"].waitForExistence(timeout: 5) && app.staticTexts["OpenAI / Codex"].waitForExistence(timeout: 5),
                       "one section per provider, its name as written")
         XCTAssertTrue(app.staticTexts["To check, sign in, add or change an account, use Settings on your computer."].waitForExistence(timeout: 5),
