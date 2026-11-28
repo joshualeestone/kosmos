@@ -1,0 +1,531 @@
+{
+ "nowMs": 1795802400000,
+ "timeZone": "America/Chicago",
+ "locale": "en-US",
+ "rows": [
+  {
+   "name": "stops today",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1795809600000,
+     "loginEnded": true,
+     "loginExpiresInDays": 0
+    }
+   }
+  },
+  {
+   "name": "stops tomorrow",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1795888800000
+    }
+   }
+  },
+  {
+   "name": "stopped, ended",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1795798800000,
+     "loginEnded": true
+    }
+   }
+  },
+  {
+   "name": "expiring dated",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 3,
+     "loginExpiresAt": 1796061600000
+    }
+   }
+  },
+  {
+   "name": "expires today",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 0
+    }
+   }
+  },
+  {
+   "name": "expires 1 day",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 1
+    }
+   }
+  },
+  {
+   "name": "login good next year",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedFrom": "login",
+     "loginValidUntil": 1799258400000
+    }
+   }
+  },
+  {
+   "name": "unverified dated",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "loginValidUntil": 1796666400000
+    }
+   }
+  },
+  {
+   "name": "login green no date",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedFrom": "login"
+    }
+   }
+  },
+  {
+   "name": "working active",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedAgeMs": 120000
+    }
+   }
+  },
+  {
+   "name": "working checked",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedFrom": "check",
+     "observedAgeMs": 120000
+    }
+   }
+  },
+  {
+   "name": "working no age",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "rejected",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "rejected",
+     "observedAgeMs": 7200000
+    }
+   }
+  },
+  {
+   "name": "not confirmed since",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "notConfirmedSince": 1795370400000
+    }
+   }
+  },
+  {
+   "name": "not confirmed last year",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "notConfirmedSince": 1761242400000
+    }
+   }
+  },
+  {
+   "name": "unverified",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified"
+    }
+   }
+  },
+  {
+   "name": "signed out reason",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_out",
+     "because": "Sign in again on this computer."
+    }
+   }
+  },
+  {
+   "name": "signed out",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_out"
+    }
+   }
+  },
+  {
+   "name": "unchecked",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "unchecked"
+    }
+   }
+  },
+  {
+   "name": "chatgpt connected",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "connected"
+    },
+    "authMode": "chatgpt"
+   }
+  },
+  {
+   "name": "chatgpt none",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "none"
+    },
+    "authMode": "chatgpt"
+   }
+  },
+  {
+   "name": "chatgpt unknown",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "unknown"
+    },
+    "authMode": "chatgpt"
+   }
+  },
+  {
+   "name": "key connected",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "key none reason",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "none",
+     "because": "The key was refused."
+    }
+   }
+  },
+  {
+   "name": "key nothing",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {}
+   }
+  },
+  {
+   "name": "zero login date",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "loginValidUntil": 0
+    }
+   }
+  },
+  {
+   "name": "zero expiry date",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 2,
+     "loginExpiresAt": 0
+    }
+   }
+  },
+  {
+   "name": "agy with email",
+   "account": {
+    "dir": "",
+    "provider": "google",
+    "authMode": "antigravity",
+    "email": "g@example.com",
+    "connection": {
+     "badge": "signed_in_unverified"
+    }
+   }
+  },
+  {
+   "name": "agy no email",
+   "account": {
+    "dir": "",
+    "provider": "antigravity",
+    "authMode": "antigravity",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "muse working",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {
+     "badge": "working",
+     "observedAgeMs": 180000
+    }
+   }
+  },
+  {
+   "name": "muse since",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "notConfirmedSince": 1795543200000
+    }
+   }
+  },
+  {
+   "name": "muse rejected",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {
+     "badge": "rejected"
+    }
+   }
+  },
+  {
+   "name": "muse other",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {}
+   }
+  },
+  {
+   "name": "glm key",
+   "account": {
+    "dir": "/g",
+    "provider": "glm",
+    "keyTail": "9z1b",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "email",
+   "account": {
+    "dir": "/e",
+    "provider": "anthropic",
+    "email": "ann@example.com",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "chosen name",
+   "account": {
+    "dir": "/n",
+    "provider": "openai",
+    "name": "  Team key  ",
+    "keyTail": "77aa",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "openai key tail",
+   "account": {
+    "dir": "/k",
+    "provider": "openai",
+    "keyTail": "b3c4",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "grok key tail",
+   "account": {
+    "dir": "/x",
+    "provider": "xai",
+    "keyTail": "x9x9",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "label only",
+   "account": {
+    "dir": "/l",
+    "provider": "anthropic",
+    "label": "Work Mac",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "qwen host",
+   "account": {
+    "dir": "/q",
+    "provider": "alibaba",
+    "baseUrl": "https://qwen.example.com:8443/v1",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "qwen local",
+   "account": {
+    "dir": "/q2",
+    "provider": "alibaba",
+    "local": true,
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "stops on a weekday",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1796061600000
+    }
+   }
+  },
+  {
+   "name": "ended is 1",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginEnded": 1
+    }
+   }
+  }
+ ],
+ "groupRows": [
+  {
+   "dir": "/o",
+   "provider": "openai",
+   "providerName": "OpenAI / Codex"
+  },
+  {
+   "dir": "/g",
+   "provider": "glm",
+   "providerName": "Z.ai GLM"
+  },
+  {
+   "dir": "",
+   "provider": "meta",
+   "authMode": "muse",
+   "providerName": "Meta Muse"
+  },
+  {
+   "dir": "/c",
+   "provider": "anthropic"
+  },
+  {
+   "dir": "/o2",
+   "provider": "openai"
+  },
+  {
+   "dir": "",
+   "provider": "google",
+   "authMode": "antigravity",
+   "providerName": "Google Gemini"
+  },
+  {
+   "dir": "/x",
+   "provider": "mystery",
+   "providerName": "Somebody new"
+  },
+  {
+   "dir": "/oc",
+   "provider": "OpenAI"
+  }
+ ],
+ "expectedGroups": [
+  "Anthropic / Claude",
+  "Somebody new",
+  "OpenAI / Codex",
+  "OpenAI",
+  "Google Gemini",
+  "Meta Muse",
+  "Z.ai GLM"
+ ]
+}

@@ -110,6 +110,10 @@ classes="$classes UpdatesUITests:1"
 # kosmos#8959 slice D1c2a: UsageUITests, Settings' Token usage row opening the native figures, the hero, the model
 #   table, By agent and the history (1 check; lazy arm only). Its own line, as above.
 classes="$classes UsageUITests:1"
+# kosmos#8959 slice D2a: ModelsUITests, Settings' AI Models row opening the native, read-only list: a section per
+#   provider, each row's pill in the page's words, and the footer that sends changes to the computer (1 check; lazy
+#   arm only). Its own line, mid-list after its #8959 siblings, so end-of-list additions do not collide with it.
+classes="$classes ModelsUITests:1"
 # kosmos#9089: ChatTallOpenUITests, a short chat of tall replies (20 messages) opens on its newest, first time and on
 #   coming back, with the one-liner chat as its control (2 checks; #9212's third is below). This lazy-arm run only: the lazy list is the one that
 #   opened above the newest (3 of 3 before the fix), the UIKit list already passed. 20 messages, so not the 260-message

@@ -91,6 +91,49 @@ enum NewAgentPicker {
         let state: String?              // connection.state
         let hasConnection: Bool
         let offerable: Bool             // the row's `offerable` (false only when the board says so)
+        /* kosmos#8959 D2a: what the page's AI Models pill reads (paintAccounts), beyond what the picker needs. A var
+           with a default, so every existing construction of Account still compiles unchanged. */
+        var live: Live = Live()
+    }
+    struct Live: Equatable {
+        var authMode: String? = nil              // the row's authMode
+        var observedFrom: String? = nil          // connection.observedFrom ('check', 'login', ...)
+        var observedAgeMs: Double? = nil         // connection.observedAgeMs (agoWords)
+        var because: String? = nil               // connection.because (noneWhy, unknownWhy)
+        var loginValidUntil: Double? = nil       // connection.loginValidUntil, ms
+        var loginStopsAt: Double? = nil          // connection.loginStopsAt, ms
+        var loginEnded = false                   // connection.loginEnded === true
+        var loginExpiresInDays: Int? = nil       // connection.loginExpiresInDays, an integer only
+        var loginExpiresAt: Double? = nil        // connection.loginExpiresAt, ms
+        var notConfirmedSince: Double? = nil     // connection.notConfirmedSince, ms
+        var providerName: String? = nil          // the row's providerName (the page's group heading)
+        var provider: String? = nil              // the row's provider as sent, not lowercased (accountGroupsHtml's ===)
+    }
+    // Number.isFinite: a real number, never a boolean (JSONSerialization reads true as 1).
+    static func finite(_ v: Any?) -> Double? {
+        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
+        return n.doubleValue
+    }
+    // Number.isInteger: a whole, finite number, never a boolean.
+    static func integer(_ v: Any?) -> Int? {
+        guard let d = finite(v), d == d.rounded(), abs(d) < 1e15 else { return nil }
+        return Int(d)
+    }
+    // === true: a JSON boolean true only, never the number 1 (JSONSerialization bridges both to true). Review 3.
+    static func isTrue(_ v: Any?) -> Bool {
+        guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return false }
+        return n.boolValue
+    }
+    static func live(of r: [String: Any]) -> Live {
+        let c = r["connection"] as? [String: Any]
+        return Live(authMode: r["authMode"] as? String, observedFrom: c?["observedFrom"] as? String,
+                    observedAgeMs: finite(c?["observedAgeMs"]),
+                    because: (c?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                    loginValidUntil: finite(c?["loginValidUntil"]), loginStopsAt: finite(c?["loginStopsAt"]),
+                    loginEnded: isTrue(c?["loginEnded"]), loginExpiresInDays: integer(c?["loginExpiresInDays"]),
+                    loginExpiresAt: finite(c?["loginExpiresAt"]), notConfirmedSince: finite(c?["notConfirmedSince"]),
+                    providerName: (r["providerName"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                    provider: r["provider"] as? String)
     }
 
     // acctProvider: 'antigravity' and 'meta' by provider or authMode, a keyed provider by its id, else Claude.
@@ -121,7 +164,7 @@ enum NewAgentPicker {
                            keyTail: s("keyTail"), label: s("label"), baseUrl: s("baseUrl"), local: r["local"] as? Bool == true,
                            isDefault: r["isDefault"] as? Bool == true, memoryShared: r["memoryShared"] as? Bool == true,
                            badge: c?["badge"] as? String, state: c?["state"] as? String, hasConnection: c != nil,
-                           offerable: r["offerable"] as? Bool != false)
+                           offerable: r["offerable"] as? Bool != false, live: live(of: r))
         }
     }
 

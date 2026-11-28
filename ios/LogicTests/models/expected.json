@@ -1,0 +1,260 @@
+[
+ {
+  "name": "stops today",
+  "shown": "/a",
+  "words": "Signed in · stops working at about 2:00 PM",
+  "tone": "unverified"
+ },
+ {
+  "name": "stops tomorrow",
+  "shown": "/a",
+  "words": "Signed in · stops working tomorrow at about 12:00 PM",
+  "tone": "unverified"
+ },
+ {
+  "name": "stopped, ended",
+  "shown": "/a",
+  "words": "Login expired",
+  "tone": "none"
+ },
+ {
+  "name": "expiring dated",
+  "shown": "/a",
+  "words": "Signed in until Nov 30",
+  "tone": "unverified"
+ },
+ {
+  "name": "expires today",
+  "shown": "/a",
+  "words": "Signed in · login expires today",
+  "tone": "unverified"
+ },
+ {
+  "name": "expires 1 day",
+  "shown": "/a",
+  "words": "Signed in · login expires in 1 day",
+  "tone": "unverified"
+ },
+ {
+  "name": "login good next year",
+  "shown": "/a",
+  "words": "Signed in · login good until Jan 6, 2027",
+  "tone": "connected"
+ },
+ {
+  "name": "unverified dated",
+  "shown": "/a",
+  "words": "Signed in · login good until Dec 7",
+  "tone": "loginok"
+ },
+ {
+  "name": "login green no date",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "working active",
+  "shown": "/a",
+  "words": "Signed in · active 2 minutes ago",
+  "tone": "connected"
+ },
+ {
+  "name": "working checked",
+  "shown": "/a",
+  "words": "Signed in · checked 2 minutes ago",
+  "tone": "connected"
+ },
+ {
+  "name": "working no age",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "rejected",
+  "shown": "/a",
+  "words": "Not connected · rejected 2 hours ago",
+  "tone": "none"
+ },
+ {
+  "name": "not confirmed since",
+  "shown": "/a",
+  "words": "Not confirmed since Nov 22",
+  "tone": "unverified"
+ },
+ {
+  "name": "not confirmed last year",
+  "shown": "/a",
+  "words": "Not confirmed since Oct 23, 2025",
+  "tone": "unverified"
+ },
+ {
+  "name": "unverified",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "signed out reason",
+  "shown": "/a",
+  "words": "Sign in again on this computer.",
+  "tone": "none"
+ },
+ {
+  "name": "signed out",
+  "shown": "/a",
+  "words": "this account is not connected",
+  "tone": "none"
+ },
+ {
+  "name": "unchecked",
+  "shown": "/a",
+  "words": "we could not check this account",
+  "tone": "unknown"
+ },
+ {
+  "name": "chatgpt connected",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "chatgpt none",
+  "shown": "/a",
+  "words": "Not connected",
+  "tone": "none"
+ },
+ {
+  "name": "chatgpt unknown",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "key connected",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "key none reason",
+  "shown": "/a",
+  "words": "The key was refused.",
+  "tone": "none"
+ },
+ {
+  "name": "key nothing",
+  "shown": "/a",
+  "words": "we could not check this account",
+  "tone": "unknown"
+ },
+ {
+  "name": "zero login date",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "zero expiry date",
+  "shown": "/a",
+  "words": "Signed in · login expires in 2 days",
+  "tone": "unverified"
+ },
+ {
+  "name": "agy with email",
+  "shown": "g@example.com",
+  "words": "Signed in",
+  "tone": "unknown"
+ },
+ {
+  "name": "agy no email",
+  "shown": "Google subscription",
+  "words": "Signed in",
+  "tone": "unknown"
+ },
+ {
+  "name": "muse working",
+  "shown": "Meta account",
+  "words": "Signed in · confirmed 3 minutes ago",
+  "tone": "connected"
+ },
+ {
+  "name": "muse since",
+  "shown": "Meta account",
+  "words": "Not confirmed since Nov 24",
+  "tone": "unverified"
+ },
+ {
+  "name": "muse rejected",
+  "shown": "Meta account",
+  "words": "Not connected",
+  "tone": "none"
+ },
+ {
+  "name": "muse other",
+  "shown": "Meta account",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "glm key",
+  "shown": "API key ending 9z1b",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "email",
+  "shown": "ann@example.com",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "chosen name",
+  "shown": "Team key",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "openai key tail",
+  "shown": "API key ending b3c4",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "grok key tail",
+  "shown": "API key ending x9x9",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "label only",
+  "shown": "Work Mac",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "qwen host",
+  "shown": "qwen.example.com:8443",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "qwen local",
+  "shown": "Qwen on this computer",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "stops on a weekday",
+  "shown": "/a",
+  "words": "Signed in · stops working on Monday, Nov 30 at about 12:00 PM",
+  "tone": "unverified"
+ },
+ {
+  "name": "ended is 1",
+  "shown": "/a",
+  "words": "Signed in",
+  "tone": "connected"
+ }
+]

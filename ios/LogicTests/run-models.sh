@@ -1,0 +1,16 @@
+#!/bin/bash
+# Build and run the AI Models logic tests (kosmos#8959 slice D2a) on this Mac, as run.sh does for the rest of the app: the
+# UIKit-free files compile for macOS unchanged. A separate suite so this slice never edits another slice's suite. Pass a
+# directory to compile the app sources from somewhere else (a deliberately broken copy, to prove the suite can fail).
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+src="${1:-$here/../Kosmos}"
+out="$(mktemp -d)"
+trap 'rm -rf "$out"' EXIT
+xcrun swiftc -Onone -o "$out/models-logic-tests" \
+  "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" \
+  "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/SignInLogic.swift" "$src/TodayLogic.swift" "$src/TasksLogic.swift" "$src/BoardClient.swift" "$src/SessionKeychain.swift" \
+  "$src/BoardRoom.swift" "$src/NewAgentLogic.swift" "$src/AgentMarkLogic.swift" "$src/NewAgentPicker.swift" \
+  "$src/SettingsLogic.swift" "$src/ModelsLogic.swift" "$here/models/main.swift"
+# The repo root, so the suite can read the board's own words.
+KOSMOS_REPO="$here/../.." "$out/models-logic-tests"

@@ -371,9 +371,16 @@ struct SettingsView: View {
                 Text(Updates.Words.title).foregroundColor(Palette.primary)
             }
             .accessibilityIdentifier("settings-updates")
+            // kosmos#8959 slice D2a: the board's AI Models, native and read only.
+            NavigationLink {
+                ModelsView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
+            } label: {
+                Text(Models.Words.title).foregroundColor(Palette.primary)
+            }
+            .accessibilityIdentifier("settings-models")
             Button(action: openBoardSettings) { row("Settings on your computer's board", detail: nil) }
         } footer: {
-            Text("Agents, AI models, connections and the rest of your computer's settings are there.")
+            Text("Agents, connections and the rest of your computer's settings are there.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
