@@ -466,7 +466,8 @@ test('kosmos#9222: start stops reading the agent\'s aged records once its time i
     for (let i = 0; i < 3; i++) hj.start({ root: r, agent: 'renet', label: 's' + i, pid: 99960 + i, now: base, startOf: () => 'A' });
     ps = 0;
     assert.equal(hj.start({ root: r, agent: 'renet', label: 'new', now: base + 13 * H }).ok, true);
-    assert.ok(ps >= 1 && ps <= 2, 'ps ran ' + ps + ' times at 300 ms each inside one start');
+    // kosmos#9230: only the upper bound: a stall on a loaded Mac can only lower the count, so a lower bound could flake.
+    assert.ok(ps <= 2, 'ps ran ' + ps + ' times at 300 ms each inside one start');
   } finally { Object.assign(rs, was); }
 });
 

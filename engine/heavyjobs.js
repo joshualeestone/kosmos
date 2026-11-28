@@ -159,16 +159,14 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
   try { lab = normalizeLabel(label); p = normalizePid(pid); }
   catch (err) { return { ok: false, because: err.message, refused: true }; }
   let pidStart = null;
+  let unread = false;
   if (p !== null) {
     const s = startOf === defaultStartOf ? defaultStartOf(p, now, 'fresh') : startOf(p);
     if (s === null) return { ok: false, because: 'there is no process ' + p + ' on this computer', refused: true };
     pidStart = typeof s === 'string' ? s : null;
     // kosmos#9222: announced again while ps cannot answer, the agent's own record for this process keeps the start it
     // recorded (and with it its "since"), rather than becoming one the ceiling would drop while the process runs.
-    if (pidStart === null && s === undefined) {
-      const had = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart);
-      if (had) pidStart = had.pidStart;
-    }
+    unread = pidStart === null && s === undefined;   // kosmos#9230: the carry-over is read under the lock, below
   }
   const job = { agent, label: lab, pid: p, pidStart, since: now, at: now };   // since: shown; at: the ceiling counts from it
   let othersOf = startOf;
@@ -191,6 +189,12 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
     if (list.filter((j) => j.agent === agent && judge(j, { now, startOf: othersOf, agentAlive: null }) !== 'drop').length >= MAX_PER_AGENT) {
       out = { ok: false, because: 'you already have ' + MAX_PER_AGENT + ' heavy jobs recorded; kosmos heavy lists them, and kosmos heavy end --pid N ends one (a bare end, the one with no process)', refused: true };
       return;
+    }
+    // kosmos#9222/#9230: announced again while ps cannot answer, the agent's own record for this process keeps the start
+    // it recorded (and with it its "since"); read here, under the lock, so a write made meanwhile is the one seen.
+    if (unread) {
+      const had = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart);
+      if (had) job.pidStart = had.pidStart;
     }
     const was = readAll(root).find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
     if (was && judge(was, { now, startOf: othersOf, agentAlive: null }) !== 'drop') job.since = was.since;   // shown or hidden: still it   // announced again: since stays
@@ -244,7 +248,8 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
   if (verdict.includes('drop')) {
     // Exactly the records this read dropped go (re-read under the lock, so a start made meanwhile stays); nothing is
     // judged again, so a second pass with the budget spent cannot change what this read decided.
-    const key = (j) => j.agent + '\u0000' + j.pid + '\u0000' + j.since;
+    // kosmos#9230: `at` too, so a re-announce made meanwhile (same agent, pid and kept since, new at) is never this drop.
+    const key = (j) => j.agent + '\u0000' + j.pid + '\u0000' + j.since + '\u0000' + j.at;
     const gone = new Set(all.filter((_, i) => verdict[i] === 'drop').map(key));
     require('./filelock').withFileLock(fileOf(root), () => {
       writeAll(root, readAll(root).filter((j) => !gone.has(key(j))));

@@ -28544,7 +28544,9 @@ const server = http.createServer(async (req, res) => {
     const roster = safeRoster();
     // kosmos#9222: with the caller's own jobs no read could check, marked unchecked, so an agent can see (and end, which
     // only its own may) what holds its places. Another agent's, and anything for a caller it cannot name (the person,
-    // a page), stay off the list, as off the board. The caller is named as POST names it, from its token or pane.
+    // a page), stay off the list, as off the board. The caller is named as POST names it, from its token or pane; a pane
+    // claim is advisory there as it is for `end` (kosmos#9230), so a local process that names a pane sees that agent's
+    // unchecked jobs, labels and pids, and no more than `end` could already act on.
     let fromPane = '';
     try { fromPane = new URL(req.url, ROUTING_BASE).searchParams.get('from_pane') || ''; } catch { fromPane = ''; }   // GET has no body
     const caller = isViaScreen(req, {}) ? { card: null } : processCaller(req, { from_pane: fromPane }, roster, false, 'nothing was listed');
