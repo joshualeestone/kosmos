@@ -344,7 +344,9 @@ async function stoppedRunnerLeavesNoWatchdog(label, how, windowMs, extra = {}) {
     const candidates = () => {
       const kids = childrenOf(child.pid);
       const node = kids.map(commandOf).find(isNodeTest);
-      if (!node) return null;
+      /* kosmos#9302: a stand-in node that is a shell script reads as "/bin/sh <path>/node --test ..." in the instant
+         before its exec, and isNodeTest matches that too. Not started yet: look again, so nodeCmd is the real node. */
+      if (!node || /^\/bin\/(?:ba)?sh /.test(node)) return null;
       nodeCmd = node;
       const own = runnerCmd();
       return kids.filter((k) => commandOf(k) === own);
