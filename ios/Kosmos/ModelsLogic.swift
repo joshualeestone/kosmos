@@ -47,7 +47,9 @@ enum Models {
         f.timeZone = clock.timeZone
         f.calendar = clock.calendar
         f.setLocalizedDateFormatFromTemplate(template)
-        return f.string(from: d)
+        // Newer ICU puts a narrow no-break space (U+202F) before AM/PM; the page's toLocaleTimeString does not (V8 kept
+        // a plain space), so the phone writes the page's plain space. web.models-ios-parity-8959 pins it.
+        return f.string(from: d).replacingOccurrences(of: "\u{202F}", with: " ")
     }
 
     // { month: 'short', day: 'numeric' }, with the year only when it is not this year (the login and since dates).

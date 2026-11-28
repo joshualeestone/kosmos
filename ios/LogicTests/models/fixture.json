@@ -1,0 +1,280 @@
+{
+ "nowMs": 1795802400000,
+ "timeZone": "America/Chicago",
+ "locale": "en-US",
+ "rows": [
+  {
+   "name": "stops today",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1795809600000,
+     "loginEnded": true,
+     "loginExpiresInDays": 0
+    }
+   }
+  },
+  {
+   "name": "stops tomorrow",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1795888800000
+    }
+   }
+  },
+  {
+   "name": "stopped, ended",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginStopsAt": 1795798800000,
+     "loginEnded": true
+    }
+   }
+  },
+  {
+   "name": "expiring dated",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 3,
+     "loginExpiresAt": 1796061600000
+    }
+   }
+  },
+  {
+   "name": "expires today",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 0
+    }
+   }
+  },
+  {
+   "name": "expires 1 day",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "loginExpiresInDays": 1
+    }
+   }
+  },
+  {
+   "name": "login good next year",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedFrom": "login",
+     "loginValidUntil": 1799258400000
+    }
+   }
+  },
+  {
+   "name": "unverified dated",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "loginValidUntil": 1796666400000
+    }
+   }
+  },
+  {
+   "name": "login green no date",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedFrom": "login"
+    }
+   }
+  },
+  {
+   "name": "working active",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedAgeMs": 120000
+    }
+   }
+  },
+  {
+   "name": "working checked",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working",
+     "observedFrom": "check",
+     "observedAgeMs": 120000
+    }
+   }
+  },
+  {
+   "name": "working no age",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "rejected",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "rejected",
+     "observedAgeMs": 7200000
+    }
+   }
+  },
+  {
+   "name": "not confirmed since",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "notConfirmedSince": 1795370400000
+    }
+   }
+  },
+  {
+   "name": "not confirmed last year",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "notConfirmedSince": 1761242400000
+    }
+   }
+  },
+  {
+   "name": "unverified",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_in_unverified"
+    }
+   }
+  },
+  {
+   "name": "signed out reason",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_out",
+     "because": "Sign in again on this computer."
+    }
+   }
+  },
+  {
+   "name": "signed out",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "signed_out"
+    }
+   }
+  },
+  {
+   "name": "unchecked",
+   "account": {
+    "dir": "/a",
+    "provider": "anthropic",
+    "connection": {
+     "badge": "unchecked"
+    }
+   }
+  },
+  {
+   "name": "chatgpt connected",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "connected"
+    },
+    "authMode": "chatgpt"
+   }
+  },
+  {
+   "name": "chatgpt none",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "none"
+    },
+    "authMode": "chatgpt"
+   }
+  },
+  {
+   "name": "chatgpt unknown",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "unknown"
+    },
+    "authMode": "chatgpt"
+   }
+  },
+  {
+   "name": "key connected",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "connected"
+    }
+   }
+  },
+  {
+   "name": "key none reason",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {
+     "state": "none",
+     "because": "The key was refused."
+    }
+   }
+  },
+  {
+   "name": "key nothing",
+   "account": {
+    "dir": "/a",
+    "provider": "openai",
+    "connection": {}
+   }
+  }
+ ]
+}

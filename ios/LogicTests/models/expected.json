@@ -1,0 +1,127 @@
+[
+ {
+  "name": "stops today",
+  "words": "Signed in · stops working at about 2:00 PM",
+  "tone": "unverified"
+ },
+ {
+  "name": "stops tomorrow",
+  "words": "Signed in · stops working tomorrow at about 12:00 PM",
+  "tone": "unverified"
+ },
+ {
+  "name": "stopped, ended",
+  "words": "Login expired",
+  "tone": "none"
+ },
+ {
+  "name": "expiring dated",
+  "words": "Signed in until Nov 30",
+  "tone": "unverified"
+ },
+ {
+  "name": "expires today",
+  "words": "Signed in · login expires today",
+  "tone": "unverified"
+ },
+ {
+  "name": "expires 1 day",
+  "words": "Signed in · login expires in 1 day",
+  "tone": "unverified"
+ },
+ {
+  "name": "login good next year",
+  "words": "Signed in · login good until Jan 6, 2027",
+  "tone": "connected"
+ },
+ {
+  "name": "unverified dated",
+  "words": "Signed in · login good until Dec 7",
+  "tone": "loginok"
+ },
+ {
+  "name": "login green no date",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "working active",
+  "words": "Signed in · active 2 minutes ago",
+  "tone": "connected"
+ },
+ {
+  "name": "working checked",
+  "words": "Signed in · checked 2 minutes ago",
+  "tone": "connected"
+ },
+ {
+  "name": "working no age",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "rejected",
+  "words": "Not connected · rejected 2 hours ago",
+  "tone": "none"
+ },
+ {
+  "name": "not confirmed since",
+  "words": "Not confirmed since Nov 22",
+  "tone": "unverified"
+ },
+ {
+  "name": "not confirmed last year",
+  "words": "Not confirmed since Oct 23, 2025",
+  "tone": "unverified"
+ },
+ {
+  "name": "unverified",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "signed out reason",
+  "words": "Sign in again on this computer.",
+  "tone": "none"
+ },
+ {
+  "name": "signed out",
+  "words": "this account is not connected",
+  "tone": "none"
+ },
+ {
+  "name": "unchecked",
+  "words": "we could not check this account",
+  "tone": "unknown"
+ },
+ {
+  "name": "chatgpt connected",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "chatgpt none",
+  "words": "Not connected",
+  "tone": "none"
+ },
+ {
+  "name": "chatgpt unknown",
+  "words": "Signed in",
+  "tone": "unverified"
+ },
+ {
+  "name": "key connected",
+  "words": "Signed in",
+  "tone": "connected"
+ },
+ {
+  "name": "key none reason",
+  "words": "The key was refused.",
+  "tone": "none"
+ },
+ {
+  "name": "key nothing",
+  "words": "we could not check this account",
+  "tone": "unknown"
+ }
+]

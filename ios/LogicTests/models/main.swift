@@ -15,7 +15,7 @@ check(page.count > 1_000_000, "the board page was read")
 let M = Models.self
 let P = NewAgentPicker.self
 
-// Times carry U+202F before AM/PM, as current ICU writes them, and as the browser's toLocaleTimeString does too.
+// Times use a plain space before AM/PM, as the page's toLocaleTimeString does (the phone replaces ICU's U+202F).
 // A fixed clock: Friday 2026-11-27 12:00 in Chicago, US English, so every date and time below is one answer.
 var clock = Models.Clock()
 clock.locale = Locale(identifier: "en_US")
@@ -50,9 +50,9 @@ check(parsed.live.because == nil, "an empty because is no reason")
 
 section("the pill, case by case, in the page's order")
 let stops = row(#"{"badge":"working","loginStopsAt":"# + String(Int(nowMs + 2 * hour)) + #","loginEnded":true,"loginExpiresInDays":0}"#)
-check(words(stops) == "Signed in · stops working at about 2:00\u{202F}PM" && tone(stops) == .unverified, "a stop time ahead outranks everything, today")
+check(words(stops) == "Signed in · stops working at about 2:00 PM" && tone(stops) == .unverified, "a stop time ahead outranks everything, today")
 let stopsTomorrow = row(#"{"badge":"working","loginStopsAt":"# + String(Int(nowMs + day)) + "}")
-check(words(stopsTomorrow) == "Signed in · stops working tomorrow at about 12:00\u{202F}PM", "a stop time tomorrow")
+check(words(stopsTomorrow) == "Signed in · stops working tomorrow at about 12:00 PM", "a stop time tomorrow")
 let stopsPast = row(#"{"badge":"working","loginStopsAt":"# + String(Int(nowMs - hour)) + #","loginEnded":true}"#)
 check(words(stopsPast) == "Login expired" && tone(stopsPast) == .none, "a stop time already past: the login has ended")
 let expiring = row(#"{"badge":"working","loginExpiresInDays":3,"loginExpiresAt":"# + String(Int(nowMs + 3 * day)) + "}")
@@ -87,6 +87,23 @@ let keyOn = row(#"{"state":"connected"}"#, provider: "openai")
 check(words(keyOn) == "Signed in" && tone(keyOn) == .connected, "no badge (an API-key row): the state (green)")
 check(words(row(#"{"state":"none","because":"The key was refused."}"#, provider: "openai")) == "The key was refused.", "no badge, not connected: the reason")
 check(words(row(#"{}"#, provider: "openai")) == "we could not check this account", "no badge, no state")
+
+section("every fixture row, against expected.json (the file web.models-ios-parity-8959 checks the page against)")
+struct FixtureRow: Decodable { let name: String }
+let fixtureObj = (try? JSONSerialization.jsonObject(with: Data(repoText("ios/LogicTests/models/fixture.json").utf8))) as? [String: Any]
+let expectedRows = (try? JSONSerialization.jsonObject(with: Data(repoText("ios/LogicTests/models/expected.json").utf8))) as? [[String: String]] ?? []
+let fixtureRows = fixtureObj?["rows"] as? [[String: Any]] ?? []
+check(fixtureRows.count >= 20 && fixtureRows.count == expectedRows.count, "the fixture and expected.json were read, row for row")
+var fixClock = clock
+fixClock.now = Date(timeIntervalSince1970: ((fixtureObj?["nowMs"] as? Double) ?? 0) / 1000)
+for (i, fr) in fixtureRows.enumerated() where i < expectedRows.count {
+    let acct = fr["account"] ?? [:]
+    let one = (try? JSONSerialization.data(withJSONObject: ["accounts": [acct]])) ?? Data()
+    guard let a = P.parseAccounts(one)?.first else { check(false, "row \(i) parses"); continue }
+    let p = M.pill(a, fixClock)
+    let want = expectedRows[i]
+    check(p.words == want["words"] && p.tone.rawValue == want["tone"], "fixture: " + (want["name"] ?? "?") + " -> " + p.words)
+}
 
 section("the page says the same words")
 for w in ["Signed in · stops working ", "Login expired", "'Signed in until '", "'Signed in · login '", "Signed in · login good until ",
