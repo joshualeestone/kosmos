@@ -153,6 +153,8 @@ test('#3159: the guardrail holds -- win32 fetches the WINDOWS build, never a Mac
   assert.doesNotMatch(winBuild.url, /darwin/, 'never the Mac tarball');
   const codexWin = runners.install('codex', { platform: 'win32' });
   assert.equal(codexWin.phase, 'failed', 'an unknown provider name must not start a download on win32');
-  assert.match(codexWin.because, /not supported/,
-    'Claude\'s win32 permission must not leak to an arm with no published Windows build');
+  // kosmos#9287: refused as unknown, as on every platform (it used to meet the platform gate first and be named as a
+  // runner Windows cannot install).
+  assert.match(codexWin.because, /we do not know how to install a runner for codex/,
+    'an unknown provider name on win32 must be refused as unknown, not as a real runner this computer cannot install');
 });
