@@ -75,6 +75,16 @@ test('#8719 a confirmed link of a hand-started Claude window marks that session 
   assert.deepEqual(calls[1], ['set-option', '-t', '$0', '@kosmos_agent', 'zara']);
 });
 
+// kosmos#8378: on Windows, the refusal the three skipped arms meet, pinned: a confirmed link is refused 409 in the route's
+// own words and tmux is never touched.
+test('#8719 on Windows a confirmed link is refused 409, not available on Windows yet, and tmux is not touched', { skip: process.platform !== 'win32' && 'the Windows refusal (macOS and Linux link a window; see the arms above)' }, async () => {
+  lines = [{ session: 'zara', claim: '' }];
+  const r = await link('zara', { confirm: true });
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.match(r.json.because, /not available on Windows yet/);
+  assert.equal(calls.length, 0, 'tmux was asked on Windows');
+});
+
 test('#8719 without the confirmation nothing is linked; CONTROL: the same window links with it (above)', async () => {
   lines = [{ session: 'zara', claim: '' }];
   for (const body of [undefined, {}, { confirm: 'yes' }, { confirm: 1 }]) {

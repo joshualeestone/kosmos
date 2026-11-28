@@ -174,7 +174,7 @@ test('kosmos#8178 round 2: a restored post keeps whose it was and whom it addres
   assert.equal(r.json.delivery.repliesToPerson, true, 'a reply to the person\'s restored post is not said to answer the person (the phone seam, #6254): ' + JSON.stringify(r.json.delivery));
 });
 
-test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again after a pause', { skip: skipOnWin32('it puts a folder where the message log is to make the record unreadable, and on Windows the reader reads that folder as an empty log (kosmos#9279), so the unreadable case this checks cannot be set up there') }, () => {
+test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again after a pause', { skip: skipOnWin32('what it checks exists on Windows and fails open there: with a folder where the message log goes, the reader reads an empty log, not an unreadable one (kosmos#9279, a real bug; this skip goes when it is fixed)') }, () => {
   messages.resetForTests();
   const ids = messages._idsPathForTests();
   const log = path.join(path.dirname(ids), 'messages.jsonl');
