@@ -77,8 +77,10 @@ test('#9278: on Windows a stuck file in a LATER chunk is still stopped (the watc
   fs.writeFileSync(hang, HANG_SRC);
   files.push(hang);
   const { r, took, out } = runRunner(files, 420000);
-  assert.match(out, /run-tests: node --test ran in ([2-9]|\d\d+) chunk\(s\)/, 'the fixture did not make two chunks, so this arm tested nothing: ' + out.slice(-800));
+  // The timeout first: a run its watchdog never stopped is killed before it prints its chunk count (measured on the
+  // Windows runner with the first-chunk-only loop), so checking the count first would name the wrong failure.
   assert.ok(!(r.error && r.error.code === 'ETIMEDOUT'), 'the stuck file in a later chunk was not stopped: ' + out.slice(-1500));
+  assert.match(out, /run-tests: node --test ran in ([2-9]|\d\d+) chunk\(s\)/, 'the fixture did not make two chunks, so this arm tested nothing: ' + out.slice(-800));
   assert.notEqual(r.status, 0, 'a run with a stopped file must be red: ' + out.slice(-1500));
   assert.match(out, /run-tests: TIMED OUT after 30 s: \S*zz-hang\.test\.js \(#6668/, 'the stuck file in the later chunk was not named');
   console.log('MEASURED: ' + files.length + ' files, stopped after ' + took + ' ms');
