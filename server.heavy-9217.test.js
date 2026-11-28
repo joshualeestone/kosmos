@@ -107,7 +107,7 @@ test('kosmos#9217: a page request, a bad action and a bad label are refused, and
   const tok = sendertoken.mint(ada).token;
   assert.equal((await asScreen({ action: 'start', label: 'x' })).status, 403);
   let r = await asAgent(tok, { action: 'begin', label: 'x' });
-  assert.deepEqual([r.status, (await r.json()).error], [400, 'say start or end']);
+  assert.deepEqual([r.status, (await r.json()).error], [400, 'say start, end, take or release']);
   r = await asAgent(tok, { action: 'start', label: '-x' });
   assert.deepEqual([r.status, (await r.json()).error], [400, 'a job cannot start with -']);
   assert.deepEqual(await jobsInStatus(), []);
@@ -282,4 +282,38 @@ test('kosmos#9222: an agent named by its pane alone (no token) is listed its own
     const got = await (await fetch(`${base}/api/heavy?from_pane=${encodeURIComponent(adaCard.target)}`)).json();
     assert.deepEqual(got.jobs.map((j) => [j.label, j.unchecked]), [['by pane', true]], 'its pane did not name it');
   } finally { Object.assign(rs, was); hj.end({ root: store.ROOT, agent: ada, pid: 434343 }); }
+});
+
+test('kosmos#9217 slice 2: take is the turn on a free computer, a kept place behind a holder, and the status lists the line', async () => {
+  const { ada, bo } = twoAgents();
+  const ta = sendertoken.mint(ada).token, tb = sendertoken.mint(bo).token;
+  let r = await asAgent(ta, { action: 'take', label: 'ada suite' });
+  assert.equal(r.status, 200, await r.clone().text());
+  const mine = await r.json();
+  assert.deepEqual([mine.turn, mine.job.label], [true, 'ada suite']);
+  assert.deepEqual((await jobsInStatus()).map((j) => j.agent), [ada], 'the turn is the heavy job, as start records it');
+  r = await asAgent(tb, { action: 'take', label: 'bo validation' });
+  const wait = await r.json();
+  assert.deepEqual([wait.turn, wait.place, wait.holder.agent, wait.ahead], [false, 1, ada, []]);
+  const status = await (await fetch(`${base}/api/status`)).json();
+  assert.deepEqual(status.heavyLine.map((e) => [e.agent, e.label]), [[bo, 'bo validation']]);
+  assert.ok(status.heavyLine[0].name && status.heavyLine[0].name !== bo, 'the line carries the name the board shows');
+  const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tb } })).json();
+  assert.deepEqual(got.line.map((e) => e.agent), [bo], 'GET /api/heavy lists the line too');
+  assert.deepEqual(await (await asAgent(ta, { action: 'release' })).json(), { ok: true, left: 0, ended: 1 });
+  r = await asAgent(tb, { action: 'take', label: 'bo validation' });
+  assert.equal((await r.json()).turn, true, 'released, the turn goes to the front of the line');
+  assert.deepEqual((await (await fetch(`${base}/api/status`)).json()).heavyLine, []);
+  assert.deepEqual(await (await asAgent(tb, { action: 'release' })).json(), { ok: true, left: 0, ended: 1 });
+});
+
+test('kosmos#9217 slice 2: a page cannot take a turn, and a refused take writes no place', async () => {
+  const { ada } = twoAgents();
+  const ta = sendertoken.mint(ada).token;
+  assert.equal((await asScreen({ action: 'take', label: 'x' })).status, 403);
+  const r = await asAgent(ta, { action: 'take', label: 'a\nb' });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, 'say what the job is on one line');
+  assert.deepEqual((await (await fetch(`${base}/api/status`)).json()).heavyLine, []);
+  assert.deepEqual(await jobsInStatus(), []);
 });

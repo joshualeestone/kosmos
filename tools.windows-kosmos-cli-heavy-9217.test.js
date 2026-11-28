@@ -113,3 +113,57 @@ test('kosmos#9222: a job Kosmos could not check is listed with how to end it', a
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^overnight \(Ada, since \d\d:\d\d, process 4242\): Kosmos could not check it, so the board does not show it; if it is no longer your job, kosmos heavy end --pid 4242$/m);
 });
+
+// kosmos#9217 slice 2: take and release, worded as install/kosmos (cli.heavy-9217.test.js expects the same words).
+const S = Date.UTC(2026, 10, 27, 15, 5);
+const turnAnswers = {
+  turn: { ok: true, turn: true, job: { label: 'suite', pid: 4242, since: S } },
+  behind: { ok: true, turn: false, place: 2, holder: { agent: 'ada', label: 'cut', pid: null, since: S }, ahead: [{ agent: 'bo', label: 'v', pid: null, since: S }] },
+  free: { ok: true, turn: false, place: 2, holder: null, ahead: [{ agent: 'bo', label: 'v', pid: null, since: S }] },
+  ended: { ok: true, left: 0, ended: 1 },
+  left: { ok: true, left: 1, ended: 0 },
+  none: { ok: true, left: 0, ended: 0 },
+};
+const answering = (k) => () => [200, turnAnswers[k]];
+
+test('heavy take: the turn returns 0 and says how to release it; it sends take with the label and pid', async () => {
+  const r = await run(['heavy', 'take', 'suite', '--pid', '4242'], answering('turn'));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^Your turn: suite is recorded as running while process 4242 runs\. kosmos heavy release --pid 4242 when it is done\.$/);
+  const post = r.calls.find((c) => c.method === 'POST');
+  assert.deepEqual([post.body.action, post.body.label, post.body.pid], ['take', 'suite', 4242]);
+});
+
+test('heavy take: a kept place returns 3 and says the place, the holder and who is ahead', async () => {
+  const r = await run(['heavy', 'take', 'suite'], answering('behind'));
+  assert.equal(r.code, 3, r.err);
+  assert.match(r.out, /^Not yet: you are 2nd in line; ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: bo\. Ask again with kosmos heavy take to keep your place\.$/);
+});
+
+test('heavy take: behind a free turn, it names who has 2 minutes to take it', async () => {
+  const r = await run(['heavy', 'take', 'suite'], answering('free'));
+  assert.equal(r.code, 3, r.err);
+  assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/);
+});
+
+test('heavy release: an ended turn, a given-up place, and nothing to release each say so and return 0', async () => {
+  for (const [k, want] of [['ended', /^Released: your turn has ended, and it no longer shows on the board\.$/], ['left', /^Released: you gave up your place in line\.$/], ['none', /^You had no turn and no place in line\.$/]]) {
+    const r = await run(['heavy', 'release'], answering(k));
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, want, k);
+    assert.equal(r.calls.find((c) => c.method === 'POST').body.action, 'release');
+  }
+});
+
+test('heavy take needs a label; release takes none', async () => {
+  assert.equal((await run(['heavy', 'take'], answering('turn'))).code, 2);
+  const r = await run(['heavy', 'release', 'words'], answering('turn'));
+  assert.equal(r.code, 2);
+  assert.equal(r.calls.filter((c) => c.method === 'POST').length, 0);
+});
+
+test('a bare heavy lists the line of turns after what is running', async () => {
+  const r = await run(['heavy'], () => [200, { ok: true, jobs: [], line: [{ agent: 'bo', name: 'Bo', label: 'v', pid: null, since: S }] }]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^No heavy job is running on this computer\.\nWaiting 1: Bo, v \(in line since \d\d:\d\d\)$/);
+});
