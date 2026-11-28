@@ -282,8 +282,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     ev('10:00', 'turn_context', { model: 'gpt-5.6-sol' }),
     call('10:05', 'c1', 'await tools.exec_command({cmd:"rm -rf secret"}); await tools.exec_command({cmd:"ls"});'),
     out('10:05', 'c1', 'Script completed\nWall time 1 seconds'),
-    /* #9263: a path with a backslash in it, as a Windows Codex writes one, read whole on any host (it was cut at the
-       first backslash, so the receipt named `src` here and the agent's own folder for a Windows absolute path). */
+    /* #9263: a path with a backslash in it, as a Windows Codex writes one, read whole on any host. */
     call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: lib\\deep.js')),
     out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
