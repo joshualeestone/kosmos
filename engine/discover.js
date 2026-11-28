@@ -2375,6 +2375,14 @@ function disconnect(name) {
     }
   }
 
+  /* kosmos#9271: on Windows the job is a Scheduled Task (job.plist is null and there is no job.unit), so neither branch
+     above ran and the task stayed: the next Add answered "Kosmos already looks after an agent by that name" about an
+     agent just taken away. Same rule: only after the teardown fully landed (remove ended and disabled it), only a task
+     that is ours, and best effort. win32job.remove is /Delete /F, and a task already gone counts as removed. */
+  if (stopped && job && job.ours && !job.plist && !job.unit && process.platform === 'win32') {
+    try { require('./win32job').remove(key, job.worldId); } catch { /* best effort, as above */ }
+  }
+
   /* 🛑 AND THE REMOVAL RECORD GOES TOO. `remove` files one, and the board hides
      every name on that list -- so without this, pressing Undo and then Add again
      succeeds at every step and produces no agent. Not `restore`, which would put
