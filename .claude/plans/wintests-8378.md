@@ -18,20 +18,21 @@ passes in full on the Mac (no skip there). engine/windows-tests-1777 (the coupli
   adds both CLIs' requests expects one run there (a RUNS constant in agent-model and delete-leftovers), a control that needs one
   CLI uses the one the host runs, and task-who's fixtures that came from Mac-only tests are made with the Windows CLI on
   Windows so its list checks still see both kinds of row.
-- Four reasons, each naming the mechanism (the card's rule), as the code now reads:
+- Four reasons for a Mac-only mechanism (the card's rule), as the code now reads, and a fifth below:
   1. it runs install/kosmos directly by its shebang line, which Windows cannot do (19 files; sandbox and
      community-exit-reason also name /bin/sh and /bin/bash by an absolute path, which some of their tests use);
   2. it runs install/kosmos through /bin/bash by an absolute POSIX path (community-quiet-stdin);
   3. it runs /bin/sh by an absolute POSIX path (exit-code-mapping, whose tests exercise its harness, not the CLI);
   4. it runs install/kosmos with a bare bash, which reaches Git Bash, where the Mac and Linux CLI's check for a running
-     board does not read the test board as Kosmos; and a Windows computer never runs that CLI (it runs
+     board does not read the test board as Kosmos (observed; the cause inside Git Bash was not found); and a Windows computer never runs that CLI (it runs
      tools/windows/kosmos-cli.js) (unknown-flag, open-1957).
-- Fixes, not skips: update-ifnewer's engine test (this node, not the runtime's symlink; a file URL from pathToFileURL;
-  not yet measured on Windows at the time of writing), and two measured on the runner: feedback-note's control matched /feedback/ with forward slashes only
+- Two are fixes, not skips, measured on the runner: feedback-note's control matched /feedback/ with forward slashes only
   (path.join on Windows gives backslashes), and version's warning names the installed command as KOSMOS_HOME +
   "/bin/kosmos" (mixed slashes on Windows); both run on Windows now and need no Windows branch.
-- Each file that skips has its HOST_BRANCH_EXCLUDED entry in tools/windows-tests.js carrying that reason (23 files).
-
+- A fifth reason, update-ifnewer's engine test ("the look never starts the board's own install"): what it checks exists
+  on Windows, but its fixture builds the Mac installed layout and Windows reads the portable zip's (measured: the look
+  answers "source" there), so it skips with that said and its Windows arm owed on kosmos#9280. Its file URL is built
+  with pathToFileURL either way.
 - The seven both-CLI files are in ALSO_ROOT, so the Windows CI job runs their Windows halves; Mac-only setup at
   load (the runtime symlink, the Mac CLI's home) is guarded so a Windows account without the symlink privilege can load
   them.
