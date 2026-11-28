@@ -16,7 +16,8 @@
  *   display-message  "whose session is this pane in" (engine/messages.js paneSession, through its setRunner seam):
  *                 fixture-discord, for any pane, as the script answers #{session_name}.
  * It installs them through status.setPaneSource and status.setPaneCapture, and test-support/fleet.js restore() returns
- * to them (current()) instead of to "none", so a test that installs and restores a fleet keeps a board it can read.
+ * to them (current()) instead of to "none" when this process installed them (otherwise to none, as before), so a test
+ * that installs and restores a fleet keeps a board it can read.
  * On macOS and Linux it does nothing, so the script stays what those tests run.
  *
  * 🛑 WHAT A GREEN WITH THIS MEANS (review round 3): the rows are fake tmux's, tmux-shaped, so on a Windows host every card
@@ -74,4 +75,17 @@ function childArgs(platform = process.platform) {
 /** The seams serveOnWindows installed, for fleet.restore() to return to; nulls when it did not run. */
 function current() { return { source, capture }; }
 
-module.exports = { serveOnWindows, current, childArgs };
+/** Forgets what serveOnWindows installed here (not the engine seams themselves), for a test of this helper. */
+function reset() { source = null; capture = null; }
+
+/** What test-support/faketmux-win-preload.js does in a board child, here so a test can run it with a platform: serve
+    fake tmux's reads, then have win32roster.make and win32capture.make hand them back, since a board starting on Windows
+    wires its own roster and live state over the seams. Returns whether it did anything (only on Windows). */
+function installForChild(platform = process.platform) {
+  if (!serveOnWindows(platform)) return false;
+  require('../engine/win32roster').make = () => source;
+  require('../engine/win32capture').make = () => capture;
+  return true;
+}
+
+module.exports = { serveOnWindows, current, reset, childArgs, installForChild };

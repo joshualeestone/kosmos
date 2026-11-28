@@ -39,8 +39,16 @@ test('asked to act as Windows, it answers what fake-tmux.sh answers, from the sa
   try {
     delete process.env.AGENT_WORKFORCE_FAKE_PANES;
     delete process.env.AGENT_WORKFORCE_FAKE_SCREEN;
-    assert.equal(win.serveOnWindows('win32'), true);
+    // Spies on the two engine seams (round 4: without them, deleting either install call passed): the helper must hand
+    // engine/status exactly the reads current() reports.
+    const real = { src: status.setPaneSource, cap: status.setPaneCapture };
+    const got = {};
+    status.setPaneSource = (fn) => { got.src = fn; return real.src(fn); };
+    status.setPaneCapture = (fn) => { got.cap = fn; return real.cap(fn); };
+    try { assert.equal(win.serveOnWindows('win32'), true); } finally { status.setPaneSource = real.src; status.setPaneCapture = real.cap; }
     const { source, capture } = win.current();
+    assert.ok(typeof source === 'function' && got.src === source, 'the pane list was not installed in engine/status');
+    assert.ok(typeof capture === 'function' && got.cap === capture, 'the screen was not installed in engine/status');
     assert.equal(source(), '', 'with no panes file the board is empty, as the script says');
     assert.equal(capture('x:0.0'), '', 'with no screen file the screen is empty');
     fs.writeFileSync(PANES, 'line one\nline two\n');
@@ -59,6 +67,7 @@ test('asked to act as Windows, it answers what fake-tmux.sh answers, from the sa
     status.setPaneSource(null);
     status.setPaneCapture(null);
     messages.setRunner(null);
+    win.reset();   // round 4: the helper's own state too, so a later fleet.restore() in this process returns to none
     if (was.panes === undefined) delete process.env.AGENT_WORKFORCE_FAKE_PANES; else process.env.AGENT_WORKFORCE_FAKE_PANES = was.panes;
     if (was.screen === undefined) delete process.env.AGENT_WORKFORCE_FAKE_SCREEN; else process.env.AGENT_WORKFORCE_FAKE_SCREEN = was.screen;
   }
@@ -68,7 +77,29 @@ test('server.js still wires the two factories the board-child preload replaces',
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /setPaneSource\(require\('\.\/engine\/win32roster'\)\.make\(\)\)/, 'the Windows roster is no longer wired as win32roster.make(): test-support/faketmux-win-preload.js would stop applying');
   assert.match(src, /setPaneCapture\(require\('\.\/engine\/win32capture'\)\.make\(/, 'the Windows capture is no longer wired as win32capture.make(...): test-support/faketmux-win-preload.js would stop applying');
-  const preload = fs.readFileSync(path.join(__dirname, 'test-support', 'faketmux-win-preload.js'), 'utf8');
-  assert.match(preload, /require\('\.\.\/engine\/win32roster'\)\.make = /, 'CONTROL: the preload replaces win32roster.make');
-  assert.match(preload, /require\('\.\.\/engine\/win32capture'\)\.make = /, 'CONTROL: the preload replaces win32capture.make');
+});
+
+test('in a board child, installForChild has win32roster.make and win32capture.make hand back the same reads', () => {
+  const status = require('./engine/status');
+  const messages = require('./engine/messages');
+  const roster = require('./engine/win32roster');
+  const cap = require('./engine/win32capture');
+  const was = { make: roster.make, capMake: cap.make };
+  try {
+    assert.equal(win.installForChild('darwin'), false, 'it acted off Windows');
+    assert.equal(roster.make, was.make, 'win32roster.make was replaced off Windows');
+    assert.equal(win.installForChild('win32'), true);
+    const { source, capture } = win.current();
+    assert.equal(roster.make(), source, 'the board child would wire its own Windows roster, not the fixture');
+    assert.equal(cap.make({ lastState: null }), capture, 'the board child would wire its own Windows capture, not the fixture');
+    const preload = fs.readFileSync(path.join(__dirname, 'test-support', 'faketmux-win-preload.js'), 'utf8');
+    assert.match(preload, /require\('\.\/faketmux-win'\)\.installForChild\(\)/, 'the preload no longer runs installForChild');
+  } finally {
+    roster.make = was.make;
+    cap.make = was.capMake;
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+    messages.setRunner(null);
+    win.reset();
+  }
 });
