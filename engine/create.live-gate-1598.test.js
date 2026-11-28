@@ -39,6 +39,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-livegate-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
@@ -72,7 +73,9 @@ function freshWorker(name) {
   try { fs.rmSync(jobfix.jobPath(name), { force: true }); } catch { /* none yet */ }
 }
 
-test('#1598 create.js run() gate polarity: unauthorized -> started:false, and a seam -> started:true', () => {
+/* kosmos#8378: create.js run() carries launchctl (macOS) and systemctl (Linux). On Windows installJob registers and starts a
+   Scheduled Task through engine/win32job.js and its own runner, and never calls run(), so there is no run() gate to test. */
+test('#1598 create.js run() gate polarity: unauthorized -> started:false, and a seam -> started:true', { skip: skipOnWin32('it checks create.js run(), the launchctl and systemctl runner; on Windows installJob starts a Scheduled Task through win32job and never calls run()') }, () => {
   /* ARM 1, the guard: no runner, module-default DRY_RUN false, gate unauthorized.
      Stand in for the production warn-and-return path so run() reaches its refuse
      return (see the header for why this is load-bearing). */

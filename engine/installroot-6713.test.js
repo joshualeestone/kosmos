@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 /**
  * kosmos#6713: a board started from a source checkout or a worktree that adds or reconnects an account in the REAL
  * home must leave that account's Claude settings alone (its hooks and statusline would name its own throwaway
@@ -7,8 +8,10 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  *
  *   node --test engine/installroot-6713.test.js
  *
- * Posix only as written: the stand-in real home is made by setting HOME, which os.homedir() reads on a Mac or Linux
- * but not on Windows (USERPROFILE). Do not add it to tools/windows-tests.js without changing that.
+ * kosmos#8378: the stand-in real home is made by setting HOME and USERPROFILE (os.homedir() reads HOME on a Mac or
+ * Linux and USERPROFILE on Windows), so its rule arms hold there too. The arms about install/setup.sh skip on Windows:
+ * setup.sh is the Mac and Linux installer (Windows installs its own bundle, runtime\node.exe, see win32board), and two
+ * of them run its message blocks through /bin/sh, an absolute POSIX path.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,14 +24,18 @@ const installroot = require('./installroot');
 const accounts = require('./accounts');
 const allowance = require('./allowance');
 
-/* HOME is what os.homedir() reads here, so a temp HOME with no AGENT_WORKFORCE_HOME is a stand-in REAL home. */
+const SETUP_SH = require('../test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the Mac and Linux installer (two arms through /bin/sh, an absolute POSIX path); Windows installs its own bundle');
+
+/* HOME (USERPROFILE on Windows) is what os.homedir() reads, so a temp one with no AGENT_WORKFORCE_HOME is a stand-in REAL home. */
 function realHome(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-'));
-  const saved = { home: process.env.HOME, awh: process.env.AGENT_WORKFORCE_HOME };
+  const saved = { home: process.env.HOME, profile: process.env.USERPROFILE, awh: process.env.AGENT_WORKFORCE_HOME };
   process.env.HOME = home;
+  process.env.USERPROFILE = home;   // kosmos#8378
   delete process.env.AGENT_WORKFORCE_HOME;
   t.after(() => {
     if (saved.home === undefined) delete process.env.HOME; else process.env.HOME = saved.home;
+    if (saved.profile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = saved.profile;
     if (saved.awh === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved.awh;
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -63,7 +70,7 @@ test('#6713: the refusal pins its wording, and promises no later setup', () => {
   assert.equal(installroot.NOT_INSTALLED, 'this board is not the installed Kosmos (a source checkout, a worktree or a test install), so it leaves this account\'s Claude settings alone');
 });
 
-test('#6713: installRoot on a real folder layout uses identity: the default root, spelled through a link, is the default', (t) => {
+test('#6713: installRoot on a real folder layout uses identity: the default root, spelled through a link, is the default', { skip: NO_SYMLINK }, (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-ir-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const root = path.join(home, '.local', 'share', 'kosmos');
@@ -112,7 +119,7 @@ test('#6713: a source board adding an account in the real home leaves its settin
   assert.equal(fs.readFileSync(settings, 'utf8'), before, 'the installed Kosmos\'s wiring is untouched, byte for byte');
 });
 
-test('#6713: the real home under another spelling (a link to it) is still the real home: no sandbox, nothing written', (t) => {
+test('#6713: the real home under another spelling (a link to it) is still the real home: no sandbox, nothing written', { skip: NO_SYMLINK }, (t) => {
   const home = realHome(t);
   const alias = home + '-alias';
   fs.symlinkSync(home, alias);
@@ -123,7 +130,7 @@ test('#6713: the real home under another spelling (a link to it) is still the re
   assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: '/x' }), null, 'CONTROL: installed writes');
 });
 
-test('#6713: an account folder that is a link into the real home is in the real home, even spelled under a sandbox', (t) => {
+test('#6713: an account folder that is a link into the real home is in the real home, even spelled under a sandbox', { skip: NO_SYMLINK }, (t) => {
   const home = realHome(t);
   const real = path.join(home, '.claude-account-f6713');
   fs.mkdirSync(real, { recursive: true });
@@ -196,7 +203,7 @@ function runSetupHooks(home, kh) {
   return spawnSync(process.execPath, ['-', kh], { input: setupHooksProgram(), encoding: 'utf8', env });
 }
 
-test('#6713: setup.sh from a bundle at the default place wires the real home (exit 0); from anywhere else it leaves it alone (exit 20)', (t) => {
+test('#6713: setup.sh from a bundle at the default place wires the real home (exit 0); from anywhere else it leaves it alone (exit 20)', { skip: SETUP_SH }, (t) => {
   const home = realHome(t);
   const settings = path.join(home, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(settings), { recursive: true });
@@ -214,7 +221,7 @@ test('#6713: setup.sh from a bundle at the default place wires the real home (ex
   assert.match(fs.readFileSync(settings, 'utf8'), /kosmos-statusline\.js/, 'CONTROL: and the weekly statusline (an installed board still gets it)');
 });
 
-test('#6713: setup.sh says, for exit 20, that the home was left alone, and never promises another install sets it up', () => {
+test('#6713: setup.sh says, for exit 20, that the home was left alone, and never promises another install sets it up', { skip: SETUP_SH }, () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
   const a = sh.indexOf('case "${_hooks_rc:-0}" in');
   assert.ok(a > 0, 'the message block moved in setup.sh');
@@ -250,7 +257,7 @@ function homeWithAccount(t) {
   return { home, kh, def, acct: path.join(dir, 'settings.json') };
 }
 
-test('#6713: setup.sh with some targets left alone and the rest wired exits 21, not 0, 1 or 20', (t) => {
+test('#6713: setup.sh with some targets left alone and the rest wired exits 21, not 0, 1 or 20', { skip: SETUP_SH }, (t) => {
   const { home, kh, def, acct } = homeWithAccount(t);
   const r = runSetupHooksWith(home, kh, '(f) => (f.includes(".claude-account-g6713") ? "left alone" : null)');
   assert.equal(r.status, 21, 'a mixed run with nothing refused: exit 21. ' + r.stderr);
@@ -260,7 +267,7 @@ test('#6713: setup.sh with some targets left alone and the rest wired exits 21, 
   assert.equal(all.status, 0, 'CONTROL: two targets, none left alone, exits 0. ' + all.stderr);
 });
 
-test('#6713: setup.sh leaves a target alone when its rule throws, instead of wiring it or dying', (t) => {
+test('#6713: setup.sh leaves a target alone when its rule throws, instead of wiring it or dying', { skip: SETUP_SH }, (t) => {
   const { home, kh, def, acct } = homeWithAccount(t);
   const r = runSetupHooksWith(home, kh, '() => { throw new Error("boom"); }');
   assert.equal(r.status, 20, 'every target left alone: exit 20. ' + r.stderr);
@@ -268,7 +275,7 @@ test('#6713: setup.sh leaves a target alone when its rule throws, instead of wir
   assert.doesNotMatch(fs.readFileSync(acct, 'utf8'), /kosmos-report-hook/);
 });
 
-test('#6713: after a run that left anything alone (20, 21, 22) setup.sh does not claim a status line', (t) => {
+test('#6713: after a run that left anything alone (20, 21, 22) setup.sh does not claim a status line', { skip: SETUP_SH }, (t) => {
   const home = realHome(t);
   const settings = path.join(home, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(settings), { recursive: true });
@@ -294,7 +301,7 @@ test('#6713: a filesystem that reports inode 0 for every folder does not make a 
   assert.equal(installroot.leaveAlone(path.join(home, '.claude', 'settings.json'), { home, env: { AGENT_WORKFORCE_HOME: sb }, installRoot: null }), installroot.NOT_INSTALLED, 'CONTROL: the real home is still left alone');
 });
 
-test('#6713: setup.sh with a target refused and another left alone exits 22, not 1', (t) => {
+test('#6713: setup.sh with a target refused and another left alone exits 22, not 1', { skip: SETUP_SH }, (t) => {
   const { home, kh, def } = homeWithAccount(t);
   fs.writeFileSync(def, 'not json\n');   // an unreadable settings file is refused, and left as it is
   const r = runSetupHooksWith(home, kh, '(f) => (f.includes(".claude-account-g6713") ? "left alone" : null)');
@@ -315,7 +322,7 @@ test('#6713: ensureStatusLine takes a reason string or null for leaveAlone; anyt
   assert.equal(fs.readFileSync(settings, 'utf8'), '{}\n');
 });
 
-test('#6713: setup.sh fails closed when the bundle it just extracted cannot load the rule', (t) => {
+test('#6713: setup.sh fails closed when the bundle it just extracted cannot load the rule', { skip: SETUP_SH }, (t) => {
   const home = realHome(t);
   const settings = path.join(home, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(settings), { recursive: true }); fs.writeFileSync(settings, '{}\n');

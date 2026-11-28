@@ -30,6 +30,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the two tmux-gate arms
 
 /* SANDBOX BEFORE REQUIRING, for the same reasons create.test.js lists: the module
    under test makes directories, writes instruction files and launchd jobs, and
@@ -70,16 +71,18 @@ const asDir = path.join(BIN, 'as-directory');
 fs.mkdirSync(asDir);
 const noExec = path.join(BIN, 'no-exec');
 fs.writeFileSync(noExec, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
-const realBin = path.join(BIN, 'real');
-fs.writeFileSync(realBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+/* kosmos#8378: the real stub is one this platform counts as runnable (test-support/runnerstub.js: on Windows a .cmd
+   beside it). The no-exec file has no .cmd, so on Windows it is not runnable either: there a file runs by its extension. */
+const realBin = require('../test-support/runnerstub').writeRunnerStub(BIN, 'real');
 /* tmux for the creation paths that reach a spawn: the same stand-in
    create.test.js uses, so a control creation can actually complete. */
-const TMUX = '/bin/echo';
+const TMUX = require('../test-support/runnerstub').writeRunnerStub(BIN, 'tmux');   // kosmos#8378: was /bin/echo, a POSIX path
 /* #5073: createAgent asks status.paneRoster() whether the name is free, and with no pane source that reads THIS
    machine's tmux: the result then depends on who is running here and on the caller's locale (no UTF-8 LANG and tmux
    mangles its output, so the roster cannot be read and creation refuses). An empty fleet, as create.spoken-name-1367
    does. */
-test.beforeEach(() => { status.setPaneSource(() => ''); });
+/* kosmos#8378: on Windows the job a create registers goes to the stand-in Task Scheduler (test-support/jobfixture.js). */
+test.beforeEach(() => { status.setPaneSource(() => ''); jobfix.useJobStore(); });
 test.afterEach(() => { status.setPaneSource(null); });
 
 test('the fixture argues with something real: existsSync says yes where isRunnable says no', () => {
@@ -89,6 +92,9 @@ test('the fixture argues with something real: existsSync says yes where isRunnab
   }
   assert.equal(runners.isRunnable(realBin), true, 'the control binary is not runnable, so no control below can pass');
 });
+
+/* kosmos#8378: Windows runs agents without tmux, so create and installJob have no tmux gate there (create.js, #570). */
+const NO_TMUX = skipOnWin32('it checks the tmux gate, and Windows runs agents without tmux, so there is no tmux gate there');
 
 /* The two wrong shapes, named so a failure says which one slipped through. */
 const WRONG = [['a DIRECTORY', asDir], ['a file with NO EXEC BIT', noExec]];
@@ -105,7 +111,7 @@ test('#1616 createAgent on Claude refuses a directory or a stripped file at the 
     'a real executable did not get through to a creation, so the arms above cannot tell the gate from a wall: ' + ok.because);
 });
 
-test('#1616 createAgent on Claude refuses a directory at the TMUX path too: the loop is one gate for every binary it spawns', () => {
+test('#1616 createAgent on Claude refuses a directory at the TMUX path too: the loop is one gate for every binary it spawns', { skip: NO_TMUX }, () => {
   for (const [label, bad] of WRONG) {
     const r = create.createAgent({ claudeBin: realBin, tmuxBin: bad, codexBin: '/nonexistent-codex', name: 'rd-tmux', role: 'pm' });
     assert.equal(r.outcome, create.OUTCOME.REFUSED, label + ' at the tmux path was not refused');
@@ -178,7 +184,7 @@ test('#1616 installJob refuses a directory or a stripped file at the runner path
   assert.equal(ok.ok, true, 'a real executable did not get installJob to a job: ' + ok.because);
 });
 
-test('#1185 installJob refuses a directory or a stripped file at the TMUX path too (symmetry with the runner check), before writing a doomed plist', () => {
+test('#1185 installJob refuses a directory or a stripped file at the TMUX path too (symmetry with the runner check), before writing a doomed plist', { skip: NO_TMUX }, () => {
   const name = 'rd-job-tmux';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   for (const [label, bad] of WRONG) {

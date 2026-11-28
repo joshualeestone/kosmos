@@ -1,9 +1,12 @@
 'use strict';
 /* kosmos#7149: a re-read notice says what changed, not only which section. node --test engine/instructionreread-changes-7149.test.js */
 require('../test-support/tmpscope');
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-irchanges-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
@@ -141,7 +144,7 @@ test('the board pass is handed its hooks (read as source; the report route is te
   assert.match(src, /prepareChanges: \(session\) => ir\.prepareChanges\(session\),\s*remember: \(session, text\) => ir\.remember\(session, text\),\s*dropChanges: \(session\) => ir\.dropChanges\(session\),/);
 });
 
-test('review 1 BLOCKER: a link planted at the changes file is replaced, never followed; both new files are 0600', () => {
+test('review 1 BLOCKER: a link planted at the changes file is replaced, never followed; both new files are 0600', { skip: NO_SYMLINK }, () => {
   const f = agentFile('cal', AFTER);
   const outside = path.join(SANDBOX, 'outside.txt');
   fs.writeFileSync(outside, 'untouched');
@@ -152,10 +155,10 @@ test('review 1 BLOCKER: a link planted at the changes file is replaced, never fo
   assert.equal(got.path, p);
   assert.equal(fs.readFileSync(outside, 'utf8'), 'untouched', 'the write followed a planted link');
   assert.equal(fs.lstatSync(p).isSymbolicLink(), false);
-  assert.equal(fs.statSync(p).mode & 0o777, 0o600, 'the changes file is not 0600');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(p).mode & 0o777, 0o600, 'the changes file is not 0600');
   const seenDir = path.join(require('./store').ROOT, 'instruction-reread-seen');
   const copy = path.join(seenDir, fs.readdirSync(seenDir).find((n) => /^cal-[0-9a-f]{12}\.md$/.test(n)));
-  assert.equal(fs.statSync(copy).mode & 0o777, 0o600, 'the copy is not 0600');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(copy).mode & 0o777, 0o600, 'the copy is not 0600');
 });
 
 test('review 1: an older changes file is removed when a notice names none', () => {
@@ -289,7 +292,7 @@ test('review 3: an UNCONFIRMED line (or a throwing deliver) moves the copy, as s
   assert.deepEqual(t.remembered, [['ida', AFTER]]);
 });
 
-test('review 3: a folder path with a double quote is never named', () => {
+test('review 3: a folder path with a double quote is never named', { skip: skipOnWin32('it makes a folder with a double quote in its name, which a Windows file name cannot hold') }, () => {
   const instructions = require('./instructions');
   const realFile = instructions.fileFor;
   const realRead = instructions.read;

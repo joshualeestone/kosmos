@@ -19,6 +19,9 @@ const create = require('./create');
 const subscription = require('./subscription');
 
 test.after(() => create.setClaudeProbe(null));
+/* kosmos#8378: two arms stand in for tmux with a #!/bin/sh script run by its shebang line; Kosmos runs no tmux on
+   Windows, and Windows cannot run the script. */
+const TMUX_STUB = require('../test-support/skip-on-win32').skipOnWin32('it fakes tmux with a #!/bin/sh script run by its shebang line, and Kosmos runs no tmux on Windows');
 
 const NOW = Date.parse('2026-11-24T22:00:00Z');
 const H = 3600000;
@@ -162,7 +165,7 @@ test('kosmos#9082 review 1: #9031\'s state words count only from a run that fail
   } finally { create.setClaudeProbe(null); }
 });
 
-test('kosmos#9082 review 2: the tmux lookup runs without TMUX, so a board started in a pane asks the default server', () => {
+test('kosmos#9082 review 2: the tmux lookup runs without TMUX, so a board started in a pane asks the default server', { skip: TMUX_STUB }, () => {
   const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
   const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-tmux-'));
   const stub = nodePath.join(dir, 'tmux');
@@ -179,7 +182,9 @@ test('kosmos#9082 review 3: a sandbox that replaces HOME itself keeps its folder
   const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
   const sandbox = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-home-'));
   const wasHome = process.env.HOME; const wasAWH = process.env.AGENT_WORKFORCE_HOME;
-  process.env.HOME = sandbox; delete process.env.AGENT_WORKFORCE_HOME;
+  // kosmos#8378: USERPROFILE beside HOME, since os.homedir() reads USERPROFILE on Windows, not HOME.
+  const wasProfile = process.env.USERPROFILE;
+  process.env.HOME = sandbox; process.env.USERPROFILE = sandbox; delete process.env.AGENT_WORKFORCE_HOME;
   const noPin = { run: () => ({ ran: true, status: 1, out: '' }) };
   try {
     const sdef = nodePath.join(sandbox, '.claude');
@@ -190,11 +195,12 @@ test('kosmos#9082 review 3: a sandbox that replaces HOME itself keeps its folder
   } finally {
     create.setProbeRealHomeForTests(null);
     if (wasHome === undefined) delete process.env.HOME; else process.env.HOME = wasHome;
+    if (wasProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = wasProfile;
     if (wasAWH === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = wasAWH;
   }
 });
 
-test('kosmos#9082 review 3: a pin reaches the probe through the real lookup (the board\'s tmux, not a stub run)', () => {
+test('kosmos#9082 review 3: a pin reaches the probe through the real lookup (the board\'s tmux, not a stub run)', { skip: TMUX_STUB }, () => {
   const fs = require('node:fs'); const nodePath = require('node:path'); const os = require('node:os');
   const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-9082-pin-'));
   const stub = nodePath.join(dir, 'tmux');

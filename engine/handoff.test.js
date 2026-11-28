@@ -12,6 +12,7 @@
  * And the whole point of the command: it changes no state.
  */
 require('../test-support/tmpscope');   // #4273: first, so every temp dir here is contained and removed
+const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -56,7 +57,12 @@ test('#6506 axis 4: gitFact reports branch, sha and clean/dirty inside a work tr
   assert.match(handoff.gitFact(d), /^branch `main` at `[0-9a-f]{40}`, uncommitted changes present$/, 'dirty work tree');
 });
 
-test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different answers', () => {
+/* kosmos#8378: the git-erroring arm puts a #!/bin/sh stub named git on PATH. Windows finds a command on PATH by its
+   extension (git.exe), so there the real git answers and the arm checks nothing it means to; it is skipped there, after
+   the two arms before it have run. */
+const STUB_GIT_ON_PATH = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (a git that errors is not called not-a-repo), but its stub git is a #!/bin/sh script found on PATH by name and run by its shebang line, which Windows cannot do; a Windows arm is owed on kosmos#9269');
+
+test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different answers', (t) => {
   const d = tmp('kosmos-handoff-nogit-');
   assert.equal(handoff.gitFact(d), 'not a git repository');
 
@@ -67,6 +73,7 @@ test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different
     assert.match(handoff.gitFact(d), /^git is not installed/, 'git missing must not read as not-a-repo');
   } finally { process.env.PATH = saved; }
 
+  if (STUB_GIT_ON_PATH) { t.skip(STUB_GIT_ON_PATH); return; }
   // git erroring (a failure that is NOT "not a git repository"): a stub git that exits non-zero.
   const bin = tmp('kosmos-handoff-stubbin-');
   fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\necho "fatal: detected dubious ownership in repository" 1>&2\nexit 128\n', { mode: 0o755 });
@@ -305,7 +312,7 @@ test('#6506 axis 5: a path with a newline or backtick cannot inject lines or bre
 
 // ── #6506 follow-ups (Raiden's #6532 notes 1 and 2) ────────────────────────────
 
-test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', () => {
+test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', { skip: NO_CHMOD_READ }, () => {
   const session = 'handoffunread';
   const rec = selfreport.record(session, { state: 'working' });
   assert.ok(rec.recorded, 'precondition: self-report recorded: ' + (rec.because || ''));

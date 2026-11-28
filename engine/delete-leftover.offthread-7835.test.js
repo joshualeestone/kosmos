@@ -226,12 +226,13 @@ test('#7835 a move that throws still lets go of the name', async () => {
 });
 
 test('#7835 the live runner closes stdin, and answers at its limit with no exit code', async () => {
-  // A process that reads stdin to its end: with stdin closed it ends at once.
-  const cat = await leftover.execAsync('/bin/cat', [], { timeout: 3000 });
+  /* A process that reads stdin to its end: with stdin closed it ends at once. kosmos#8378: node stands in for /bin/cat
+     and /bin/sleep (absolute POSIX paths Windows does not have), so the same live runner is checked on every platform. */
+  const cat = await leftover.execAsync(process.execPath, ['-e', 'process.stdin.resume(); process.stdin.on("end", () => process.exit(0))'], { timeout: 30000 });   // not a speed test: node starts slower than cat
   assert.equal(cat.ok, true, 'stdin was left open: ' + JSON.stringify(cat));
   // A process past its limit is killed and answered, with no exit code to read as a real answer.
   const t0 = Date.now();
-  const slow = await leftover.execAsync('/bin/sleep', ['5'], { timeout: 200 });
+  const slow = await leftover.execAsync(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { timeout: 200 });
   assert.equal(slow.ok, false);
   assert.equal(slow.code, null, 'a process killed at its limit carried an exit code');
   assert.ok(Date.now() - t0 < 3000, 'it was not killed at its limit');
