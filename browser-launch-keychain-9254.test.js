@@ -18,8 +18,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-/* Every tracked source file, by git (so a new folder is read without listing it): scripts and code of any kind, and the
-   extensionless scripts in bin/, install/ and tools/. Not this file, whose controls name the bad shapes. */
+/* Every tracked source file, by git (so a new folder is read without listing it): .js .mjs .cjs .ts .sh .py .ps1 .swift,
+   and the extensionless scripts in bin/, install/ and tools/. Not this file, whose controls name the bad shapes. */
 const SRC = /\.(js|mjs|cjs|ts|sh|py|ps1|swift)$/;
 const SELF = path.basename(__filename);
 function files() {
@@ -37,7 +37,7 @@ const SAFE_DROPS = new Set(['--hide-scrollbars', '--enable-automation']);
 const STR = String.raw`(?:'[^'\\]*'|"[^"\\]*")`;
 const LIST = String.raw`\[\s*(?:${STR}\s*,\s*)*(?:${STR}\s*)?\]`;
 /* A safe value is ONLY a literal list of strings, or a ternary choosing between two such lists. */
-const SAFE_SHAPE = new RegExp(String.raw`^\s*(?:[^?\[\]]*\?\s*)?${LIST}\s*(?::\s*${LIST}\s*)?$`);
+const SAFE_SHAPE = new RegExp(String.raw`^\s*(?:${LIST}|[^?\[\]]*\?\s*${LIST}\s*:\s*${LIST})\s*$`);
 /* Each place the name appears, and the value given there (or null where none can be read: shorthand, a spread of an
    options object, a name passed along). Brackets and parentheses are counted, so a multi-line value is read whole. */
 function dropValues(src) {
@@ -58,7 +58,9 @@ function dropValues(src) {
       if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
       if ('([{'.includes(c)) depth++;
       else if (')]}'.includes(c)) { if (depth === 0) break; depth--; }
-      else if ((c === ',' || c === ';' || c === '\n') && depth === 0) break;
+      else if ((c === ',' || c === ';') && depth === 0) break;
+      // A newline ends the value unless the next line goes on with it (a ternary's ? or :, or a call on the list).
+      else if (c === '\n' && depth === 0 && !/^\s*[?:.]/.test(src.slice(i + 1, i + 40))) break;
     }
     out.push(src.slice(start, i));
   }
@@ -74,14 +76,14 @@ function unsafeDrop(value) {
 const DEFAULTS_OFF = /ignoreAllDefaultArgs\s*:\s*true|ignoreAllDefaultArgs\s*=(?!=)/;
 /* Running a Chrome or Chromium binary or app itself, not through Playwright's launch (case-insensitive). The keychain
    switch must be on the same call: that line or the three after it. */
-const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell['"`]|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+["']?(?:\/[^\s"']*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)/i;
+const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell\b|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^\s"'\\]*\/)?(?:google chrome|chromium|com\.google\.chrome|org\.chromium)/i;
 
 function offenders(list) {
   const bad = [];
   for (const f of list) {
     const src = fs.readFileSync(f, 'utf8');
     const rel = path.relative(__dirname, f) || f;
-    if (DEFAULTS_OFF.test(src)) bad.push(rel + ': turns every Playwright default switch off');
+    if (DEFAULTS_OFF.test(src)) bad.push(rel + ': turns every default switch off (ignoreAllDefaultArgs)');
     for (const v of dropValues(src)) if (unsafeDrop(v)) bad.push(rel + ': ignoreDefaultArgs drops more than a safe switch: ' + v.trim().slice(0, 80));
     const lines = src.split('\n');
     lines.forEach((l, i) => {
@@ -105,16 +107,25 @@ test('#9254: every rule fires on the shape it names, and not on the safe shapes 
   assert.ok(unsafe("launch({ ignoreDefaultArgs: ['--hide-scrollbars'].concat(EXTRA) })"), 'a list extended by a call');
   assert.ok(unsafe("launch({ ignoreDefaultArgs })"), 'shorthand');
   assert.ok(unsafe("opts.ignoreDefaultArgs = ['--use-mock-keychain'];"), 'an assignment');
+  assert.ok(unsafe("launch({ ignoreDefaultArgs: cond ? ['--hide-scrollbars']\n  : true })"), 'a ternary whose second arm is on the next line');
+  assert.ok(unsafe("launch({ ignoreDefaultArgs: ['--hide-scrollbars']\n  .concat(['--use-mock-keychain']) })"), 'a call on the next line');
+  assert.ok(unsafe("launch({ ignoreDefaultArgs: cond ? ['--hide-scrollbars'] })"), 'a ternary with one arm');
+  assert.ok(!unsafe("x.ignoreDefaultArgs = ['--hide-scrollbars']; launch(x);"), 'a safe assignment ended by a semicolon');
+  assert.ok(!unsafe("x.ignoreDefaultArgs = ['--hide-scrollbars']\nlaunch(x)"), 'a safe assignment ended by a newline');
+  assert.ok(!unsafe("launch({ ignoreDefaultArgs: wide\n    ? ['--hide-scrollbars']\n    : [] })"), 'a ternary written across lines');
   assert.ok(!unsafe("launch({ ignoreDefaultArgs: ['--hide-scrollbars'] })"), 'one safe switch');
   assert.ok(!unsafe("launch({ ignoreDefaultArgs: eng === 'chromium' ? ['--hide-scrollbars'] : [] })"), 'a ternary of safe lists');
   assert.ok(!unsafe("launch({ ignoreDefaultArgs: ['--enable-automation'], args: ['--x'] })"), 'the next property is not read as the value');
   for (const l of ['spawn("/x/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")', 'open -na "Google Chrome" --args --new-window',
-    "open -a 'google chrome'", 'open -b com.google.Chrome', 'open -a /Applications/Chromium.app/', "execFile('/x/chrome-headless-shell', [])"]) {
+    "open -a 'google chrome'", 'open -b com.google.Chrome', 'open -a /Applications/Chromium.app/', "execFile('/x/chrome-headless-shell', [])",
+    "spawnSync('/x/chrome-headless-shell', [])", "exec('/x/chrome-headless-shell --version')", 'open -b org.chromium.Chromium',
+    'run("/x/Chromium.app/Contents/MacOS/Chromium")', 'execSync("open -a \\"Google Chrome\\" https://x")']) {
     assert.ok(RUNS_CHROME.test(l), 'missed: ' + l);
   }
   assert.ok(!RUNS_CHROME.test('chromium.launch({ headless: true })'), 'a Playwright launch is not a direct run');
   assert.ok(!RUNS_CHROME.test('open -n "Google Chrome"'), 'open with no -a or -b names a file, not an app');
   assert.ok(DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: true })') && !DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: false })'));
+  assert.ok(DEFAULTS_OFF.test('opts.ignoreAllDefaultArgs = true') && !DEFAULTS_OFF.test('if (opts.ignoreAllDefaultArgs === true) {}'));
 });
 
 test('#9254: the Playwright MCP config the repo writes launches the headless shell through Playwright, no profile', () => {
