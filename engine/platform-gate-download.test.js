@@ -78,16 +78,24 @@ test('runners.install REFUSES on a non-macOS platform, in the job shape the scre
   assert.match(job.because, /win32/, 'the refusal names the platform, so it is the gate, not a coincidental failure');
 });
 
-test('runners.install CONTROL: the platform gate fires BEFORE other checks, and not on macOS', () => {
-  // On win32 the platform refusal wins even for an unknown provider (it is checked
-  // first). On darwin the SAME unknown provider gets the unknown-provider refusal
-  // instead -- proving the platform gate does not fire on a supported OS, with no
-  // download in either arm.
-  const win = runners.install('nonesuch', { platform: 'win32' });
-  assert.match(win.because, /not supported/, 'win32 hits the platform gate first');
+test('#9287: an unknown runner name is refused as unknown on every platform, before the platform gate', () => {
+  // Before #9287 the platform gate ran first, so on Windows and Linux a made-up name was refused as a real runner
+  // that computer cannot install. Nothing downloads in any arm.
+  for (const platform of ['win32', 'linux', 'darwin']) {
+    const job = runners.install('nonesuch', { platform });
+    assert.equal(job.phase, 'failed', platform);
+    assert.match(job.because, /do not know how to install a runner for nonesuch/, platform);
+    assert.doesNotMatch(job.because, /not supported/, platform + ': an unknown name must not meet the platform refusal');
+  }
+  // A prototype-chain name is the same refusal (hasOwn in manifestFor), on Windows too.
+  assert.match(runners.install('constructor', { platform: 'win32' }).because, /do not know how to install/);
+});
 
-  const mac = runners.install('nonesuch', { platform: 'darwin' });
-  assert.equal(mac.phase, 'failed');
-  assert.match(mac.because, /do not know how to install/, 'darwin falls through to the unknown-provider refusal');
-  assert.doesNotMatch(mac.because, /not supported/, 'the platform gate must NOT fire on macOS');
+test('#9287 CONTROL: a KNOWN runner still meets the platform gate off macOS', () => {
+  for (const platform of ['win32', 'linux']) {
+    const job = runners.install('claude', { platform });
+    assert.equal(job.phase, 'failed', platform);
+    assert.match(job.because, new RegExp('not supported on this kind of computer \\(' + platform + '\\)'), platform);
+    assert.match(job.because, /installing Claude/i, platform + ': the refusal names the real runner');
+  }
 });
