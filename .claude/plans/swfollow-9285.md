@@ -58,3 +58,7 @@ others) reach the fallback on purpose, so it would change what the fallback is f
 its own with its own review, not a follow-up wording fix. The comments that claimed otherwise now say this. This is
 not only an atomicity cost: the same Windows race at the config that made me refuse in the swap case applies here, so it
 is carded as #9307 rather than called harmless.
+- Review 4: the callers of the non-atomicOnly writers that have no catch of their own were traced for webhooks, the
+  one named: every entry point catches (create, rename and remove in their server routes, touch inside itself,
+  removeProject at its one caller in projects.js). The other callers' catches stay reasoned. Long lines rewrapped; the
+  thrown error notes its cause may be a plain EEXIST; the reaper sentence says a later process does it.
