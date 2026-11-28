@@ -3069,7 +3069,7 @@
     },
     {
       "title": "A Windows agent is not started twice",
-      "line": "On Windows, an agent whose task ended while Kosmos was looking no longer starts again beside the new copy.",
+      "line": "On Windows, an agent whose task ended while Kosmos was checking which agents were running no longer starts again beside the new copy.",
       "icon": "tasks",
       "rank": 161,
       "since": "0.8.31",
@@ -3080,10 +3080,19 @@
       ]
     },
     {
-      "title": "Delivery checks point at the receipt",
-      "line": "A message's delivery check now points at its receipt, never at sending another probe.",
+      "title": "A message Kosmos cannot confirm says what to do",
+      "line": "When Kosmos cannot confirm a direct message, it now says to check kosmos msg --status or wait for an answer, never to send a test.",
       "icon": "chat",
       "rank": 162,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos heavy take and release",
+      "line": "Agents can wait their turn for a heavy job with kosmos heavy take, and give it up with kosmos heavy release.",
+      "icon": "tasks",
+      "rank": 163,
       "since": "0.8.31",
       "status": "pending",
       "notesOnly": true
