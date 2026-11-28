@@ -174,9 +174,6 @@ test('a name that could escape its own folder is refused', () => {
   }
 });
 
-/* #5432: on Linux the agent's job is a systemd user unit (job.unit, job.plist null), and the undo used to leave it, so
-   the row could not be added again. This runs on every platform: remove's teardown and create's systemd seam are stubbed,
-   so what is measured is disconnect's own rule (the unit goes only after the teardown fully landed, and systemd is told). */
 /* kosmos#9271: the same rule for a Windows Scheduled Task (jobFor's win32 shape: a task label, no plist, no unit). Runs on
    every platform: remove's teardown is stubbed and win32job's runner records the schtasks calls, so what is measured is
    disconnect's own rule, as the #5432 arm below does for Linux. The real Windows path runs in this file on the Windows job. */
@@ -217,9 +214,13 @@ test('#9271 an undo on Windows deletes the agent\'s Scheduled Task, only after t
   } finally {
     Object.assign(removal, saved);
     win32job.setRunner(null);
+    jobfix.useJobStore();   // back to the file's stand-in Task Scheduler on Windows (setRunner(null) dropped it)
   }
 });
 
+/* #5432: on Linux the agent's job is a systemd user unit (job.unit, job.plist null), and the undo used to leave it, so
+   the row could not be added again. This runs on every platform: remove's teardown and create's systemd seam are stubbed,
+   so what is measured is disconnect's own rule (the unit goes only after the teardown fully landed, and systemd is told). */
 test('#5432 an undo on Linux removes the agent\'s systemd unit, only after the teardown landed', () => {
   const discover = require('./discover');
   const removal = require('./remove');
