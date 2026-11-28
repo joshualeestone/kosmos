@@ -12,7 +12,10 @@
  * Windows), and the environment variable already decides which program is run; this only says how a script there is
  * started.
  *
- * Two behaviours follow, both only for a .js path (which only a test sets): a missing .js file starts node, which exits 1
+ * kosmos#9269: the codex and grok sign-ins start through it too (engine/openaiaccounts.js, engine/grokaccounts.js); a
+ * real codex or grok is codex.exe or grok.exe on Windows and never ends in .js elsewhere.
+ *
+ * Two behaviours follow, both only for a .js path (a test's stand-in, or a runner override that names a script): a missing .js file starts node, which exits 1
  * ("Cannot find module"), where spawning a missing binary gave ENOENT; and a script whose shebang names another runtime
  * (bun, deno) runs under this node instead.
  *
