@@ -53,6 +53,11 @@ test('#7915: an agent with no pane (panelessCard: a launch token and a live beat
     liveness.seen(n);
   }
   t.after(() => { for (const n of ['ghostheld', 'ghostasked']) sendertoken.revoke(n); });
+  // kosmos#8378: no panes at all, from the fixture, rather than whatever tmux answers on the computer running this
+  // (on Windows there is no tmux, so the real read refuses with "we could not see what is running on this computer";
+  // on a Mac it read the live fleet's panes, which an agent with no pane never needed).
+  const board = fleet.install([]);
+  t.after(() => board.restore());
   assert.equal(selfreport.record('ghostheld', { state: 'needs_you', because: 'Which logo?', held: true }).recorded, true);
   assert.equal(selfreport.record('ghostasked', { state: 'needs_you', because: 'Which logo?' }).recorded, true);
   const cards = status.snapshot().agents;

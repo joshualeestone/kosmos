@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const { skipOnWin32 } = require('../test-support/skip-on-win32.js');
 
 /**
  * #5805 slice 2a: `kosmos msg` to a Claude agent out of usage (a dated reset still ahead) is kept, not typed; the
@@ -370,7 +371,7 @@ test('#5805 2a review 5: after the held copy was typed and the two have spoken s
   });
 });
 
-test('#5805 2a review 6: a typed message whose removal from the file fails is not typed again next minute', async () => {
+test('#5805 2a review 6: a typed message whose removal from the file fails is not typed again next minute', { skip: skipOnWin32('what it checks exists on Windows, but it makes the removal fail by making the folder read-only with chmod, which Windows does not enforce; its Windows arm is owed on kosmos#9313') }, async () => {
   const t = new Date().toISOString();
   limitqueue.add('casey', { id: 'm1020', from: 'leo', envelope: 'once', at: t, reset: t });
   const file = limitqueue.fileFor('casey');
@@ -573,7 +574,7 @@ test('#5805 2a review 15: the board wires the sweep to the automatic gate, the r
   }
 });
 
-test('#5805 2a review 15: a repeat of a message typed but not removed from the file answers as that delivery, not held', async () => {
+test('#5805 2a review 15: a repeat of a message typed but not removed from the file answers as that delivery, not held', { skip: skipOnWin32('what it checks exists on Windows, but it makes the removal fail by making the folder read-only with chmod, which Windows does not enforce; its Windows arm is owed on kosmos#9313') }, async () => {
   let first;
   await withFleet(AHEAD(), 'rate_limited', async (board) => { first = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'typed once' }, board.agents); });
   await withFleet(undefined, 'idle', async (board) => {

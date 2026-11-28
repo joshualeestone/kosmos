@@ -15,6 +15,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+// A real file URL (file:///C:/... on Windows), not 'file://' + a path, whose backslashes curl cannot read as a folder.
+const { pathToFileURL } = require('node:url');
 const tool = require('./tools/whats-new-pool');
 
 const item = (title, rank, status, extra = {}) => Object.assign({ title, line: `What ${title} does, in one sentence.`, icon: 'tasks', rank, since: '0.7.31', status }, extra);
@@ -45,7 +47,7 @@ function prod(version, commit, { manifest = true } = {}) {
   // kosmos#8924: Windows prod beside it, the same build, so a build or prod-check here never reads the live Windows pointer.
   fs.writeFileSync(path.join(dir, 'latest-win.json'), JSON.stringify({ version, arch: 'x64' }));
   if (manifest) fs.writeFileSync(path.join(dir, `kosmos-${version}-win-x64.manifest.json`), JSON.stringify({ manifest: 1, version, app: { commit, dirty: false } }));
-  return { dir, env: { KOSMOS_PROD_POINTER_URL: 'file://' + path.join(dir, 'latest.json') } };
+  return { dir, env: { KOSMOS_PROD_POINTER_URL: pathToFileURL(path.join(dir, 'latest.json')).href } };
 }
 function poolFile(pool) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-sync-pool-'));

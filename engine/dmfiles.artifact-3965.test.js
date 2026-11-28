@@ -42,7 +42,9 @@ test('#3965: an app\'s scratch files are not listed; ordinary names that look si
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-scratch-3965-'));
   try {
     const keep = ['report.docx', '~notes.txt', 'price$.xlsx', 'thumbs.db.txt', '~WRLnotes.tmp', 'Icon.png'];
-    const hide = ['~$report.docx', '~$on (Grok A.docx', '.~lock.report.docx#', '.DS_Store', 'Thumbs.db', 'DESKTOP.INI', '~WRL0001.tmp', '~wrd1234.tmp', 'Icon\r'];
+    const hide = ['~$report.docx', '~$on (Grok A.docx', '.~lock.report.docx#', '.DS_Store', 'Thumbs.db', 'DESKTOP.INI', '~WRL0001.tmp', '~wrd1234.tmp',
+      // kosmos#8378: a carriage return is not allowed in a Windows file name, so the macOS Icon file cannot be made there
+      ...(process.platform === 'win32' ? [] : ['Icon\r'])];
     for (const n of [...keep, ...hide]) fs.writeFileSync(path.join(dir, n), 'x');
     const listed = projects.listFiles(dir, 100, { maxDepth: 0 });
     const names = listed.files.map((f) => f.name).sort();

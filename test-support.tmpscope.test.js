@@ -9,6 +9,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
+/* kosmos#8378: on Windows os.tmpdir() reads TEMP, then TMP, and ignores TMPDIR, so a child pointed at base by TMPDIR
+   alone made its folders in the real temp folder and every arm here saw an empty base. tmpscope.js sets all three. */
+const tmpEnv = (base) => (process.platform === 'win32' ? { TMPDIR: base, TEMP: base, TMP: base } : { TMPDIR: base });
+const NO_SIGNALS = skipOnWin32('it sends the child a signal and needs a handler in it to run, and Windows has no signals: any kill ends the child at once, with no handler and no exit sweep');
+/* kosmos#8378: the child kills itself with SIGKILL. Windows has no signals: there that kill ends the process at once with
+   exit code 1 and no signal, and runs no exit handler either, so the leak these arms are about is left the same way. */
+function killedHard(r, msg) {
+  // A crash also exits 1 with no signal; the kill writes nothing, so an empty stderr is what tells them apart.
+  if (process.platform === 'win32') assert.ok(r.status === 1 && r.signal === null && String(r.stderr) === '', (msg || 'not killed') + ': status ' + r.status + ', signal ' + r.signal);
+  else assert.equal(r.signal, 'SIGKILL', msg);
+}
 
 const SCOPE = path.join(__dirname, 'test-support', 'tmpscope.js');
 
@@ -24,10 +36,10 @@ fs.mkdtempSync(path.join(os.tmpdir(),'fixture-'));`;
 
 test('a raw mkdtemp is removed when the process exits; without the scope it stays (control)', (t) => {
   const base = freshBase(t);
-  const scoped = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});${MAKE}`], { env: { ...process.env, TMPDIR: base } });
+  const scoped = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});${MAKE}`], { env: { ...process.env, ...tmpEnv(base) } });
   assert.equal(scoped.status, 0, String(scoped.stderr));
   assert.deepEqual(entries(base), [], 'the scoped process left something behind');
-  const bare = spawnSync(process.execPath, ['-e', MAKE], { env: { ...process.env, TMPDIR: base } });
+  const bare = spawnSync(process.execPath, ['-e', MAKE], { env: { ...process.env, ...tmpEnv(base) } });
   assert.equal(bare.status, 0, String(bare.stderr));
   assert.equal(entries(base).filter((n) => n.startsWith('fixture-')).length, 1, 'the control did not leak, so this test cannot see a leak');
 });
@@ -35,16 +47,16 @@ test('a raw mkdtemp is removed when the process exits; without the scope it stay
 test("a child process's mkdtemp is contained too (it inherits the scoped TMPDIR)", (t) => {
   const base = freshBase(t);
   const child = `require('child_process').spawnSync(process.execPath,['-e',${JSON.stringify(MAKE)}]);`;
-  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});${child}`], { env: { ...process.env, TMPDIR: base } });
+  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});${child}`], { env: { ...process.env, ...tmpEnv(base) } });
   assert.equal(r.status, 0, String(r.stderr));
   assert.deepEqual(entries(base), [], 'the grandchild left something behind');
 });
 
 for (const SIG of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
-test(`${SIG} removes the scope and the process still dies by ${SIG}`, { timeout: 15000 }, async (t) => {
+test(`${SIG} removes the scope and the process still dies by ${SIG}`, { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   const code = `require(${JSON.stringify(SCOPE)});${MAKE}console.log('ready');setInterval(()=>{},1000);`;
-  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, ...tmpEnv(base) }, stdio: ['ignore', 'pipe', 'pipe'] });
   /* A failed assertion must not leave the child running (it would hold the file open). */
   t.after(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } });
   await new Promise((res, rej) => {
@@ -65,7 +77,7 @@ test('the scope name is short, so a tmux socket path under it still fits', () =>
   assert.match(fs.readFileSync(SCOPE, 'utf8'), /mkdtempSync\(path\.join\(os\.tmpdir\(\), 'kts-'\)\)/);
 });
 
-test("a file's own SIGTERM handler decides: the scope stays until that handler lets the process end", { timeout: 15000 }, async (t) => {
+test("a file's own SIGTERM handler decides: the scope stays until that handler lets the process end", { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   // The file's own handler does async work that needs TMPDIR, then exits 3.
   const code = `require(${JSON.stringify(SCOPE)});
@@ -74,7 +86,7 @@ test("a file's own SIGTERM handler decides: the scope stays until that handler l
       catch { process.exit(9); }
     }, 50));
     console.log('ready'); setInterval(() => {}, 1000);`;
-  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, ...tmpEnv(base) }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } });
   await new Promise((res, rej) => {
     c.stdout.on('data', (b) => { if (String(b).includes('ready')) res(); });
@@ -94,7 +106,7 @@ const SANDBOX = path.join(__dirname, 'docs', 'browser-checks', 'lib-sandbox-home
 const REMOVE = path.join(__dirname, 'test-support', 'remove-at-end.js');
 
 async function termAfterReady(t, base, code) {
-  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, ...tmpEnv(base) }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } });
   await new Promise((res, rej) => {
     c.stdout.on('data', (b) => { if (String(b).includes('ready')) res(); });
@@ -106,7 +118,7 @@ async function termAfterReady(t, base, code) {
   return { made, sig: await ended };
 }
 
-test('two modules sweeping on SIGTERM in one process BOTH sweep (lib-sandbox-home beside a second one, as thread-server runs)', { timeout: 15000 }, async (t) => {
+test('two modules sweeping on SIGTERM in one process BOTH sweep (lib-sandbox-home beside a second one, as thread-server runs)', { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   const code = `require(${JSON.stringify(SANDBOX)});
     const fs=require('fs'),os=require('os'),path=require('path');
@@ -119,7 +131,7 @@ test('two modules sweeping on SIGTERM in one process BOTH sweep (lib-sandbox-hom
   assert.deepEqual(entries(base), [], 'a module\'s folders were left behind on SIGTERM');
 });
 
-test('control: two independent stand-aside handlers leave the first one\'s folder (the shape this replaced)', { timeout: 15000 }, async (t) => {
+test('control: two independent stand-aside handlers leave the first one\'s folder (the shape this replaced)', { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   const oldShape = (name) => `{ const d=fs.mkdtempSync(path.join(os.tmpdir(),'${name}-'));
     const sweep=()=>fs.rmSync(d,{recursive:true,force:true}); process.on('exit',sweep);
@@ -137,14 +149,14 @@ test('control: two independent stand-aside handlers leave the first one\'s folde
    thread-server's `aw-thread-config-` folder. The registry now listens once more when it stands aside. */
 const REMOTE = path.join(__dirname, 'engine', 'remote.js');
 
-test('#5334: lib-sandbox-home beside the REAL engine/remote.js (its SIGTERM re-raise) leaves nothing on SIGTERM', { timeout: 15000 }, async (t) => {
+test('#5334: lib-sandbox-home beside the REAL engine/remote.js (its SIGTERM re-raise) leaves nothing on SIGTERM', { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   const code = `require(${JSON.stringify(SANDBOX)}); require(${JSON.stringify(REMOTE)});
     if (!process.listeners('SIGTERM').some((f) => String(f).includes('process.kill(process.pid, sig)') && String(f).includes('removeListener'))) { console.log('NO-REMOTE-RERAISE'); process.exit(7); }
     console.log('ready'); setInterval(()=>{},1000);`;
   // A home of its own from lib-sandbox-home (so not the caller's), and remote.js's data kept inside base.
   const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(base, 'data') }; delete env.AGENT_WORKFORCE_HOME;
-  const c = spawn(process.execPath, ['-e', code], { env: { ...env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c = spawn(process.execPath, ['-e', code], { env: { ...env, ...tmpEnv(base) }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } });
   await new Promise((res, rej) => {
     c.stdout.on('data', (b) => { const o = String(b); if (o.includes('NO-REMOTE-RERAISE')) rej(new Error('engine/remote.js no longer re-raises SIGTERM; this arm no longer tests that shape, rewrite it')); if (o.includes('ready')) res(); });
@@ -158,7 +170,7 @@ test('#5334: lib-sandbox-home beside the REAL engine/remote.js (its SIGTERM re-r
   assert.deepEqual(entries(base).filter((n) => n !== 'data'), [], 'folders were left behind when a foreign handler re-raised SIGTERM');
 });
 
-test('#5334: a foreign handler that removes itself and re-raises still gets the sweep (the shape, independent of remote.js)', { timeout: 15000 }, async (t) => {
+test('#5334: a foreign handler that removes itself and re-raises still gets the sweep (the shape, independent of remote.js)', { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   const code = `const fs=require('fs'),os=require('os'),path=require('path');
     const d=fs.mkdtempSync(path.join(os.tmpdir(),'mine-'));
@@ -171,7 +183,7 @@ test('#5334: a foreign handler that removes itself and re-raises still gets the 
   assert.deepEqual(entries(base), [], 'the folder was left behind when the foreign handler re-raised');
 });
 
-test('#5334 control: the old stand-aside handler beside a re-raising one leaves its folder (so the arms above can fail)', { timeout: 15000 }, async (t) => {
+test('#5334 control: the old stand-aside handler beside a re-raising one leaves its folder (so the arms above can fail)', { timeout: 15000, skip: NO_SIGNALS }, async (t) => {
   const base = freshBase(t);
   const code = `const fs=require('fs'),os=require('os'),path=require('path');
     const d=fs.mkdtempSync(path.join(os.tmpdir(),'old-')); const sweep=()=>fs.rmSync(d,{recursive:true,force:true});
@@ -199,8 +211,8 @@ test('#6061: a SIGKILL leaves its kts- dir, and .kts-owner in it names the test 
   const base = freshBase(t);
   const victim = path.join(base, 'victim-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
-  assert.equal(r.signal, 'SIGKILL', 'the victim was not SIGKILLed: ' + String(r.stderr));
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, ...tmpEnv(base) } });
+  killedHard(r, 'the victim was not SIGKILLed: ' + String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, 'a SIGKILL did not leave exactly one kts- dir, so this cannot test what it is for: ' + entries(base));
   const owner = fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8');
@@ -210,8 +222,8 @@ test('#6061: a SIGKILL leaves its kts- dir, and .kts-owner in it names the test 
 
 test('#6061: a process with no script file (node -e) records that it had none', (t) => {
   const base = freshBase(t);
-  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL')`], { env: { ...process.env, TMPDIR: base } });
-  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL')`], { env: { ...process.env, ...tmpEnv(base) } });
+  killedHard(r, String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
   assert.match(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), /^\(no script, [^)/]+\)\tpid \d+\n$/, 'argv0 is not its basename, so a full node path reaches the log');
@@ -221,8 +233,8 @@ test('#6061 end to end: the leak guard reads the owner a killed process really w
   const base = freshBase(t);
   const victim = path.join(base, 'victim-e2e.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
-  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, ...tmpEnv(base) } });
+  killedHard(r, String(r.stderr));
   const guard = path.join(__dirname, 'tools', 'lib', 'test-leak-guard.sh');
   const g = spawnSync('bash', ['-c', '. "$1" && leak_kts_owners "$2"', 'g', guard, base], { encoding: 'utf8' });
   assert.equal(g.status, 0, g.stderr);
@@ -234,9 +246,9 @@ test('#6061: a killed file outside its cwd is named by its absolute path, never 
   const away = fs.mkdtempSync(path.join(base, 'away-'));
   const victim = path.join(base, 'outside-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));   // HOME away from the victim, so no ~ applies here
-  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base, HOME: elsewhere } });
-  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));   // the home away from the victim, so no ~ applies here
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, ...tmpEnv(base), HOME: elsewhere, USERPROFILE: elsewhere } });
+  killedHard(r, String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
   const named = fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0];
@@ -248,22 +260,23 @@ test('#6061 review 1: a killed file under the home folder is written with ~, so 
   const away = fs.mkdtempSync(path.join(base, 'away-'));
   const victim = path.join(base, 'homed-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base, HOME: base } });
-  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  // USERPROFILE too: a Windows home is read from it, and ~ is joined with the host separator there.
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, ...tmpEnv(base), HOME: base, USERPROFILE: base } });
+  killedHard(r, String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
-  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~/homed-6061.test.js');
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~' + path.sep + 'homed-6061.test.js');
 });
 
-test('#6061 review 2: a killed process whose cwd was deleted still names its file (by its absolute path)', (t) => {
+test('#6061 review 2: a killed process whose cwd was deleted still names its file (by its absolute path)', { skip: skipOnWin32('its fixture removes the folder the child is running in, which Windows does not allow (EBUSY), so a process with a deleted cwd cannot be made there') }, (t) => {
   const base = fs.realpathSync(freshBase(t));
   const gone = fs.mkdtempSync(path.join(base, 'gone-'));
   const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));
   const victim = path.join(base, 'nocwd-6061.test.js');
   fs.writeFileSync(victim, `process.chdir(${JSON.stringify(gone)});require('fs').rmdirSync(${JSON.stringify(gone)});`
     + `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { env: { ...process.env, TMPDIR: base, HOME: elsewhere } });
-  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const r = spawnSync(process.execPath, [victim], { env: { ...process.env, ...tmpEnv(base), HOME: elsewhere } });
+  killedHard(r, String(r.stderr));
   assert.ok(!fs.existsSync(gone), 'fixture: the cwd was not deleted, so this proves nothing');
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
@@ -274,8 +287,8 @@ test('#6061 review 3: a file in the cwd whose name starts with two dots is named
   const base = fs.realpathSync(freshBase(t));
   const victim = path.join(base, '..dots-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base, HOME: base } });
-  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, ...tmpEnv(base), HOME: base } });
+  killedHard(r, String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
   assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '..dots-6061.test.js');
@@ -302,7 +315,7 @@ test('#6362: a dir that survives its sweep gets its owner back, marked, and the 
 const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'f'),'x');fs.chmodSync(d,0o500);\n`);
   const unlock = () => { for (const n of entries(base)) { try { fs.chmodSync(path.join(base, n, 'locked'), 0o700); } catch { /* none */ } } };
   try {
-    const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+    const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, ...tmpEnv(base) } });
     // The lock only had to hold through the victim's sweep: undo it now, so an interrupt below leaves nothing locked.
     unlock();
     assert.equal(r.status, 0, String(r.stderr));
@@ -321,7 +334,7 @@ test('#6362 control: the same file with nothing locked leaves nothing (so the ar
   const victim = path.join(base, 'free-6362.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const fs=require('fs'),os=require('os'),p=require('path');
 const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'f'),'x');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, ...tmpEnv(base) } });
   assert.equal(r.status, 0, String(r.stderr));
   assert.deepEqual(entries(base).filter((n) => n.startsWith('kts-')), []);
 });
@@ -348,7 +361,7 @@ const c=spawn(process.execPath,['-e',${JSON.stringify(child)},String(process.pid
 require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();\n`);
   let childPid = null;
   try {
-    const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+    const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, ...tmpEnv(base) } });
     try { childPid = Number(fs.readFileSync(pidFile, 'utf8')); } catch { /* checked by the status below */ }
     assert.equal(r.status, 0, String(r.stderr));
     // Up to 12 s for the child (a cold node start on a loaded machine can take seconds), inside a 30 s test budget

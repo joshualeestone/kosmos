@@ -5310,6 +5310,9 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
   const src = Object.assign({}, process.env, { HOME: '/home/ann', LANG: 'en_US.UTF-8', DISPLAY: ':0', XAUTHORITY: '/home/ann/.Xauthority',
     BROWSER: 'firefox', XDG_DATA_HOME: '/home/ann/.local/share', LC_TIME: 'en_GB.UTF-8', https_proxy: 'http://proxy.acme.test:3128',
     XMODIFIERS: '@im=ibus', GDK_SCALE: '2', LC_SMUGGLED_5889: 'ghp_smuggled' });
+  // kosmos#8378: Windows spells it Path in process.env; the stand-in carries the one PATH a Mac or Linux board has.
+  for (const k of Object.keys(src)) if (k !== 'PATH' && k.toUpperCase() === 'PATH') delete src[k];
+  src.PATH = process.env.PATH;
   try {
   for (const platform of ['darwin', 'linux']) {
     remote.resetForTests();

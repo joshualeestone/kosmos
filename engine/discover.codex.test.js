@@ -50,9 +50,11 @@ test('#4592: discovery also reads a managed agent rollout from its private runti
   const priorData = process.env.AGENT_WORKFORCE_DATA;
   const priorHome = process.env.AGENT_WORKFORCE_HOME;
   const priorOsHome = process.env.HOME;
+  const priorProfile = process.env.USERPROFILE;
   process.env.AGENT_WORKFORCE_DATA = path.join(root, 'data');
   process.env.AGENT_WORKFORCE_HOME = root;
   process.env.HOME = root;
+  process.env.USERPROFILE = root; // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
   try {
     const codexruntime = require('./codexruntime');
     const runtime = codexruntime.forAgent('runtime-agent');
@@ -73,6 +75,8 @@ test('#4592: discovery also reads a managed agent rollout from its private runti
     else process.env.AGENT_WORKFORCE_HOME = priorHome;
     if (priorOsHome === undefined) delete process.env.HOME;
     else process.env.HOME = priorOsHome;
+    if (priorProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = priorProfile;
   }
 });
 

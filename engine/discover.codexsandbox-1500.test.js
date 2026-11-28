@@ -33,7 +33,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 function withEnv(env, fn) {
-  const keys = ['AGENT_WORKFORCE_DATA', 'HOME', 'AGENT_WORKFORCE_CONFIG_ROOT', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME'];
+  const keys = ['AGENT_WORKFORCE_DATA', 'HOME', 'USERPROFILE', 'AGENT_WORKFORCE_CONFIG_ROOT', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME'];
   const saved = {};
   for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; }
   Object.assign(process.env, env);
@@ -73,6 +73,8 @@ test('CONTROL: a CONSISTENT sandbox is NOT refused', () => {
   const no = withEnv({
     AGENT_WORKFORCE_DATA: path.join(TMP, 'kosmos-fixture-1500'),
     HOME: path.join(TMP, 'kosmos-fixture-1500-home'),
+    // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
+    USERPROFILE: path.join(TMP, 'kosmos-fixture-1500-home'),
   }, () => status().sandboxIsInconsistent());
   assert.equal(no, false, 'a properly sandboxed fixture is being refused, which breaks every honest harness');
 });

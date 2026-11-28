@@ -26,9 +26,16 @@ const dir = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), '
 const pre = (o) => ({ conversationId: 'c1', workspacePaths: ['/w/agent'],
   toolCall: { name: 'write_to_file', args: { TargetFile: '/w/agent/a.txt', CodeContent: 'x', Overwrite: true } }, ...o });
 
+/* The fixture is the POSIX shape agy 1.2.17 sends on a Mac, so the in-process arm names that platform through the
+   seam (on win32 a path with no drive is refused, as the win32 arm below pins). The arm that runs the bridge as a
+   child cannot use the seam, so it sends the host's own shape. */
+const NATIVE = process.platform === 'win32'
+  ? { cwd: 'C:\\w\\agent', path: 'C:\\w\\agent\\a.txt' }
+  : { cwd: '/w/agent', path: '/w/agent/a.txt' };
+
 test('the keep is made from what agy 1.2.17 sends: TargetFile, workspacePaths[0] as cwd, conversationId as session', () => {
-  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({})), { path: '/w/agent/a.txt', cwd: '/w/agent', session: 'c1' });
-  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({ toolCall: { name: 'replace_file_content', args: { TargetFile: '/p/proj/b.md' } } })),
+  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({}), 'darwin'), { path: '/w/agent/a.txt', cwd: '/w/agent', session: 'c1' });
+  assert.deepEqual(bridge.keepRequestFor('PreToolUse', pre({ toolCall: { name: 'replace_file_content', args: { TargetFile: '/p/proj/b.md' } } }), 'darwin'),
     { path: '/p/proj/b.md', cwd: '/w/agent', session: 'c1' });
 });
 
@@ -79,6 +86,9 @@ function stubBoard(stall, peek) {
     seen, port: server.address().port, close: () => { for (const s of sockets) s.destroy(); server.close(); },
   })));
 }
+/* kosmos#8378: a write in this computer's own path shape. The bridge runs as a child and reads the host platform, and
+   on Windows it refuses a drive-less POSIX path before it posts, so a Mac-shaped event would never reach the board. */
+const nativeWrite = () => pre({ workspacePaths: [NATIVE.cwd], toolCall: { name: 'write_to_file', args: { TargetFile: NATIVE.path, CodeContent: 'x', Overwrite: true } } });
 function runBridge(port, eventName, payload) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -92,10 +102,10 @@ function runBridge(port, eventName, payload) {
 test('run as agy runs it: PreToolUse for a file tool answers ASK and posts the keep', async () => {
   const board = await stubBoard(false);
   try {
-    const r = await runBridge(board.port, 'PreToolUse', pre({}));
+    const r = await runBridge(board.port, 'PreToolUse', nativeWrite());
     assert.equal(r.err, null);
     assert.equal(r.stdout.trim(), bridge.ASK, 'the same answer as for every tool but ask_question');
-    assert.deepEqual(board.seen, [{ path: '/w/agent/a.txt', cwd: '/w/agent', session: 'c1' }]);
+    assert.deepEqual(board.seen, [{ path: NATIVE.path, cwd: NATIVE.cwd, session: 'c1' }]);
   } finally { board.close(); }
 });
 
@@ -110,11 +120,13 @@ test('ask_question is unchanged: ALLOW, and no keep', async () => {
 
 test('review 1: a board that never answers at all is given up on at the keep bound (the 3 s timer), the answer already out', async () => {
   const sockets = new Set();
-  const server = http.createServer(() => { /* never answers */ });
+  let asked = 0;
+  const server = http.createServer((req) => { if (req.url === '/api/undo/keep') asked += 1; /* never answers */ });
   server.on('connection', (s) => sockets.add(s));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const r = await runBridge(server.address().port, 'PreToolUse', pre({}));
+    const r = await runBridge(server.address().port, 'PreToolUse', nativeWrite());
+    assert.equal(asked, 1, 'the keep was asked for, so the bound below is the keep timer, not an early exit');
     assert.equal(r.killed, false, 'exited on its own');
     assert.ok(r.ms < 5000, `took ${r.ms} ms (keep bound 3 s, inside agy's 5 s handler timeout)`);
     assert.equal(r.stdout.trim(), bridge.ASK);
@@ -124,7 +136,8 @@ test('review 1: a board that never answers at all is given up on at the keep bou
 test('a board that stalls its answer does not hold the hook past the keep bound, and the answer is already out', async () => {
   const slow = await stubBoard(true);
   try {
-    const r = await runBridge(slow.port, 'PreToolUse', pre({}));
+    const r = await runBridge(slow.port, 'PreToolUse', nativeWrite());
+    assert.equal(slow.seen.length, 1, 'the keep was posted, so the bound below is the stalled answer, not an early exit');
     assert.equal(r.killed, false, 'exited on its own');
     assert.ok(r.ms < 5000, `took ${r.ms} ms (agy's handler timeout is 5 s)`);
     assert.equal(r.stdout.trim(), bridge.ASK);

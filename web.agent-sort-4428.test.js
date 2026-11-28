@@ -13,6 +13,16 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const fleet = require('./test-support/fleet');
+/* On a Mac the empty sandbox launch folder proves these agents have no startup job, so a card with no model says "Made
+   before Kosmos recorded this". On Windows the job is a Scheduled Task, and a test process never queries the real Task
+   Scheduler (win32job.run refuses), so the look is "could not check" and the card says "No model recorded" instead. This
+   runner answers every query the way schtasks answers for a task that is not there, so the fixture is the same fact on
+   both platforms. */
+if (process.platform === 'win32') {
+  require('./engine/win32job').setRunner((args) => (args && args[0] === '/Query'
+    ? { ok: false, out: 'ERROR: The system cannot find the file specified.' } : { ok: true, out: '' }));
+  test.after(() => require('./engine/win32job').setRunner(null));
+}
 
 const SCRIPT = fs.readFileSync(require.resolve('./web/index.html'), 'utf8');
 

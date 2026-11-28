@@ -13,6 +13,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+/* The stored path is absolute in the host's own shape: /Users/... here, C:\...\ on
+   Windows. pathRe keeps each pattern as written on POSIX and, on Windows only, reads
+   its leading "file: /" as a drive and each "/" before a file name as a backslash. */
+const pathRe = (re) => process.platform !== 'win32' ? re
+  : new RegExp(re.source.replace(/file: \\\//g, 'file: [A-Za-z]:\\\\').replace(/\\\/(?=[\w-]+\\\.)/g, '\\\\'), re.flags);
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-attach-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
@@ -126,6 +131,6 @@ test('too large, empty, and a bad id are refused in words, and read never walks 
 test('the wire note carries the absolute path of the stored file, so the agent can open it', () => {
   const rec = attachments.save('agent', 'april', { name: 'brief.txt', type: 'text/plain', bytes: Buffer.from('hi') });
   const note = attachments.wireNote(attachments.read(rec.id));
-  assert.match(note, /^ \[attached file: \/.+\/brief\.txt \(text\/plain, 2 bytes\)\]$/, note);   // #5448: the facts follow the path
+  assert.match(note, pathRe(/^ \[attached file: \/.+\/brief\.txt \(text\/plain, 2 bytes\)\]$/), note);   // #5448: the facts follow the path
   assert.equal(attachments.wireNote(null), '');
 });

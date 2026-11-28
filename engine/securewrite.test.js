@@ -27,6 +27,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const securewrite = require('./securewrite');
+const WIN = process.platform === 'win32';   // kosmos#8378: mode lines only, inside arms whose subject runs there
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-securewrite-'));
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -38,26 +40,30 @@ const modeOf = (p) => fs.statSync(p).mode & 0o777;
    Both the old shape (write in place, then chmod) and this one END at 0600, so a
    mode assertion passes either way and cannot be the guard. `rename` REPLACES the
    inode; a write in place REUSES it. That is the only observable that differs. */
+// kosmos#8378: the subject is the inode, which Windows has too (its file index); only the mode lines are POSIX.
 test('#1787: writeSecret REPLACES a pre-existing loose file rather than rewriting it', () => {
   const f = fresh('replace');
   fs.writeFileSync(f, 'OLD');
-  fs.chmodSync(f, 0o644);
-  assert.equal(modeOf(f), 0o644, 'the loose plant did not take, so this arm would pass without the fix');
+  if (!WIN) {
+    fs.chmodSync(f, 0o644);
+    assert.equal(modeOf(f), 0o644, 'the loose plant did not take, so this arm would pass without the fix');
+  }
   const inodeBefore = fs.statSync(f).ino;
+  assert.ok(inodeBefore > 0, 'CONTROL: this file system reports an inode, so the comparison below can fail');
 
   securewrite.writeSecret(f, 'NEW-SECRET', 0o600);
 
   assert.notEqual(fs.statSync(f).ino, inodeBefore,
     'the secret was written IN PLACE: same inode means no rename, so the bytes were '
     + 'on disk at 0644 before any chmod');
-  assert.equal(modeOf(f), 0o600, 'the file was left loose');
+  if (!WIN) assert.equal(modeOf(f), 0o600, 'the file was left loose');
   assert.equal(fs.readFileSync(f, 'utf8'), 'NEW-SECRET');
 });
 
 /* The create-time mode is a real mechanism and it is NOT what this module is for:
    this arm is the CONTROL that the fresh-create case was never broken, so a reader
    can see which case the inode arm above is actually about. */
-test('#1787: CONTROL, a fresh path was never the broken case', () => {
+test('#1787: CONTROL, a fresh path was never the broken case', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('fresh');
   securewrite.writeSecret(f, 'SECRET', 0o600);
   assert.equal(modeOf(f), 0o600);
@@ -67,7 +73,7 @@ test('#1787: CONTROL, a fresh path was never the broken case', () => {
 /* #1763: mkdirSync's mode is create-only too, so a directory that already exists at
    0755 stays there. A loose directory discloses the FILENAMES even when every file
    inside is 0600. */
-test('#1787: secureDir tightens a pre-existing loose directory, not just a fresh one', () => {
+test('#1787: secureDir tightens a pre-existing loose directory, not just a fresh one', { skip: NO_POSIX_MODES }, () => {
   const d = fresh('dir');
   fs.mkdirSync(d, { recursive: true });
   fs.chmodSync(d, 0o755);
@@ -289,10 +295,11 @@ test('#1787: writeSecret CALLS the refusal on its fallback, not merely defines i
    to see it. Both shapes end at the right mode, because a fatal chmod just costs an
    attempt and the retry succeeds. What the wrap changes is whether the FIRST attempt
    survives, so that is what this counts. */
+// kosmos#8378: the retry count runs on Windows too (the fchmod stub fires there as well); only the mode lines are POSIX.
 test('#1787: a chmod failure on the temp costs ZERO retries, because it is not fatal', () => {
   const f = fresh('chmod-eperm');
   fs.writeFileSync(f, 'OLD');
-  fs.chmodSync(f, 0o644);
+  if (!WIN) fs.chmodSync(f, 0o644);
 
   let temps = 0;
   const realOpen = fs.openSync;
@@ -315,7 +322,8 @@ test('#1787: a chmod failure on the temp costs ZERO retries, because it is not f
   assert.equal(temps, 1,
     `a chmod failure on the temp cost ${temps} attempts: it is best effort like the `
     + 'other two chmods, so it must not abandon the atomic path');
-  assert.equal(modeOf(f), 0o600, 'the pre-existing loose file was left loose');
+  if (!WIN) assert.equal(modeOf(f), 0o600, 'the pre-existing loose file was left loose');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'SECRET');
 });
 
 /* 🛑 THE FALLBACK MUST TIGHTEN BEFORE THE BYTES LAND, and no end-state assertion can
@@ -324,7 +332,7 @@ test('#1787: a chmod failure on the temp costs ZERO retries, because it is not f
    `fs.fstatSync(fd).mode` at the instant the bytes land.
    ⚠️ A two-line swap renders as a ONE-LINE git diff and reads like a comment change,
    so confirm the region rather than trusting the diff shape. */
-test('#1787: the fallback tightens BEFORE the bytes land, observed from inside the write', () => {
+test('#1787: the fallback tightens BEFORE the bytes land, observed from inside the write', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('fb-order');
   fs.writeFileSync(f, 'OLD');
   fs.chmodSync(f, 0o644);
@@ -546,7 +554,7 @@ test('#1787: the restore writes through the DESCRIPTOR, so a link swapped in aft
    the defect this module exists for: for the length of the window it lists the
    credential filenames to everybody. The end state is 0700 either way, so the arm
    observes the mode AT THE MOMENT chmod is called, before chmod applies. */
-test('#1787: secureDir creates the directory AT the mode, not loose and then tightened', () => {
+test('#1787: secureDir creates the directory AT the mode, not loose and then tightened', { skip: NO_POSIX_MODES }, () => {
   const d = fresh('dir-at-mode');
   const realChmod = fs.chmodSync;
   let seenAtChmod = null;
@@ -617,7 +625,7 @@ test('#1787: a temp whose write fails part way is removed, not left holding the 
    restrictive umask the wx create lands at mode 0 (measured: umask 0600 -> 0), and the
    fchmod on the fd is what makes the secret readable by its owner at all. Red by name
    with that fchmod deleted. */
-test('#1787: under a restrictive umask the temp is tightened to the requested mode before the rename, in this file', () => {
+test('#1787: under a restrictive umask the temp is tightened to the requested mode before the rename, in this file', { skip: NO_POSIX_MODES }, () => {
   const f = fresh('umask');
   const prev = process.umask(0o600);
   try {
@@ -699,15 +707,26 @@ test('#1793: a temp from a DEAD foreign pid is reaped', () => {
   assert.equal(fs.existsSync(orphan), false, 'a dead process\'s orphan temp was not reaped');
 });
 
-test('#1793 SAFETY: a temp from a LIVE foreign pid is LEFT, never taken', () => {
+test('#1793 SAFETY: a temp from a LIVE foreign pid is LEFT, never taken', (t) => {
   /* 🛑 THE RACE THE GLOB WOULD HAVE CREATED. pid 1 (launchd) is always alive and
      foreign; `process.kill(1,0)` throws EPERM (alive, not ours), which is NOT
      ESRCH, so the reaper must leave it. If it took this it could take a
      concurrent writer's in-flight temp between that writer's create and rename.
      This arm stays green when the fix is reverted (nothing is reaped either way);
      it reddens if the predicate is ever widened to delete a live pid's temp. */
+  /* kosmos#8378: Windows has no pid 1, so there `process.kill(1,0)` throws ESRCH and the
+     plant is a dead pid's temp, which is rightly reaped. There the live foreign pid is a
+     child of ours that stays running (kill(pid,0) succeeds: alive), the other arm of
+     the same predicate. */
+  let livePid = 1;
+  if (process.platform === 'win32') {
+    const child = childProcess.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    t.after(() => child.kill());
+    assert.ok(Number.isInteger(child.pid), 'the live-writer child did not start');
+    livePid = child.pid;
+  }
   const dir = reapDir();
-  const live = plantTemp(dir, 'gh-token', 1, Date.now() - 5000, 1);
+  const live = plantTemp(dir, 'gh-token', livePid, Date.now() - 5000, 1);
   assert.ok(fs.existsSync(live), 'the plant did not take');
   securewrite.writeSecret(path.join(dir, 'gh-token'), 'NEW', 0o600);
   assert.equal(fs.existsSync(live), true,
@@ -747,7 +766,8 @@ test('#1793: the reaper does not break the write it runs before', () => {
   const target = path.join(dir, 'sender-token');
   securewrite.writeSecret(target, 'THE-NEW-SECRET', 0o600);
   assert.equal(fs.readFileSync(target, 'utf8'), 'THE-NEW-SECRET', 'the write did not land after the reap');
-  assert.equal(fs.statSync(target).mode & 0o777, 0o600, 'the written secret is not private');
+  // kosmos#8378: Windows keeps no POSIX modes (a file reads 0666 there), so only the write is checked there.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(target).mode & 0o777, 0o600, 'the written secret is not private');
 });
 
 test('#1793 SAFETY: a same-pid temp from a DIFFERENT thread is LEFT (worker_threads)', () => {
@@ -920,6 +940,7 @@ test('#9268: a temp name that is a second hard link to the opened file is refuse
   assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret was written into the file the attacker holds a name for');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268c', 'the save did not land');
   assert.notEqual(fs.statSync(file).ino, fs.statSync(elsewhere).ino, 'the config is a second name of the attacker\'s file');
+  assert.equal(fs.statSync(planted).ino, fs.statSync(elsewhere).ino, 'the planted second name was removed or replaced, which is not ours to do (kosmos#9285)');
 });
 
 /* kosmos#9268 review 3: the planted link is RE-POINTED after the open, at somebody's existing file. The cleanup must
@@ -978,6 +999,8 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.ok(planted, 'the plant never happened, so this tests nothing');
     assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to where the link pointed');
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
+    // kosmos#9285: a planted folder is left as it was
+    if (label === 'replaced by a folder') assert.equal(fs.lstatSync(planted).isDirectory(), true, 'the planted folder was removed or replaced');
   });
 }
 
@@ -1053,4 +1076,108 @@ test('#9268: a file renamed onto the made file\'s path after the close is never 
   assert.ok(planted, 'the plant never happened, so this tests nothing');
   assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'their bytes', 'the cleanup removed a file the open did not make');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268g', 'the save did not land');
+});
+
+/* kosmos#9285: a caller WITHOUT atomicOnly whose three atomic attempts all meet a followed link gets
+   ERR_KOSMOS_TEMP_SWAPPED, and the in-place fallback is NOT taken: three refusals mean somebody is planting links, and
+   on Windows the fallback has no O_NOFOLLOW, so it would hand them a race at the config. The config is left as it was,
+   and none of the planted links' targets gets the secret. */
+test('#9285: three followed links refuse an ordinary save too: no in-place fallback, the config left as it was', (t) => {
+  const file = fresh('nofallback');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let inPlace = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      const elsewhere = fresh('attacker8');
+      planted.push(String(p)); targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link, every time
+    }
+    if (String(p) === file) inPlace += 1;                    // the in-place fallback opens the config itself
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285', 0o600); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.equal(planted.length, 3, 'the atomic path did not try three fresh names');
+  assert.ok(err, 'three planted links did not refuse the save');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
+  assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the last attempt is not kept');
+  assert.equal(inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
+});
+
+/* kosmos#9285 review 2: the temp names are guessable, so somebody can plant links at two names and a plain file at the
+   third. That third attempt fails with EEXIST, not as a swap, and before this rule counted only swaps, two of three
+   let the save reach the in-place fallback. Any swap among the failures must refuse it. */
+test('#9285: links at two temp names and a plain file at the third still refuse the save, with no in-place fallback', (t) => {
+  const file = fresh('mixed');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let opens = 0;
+  let inPlace = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      planted.push(String(p));
+      if (opens === 3) { fs.writeFileSync(String(p), 'planted'); return realOpen.call(fs, p, flags, ...rest); }   // EEXIST
+      const elsewhere = fresh('attacker9');
+      targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+    }
+    if (String(p) === file) inPlace += 1;
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285b', 0o600); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.equal(opens, 3, 'the atomic path did not try three names');
+  assert.ok(err, 'a mix of planted links and a planted file did not refuse the save');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED');
+  assert.equal(inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  assert.equal(fs.readFileSync(planted[2], 'utf8'), 'planted', 'the planted file was touched');
+});
+
+/* kosmos#9285 review 5: the swap rule runs BEFORE the atomicOnly exit, so an atomicOnly write with a mixed plant (links
+   at two names, a plain file at the third, whose EEXIST is the last error) still gets ERR_KOSMOS_TEMP_SWAPPED, with
+   the first swap as its cause and the EEXIST kept beside it. */
+test('#9285: atomicOnly with a mixed plant raises ERR_KOSMOS_TEMP_SWAPPED, the first swap as its cause', (t) => {
+  const file = fresh('mixedatomic');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let opens = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      planted.push(String(p));
+      if (opens === 3) { fs.writeFileSync(String(p), 'planted'); return realOpen.call(fs, p, flags, ...rest); }   // EEXIST
+      const elsewhere = fresh('attacker10');
+      targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285c', 0o600, { atomicOnly: true }); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.ok(err, 'the write did not throw');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'atomicOnly took the last error (EEXIST) instead of the refusal');
+  assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'EEXIST', 'the last attempt\'s error was dropped');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
 });

@@ -12,6 +12,9 @@ const nodePath = require('node:path');
 const SANDBOX = nodePath.join(os.tmpdir(), 'kosmos-signedoutaccts-5948-' + process.pid);
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+/* kosmos#8378: a fixture folder under /h, absolute on this platform. The module resolves a job's folder, and on
+   Windows a bare /h/... resolves onto the current drive (D:\h\...); on POSIX this is exactly /h/<rel>. */
+const H = (rel) => nodePath.join(nodePath.resolve('/h'), rel);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -20,9 +23,9 @@ const fleet = require('../test-support/fleet');
 const { signedOutRows } = require('./signedoutaccounts');
 const { answer } = require('./accountline');
 
-const jobs = { gk: { configDir: '/h/.grok-work', runner: 'grok' }, gk2: { configDir: '/h/.grok-work', runner: 'grok' }, gm: { configDir: '/h/.gemini-x', runner: 'gemini' }, cx: { configDir: null, runner: 'codex' }, cl: { configDir: '/h/.claude-a', runner: 'claude' }, stopped: { configDir: '/h/.grok-old', runner: 'grok' } };
+const jobs = { gk: { configDir: H('.grok-work'), runner: 'grok' }, gk2: { configDir: H('.grok-work'), runner: 'grok' }, gm: { configDir: H('.gemini-x'), runner: 'gemini' }, cx: { configDir: null, runner: 'codex' }, cl: { configDir: H('.claude-a'), runner: 'claude' }, stopped: { configDir: H('.grok-old'), runner: 'grok' } };
 const readJob = (n) => jobs[n] || null;
-const readName = (p, d) => (d === '/h/.gemini-x' ? 'Team key' : null);
+const readName = (p, d) => (d === H('.gemini-x') ? 'Team key' : null);
 /* Real board cards (test-support/fleet), never hand-built ones (fixture-discipline.test.js). The module reads only a
    card's sessionName, name and runner; a test that needs another runner spreads the real card. */
 const DISPLAY = { gk: 'Gk', gk2: 'Gk Two', stopped: 'Old', a1: 'A1', a2: 'A2', a3: 'A3', a4: 'A4', a5: 'A5' };
@@ -42,22 +45,22 @@ test('#5948: a named account folder an agent uses, with no listed row, comes bac
   const rows = signedOutRows([card('gk', 'grok'), card('gk2', 'grok')], { xai: [] }, readJob, readName);
   assert.equal(rows.length, 1, JSON.stringify(rows));
   const r = rows[0];
-  assert.deepEqual([r.provider, r.providerName, r.dir, r.label, r.signedOut], ['xai', 'Grok', '/h/.grok-work', 'work', true]);
+  assert.deepEqual([r.provider, r.providerName, r.dir, r.label, r.signedOut], ['xai', 'Grok', H('.grok-work'), 'work', true]);
   assert.deepEqual(r.usedBy, ['Gk', 'Gk Two']);
   assert.deepEqual([r.connection.state, r.connection.badge], ['none', 'signed_out']);
   assert.match(r.connection.because, /no longer on this computer, and Gk, Gk Two use it\. To fix it, add the key or sign in again in Settings > AI Models\.$/);
 });
 
 test('#5948 CONTROLS: a listed folder, a default-account agent, a Claude agent and an unknown runner add nothing', () => {
-  assert.deepEqual(signedOutRows([card('gk', 'grok')], { xai: [{ dir: '/h/.grok-work' }] }, readJob, readName), [],
+  assert.deepEqual(signedOutRows([card('gk', 'grok')], { xai: [{ dir: H('.grok-work') }] }, readJob, readName), [],
     'a folder the list already shows was added again');
   assert.deepEqual(signedOutRows([card('cx', 'codex')], { openai: [] }, readJob, readName), [], 'a default-account agent was read as signed out');
   assert.deepEqual(signedOutRows([card('cl', 'claude')], {}, readJob, readName), []);
   // An unknown runner, read where the module reads it (the job first): no row.
-  assert.deepEqual(signedOutRows([card('cl')], {}, () => ({ configDir: '/h/.muse-x', runner: 'muse' }), readName), []);
+  assert.deepEqual(signedOutRows([card('cl')], {}, () => ({ configDir: H('.muse-x'), runner: 'muse' }), readName), []);
   assert.deepEqual(signedOutRows([card('nobody', 'grok')], { xai: [] }, readJob, readName), [], 'an agent with no job');
   // The provider is matched too: a gemini folder is not answered by a grok row of the same path.
-  assert.equal(signedOutRows([card('gm', 'gemini')], { xai: [{ dir: '/h/.gemini-x' }], google: [] }, readJob, readName).length, 1);
+  assert.equal(signedOutRows([card('gm', 'gemini')], { xai: [{ dir: H('.gemini-x') }], google: [] }, readJob, readName).length, 1);
 });
 
 test('#5948: a signed-out row carries the folder\'s chosen name, and a throwing reader does not lose the row', () => {
@@ -80,11 +83,11 @@ test('#5948: kosmos accounts prints the signed-out accounts after the listed one
 
 test('#5948: a stopped agent (its card has no runner) is read from its job', () => {
   const rows = signedOutRows([card('stopped', null)], { xai: [] }, readJob, readName);
-  assert.deepEqual(rows.map((r) => [r.dir, r.usedBy]), [['/h/.grok-old', ['Old']]]);
+  assert.deepEqual(rows.map((r) => [r.dir, r.usedBy]), [[H('.grok-old'), ['Old']]]);
 });
 
 test('#5948 review 1: a credential file that is there but was not listed reads "could not be checked", never "gone"', () => {
-  const there = (f) => f === '/h/.grok-work/.kosmos-grok-apikey';
+  const there = (f) => f === H('.grok-work/.kosmos-grok-apikey');
   const [r] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, there);
   assert.deepEqual([r.signedOut, r.unreadable, r.connection.state, r.connection.badge], [false, true, 'unknown', 'unlisted']);
   assert.match(r.connection.because, /is in its folder, but Kosmos could not read it or does not look in that folder/);
@@ -96,13 +99,13 @@ test('#5948 review 1: a credential file that is there but was not listed reads "
 
 test('#5948 review 1/3: the provider\'s default folder is skipped; many agents are counted, not all named', () => {
   // The default folder (as the provider module names it) is skipped, named or not: it may run on the computer's own key.
-  const pinned = { d: { configDir: '/h/.grok', runner: 'grok' }, e: { configDir: '/h/.grok-e', runner: 'grok' } };
-  assert.deepEqual(signedOutRows([card('d', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false, () => '/h/.grok'), []);
+  const pinned = { d: { configDir: H('.grok'), runner: 'grok' }, e: { configDir: H('.grok-e'), runner: 'grok' } };
+  assert.deepEqual(signedOutRows([card('d', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false, () => H('.grok')), []);
   // CONTROL: a named folder beside it is still reported, so the skip is the default folder's alone.
-  assert.equal(signedOutRows([card('e', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false, () => '/h/.grok').length, 1);
+  assert.equal(signedOutRows([card('e', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false, () => H('.grok')).length, 1);
   const many = {};
   const cards = [];
-  for (let i = 1; i <= 5; i++) { many['a' + i] = { configDir: '/h/.grok-team', runner: 'grok' }; cards.push(card('a' + i, 'grok')); }
+  for (let i = 1; i <= 5; i++) { many['a' + i] = { configDir: H('.grok-team'), runner: 'grok' }; cards.push(card('a' + i, 'grok')); }
   const [m] = signedOutRows(cards, { xai: [] }, (n) => many[n], readName, () => false);
   assert.equal(m.usedBy.length, 5);
   assert.match(m.connection.because, /and A1, A2, A3 and 2 more use it\./);
@@ -156,7 +159,7 @@ test('#5948 review 4: a listed folder named through a symlink is the same folder
 });
 
 test('#5948 review 5: kosmos accounts says an unlisted account is not checked by Kosmos, not "just now" (it is not a passing fault)', () => {
-  const there = (f) => f === '/h/.grok-work/.kosmos-grok-apikey';
+  const there = (f) => f === H('.grok-work/.kosmos-grok-apikey');
   const rows = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, there);
   const [line] = answer(200, { accounts: [], unlistedAccounts: rows }).lines;
   assert.match(line, /^Grok: work: not checked by Kosmos: a sign-in or key file is in its folder/);
@@ -181,7 +184,7 @@ test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared 
   // OPENAI_API_KEY, review 17), so it is never asked even by a reader that would say yes.
   const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => false);
   assert.equal(g.connection.badge, 'signed_out');
-  const cx = { cxn: { configDir: '/h/.codex-team', runner: 'codex' } };
+  const cx = { cxn: { configDir: H('.codex-team'), runner: 'codex' } };
   const seen = [];
   const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => null, (v) => { seen.push(v); return true; });
   assert.deepEqual([c.connection.badge, seen], ['signed_out', []]);
@@ -232,7 +235,7 @@ test('#5948 review 16: when the provider\'s default folder cannot be asked, a jo
   assert.deepEqual([r.signedOut, r.defaultUnsure, r.connection.badge], [false, true, 'unlisted']);
   assert.match(r.connection.because, /could not tell whether that folder is the default account/);
   // CONTROL: a default that answers (and is another folder) leaves it signed out.
-  const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => '/h/.grok');
+  const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => H('.grok'));
   assert.equal(g.connection.badge, 'signed_out');
 });
 
@@ -249,7 +252,7 @@ test('#5948 review 17: every provider\'s shared key is a name the supervisor act
 
 test('#5948 review 19: a runner named like an Object member is not a provider', () => {
   for (const runner of ['constructor', 'toString', '__proto__']) {
-    assert.deepEqual(signedOutRows([card('gk')], { xai: [] }, () => ({ configDir: '/h/.grok-work', runner }), readName), [], runner);
+    assert.deepEqual(signedOutRows([card('gk')], { xai: [] }, () => ({ configDir: H('.grok-work'), runner }), readName), [], runner);
   }
 });
 

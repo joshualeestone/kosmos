@@ -188,7 +188,9 @@ test('kosmos#8484: only the newest birth line counts, so a person\'s own later a
   const g = agent(sa.GUIDE_NAME);
   const calls = [];
   const lines = [guideBirth(g.slug, 'old-guide-id'), ownBirth(g.slug, g.id)];
-  const r = seed(created(calls), { jobPresence: () => 'yes', birthLog: () => lines });
+  /* kosmos#8378: the macOS and Linux sequence on every host, through the seed's platform seam: on Windows a folder at the
+     name stops the loop at that name by design (kosmos#8466). */
+  const r = sa.seedSetupAssistant({ platform: 'darwin', createAgent: created(calls), hasConnectedAccount: CONNECTED, deps: { jobPresence: () => 'yes', birthLog: () => lines } });
   assert.equal(r.adopted, undefined, 'the person\'s own Josh was adopted as the guide');
   assert.equal(sa.isGuideFolder(g.slug), false, 'the person\'s own folder was marked as the guide');
   assert.deepEqual(calls, [sa.GUIDE_NAME, sa.GUIDE_FALLBACK_NAME], 'the seed did not go on to the create, which refuses the held name and moves to the fallback');
@@ -443,7 +445,7 @@ test('kosmos#8484: the first leftover is named only when the last name was refus
   } finally { fs.rmSync(task, { force: true }); }
 });
 
-test('kosmos#8484: a guide known only by its birth line whose marker will not write is not adopted (the board would not treat it as the guide)', () => {
+test('kosmos#8484: a guide known only by its birth line whose marker will not write is not adopted (the board would not treat it as the guide)', { skip: skipOnWin32('what it checks exists on Windows, but the fixture makes the folder read-only with a file mode, which Windows does not enforce, so the marker writes anyway; its Windows arm is owed on kosmos#9313') }, () => {
   const g = agent(sa.GUIDE_NAME);
   fs.chmodSync(g.dir, 0o555);   // the folder is read-only: the marker write fails
   try {

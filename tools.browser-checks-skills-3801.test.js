@@ -66,7 +66,8 @@ function board({ home, data, withLib }) {
       server.close();
       process.exit(0);
     })().catch((e) => { console.error(e); process.exit(1); });`;
-  const env = { ...process.env, HOME: home };
+  /* kosmos#8378: os.homedir() reads USERPROFILE on Windows, not HOME, so the board's home is set there too. */
+  const env = { ...process.env, HOME: home, ...(process.platform === 'win32' ? { USERPROFILE: home } : {}) };
   delete env.AGENT_WORKFORCE_SKILLS_DIR;
   const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8', timeout: 60000 });
   assert.equal(r.status, 0, r.stderr);
@@ -170,7 +171,8 @@ function boardMakesProject({ home, data, withLib }) {
       server.close();
       process.exit(0);
     })().catch((e) => { console.error(e); process.exit(1); });`;
-  const env = { ...process.env, HOME: home };
+  /* kosmos#8378: os.homedir() reads USERPROFILE on Windows, not HOME, so the board's home is set there too. */
+  const env = { ...process.env, HOME: home, ...(process.platform === 'win32' ? { USERPROFILE: home } : {}) };
   delete env.AGENT_WORKFORCE_PROJECTS;
   const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8', timeout: 60000 });
   if (r.status !== 0) return { refused: r.stderr };

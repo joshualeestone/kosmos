@@ -27,6 +27,9 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const trust = require('./trust');
+/* kosmos#8378: the key trust.js writes, the native realpath with forward slashes (#2281). On macOS this is the
+   folder as resolved below; on Windows the native realpath also expands an 8.3 temp name (RUNNER~1). */
+const K = (p) => fs.realpathSync.native(p).split(path.sep).join('/');
 
 // Save/restore every env var the resolvers read, so no test leaks into another
 // and nothing touches the operator's real ~/.claude.json.
@@ -82,9 +85,9 @@ test('trustFolder(agentDefaultAccount) lands in the AGENT home config, NOT the e
   const r = trust.trustFolder(folder, { configDir: null, createIfAbsent: true, agentDefaultAccount: true });
   assert.equal(r.ok, true, `write failed: ${r.because}`);
   const agentData = JSON.parse(fs.readFileSync(path.join(SANDBOX, '.claude.json'), 'utf8'));
-  assert.equal(agentData.projects[folder][trust.KEY], true, 'the trust lands in the config the default agent reads (SANDBOX/.claude.json)');
+  assert.equal(agentData.projects[K(folder)][trust.KEY], true, 'the trust lands in the config the default agent reads (SANDBOX/.claude.json)');
   const engineData = JSON.parse(fs.readFileSync(path.join(engineDir, '.claude.json'), 'utf8'));
-  assert.equal(engineData.projects[folder], undefined,
+  assert.equal(engineData.projects[K(folder)], undefined,
     'the trust must NOT land in the engine CLAUDE_CONFIG_DIR config, even though it points somewhere real');
 
   // CONTROL: the SAME write WITHOUT the flag follows CONFIG(null) into the engine dir,
@@ -92,7 +95,7 @@ test('trustFolder(agentDefaultAccount) lands in the AGENT home config, NOT the e
   const folder2 = fs.realpathSync(fs.mkdtempSync(path.join(SANDBOX, 'w2-')));
   trust.trustFolder(folder2, { configDir: null, createIfAbsent: true });
   const engineData2 = JSON.parse(fs.readFileSync(path.join(engineDir, '.claude.json'), 'utf8'));
-  assert.equal(engineData2.projects[folder2][trust.KEY], true,
+  assert.equal(engineData2.projects[K(folder2)][trust.KEY], true,
     'CONTROL: without agentDefaultAccount the write DOES follow the engine CLAUDE_CONFIG_DIR');
 });
 

@@ -518,7 +518,11 @@ function readTail(sessionName) {
   let text;
   let cut = false;   // #5943: the tail began after the file's start, so lines before it are not seen
   try {
-    const size = fs.fstatSync(fd).size;
+    const st = fs.fstatSync(fd);
+    /* kosmos#8378: only a regular file is a report. On Windows a folder in the file's place opens and answers size 0,
+       so it read as never reported (and the agent could be retired); on a Mac the read itself fails. */
+    if (!st.isFile()) return { found: false, because: NO_READING.UNREADABLE };
+    const size = st.size;
     const start = Math.max(0, size - TAIL_BYTES);
     cut = start > 0;
     const buf = Buffer.alloc(size - start);
@@ -709,7 +713,9 @@ function history(sessionName, tailBytes, opts) {
   const tail = Number.isInteger(tailBytes) && tailBytes > TAIL_BYTES ? Math.min(tailBytes, HISTORY_MAX_BYTES) : TAIL_BYTES;
   try {
     const file = fileFor(sessionName);
-    const size = fs.statSync(file).size;
+    const st = fs.statSync(file);
+    if (!st.isFile()) return null;   // kosmos#8378: as readTail: a folder (size 0 on Windows) or a device is not a report
+    const size = st.size;
     const start = Math.max(0, size - tail);
     const fd = fs.openSync(file, 'r');
     try {

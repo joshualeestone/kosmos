@@ -44,9 +44,13 @@ const accountenv = require('./engine/accountenv');
 const geminiAccounts = require('./engine/geminiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
 /* #5500: one environment variable's line in the job text, as this platform writes it: the plist's key and string, the
-   systemd unit's Environment= line (linuxjob.unitFor). `val` is matched verbatim. */
-const envLine = (key, val) => {
-  const v = val.replace(/[.]/g, '\\.');
+   systemd unit's Environment= line (linuxjob.unitFor). `val` is matched verbatim: every regex character in it is
+   escaped, the backslashes of a Windows folder included (escaping only the dots read them as escapes there).
+   On Windows the job is a Scheduled Task (win32job.taskXml), which names no variable: the account folder is its own
+   quoted argument, followed by the runner's name, and the supervisor sets the variable from the two. */
+const envLine = (key, val, runner) => {
+  const v = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (process.platform === 'win32') return new RegExp('<Arguments>[^<]*&quot;' + v + '&quot; &quot;' + runner + '&quot;');
   return process.platform === 'linux' ? new RegExp('^Environment="' + key + '=' + v + '"$', 'm') : new RegExp('<key>' + key + '</key><string>' + v + '</string>');
 };
 
@@ -74,7 +78,7 @@ test('geminiStorageHome: a per-account dir gets .gemini appended; the default (n
 test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir VERBATIM, readJob reads it back', () => {
   const acct = nodePath.join(SANDBOX, '.gemini-rt');
   const xml = jobfix.jobFor('grt', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', acct, 'gemini');
-  assert.match(xml, envLine('GEMINI_CLI_HOME', acct), 'GEMINI_CLI_HOME is the account dir with NO .gemini transform in the plist');
+  assert.match(xml, envLine('GEMINI_CLI_HOME', acct, 'gemini'), 'GEMINI_CLI_HOME is the account dir with NO .gemini transform in the plist');
   const pp = jobfix.jobPath('grt');
   fs.mkdirSync(nodePath.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, xml);
@@ -89,7 +93,7 @@ test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir V
 test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads it back', () => {
   const acct = nodePath.join(SANDBOX, '.grok-rt');
   const xml = jobfix.jobFor('xrt', '/bin/grok', '/bin/tmux', 'grok-4.6', acct, 'grok');
-  assert.match(xml, envLine('GROK_HOME', acct));
+  assert.match(xml, envLine('GROK_HOME', acct, 'grok'));
   const pp = jobfix.jobPath('xrt');
   fs.mkdirSync(nodePath.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, xml);

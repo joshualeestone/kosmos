@@ -203,7 +203,8 @@ test('#1493: the same agent under TWO config roots is ONE agent, not two', () =>
       skipped: r.skipped,
     }));`], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data'),
+    // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
+    env: { ...process.env, HOME: home, USERPROFILE: home, AGENT_WORKFORCE_DATA: path.join(home, 'data'),
            AGENT_WORKFORCE_CONFIG_ROOT: '', CLAUDE_CONFIG_DIR: '' },
   });
   const got = JSON.parse(out.trim().split('\n').pop());
@@ -282,7 +283,8 @@ test('#1493 GAP: one shared cwd with no CLAUDE.md yields ZERO agents, whatever t
     const r = d.found();
     console.log(JSON.stringify({ names: (r.agents || []).map((a) => a.displayName || a.name), skipped: r.skipped }));`], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data'),
+    // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
+    env: { ...process.env, HOME: home, USERPROFILE: home, AGENT_WORKFORCE_DATA: path.join(home, 'data'),
            AGENT_WORKFORCE_CONFIG_ROOT: '', CLAUDE_CONFIG_DIR: '' },
   });
   const got = JSON.parse(out.trim().split('\n').pop());

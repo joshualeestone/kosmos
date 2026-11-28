@@ -344,7 +344,9 @@ async function stoppedRunnerLeavesNoWatchdog(label, how, windowMs, extra = {}) {
     const candidates = () => {
       const kids = childrenOf(child.pid);
       const node = kids.map(commandOf).find(isNodeTest);
-      if (!node) return null;
+      /* kosmos#9302: a stand-in node that is a shell script reads as "/bin/sh <path>/node --test ..." in the instant
+         before its exec, and isNodeTest matches that too. Not started yet: look again, so nodeCmd is the real node. */
+      if (!node || /^\/bin\/(?:ba)?sh /.test(node)) return null;
       nodeCmd = node;
       const own = runnerCmd();
       return kids.filter((k) => commandOf(k) === own);
@@ -417,7 +419,9 @@ test('#6668 a runner stopped by Ctrl-C (INT to its group) leaves no watchdog', {
 const EXEC_DIR = fs.mkdtempSync(path.join(DIR, 'execnode-'));
 /* The path in single quotes, each ' in it written as '\\'' (sh expands nothing inside single quotes). */
 const shQuote = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
-fs.writeFileSync(path.join(EXEC_DIR, 'node'), `#!/bin/sh\n\nexec ${shQuote(process.execPath)} "$@"\n`, { mode: 0o755 });
+/* kosmos#9302: the stand-in waits a second before its exec, so the instant when it still reads as /bin/sh is always seen,
+   and the arm proves its reader waits for the exec (it was a timing red: run 46128310613). */
+fs.writeFileSync(path.join(EXEC_DIR, 'node'), `#!/bin/sh\n\nsleep 1\nexec ${shQuote(process.execPath)} "$@"\n`, { mode: 0o755 });
 test('#6668 behind yarn\'s node (an exec by full path), a runner sent TERM still leaves no watchdog', { skip: SKIP_POSIX_GROUP }, async () => {
   const { nodeCmd } = await stoppedRunnerLeavesNoWatchdog('term-execnode', 'TERM', scaleBudget(7000), { PATH: EXEC_DIR + ':' + process.env.PATH });
   assert.ok(nodeCmd.startsWith(process.execPath + ' --test '), 'node --test did not run by its full path, so this arm tested no wrapper: ' + nodeCmd);

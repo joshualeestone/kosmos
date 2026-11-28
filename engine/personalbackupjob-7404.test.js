@@ -21,6 +21,10 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 // The board ticks below read real folders: every one is this sandbox's, never the machine's.
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+// kosmos#8378: on Windows the backup never reads anything under %USERPROFILE%\AppData, and os.tmpdir() (so this
+// SANDBOX) is inside it, so the workers root would be left out. The sandbox home stands in for the profile folder.
+// Read only on Windows (os.homedir and backuptick's AppData rule); a Mac ignores it.
+process.env.USERPROFILE = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_AGY_HOME = path.join(SANDBOX, 'home', '.gemini-agy');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude');

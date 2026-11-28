@@ -14,6 +14,7 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('../test-support/skip-on-win32.js');
 const fleet = require('../test-support/fleet');
 const connections = require('./connections');
 const projects = require('./projects');
@@ -233,7 +234,7 @@ test('kosmos#7875 item 2: the block is short and points at the guide; the guide 
   }
 });
 
-test('kosmos#7875 item 2: both CLIs print the guide with connections --how', async () => {
+test('kosmos#7875 item 2: both CLIs print the guide with connections --how', { skip: skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; the Windows CLI half runs in the next test') }, async () => {
   const root = path.join(__dirname, '..');
   const sh = fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8');
   assert.match(sh, /connections\) shift; (_how_hint connections "\$@"; )?cmd_connections "\$@" ;;/);   // kosmos#8935 may name the guide first
@@ -256,6 +257,10 @@ test('kosmos#7875 item 2: both CLIs print the guide with connections --how', asy
     assert.match(howHelp.stdout, /Usage: kosmos connections \[--how\]/);
     assert.ok(!howHelp.stdout.includes('## How connecting a provider works'), 'connections --how --help printed the guide');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+/* The Windows CLI half of the test above, on its own so it also runs on Windows (kosmos#8378). */
+test('kosmos#7875 item 2: the Windows CLI prints the guide with connections --how', async () => {
   const cli = require('../tools/windows/kosmos-cli');
   const out = []; const err = [];
   const code = await cli.main(['connections', '--how'], { env: {}, out: (x) => out.push(x), err: (x) => err.push(x) });

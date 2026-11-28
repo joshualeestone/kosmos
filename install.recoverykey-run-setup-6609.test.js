@@ -18,6 +18,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const RUNS_BIN_SH = require('./test-support/skip-on-win32').skipOnWin32('it runs the installer the Mac and Linux way, by the absolute POSIX path /bin/sh, which Windows does not have (Windows updates through engine/win32update.js)');   // kosmos#8378
 
 const { NOT_RUN, NOT_FETCHED, KEY_LIST_STATE, KEY_LIST_TYPE } = require('./engine/manifest-verify.js');
 const VERIFIER = fs.readFileSync(path.join(__dirname, 'engine', 'manifest-verify.js'), 'utf8');
@@ -71,7 +72,7 @@ function runSetup(h, hst, version) {
 }
 const recorded = (h) => { try { return fs.readdirSync(path.join(h, KEY_LIST_STATE)).filter((f) => /^seq-/.test(f)).sort(); } catch { return []; } };
 
-test('on: a list from the recovery key naming the release key is taken first, recorded, and the installer runs', () => {
+test('on: a list from the recovery key naming the release key is taken first, recorded, and the installer runs', { skip: RUNS_BIN_SH }, () => {
   const h = home('1.2.0');
   const r = runSetup(h, host('1.2.3'), '1.2.3');
   assert.equal(r.code, 0, r.err);
@@ -93,7 +94,7 @@ test('on: a list that does not verify is not run and is RETRIED (96): a torn pai
   assert.match(r.err, /not signed by the Kosmos recovery key/);
 });
 
-test('on: the manifest is checked with the LIST\'s keys: a release by a built-in key the list dropped is refused', () => {
+test('on: the manifest is checked with the LIST\'s keys: a release by a built-in key the list dropped is refused', { skip: RUNS_BIN_SH }, () => {
   // OTHER is built into this copy's KEYS, so with the check off it would open; the list names only RELEASE.
   const h = home('1.2.0');
   const r = runSetup(h, host('1.2.3', { by: OTHER }), '1.2.3');
@@ -103,7 +104,7 @@ test('on: the manifest is checked with the LIST\'s keys: a release by a built-in
   assert.equal(off.code, 0, 'CONTROL: off, the built-in key still opens it: ' + off.err);
 });
 
-test('on: an older list after a newer one was taken is refused (the revocation holds)', () => {
+test('on: an older list after a newer one was taken is refused (the revocation holds)', { skip: RUNS_BIN_SH }, () => {
   const h = home('1.2.0');
   assert.equal(runSetup(h, host('1.2.3', { list: { seq: 2, keys: [RELEASE.pub] } }), '1.2.3').code, 0);
   const r = runSetup(h, host('1.2.4', { list: { seq: 1, keys: [RELEASE.pub, OTHER.pub] } }), '1.2.4');
@@ -112,7 +113,7 @@ test('on: an older list after a newer one was taken is refused (the revocation h
   assert.match(r.err, /older than the 2 this copy has taken/);
 });
 
-test('off (as shipped): no list is fetched, a missing or bad one changes nothing, and the record is not started', () => {
+test('off (as shipped): no list is fetched, a missing or bad one changes nothing, and the record is not started', { skip: RUNS_BIN_SH }, () => {
   for (const hst of [host('1.2.3', { list: null }), host('1.2.3', { listBy: OTHER })]) {
     const h = home('1.2.0', { on: false });
     const r = runSetup(h, hst, '1.2.3');
