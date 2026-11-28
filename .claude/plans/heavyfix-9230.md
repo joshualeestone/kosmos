@@ -15,3 +15,9 @@
 Tests: the carry-over arms (#9222) red when the block is removed. A new arm re-announces from inside a read (the
 injected startOf runs before live() takes the lock), so a drop decided before the re-announce must spare it; removing
 `at` from the key reds it (review round 1 found the way in).
+
+Not pinned by a test: that the carry-over read is now inside the lock. The window it closes is between the old
+outside-the-lock read and locked(), and no seam reaches it: the injected startOf runs before both the old and the new
+read, so a write made from inside it is seen by either; a seam inside the lock would need a re-entrant lock. So that
+half rests on reading the code (one `here` under the lock serves the cap, the carry-over and the since check), and a
+revert of it would pass every arm. Rejected: adding a test-only hook between startOf and the lock for one line.
