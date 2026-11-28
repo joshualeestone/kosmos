@@ -89,3 +89,6 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
 - Review 5: /tmp is a temp root only off Windows; the "/tmp is a temp root too" assertion now says true on the Mac and
   Linux and false on Windows. Owed, not done here: one full run of the Windows job with these files in it (its
   33-minute start budget), which the windows check on this branch's PR is.
+- Review 6: plus-signin-2036's enrol arm runs on Windows, leaving out only its 0600 assertion there, and its sandbox
+  sets USERPROFILE beside HOME: tools/plus-signin-fresh.js uses os.homedir(), which reads USERPROFILE on Windows, so
+  before this the arm wrote its seed secret file into the runner's real profile. redisable's reason reads plainly.
