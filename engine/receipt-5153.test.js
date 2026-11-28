@@ -294,6 +294,17 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
        never a real file name, and a path naming the agent's own folder (`.`, in c2) is never listed as a file. */
     call('10:14', 'c2c', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: it\\\'s.md\\n+x\\n*** Update File: tab\\u0009.md\\n+x\\n*** End Patch"});'),
     out('10:14', 'c2c', 'Script completed\nWall time 1 seconds'),
+    /* #9314: a path ends at the quote that closes ITS string: a '-string or a backtick string that ends right after the
+       path line reads the name without the quote, and a "-string still reads a name with an unescaped ' whole. */
+    call('10:15', 'c2d', "await tools.apply_patch({patch:'*** Begin Patch\\n*** Update File: single.md'});"),
+    out('10:15', 'c2d', 'Script completed\nWall time 1 seconds'),
+    call('10:16', 'c2e', 'await tools.apply_patch(`*** Begin Patch\\n*** Update File: tick.md`);'),
+    out('10:16', 'c2e', 'Script completed\nWall time 1 seconds'),
+    call('10:17', 'c2f', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: bo\'s.md\\n+x\\n*** End Patch"});'),
+    out('10:17', 'c2f', 'Script completed\nWall time 1 seconds'),
+    /* #9314: an escaped drive-letter absolute path, on every host (on Windows the src/new.js arm above is one too). */
+    call('10:18', 'c2g', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: C:\\\\Users\\\\kay\\\\drive.js\\n+x\\n*** End Patch"});'),
+    out('10:18', 'c2g', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),
     tc('10:30', 1000, 400, 100),
@@ -309,7 +320,13 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const a = r.agents[0];
   assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
-  assert.deepEqual(a.files, [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md"], 'only the patches that completed; a backslashed path read whole, a cut one left out (#9263)');
+  const drive = a.files.filter((f) => f.includes('drive.js'));
+  assert.deepEqual(a.files.filter((f) => !drive.includes(f)), [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md", 'single.md', 'tick.md', "bo's.md"],
+    'only the patches that completed; a backslashed path read whole, a cut one left out (#9263); each path ends at its own string\'s quote (#9314)');
+  // #9314: the drive-letter path is one file, read whole (its folders kept), however the host shows it.
+  assert.equal(drive.length, 1, 'the escaped C:\\Users\\kay\\drive.js was read as one file: ' + JSON.stringify(a.files));
+  assert.ok(/Users.kay.drive\.js$/.test(drive[0]), 'read whole, folders kept: ' + drive[0]);
+  assert.ok(!a.files.some((f) => f === 'C:' || f === '.' || f === '' || path.resolve(fs.realpathSync(kay), f) === fs.realpathSync(kay)), 'never C: or the agent\'s own folder: ' + JSON.stringify(a.files));
   assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.equal(a.transcriptsWithWork, 1);
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');

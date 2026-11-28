@@ -324,7 +324,36 @@ const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
    backslash written raw (String.raw) than a meant identity escape, so it is treated as one; and a decoded control
    character (`\u0009`) is never part of a real file name. That is a judgement about how a
    Codex writes paths, not a rule of the language. */
-const JS_SIMPLE_ESCAPES = { '\\': '\\', "'": "'", '"': '"', '/': '/', '`': '`', $: '$' };   // \t, \0 and the like decode to control characters, so they are left out too
+/* #9314: each `*** Add|Update|Delete File: <path>` line of a Codex exec script, as { text, rest, quote }. The patch is a
+   JavaScript string, and inside a string only ITS OWN quote has to be escaped, so the path ends at a newline (a real one,
+   or `\n` / `\r`) or at an unescaped copy of the quote that opened that string: a `'`-string ends at `'` (so
+   `{patch:'*** Update File: a.js'}` reads `a.js`, not `a.js'});`), and a `"`-string still reads `it's.md` whole. The
+   opener is the first quote after the nearest `tools.apply_patch(` before the line; with none there (the patch was built
+   elsewhere and passed by name), a `"` is assumed, as before. `rest` is the script after the path. */
+function codexPatchPaths(src) {
+  const found = [];
+  const head = /\*\*\* (?:Add|Update|Delete) File: /g;
+  for (let m = head.exec(src); m; m = head.exec(src)) {
+    const at = src.lastIndexOf('tools.apply_patch(', m.index);
+    const opener = at < 0 ? null : src.slice(at + 'tools.apply_patch('.length, m.index).match(/['"`]/);
+    const quote = opener ? opener[0] : '"';
+    let j = m.index + m[0].length;
+    let text = '';
+    while (j < src.length) {
+      const c = src[j];
+      if (c === '\n' || c === '\r' || c === quote) break;
+      if (c === '\\') {
+        const n = src[j + 1];
+        if (n === undefined || n === 'n' || n === 'r' || n === '\n' || n === '\r') break;
+        text += c + n; j += 2; continue;
+      }
+      text += c; j += 1;
+    }
+    if (text) found.push({ text, rest: src.slice(j), quote });
+  }
+  return found;
+}
+const JS_SIMPLE_ESCAPES ={ '\\': '\\', "'": "'", '"': '"', '/': '/', '`': '`', $: '$' };   // \t, \0 and the like decode to control characters, so they are left out too
 function decodeJsEscapes(text) {
   let bad = false;
   const out = text.replace(/\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[^])/g, (m, e) => {
@@ -391,14 +420,14 @@ async function providerWork(runner, dir, holds) {
           if (/tools\.apply_patch\(/.test(src)) {
             /* A relative path is the session's own folder's (review 1), so the same file reads the same either way.
                The path is a JavaScript string's text, so it is decoded as one: it ends at a newline (`\n`, `\r`, or a real
-               one) or a bare quote, and its escapes are read (`\\` is a backslash, so `C:\\Users\\kay` is `C:\Users\kay`).
+               one) or its string's closing quote (codexPatchPaths), and its escapes are read (`\\` is a backslash, so `C:\\Users\\kay` is `C:\Users\kay`).
                A path decodeJsEscapes cannot trust whole is left out rather than shown as a file it is not (#9263). */
             const own = path.resolve(folder);
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\[^nr\n\r]|[^\n\r\\"])+)/g)]
+            const paths = codexPatchPaths(src)
               /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A "newline"
                  followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it is left out. */
-              .filter((x) => /^(?:(?:\\r)?\\n|\r?\n)?(?:[-+@* "]|$)/.test(src.slice(x.index + x[0].length)))
-              .map((x) => decodeJsEscapes(x[1])).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
+              .filter((x) => { const t = x.rest.replace(/^(?:(?:\\r)?\\n|\r?\n)/, ''); return t === '' || /^[-+@* ]/.test(t) || t[0] === x.quote; })
+              .map((x) => decodeJsEscapes(x.text)).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
               /* Never the agent's own folder as an edited file: no patch line names it, so one that resolves there was
                  misread (#9263). */
               .map((f) => path.resolve(folder, f)).filter((f) => f !== own);
