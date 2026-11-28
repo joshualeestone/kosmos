@@ -8,10 +8,4 @@
    in this child those two factories hand back fake tmux's reads instead: the board's own wiring runs unchanged, and what
    it installs is the fixture. Measured on GitHub's Windows runner (run 46120636257): without this the eight board-start
    files still saw no existing agent. */
-const win = require('./faketmux-win');
-win.serveOnWindows();
-const { source, capture } = win.current();
-if (source) {
-  require('../engine/win32roster').make = () => source;
-  require('../engine/win32capture').make = () => capture;
-}
+require('./faketmux-win').installForChild();   // the logic lives there, where server.faketmux-win-8378.test.js runs it
