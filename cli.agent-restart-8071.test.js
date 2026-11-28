@@ -7,6 +7,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -78,7 +79,7 @@ async function cli(port, args, extra = {}) {
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
 
-test('kosmos#8071 Mac: --yes restarts through the agent page\'s own route and says the board\'s words', () => withStub(RESTARTED, async (port, seen) => {
+test('kosmos#8071 Mac: --yes restarts through the agent page\'s own route and says the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStub(RESTARTED, async (port, seen) => {
   const r = await cli(port, ['agent', 'restart', ' Sally Sales ', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['POST /api/agent/Sally%20Sales/restart'], 'not one POST to the named agent (name trimmed)');
@@ -88,24 +89,28 @@ test('kosmos#8071 Mac: --yes restarts through the agent page\'s own route and sa
 
 test('kosmos#8071 review 1: never yourself, on either platform; a route that threw is "may be partly restarted", exit 3', async () => {
   await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
-    assert.equal(r.code, 2, r.out);
-    assert.match(r.out, /Nothing was restarted: Sally Sales is you/);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+      assert.equal(r.code, 2, r.out);
+      assert.match(r.out, /Nothing was restarted: Sally Sales is you/);
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(w.code, 2, w.err);
     assert.equal(seen.length, 0, 'an agent restarted itself');
   }, 'Sally Sales');
   await withStub(THREW, async (port) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
-    assert.equal(r.code, 3, r.out);
-    assert.match(r.out, /Sally Sales may be partly restarted: we could not restart this agent\. Look at its page before trying again/);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+      assert.equal(r.code, 3, r.out);
+      assert.match(r.out, /Sally Sales may be partly restarted: we could not restart this agent\. Look at its page before trying again/);
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(w.code, 3, w.err);
     assert.match(w.err, /may be partly restarted/);
   });
 });
 
-test('kosmos#8071 Mac: a refusal and a partial restart exit 1 in the board\'s words', async () => {
+test('kosmos#8071 Mac: a refusal and a partial restart exit 1 in the board\'s words', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub(REFUSED, async (port) => {
     const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(r.code, 1, r.out);
@@ -118,7 +123,7 @@ test('kosmos#8071 Mac: a refusal and a partial restart exit 1 in the board\'s wo
   });
 });
 
-test('kosmos#8071 Mac: no --yes and no terminal, an option-shaped name, a missing name or an extra word: nothing is sent', () => withStub(RESTARTED, async (port, seen) => {
+test('kosmos#8071 Mac: no --yes and no terminal, an option-shaped name, a missing name or an extra word: nothing is sent', { skip: SKIP_POSIX_SHELL }, () => withStub(RESTARTED, async (port, seen) => {
   const r = await cli(port, ['agent', 'restart', 'Sally Sales']);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /Nothing was restarted: there is no terminal here to confirm on\. To restart Sally Sales without being asked, add --yes\./);
@@ -180,47 +185,59 @@ test('kosmos#8071 Windows: a refusal and a partial restart exit 1; no terminal a
 
 test('kosmos#8071 review 2: when the board cannot say who is asking, an agent caller sends nothing; a person goes on; case does not hide yourself', async () => {
   await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
-    assert.equal(r.code, 2, r.out);
-    assert.match(r.out, /cannot rule out that Sally Sales is you/);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+      assert.equal(r.code, 2, r.out);
+      assert.match(r.out, /cannot rule out that Sally Sales is you/);
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(w.code, 2, w.err);
     assert.equal(seen.length, 0, 'an agent restarted a name the board could not rule out as itself');
-    const person = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined });
-    assert.equal(person.code, 0, 'CONTROL: a person with no token or pane was refused: ' + person.out);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const person = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined });
+      assert.equal(person.code, 0, 'CONTROL: a person with no token or pane was refused: ' + person.out);
+    }
     const wp = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes'], { env: {} });
     assert.equal(wp.code, 0, 'CONTROL (Windows): a person was refused: ' + wp.err);
   }, null);
-  await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'sally sales', '--yes']);
-    assert.equal(r.code, 2, 'a differently cased own name was restarted: ' + r.out);
-    assert.equal(seen.length, 0);
-  }, 'Sally Sales');
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+    await withStub(RESTARTED, async (port, seen) => {
+      const r = await cli(port, ['agent', 'restart', 'sally sales', '--yes']);
+      assert.equal(r.code, 2, 'a differently cased own name was restarted: ' + r.out);
+      assert.equal(seen.length, 0);
+    }, 'Sally Sales');
+  }
 });
 
 test('kosmos#8071 review 3: a person in tmux the board does not know goes on; a board that did not answer refuses an agent; a byte-order mark does not hide yourself', async () => {
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+    await withStub(RESTARTED, async (port, seen) => {
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
+      assert.equal(r.code, 0, 'a person in a tmux pane the board does not know was refused: ' + r.out);
+      assert.equal(seen.length, 1);
+    }, null);
+  }
   await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
-    assert.equal(r.code, 0, 'a person in a tmux pane the board does not know was refused: ' + r.out);
-    assert.equal(seen.length, 1);
-  }, null);
-  await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
-    assert.equal(r.code, 2, 'a pane caller went on when the board did not answer who it is: ' + r.out);
-    assert.match(r.out, /could not say who is asking/);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
+      assert.equal(r.code, 2, 'a pane caller went on when the board did not answer who it is: ' + r.out);
+      assert.match(r.out, /could not say who is asking/);
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(w.code, 2, w.err);
     assert.match(w.err, /could not say who is asking/, 'Windows misnamed a board that did not answer');
     assert.equal(seen.length, 0);
   }, 'DOWN');
-  await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', '\ufeffme-agent', '--yes']);
-    assert.equal(r.code, 2, 'a leading byte-order mark let an agent restart itself: ' + r.out);
-    assert.equal(seen.length, 0);
-  }, 'me-agent');
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+    await withStub(RESTARTED, async (port, seen) => {
+      const r = await cli(port, ['agent', 'restart', '\ufeffme-agent', '--yes']);
+      assert.equal(r.code, 2, 'a leading byte-order mark let an agent restart itself: ' + r.out);
+      assert.equal(seen.length, 0);
+    }, 'me-agent');
+  }
 });
 
-test('kosmos#8071 review 4: a board that could not read its roster is not "a person": a pane caller sends nothing', () => withStub(RESTARTED, async (port, seen) => {
+test('kosmos#8071 review 4: a board that could not read its roster is not "a person": a pane caller sends nothing', { skip: SKIP_POSIX_SHELL }, () => withStub(RESTARTED, async (port, seen) => {
   const r = await cli(port, ['agent', 'restart', 'me-agent', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
   assert.equal(r.code, 2, 'a pane agent restarted (perhaps itself) while the board could not say who it was: ' + r.out);
   assert.match(r.out, /could not say who is asking/);
@@ -231,24 +248,30 @@ test('kosmos#8071 review 4: a board that could not read its roster is not "a per
 
 test('kosmos#8071 review 5: a token the board does not take, a roster it cannot read, and your own name in key form are each said rightly', async () => {
   await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
-    assert.equal(r.code, 2, r.out);
-    assert.match(r.out, /does not recognise this agent's own token/, 'a refused token was not said as one');
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+      assert.equal(r.code, 2, r.out);
+      assert.match(r.out, /does not recognise this agent's own token/, 'a refused token was not said as one');
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.match(w.err, /does not recognise this agent's own token/);
     assert.equal(seen.length, 0);
   }, null);
   await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
-    assert.equal(r.code, 2, r.out);
-    assert.match(r.out, /could not say who is asking/, 'a roster the board could not read was blamed on the token');
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+      assert.equal(r.code, 2, r.out);
+      assert.match(r.out, /could not say who is asking/, 'a roster the board could not read was blamed on the token');
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.match(w.err, /could not say who is asking/);
     assert.equal(seen.length, 0);
   }, 'DEGRADED');
   await withStub(RESTARTED, async (port, seen) => {
-    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
-    assert.equal(r.code, 2, 'an agent known by its key (sallysales) restarted itself as "Sally Sales": ' + r.out);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half runs on Windows too
+      const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+      assert.equal(r.code, 2, 'an agent known by its key (sallysales) restarted itself as "Sally Sales": ' + r.out);
+    }
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(w.code, 2, w.err);
     assert.equal(seen.length, 0);

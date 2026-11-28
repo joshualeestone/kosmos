@@ -8,6 +8,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 
@@ -167,7 +168,7 @@ async function cli(port, args) {
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
 
-test('#8547 Mac: --yes removes only the startup-job-only leftovers, each with its plan\'s confirm, and names what it left', () => withStub(MIXED, async (port, seen) => {
+test('#8547 Mac: --yes removes only the startup-job-only leftovers, each with its plan\'s confirm, and names what it left', { skip: SKIP_POSIX_SHELL }, () => withStub(MIXED, async (port, seen) => {
   const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
   assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/tasky/leftover', '/api/agent/settly/leftover'], r.out);
   assert.deepEqual(deletes(seen).map((d) => d.body), [{ confirmed: '1.task-tasky' }, { confirmed: '1.task-settly' }]);
@@ -179,7 +180,7 @@ test('#8547 Mac: --yes removes only the startup-job-only leftovers, each with it
   assert.equal(r.code, 1, 'some were left, so the run is not a clean success: ' + r.out);
 }));
 
-test('#8547 Mac: no --yes and no terminal is refused before anything is sent (control: --yes reaches the board)', () => withStub(MIXED, async (port, seen) => {
+test('#8547 Mac: no --yes and no terminal is refused before anything is sent (control: --yes reaches the board)', { skip: SKIP_POSIX_SHELL }, () => withStub(MIXED, async (port, seen) => {
   const r = await cli(port, ['agent', 'delete-leftovers']);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /no terminal here to confirm on/);
@@ -190,7 +191,7 @@ test('#8547 Mac: no --yes and no terminal is refused before anything is sent (co
   assert.ok(deletes(seen).length > 0, 'control: this stub did not record a DELETE');
 }));
 
-test('#8547 Mac: an empty list exits 0; a resolved name is deleted under it; a busy board (409) stops the run', async () => {
+test('#8547 Mac: an empty list exits 0; a resolved name is deleted under it; a busy board (409) stops the run', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub({ removed: { agents: [] } }, async (port, seen) => {
     const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
     assert.equal(r.code, 0, r.out);
@@ -237,7 +238,7 @@ test('#8547 Mac: at a terminal, n sends nothing and y deletes the full and task-
   assert.match(yes.out, /3 of 3 deleted\./);
 }));
 
-test('#8547 Mac: a refused delete is reported and the run goes on; a 5xx with no outcome stops as "may be partly deleted" (exit 3)', async () => {
+test('#8547 Mac: a refused delete is reported and the run goes on; a 5xx with no outcome stops as "may be partly deleted" (exit 3)', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub({ ...MIXED, del: (name) => (name === 'tasky' ? [400, { outcome: 'refused', because: 'What Kosmos would do here is different now, so nothing was deleted.' }] : [200, { outcome: 'deleted' }]) }, async (port, seen) => {
     const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
     assert.equal(r.code, 1, r.out);
@@ -258,7 +259,7 @@ test('#8547 Mac: a refused delete is reported and the run goes on; a 5xx with no
   });
 });
 
-test('#8547 Mac: a refused list says the board\'s reason and deletes nothing', () => withStub({ removed: { error: 'that needs the board token' } }, async (port, seen) => {
+test('#8547 Mac: a refused list says the board\'s reason and deletes nothing', { skip: SKIP_POSIX_SHELL }, () => withStub({ removed: { error: 'that needs the board token' } }, async (port, seen) => {
   const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Kosmos could not list the removed agents: that needs the board token\./);
@@ -293,11 +294,13 @@ test('#8547: two listed spellings of one agent are deleted once, on both CLIs', 
     assert.equal(r.code, 0, r.err);
     assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/leo/leftover']);
   });
-  await withStub(TWO_SPELLINGS, async (port, seen) => {
-    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
-    assert.equal(r.code, 0, r.out);
-    assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/leo/leftover']);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half above runs on Windows too
+    await withStub(TWO_SPELLINGS, async (port, seen) => {
+      const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/leo/leftover']);
+    });
+  }
 });
 
 test('#8547: an agent the board does not offer makes the run exit 1, on both CLIs (control: without it, 0)', async () => {
@@ -306,17 +309,19 @@ test('#8547: an agent the board does not offer makes the run exit 1, on both CLI
   await withStub(ONE_REFUSED, async (port, seen) => {
     const w = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
     assert.equal(w.code, 1, w.out);
-    const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
-    assert.equal(m.code, 1, m.out);
-    assert.equal(deletes(seen).length, 2, 'tasky was not deleted on each run');
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; on Windows only the Windows CLI runs, so one delete
+      const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+      assert.equal(m.code, 1, m.out);
+    }
+    assert.equal(deletes(seen).length, SKIP_POSIX_SHELL ? 1 : 2, 'tasky was not deleted on each run');
   });
   await withStub(CLEAN, async (port) => {
     assert.equal((await winRun(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);
-    assert.equal((await cli(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);
+    if (!SKIP_POSIX_SHELL) assert.equal((await cli(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);   // kosmos#8378: the Mac CLI's half
   });
 });
 
-test('#8547 Mac: a dropped connection mid-delete stops as "may be partly deleted" (exit 3) and names the ones not tried', () => withStub({ ...MIXED, del: () => ['drop'] }, async (port, seen) => {
+test('#8547 Mac: a dropped connection mid-delete stops as "may be partly deleted" (exit 3) and names the ones not tried', { skip: SKIP_POSIX_SHELL }, () => withStub({ ...MIXED, del: () => ['drop'] }, async (port, seen) => {
   const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
   assert.equal(r.code, 3, r.out);
   assert.equal(deletes(seen).length, 1, 'it kept going after a delete that may be partway');
@@ -330,10 +335,12 @@ test('#8547: a 2xx answer neither CLI can read stops as "may have been deleted" 
     assert.equal(w.code, 3, w.err);
     assert.match(w.err, /tasky may have been deleted: Kosmos accepted the request but we could not read how it went\./);
     assert.doesNotMatch(w.err, /Not deleted/);
-    const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
-    assert.equal(m.code, 3, m.out);
-    assert.match(m.out, /tasky may have been deleted: Kosmos accepted the request but we could not read how it went\./);
-    assert.equal(deletes(seen).length, 2, 'each run should stop after its first delete');
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; on Windows only the Windows CLI runs, so one delete
+      const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+      assert.equal(m.code, 3, m.out);
+      assert.match(m.out, /tasky may have been deleted: Kosmos accepted the request but we could not read how it went\./);
+    }
+    assert.equal(deletes(seen).length, SKIP_POSIX_SHELL ? 1 : 2, 'each run should stop after its first delete');
   });
 });
 
@@ -342,8 +349,10 @@ test('#8547: with more than 25 removed agents, both CLIs say how far the looking
   await withStub({ removed: { agents } }, async (port) => {
     const w = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
     assert.match(w.out, /Looked at 25 of 30\.\.\./);
-    const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
-    assert.match(m.out, /Looked at 25 of 30\.\.\./);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half above runs on Windows too
+      const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+      assert.match(m.out, /Looked at 25 of 30\.\.\./);
+    }
   });
 });
 
@@ -370,7 +379,7 @@ test('#8547 --list (Windows): needs no terminal, shows the plan, asks nothing an
   assert.ok(deletes(seen).length > 0, 'control: this stub did not record a DELETE');
 }));
 
-test('#8547 --list (Mac): needs no terminal, shows the plan and sends no DELETE (control: --yes on the same board sends)', () => withStub(MIXED, async (port, seen) => {
+test('#8547 --list (Mac): needs no terminal, shows the plan and sends no DELETE (control: --yes on the same board sends)', { skip: SKIP_POSIX_SHELL }, () => withStub(MIXED, async (port, seen) => {
   const r = await cli(port, ['agent', 'delete-leftovers', '--list']);
   assert.equal(deletes(seen).length, 0, 'a list sent a DELETE');
   assert.equal(r.code, 0, r.out);
@@ -386,18 +395,22 @@ test('#8547 --list with --yes is refused on both CLIs before the board is asked 
     const w = await winRun(port, ['agent', 'delete-leftovers', '--list', '--yes']);
     assert.equal(w.code, 2, w.out + w.err);
     assert.match(w.err, /use one or the other/);
-    const m = await cli(port, ['agent', 'delete-leftovers', '--yes', '--list']);
-    assert.equal(m.code, 2, m.out);
-    assert.match(m.out, /use one or the other/);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half above runs on Windows too
+      const m = await cli(port, ['agent', 'delete-leftovers', '--yes', '--list']);
+      assert.equal(m.code, 2, m.out);
+      assert.match(m.out, /use one or the other/);
+    }
     assert.equal(seen.length, 0, 'a refused --list --yes reached the board');
   });
   await withStub({ removed: { agents: [{ name: 'zed' }] } }, async (port, seen) => {
     const w = await winRun(port, ['agent', 'delete-leftovers', '--list']);
     assert.equal(w.code, 0, w.out + w.err);
     assert.match(w.out, /Nothing would be deleted here\./);
-    const m = await cli(port, ['agent', 'delete-leftovers', '--list']);
-    assert.equal(m.code, 0, m.out);
-    assert.match(m.out, /Nothing would be deleted here\./);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half above runs on Windows too
+      const m = await cli(port, ['agent', 'delete-leftovers', '--list']);
+      assert.equal(m.code, 0, m.out);
+      assert.match(m.out, /Nothing would be deleted here\./);
+    }
     assert.equal(deletes(seen).length, 0);
   });
 });

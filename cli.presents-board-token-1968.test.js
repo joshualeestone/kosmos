@@ -18,6 +18,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * installed layout required.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const { eventually } = require('./test-support/eventually');
 const http = require('node:http');
@@ -108,7 +109,7 @@ async function drive(port, seen, which, extraEnv) {
   return seen[which][before];
 }
 
-test('#1968: report/reply present the board token when the board wrote one', () => withStub(async (port, seen) => {
+test('#1968: report/reply present the board token when the board wrote one', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const { home, root } = makeHome();
   try {
     fs.writeFileSync(path.join(root, 'board.token'), TOKEN);
@@ -120,7 +121,7 @@ test('#1968: report/reply present the board token when the board wrote one', () 
   }
 }));
 
-test('#1968: report/reply send NO board-token header when there is no token (non-enforcing board)', () => withStub(async (port, seen) => {
+test('#1968: report/reply send NO board-token header when there is no token (non-enforcing board)', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const { home } = makeHome();  // no board.token written
   try {
     const extra = { KOSMOS_HOME: home };
@@ -148,7 +149,7 @@ const withNodeOnPath = (home) => ({
   AGENT_WORKFORCE_DATA: '',
 });
 
-test('#2644: report/reply present the board token from a SOURCE-checkout layout (both fallbacks fire)', () => withStub(async (port, seen) => {
+test('#2644: report/reply present the board token from a SOURCE-checkout layout (both fallbacks fire)', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const { home, root } = makeSourceHome();
   try {
     fs.writeFileSync(path.join(root, 'board.token'), TOKEN);
@@ -160,7 +161,7 @@ test('#2644: report/reply present the board token from a SOURCE-checkout layout 
   }
 }));
 
-test('#2644: source-checkout layout with no token sends NO header (control: it is the token file that drives it, not the layout)', () => withStub(async (port, seen) => {
+test('#2644: source-checkout layout with no token sends NO header (control: it is the token file that drives it, not the layout)', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const { home } = makeSourceHome();  // no board.token written
   try {
     const extra = withNodeOnPath(home);
@@ -207,7 +208,7 @@ function makeRealStoreSourceHome() {
   }
 }
 
-test('#2644: source layout resolves the token through the REAL engine/store.js under a system node (integration)', () => withStub(async (port, seen) => {
+test('#2644: source layout resolves the token through the REAL engine/store.js under a system node (integration)', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const { home, awHome, realRoot } = makeRealStoreSourceHome();
   try {
     fs.writeFileSync(path.join(realRoot, 'board.token'), TOKEN);

@@ -8,6 +8,7 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -76,7 +77,7 @@ async function cli(port, args, extra = {}) {
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
 
-test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its folder, and says how it ended', () => withStub({ plan: CLEAN }, async (port, seen) => {
+test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its folder, and says how it ended', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'Spare', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare&resolve=1', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
@@ -86,7 +87,7 @@ test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its
   assert.match(r.out, /ada runs on spare now\. It is starting again/);
 }));
 
-test('kosmos#8048 Mac: what it would lose is said, and --yes alone does not move into it; --accept-loss does', () => withStub({ plan: LOSES }, async (port, seen) => {
+test('kosmos#8048 Mac: what it would lose is said, and --yes alone does not move into it; --accept-loss does', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: LOSES }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /On that account it would not have the skill design-shots, or the hook destructive-cmd-gate\.sh\./);
@@ -98,7 +99,7 @@ test('kosmos#8048 Mac: what it would lose is said, and --yes alone does not move
   assert.equal(posts(seen).length, 1, 'CONTROL: --accept-loss did not move it');
 }));
 
-test('kosmos#8048 Mac: a plan that could not tell is said as such, never as nothing lost, and needs --accept-loss with --yes', () => withStub({ plan: CANNOT }, async (port, seen) => {
+test('kosmos#8048 Mac: a plan that could not tell is said as such, never as nothing lost, and needs --accept-loss with --yes', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CANNOT }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
   assert.equal(r.code, 2, r.out);
   assert.equal(posts(seen).length, 0, 'an unchecked move went with --yes alone');
@@ -109,14 +110,14 @@ test('kosmos#8048 Mac: a plan that could not tell is said as such, never as noth
   assert.doesNotMatch(r.out, /keeps every skill/, '"cannot tell" read as "nothing lost"');
 }));
 
-test('kosmos#8048 Mac: an unknown account is refused with the board\'s words, and nothing is moved', () => withStub({ plan: UNKNOWN }, async (port, seen) => {
+test('kosmos#8048 Mac: an unknown account is refused with the board\'s words, and nothing is moved', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: UNKNOWN }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'nope', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Kosmos will not move ada: that is not one of the Claude accounts on this computer\./);
   assert.equal(posts(seen).length, 0, 'a refused plan still moved');
 }));
 
-test('kosmos#8048 Mac: already there moves nothing; a refusal and a partial move exit non-zero in the board\'s words', async () => {
+test('kosmos#8048 Mac: already there moves nothing; a refusal and a partial move exit non-zero in the board\'s words', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub({ plan: SAME }, async (port, seen) => {
     const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
     assert.equal(r.code, 0, r.out);
@@ -140,7 +141,7 @@ test('kosmos#8048 Mac: already there moves nothing; a refusal and a partial move
   });
 });
 
-test('kosmos#8048 Mac: no --yes and no terminal, an option-shaped word, a missing account or an extra word: nothing is sent', () => withStub({ plan: CLEAN }, async (port, seen) => {
+test('kosmos#8048 Mac: no --yes and no terminal, an option-shaped word, a missing account or an extra word: nothing is sent', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare']);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /Nothing was moved: there is no terminal here to confirm on\. To move ada without being asked, add --yes\./);
@@ -235,7 +236,7 @@ test('kosmos#8048 Windows: an unknown account, a refusal and a partial move exit
   });
 });
 
-test('kosmos#8048 review 2 Mac: a poll that meets a restarting board (503) waits through it; only a 404 is "forgotten"', () => withStub({ plan: CLEAN, progress: [[503, { error: 'Kosmos is restarting' }], DONE] }, async (port, seen) => {
+test('kosmos#8048 review 2 Mac: a poll that meets a restarting board (503) waits through it; only a 404 is "forgotten"', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CLEAN, progress: [[503, { error: 'Kosmos is restarting' }], DONE] }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', ' ada ', 'spare', '--yes']);
   assert.equal(r.code, 0, 'a 503 mid-move was read as forgotten: ' + r.out);
   assert.match(r.out, /ada runs on spare now/);
@@ -260,12 +261,14 @@ test('kosmos#8048 review 2 Windows: a 503 is waited through; a move still pendin
 });
 
 test('kosmos#8048 review 3: a different copy of a skill is said, but --yes still moves (it is not a loss)', async () => {
-  await withStub({ plan: CHANGED }, async (port, seen) => {
-    const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /That account has a different copy of the skill pick-up\./);
-    assert.equal(posts(seen).length, 1, 'a different copy was treated as a loss');
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs on Windows too
+    await withStub({ plan: CHANGED }, async (port, seen) => {
+      const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, /That account has a different copy of the skill pick-up\./);
+      assert.equal(posts(seen).length, 1, 'a different copy was treated as a loss');
+    });
+  }
   await withStub({ plan: CHANGED }, async (port, seen) => {
     const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
     assert.equal(r.code, 0, r.err);
@@ -273,7 +276,7 @@ test('kosmos#8048 review 3: a different copy of a skill is said, but --yes still
   });
 });
 
-test('kosmos#8048 review 3 Mac: a move still pending at the time bound stops waiting and says so (exit 3)', () => withStub({ plan: CLEAN, progress: [200, { id: 'mv1', done: false, agents: [{ name: 'ada', outcome: 'pending' }] }] }, async (port) => {
+test('kosmos#8048 review 3 Mac: a move still pending at the time bound stops waiting and says so (exit 3)', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CLEAN, progress: [200, { id: 'mv1', done: false, agents: [{ name: 'ada', outcome: 'pending' }] }] }, async (port) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes'], { KOSMOS_MOVE_WAIT_S: '4' });
   assert.equal(r.code, 3, r.out);
   assert.match(r.out, /ada is still moving, and Kosmos stopped waiting/);
@@ -286,7 +289,7 @@ test('kosmos#8048 review 3 Windows: a plan answer that is not JSON is said as un
   assert.doesNotMatch(r.err, /will not move/);
 }));
 
-test('kosmos#8048 review 5 Mac: a progress answer with no outcome for the agent is waited through, not read as the end', () => withStub({ plan: CLEAN, progress: [[200, { id: 'mv1', done: false, agents: [] }], DONE] }, async (port) => {
+test('kosmos#8048 review 5 Mac: a progress answer with no outcome for the agent is waited through, not read as the end', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CLEAN, progress: [[200, { id: 'mv1', done: false, agents: [] }], DONE] }, async (port) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /ada runs on spare now/);
@@ -295,14 +298,14 @@ test('kosmos#8048 review 5 Mac: a progress answer with no outcome for the agent 
 /* kosmos#8839: the plan resolves the name `kosmos agent list` prints (Sub-Zero) to its agent (subzero); the move is sent
    to THAT agent, never the typed words again, and what is said keeps the typed name. */
 const RESOLVED = [200, { ok: true, name: 'subzero', dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [], sentence: null }];
-test('kosmos#8839 Mac: --yes asks the plan to resolve, and moves the agent it resolved', () => withStub({ plan: RESOLVED }, async (port, seen) => {
+test('kosmos#8839 Mac: --yes asks the plan to resolve, and moves the agent it resolved', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: RESOLVED }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.equal(seen[0].url, '/api/agents/account-plan?name=Sub-Zero&account=spare&resolve=1');
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['subzero'] }, 'the typed name was sent, not the resolved agent');
   assert.match(r.out, /Moving restarts Sub-Zero on spare/);
 }));
-test('kosmos#8839 Mac CONTROL: a plan with no name (an older board) moves the name as typed', () => withStub({ plan: CLEAN }, async (port, seen) => {
+test('kosmos#8839 Mac CONTROL: a plan with no name (an older board) moves the name as typed', { skip: SKIP_POSIX_SHELL }, () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['ada']);
@@ -316,9 +319,11 @@ test('kosmos#8839 Windows: --yes asks the plan to resolve, and moves the agent i
 }));
 const AMBIG = [409, { ok: false, ambiguous: true, because: 'more than one agent is called Twin (twina; twinb); name it by one of those names' }];
 test('kosmos#8839 Mac and Windows: an ambiguous name is refused in the board\'s words and nothing is moved', () => withStub({ plan: AMBIG }, async (port, seen) => {
-  const r = await cli(port, ['agent', 'move', 'Twin', 'spare', '--yes']);
-  assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /Kosmos will not move Twin: more than one agent is called Twin \(twina; twinb\)/);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs on Windows too
+    const r = await cli(port, ['agent', 'move', 'Twin', 'spare', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos will not move Twin: more than one agent is called Twin \(twina; twinb\)/);
+  }
   const w = await winRun(port, ['agent', 'move', 'Twin', 'spare', '--yes']);
   assert.equal(w.code, 1, w.err);
   assert.match(w.err, /Kosmos will not move Twin: more than one agent is called Twin/);
@@ -326,10 +331,12 @@ test('kosmos#8839 Mac and Windows: an ambiguous name is refused in the board\'s 
 }));
 const READFAIL = [503, { ok: false, readFailed: true, name: 'Sub-Zero', because: 'we could not read the agents just now, so we could not tell which agent that name is' }];
 test('kosmos#8839 review 2: a plan that could not read the agents is said as a failed read with what to do, in both CLIs', () => withStub({ plan: READFAIL }, async (port, seen) => {
-  const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
-  assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /Kosmos could not tell which agent Sub-Zero is just now: .*Nothing was moved; try again in a moment\./);
-  assert.doesNotMatch(r.out, /will not move/);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs on Windows too
+    const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not tell which agent Sub-Zero is just now: .*Nothing was moved; try again in a moment\./);
+    assert.doesNotMatch(r.out, /will not move/);
+  }
   const w = await winRun(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
   assert.equal(w.code, 1, w.err);
   assert.match(w.err, /Kosmos could not tell which agent Sub-Zero is just now: .*Nothing was moved; try again in a moment\./);

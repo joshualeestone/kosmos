@@ -32,6 +32,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
@@ -115,7 +116,7 @@ function mac(args, agentToken = '') {
   });
 }
 
-test('Mac `task add ... --who <agent>` gives it to that agent and says so; the flag is not in the detail', async () => {
+test('Mac `task add ... --who <agent>` gives it to that agent and says so; the flag is not in the detail', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'add', projectId, 'Mac: diagnostic', 'some', '--who', 'mara', 'detail']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /, for mara\. See it with/);
@@ -125,7 +126,7 @@ test('Mac `task add ... --who <agent>` gives it to that agent and says so; the f
   assert.equal(made.detail, 'some detail');
 });
 
-test('Mac `task add` with --who and --parent together sends both', async () => {
+test('Mac `task add` with --who and --parent together sends both', { skip: SKIP_POSIX_SHELL }, async () => {
   const top = (await bySentence('Mac: diagnostic')).number;
   const r = await mac(['task', 'add', projectId, 'Mac: part', '--who', 'otto', '--parent', String(top)]);
   assert.equal(r.code, 0, r.out);
@@ -134,14 +135,14 @@ test('Mac `task add` with --who and --parent together sends both', async () => {
   assert.equal(made.parent, top);
 });
 
-test('Mac `task add` without --who is unassigned and the answer names nobody (control)', async () => {
+test('Mac `task add` without --who is unassigned and the answer names nobody (control)', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'add', projectId, 'Mac: loose']);
   assert.equal(r.code, 0, r.out);
   assert.doesNotMatch(r.out, /, for /);
   assert.deepEqual((await bySentence('Mac: loose')).whoNames, []);
 });
 
-test('Mac `task add` refuses a bad --who before the board; a non-member and an unnamed `me` exit 1', async () => {
+test('Mac `task add` refuses a bad --who before the board; a non-member and an unnamed `me` exit 1', { skip: SKIP_POSIX_SHELL }, async () => {
   const before = (await rows()).length;
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '--parent', '1'])).code, 2, 'a flag was taken as the name');
@@ -170,7 +171,8 @@ test('both CLIs: `--who me` from an agent with its token gives the task to that 
   t.after(() => board.restore());
   const mara = sendertoken.mint('mara').token;
   const tricky = (label) => label + ': fix {x} where "who":"zed" was said';
-  for (const [label, run, text] of [['Windows', (a) => win(a, mara), (r) => r.out + r.err], ['Mac', (a) => mac(a, mara), (r) => r.out]]) {
+  // kosmos#8378: on Windows only the Windows CLI's half runs (the Mac CLI runs install/kosmos by its shebang).
+  for (const [label, run, text] of [['Windows', (a) => win(a, mara), (r) => r.out + r.err], ['Mac', (a) => mac(a, mara), (r) => r.out]].filter(([l]) => !(SKIP_POSIX_SHELL && l === 'Mac'))) {
     const r = await run(['task', 'add', projectId, tricky(label), '--who', 'me']);
     assert.equal(r.code, 0, label + ': ' + text(r));
     assert.match(text(r), /, for mara\. See it with/, label + ': the answer did not say who it went to: ' + text(r));
@@ -184,6 +186,13 @@ test('both CLIs: `--who me` from an agent with its token gives the task to that 
 test('both lists say who added a task when an agent did and it is not the owner, and only then', async () => {
   /* An agent's add, as the board records one: addedVia process with its name. Written straight to the store
      because the CLIs in this file have no agent identity to send. */
+  // kosmos#8378: the Mac rows come from the Mac-only tests above, which skip on Windows; there, make them with the
+  // Windows CLI so this test still checks both kinds of row.
+  if (SKIP_POSIX_SHELL) {
+    for (const [sentence, extra] of [['Mac: diagnostic', ['--who', 'mara']], ['Mac: loose', []]]) {
+      if (!(await bySentence(sentence))) assert.equal((await win(['task', 'add', projectId, sentence, ...extra])).code, 0, 'fixture: ' + sentence);
+    }
+  }
   projects.mutate(projectId, (p) => ({
     ...p,
     tasks: (p.tasks || []).map((t) => {
@@ -194,7 +203,7 @@ test('both lists say who added a task when an agent did and it is not the owner,
       return t;
     }),
   }));
-  for (const [label, run, text] of [['Windows', win, (r) => r.out], ['Mac', mac, (r) => r.out]]) {
+  for (const [label, run, text] of [['Windows', win, (r) => r.out], ['Mac', mac, (r) => r.out]].filter(([l]) => !(SKIP_POSIX_SHELL && l === 'Mac'))) {
     const r = await run(['task', 'list', projectId]);
     assert.equal(r.code, 0, label + ': ' + text(r));
     const lines = text(r).split('\n');
@@ -234,46 +243,54 @@ test('the board answers with the task\'s who before told and heard (the Mac CLI 
 /* #5678: a subtask nobody is on, under a task somebody is on, lists that owner on both CLIs, so a second agent sees
    whose work it is before starting. */
 test('#5678 `task list` names the owner of a subtask nobody is on directly, on Mac and Windows; CONTROL: a held one names its own', async () => {
-  const r0 = await mac(['task', 'add', projectId, 'Owned parent', '--who', 'mara']);
-  assert.equal(r0.code, 0, r0.out);
+  const add = SKIP_POSIX_SHELL ? (a) => win(a) : (a) => mac(a);   // kosmos#8378: the fixture through the CLI this host runs
+  const r0 = await add(['task', 'add', projectId, 'Owned parent', '--who', 'mara']);
+  assert.equal(r0.code, 0, r0.out + (r0.err || ''));
   const top = (await bySentence('Owned parent')).number;
-  const r1 = await mac(['task', 'add', projectId, 'Loose child', '--parent', String(top)]);
-  assert.equal(r1.code, 0, r1.out);
+  const r1 = await add(['task', 'add', projectId, 'Loose child', '--parent', String(top)]);
+  assert.equal(r1.code, 0, r1.out + (r1.err || ''));
   const row = await bySentence('Loose child');
   assert.deepEqual(row.whoNames, [], 'fixture: the child has nobody on it directly');
   assert.deepEqual(row.ownerNames, ['mara']);
   assert.equal(row.ownerFrom, top);
   const want = new RegExp('Loose child \\(nobody has taken it; ask mara, who holds task ' + top + ' in its tree\\)');
-  const m = await mac(['task', 'list', projectId]);
-  assert.equal(m.code, 0, m.out);
-  assert.match(m.out, want, 'the Mac list does not name the owner');
+  const m = SKIP_POSIX_SHELL ? null : await mac(['task', 'list', projectId]);   // kosmos#8378: the Mac CLI's half
+  if (m) {
+    assert.equal(m.code, 0, m.out);
+    assert.match(m.out, want, 'the Mac list does not name the owner');
+  }
   const w = await win(['task', 'list', projectId]);
   assert.equal(w.code, 0, w.err);
   assert.match(w.out, want, 'the Windows list does not name the owner');
   // CONTROL: the parent names its own holder, not an owner line.
-  assert.match(m.out, /Owned parent \(mara\)/);
-  assert.doesNotMatch(m.out, /Owned parent \(owner:/);
+  for (const out of [m && m.out, w.out].filter(Boolean)) {
+    assert.match(out, /Owned parent \(mara\)/);
+    assert.doesNotMatch(out, /Owned parent \(owner:/);
+  }
 });
 
 /* kosmos#9237: several holders of the tree's task are joined with "and", and the verb agrees, the same on both CLIs. */
 test('#9237 `task list` says nobody has taken a subtask whose tree task two agents hold, on Mac and Windows', async () => {
-  const r0 = await mac(['task', 'add', projectId, 'Shared parent', '--who', 'mara']);
-  assert.equal(r0.code, 0, r0.out);
+  const add = SKIP_POSIX_SHELL ? (a) => win(a) : (a) => mac(a);   // kosmos#8378: the fixture through the CLI this host runs
+  const r0 = await add(['task', 'add', projectId, 'Shared parent', '--who', 'mara']);
+  assert.equal(r0.code, 0, r0.out + (r0.err || ''));
   const top = (await bySentence('Shared parent')).number;
   const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${top}/parts`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence: 'the other half', who: 'otto' }),
   });
   assert.equal(res.status, 200, (await res.text()).slice(0, 160));
   assert.deepEqual((await bySentence('Shared parent')).whoNames.slice().sort(), ['mara', 'otto'], 'fixture: two agents hold the parent');
-  const r1 = await mac(['task', 'add', projectId, 'Shared child', '--parent', String(top)]);
-  assert.equal(r1.code, 0, r1.out);
+  const r1 = await add(['task', 'add', projectId, 'Shared child', '--parent', String(top)]);
+  assert.equal(r1.code, 0, r1.out + (r1.err || ''));
   const row = await bySentence('Shared child');
   assert.equal(row.ownerNames.length, 2, 'fixture: the child inherits both');
   const [a1, a2] = row.ownerNames;
   const want = new RegExp('Shared child \\(nobody has taken it; ask ' + a1 + ' and ' + a2 + ', who hold task ' + top + ' in its tree\\)');
-  const m = await mac(['task', 'list', projectId]);
-  assert.equal(m.code, 0, m.out);
-  assert.match(m.out, want, 'the Mac list does not say it for two holders');
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs on Windows too
+    const m = await mac(['task', 'list', projectId]);
+    assert.equal(m.code, 0, m.out);
+    assert.match(m.out, want, 'the Mac list does not say it for two holders');
+  }
   const w = await win(['task', 'list', projectId]);
   assert.equal(w.code, 0, w.err);
   assert.match(w.out, want, 'the Windows list does not say it for two holders');
