@@ -93,3 +93,14 @@ names left out equal on both. Linear on 14 shapes to 128k. Fixed: a spread into 
 Residual, accepted: a literal patch joined to a name (`"..." + x.y()`) turns on the whole-script reading, which can list
 a header from a log string or comment elsewhere: 8 to 11 scripts per 10,000 worse than main, against about 1,100 fewer
 wrong names overall. The name may hold part of the patch, so it cannot be skipped.
+
+## Review 7 (opus, measuring)
+Fuzz on three seeds, 10,000 scripts each, with quote characters in names: wrong names about 3,100 to 3,300 here against
+6,700 to 7,750 on main, right names left out 0 here against about 635 on main; worse than main on 0 scripts, better on
+about 3,850. Every wrong name here is the accepted fallback-decoy residual. Fixed, outside the fuzz: a quote that never
+opened a string (in a comment) ran on into a later real call's string and dropped it (`it's.md` read `it`). Now a
+literal whose closing quote lands inside a live call is not read, a ' or " literal ends at a raw line break (it cannot
+hold one), and a call is dropped only when its whole string lies inside a real literal (b3g fails on the commit before).
+b3e and b3f's misses (r.md, a"bq.md, left out by both readers) are no longer pinned by the exact list. Timing linear (the
+new checks: 128k unclosed quotes beside calls, 113 to 128 ms).
+Residual, accepted: a nested backtick inside `${...}` in a template patch ends the string early, leaving later names out.

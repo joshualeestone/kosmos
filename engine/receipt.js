@@ -472,10 +472,18 @@ async function providerWork(runner, dir, holds) {
                 if (open < litAfter || inSpan(open + 1)) continue;
                 const q = m[2];
                 let i = open + 1;
-                while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
+                // A ' or " string cannot hold a raw line break, so reaching one means the quote never opened a string.
+                while (i < src.length && src[i] !== q && (q === '`' || (src[i] !== '\n' && src[i] !== '\r'))) i += src[i] === '\\' ? 2 : 1;
+                if (i < src.length && src[i] !== q) continue;
                 const end = Math.min(i, src.length);
+                /* A real string cannot end inside another string: a literal whose closing quote lands inside a live call's
+                   string began at a quote that never opened one (a comment, review 7), so it is not read, and no call is
+                   dropped for it. Only a call whose whole string lies inside a real literal is dropped. */
+                let bogus = false;
+                for (let k = ci; k < calls.length && calls[k][0] <= end; k += 1) if (end <= calls[k][1] && calls[k][0] > open) { bogus = true; break; }
+                if (bogus) continue;
                 litAfter = end + 1;
-                for (let k = ci; k < calls.length && calls[k][0] < end; k += 1) if (calls[k][0] > open) calls[k].dead = true;
+                for (let k = ci; k < calls.length && calls[k][0] < end; k += 1) if (calls[k][0] > open && calls[k][1] < end) calls[k].dead = true;
                 bodies.push({ q, text: src.slice(open + 1, end) });
                 spans.push([open + 1, end]);
               }

@@ -492,11 +492,17 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
     out('10:43', 'b3e', 'Script completed\nWall time 1 seconds'),
     call('10:44', 'b3f', String.raw`const h = "*** Begin Patch\n"; const p2 = h + '*** Delete File: a"bq.md\n*** End Patch'; await tools.apply_patch(p2);`),
     out('10:44', 'b3f', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 7: a quote that never opened a string (here in a comment) does not run on into a later real
+       call's string and drop it: it's9.md is read whole, never `it`. */
+    call('10:45', 'b3g', "// the text starts '*** Begin Patch\nawait tools.apply_patch(p);\nawait tools.apply_patch({patch:\"*** Begin Patch\\n*** Delete File: it's9.md\\n*** Delete File: two9.md\\n*** End Patch\"});"),
+    out('10:45', 'b3g', 'Script completed\nWall time 1 seconds'),
   ]));
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
-  assert.deepEqual(r.agents[0].files, ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
+  // r.md (b3e) and a"bq.md (b3f) are real files both readers leave out; they are not pinned, so a reader that recovers
+  // them stays green (their guards are the negative assertion below).
+  assert.deepEqual(r.agents[0].files.filter((f) => f !== 'r.md' && f !== 'a"bq.md'), ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
     'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
-    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md', 'tail.md', 'realc.md', 'realh.md', 'nm.md'], 'each path stops at its own patch string\'s quote (#9314)');
+    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md', 'tail.md', 'realc.md', 'realh.md', 'nm.md', "it's9.md", 'two9.md'], 'each path stops at its own patch string\'s quote (#9314)');
   assert.ok(!r.agents[0].files.some((f) => /fake[ch]\.md|decoyz|await/.test(f)), 'a call inside a patch, a decoy or a run-on was listed: ' + JSON.stringify(r.agents[0].files));
   assert.ok(!r.agents[0].files.some((f) => f === 'a' || f === 'x' || f.includes('s1.md') || f.includes('s2.md') || /["'`]\}?\)\s*;/.test(f)), 'a cut, swallowed or run-on name (a quote, then `);` or `});`) was listed: ' + JSON.stringify(r.agents[0].files));
 });
