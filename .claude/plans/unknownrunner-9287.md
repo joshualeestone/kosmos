@@ -21,3 +21,9 @@ text removed once PR #9294 is on main).
 ## Weakest premise
 manifestFor returns null only for an unknown name (it starts with hasOwn(MANIFEST, provider)); a future provider
 listed in MANIFEST with no build for some platform would still meet the gate, which is the right answer for it.
+
+## Sequencing (challenge iteration 1)
+The skip to remove arrives with PR #9294 (also mine, open). This branch is rebased onto main after #9294 merges and
+removes SKIP_UNKNOWN_WORDS in server.runners.test.js and its sentence in the HOST_BRANCH_EXCLUDED entry in the same PR,
+so the fix and the unskip land together. The PR body says "Addresses #9287"; the card is closed by hand once the arm
+is measured passing on the Windows runner.
