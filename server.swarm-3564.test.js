@@ -29,6 +29,7 @@ const store = require('./engine/store');
 const create = require('./engine/create');
 const swarm = require('./engine/swarm');
 const projects = require('./engine/projects');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 
 function lead(name, profile) {

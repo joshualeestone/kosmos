@@ -49,6 +49,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 
 // Every Swift file under ios/ except the logic suites' own (their fixtures name routes the app never calls).

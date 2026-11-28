@@ -31,8 +31,8 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
-process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
-process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = require('./test-support/runnerstub').writeRunnerStub(path.join(SANDBOX, 'bin'), 'claude');   // kosmos#8378: runnable on Windows too (a .cmd beside it); /bin/echo is not
+process.env.AGENT_WORKFORCE_CODEX_BIN = require('./test-support/runnerstub').writeRunnerStub(path.join(SANDBOX, 'bin'), 'codex');   // kosmos#8378: runnable on Windows too (a .cmd beside it); /bin/echo is not
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(os.tmpdir(), 'aw-teamtok-claude-' + process.pid + '.json');
@@ -46,6 +46,7 @@ fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const srv = require('./server');
 const { start, server, boardAuthState, remoteWriteGuard, REMOTE_AGENT_ROUTES, LOOPBACK_AGENT_ROUTES, creatorAgentCap, activeAgentsCreatedBy, withCreatorLock } = srv;
 const create = require('./engine/create');

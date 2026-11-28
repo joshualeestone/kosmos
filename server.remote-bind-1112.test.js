@@ -53,6 +53,7 @@ process.env.AGENT_WORKFORCE_ALLOWED_HOSTS = 'kosmos-remote.example';
 // integration boot below is genuinely testing the default path.
 delete process.env.KOSMOS_BIND_HOST;
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const store = require('./engine/store');

@@ -48,6 +48,7 @@ account(nodePath.join(SANDBOX, '.grok-key'), { '.kosmos-grok-apikey': 'xai-worki
 
 const grokAccounts = require('./engine/grokaccounts');
 grokAccounts.setFetcher(async () => ({ status: 401 }));   // never the real xAI
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 
 let base;

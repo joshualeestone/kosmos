@@ -27,6 +27,7 @@ const assert = require('node:assert/strict');
 const store = require('./engine/store');
 const chat = require('./engine/chat');
 const fleet = require('./test-support/fleet');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const { assertSandboxedDataRoot } = require('./test-support/data-root-sandbox');
 

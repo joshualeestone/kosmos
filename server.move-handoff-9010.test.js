@@ -25,6 +25,7 @@ process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 fs.writeFileSync(path.join(SANDBOX, 'panes.txt'), '');
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const server = require('./server');
 const fleet = require('./test-support/fleet');
 /* fixture-discipline: the cards these deps read are the board's own, built once here by test-support/fleet for each

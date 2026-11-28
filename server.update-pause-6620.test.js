@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const update = require('./engine/update');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 
 let base; let meta; let metaBase; let answer = { updates_paused: false }; let asked = 0;
