@@ -453,7 +453,7 @@ test('kosmos#9222: an aged record with no recorded start is dropped without aski
   assert.equal(asked, 0, 'a read was spent on a record the ceiling had already settled');
 });
 
-test('kosmos#9222: start stops reading the agent\'s aged records once its time is spent', () => {
+test('kosmos#9222: start reads no more than its time allows (that it reads at all is the seen.ps === 4 arm)', () => {
   const rs = require('./restoresink');
   const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
   let ps = 0;
