@@ -350,6 +350,46 @@ test('review 11: a failed write says why (code, cause) and is retry only for a p
   assert.deepEqual(bs.readState(org, member).state.job, { waits: 2 }, 'control: unstubbed it writes');
 });
 
+/* kosmos#9307: a state save whose temp names were planted (one file already at a fresh name, two EPERM failures) is
+   refused as a plant and is NOT retry, as a swap is not since #9285: a prompt retry only draws more guessable names.
+   CONTROL: three EPERM failures are still retry. */
+test('kosmos#9307: a state save refused because a temp name was planted is not retry; three EPERMs still are', () => {
+  const [org, member] = ids();
+  bs.writeState(org, member, { job: { waits: 1 }, periods: [] });
+  const before = fs.readFileSync(bs.fileFor(org, member), 'utf8');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const attempt = (failFor) => {
+    let n = 0;
+    fs.openSync = function (p, flags, ...rest) {
+      if (flags === 'wx' && String(p).includes('.kosmos-')) {
+        n += 1;
+        if (failFor(n) === 'plant') { planted.push(String(p)); fs.writeFileSync(String(p), 'planted'); }
+        else throw Object.assign(new Error('refused'), { code: 'EPERM' });
+      }
+      return realOpen.call(fs, p, flags, ...rest);
+    };
+    let caught;
+    try { bs.writeState(org, member, { job: { waits: 2 }, periods: [] }); } catch (err) { caught = err; }
+    fs.openSync = realOpen;
+    return caught;
+  };
+  try {
+    const plant = attempt((n) => (n === 1 ? 'plant' : 'eperm'));
+    assert.ok(plant, 'the planted save did not fail');
+    assert.equal(plant.code, 'ERR_KOSMOS_TEMP_SWAPPED');
+    assert.equal(plant.retry, false, 'a planted temp name made the save retry');
+    const ctl = attempt(() => 'eperm');
+    assert.ok(ctl, 'CONTROL: three EPERM failures did not fail the save');
+    assert.equal(ctl.code, 'EPERM');
+    assert.equal(ctl.retry, true, 'CONTROL: three EPERM failures are retry');
+  } finally {
+    fs.openSync = realOpen;
+    for (const p of planted) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } }
+  }
+  assert.equal(fs.readFileSync(bs.fileFor(org, member), 'utf8'), before, 'a refused save leaves the old file');
+});
+
 test('round 12: fileFor applies the same id check', () => {
   assert.throws(() => bs.fileFor(1, 'x'), /non-empty strings/);
   assert.throws(() => bs.fileFor('o\ud800', 'x'), /well-formed/);

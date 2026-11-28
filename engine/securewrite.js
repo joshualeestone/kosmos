@@ -42,10 +42,12 @@
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
- * have, and (kosmos#9268, #9285) any write whose three atomic attempts all fail, at least one of them refused because
- * its temp name was not the opened file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or not. No caller branches on it
- * (grep); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they already met. The three
- * token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
+ * have, and (kosmos#9268, #9285, #9307) any write whose three atomic attempts all fail, at least one of them refused
+ * because its temp name was not the opened file or already held a file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or
+ * not; its `planted` is true when an attempt found a file already at its temp name (kosmos#9307). No caller names
+ * this code (grep). backupstate.js reads every code for its retry rule, and this one is not a retry code, so such a
+ * save is not retry (refuseFollowedLink's doc). That each caller's catch takes it is reasoned, as for ENOSPC and
+ * EACCES, which they already met. The three token-door call sites catch the throw themselves; `sendertoken.writeTokens` does NOT, and relies on `mint` and
  * `retire` catching one level up, which is true at one remove and worth knowing before you check the call site and
  * find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
@@ -181,20 +183,37 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *   - (kosmos#9285) when the three atomic attempts all fail and at least one was refused this way, the write throws
  *     ERR_KOSMOS_TEMP_SWAPPED and the file is left as it was, for every caller, atomicOnly or not: it never takes the
  *     in-place fallback. A refusal is positive evidence that somebody is planting in the folder (the temp names are
- *     guessable, so a plain file at one of the three names must not open the way), and on Windows that fallback has no
- *     O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back would hand the same person a
- *     race at the config itself. On no measured mount does an ordinary save see this refusal (the Mac, GitHub's
- *     Windows runner, a Linux container). The cost is wider than three such refusals: ONE is enough when the other
- *     two attempts fail for any reason, so a sync client or antivirus that moved one fresh temp, with two renames
- *     failing EPERM (the usual reason Windows reaches the fallback), now fails that save rather than rewrite in
- *     place. And on a mount whose fstat and lstat
- *     answers disagree every time (another device or inode, or a link count above one), every attempt is refused,
- *     so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three failures with
- *     no such refusal fall back as
- *     before, and that includes a plain file planted at all three names (each create fails EEXIST): not closed here,
- *     as it was before #9268, and carded as kosmos#9307 (the same race at the config applies). EEXIST is what this
- *     module's own tests use to reach the fallback, so counting it as
- *     planting would change what the fallback is for every caller; that is its own change, not this one.
+ *     guessable; a plain file planted at a name is the same evidence, and counts too since kosmos#9307, below), and on
+ *     Windows that fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back
+ *     would hand the same person a race at the config itself. On no measured mount does an ordinary save see a SWAP
+ *     refusal (the Mac, GitHub's Windows runner, a Linux container); the plain-file case is not measured on a network
+ *     mount (below). The cost is wider than three such refusals: ONE is enough when the other two attempts fail for
+ *     any reason, so a sync client or antivirus that moved one fresh temp, with two renames failing EPERM (the usual
+ *     reason Windows reaches the fallback), now fails that save rather than rewrite in place. And on a mount whose
+ *     fstat and lstat answers disagree every time (another device or inode, or a link count above one), every attempt
+ *     is refused, so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three
+ *     failures with no such refusal fall back as before.
+ *   - (kosmos#9307) anything already at a fresh temp name (a plain file, a directory, a dangling link on POSIX) counts
+ *     as such a refusal too: the create fails EEXIST.
+ *     The name carries this process's pid, thread, start time and a sequence number, so there are four
+ *     honest routes: a crashed earlier process with the same pid, thread AND start millisecond (the reaper cannot remove its
+ *     temp: it reads it as this process's own); a second copy of this module loaded in the same thread and millisecond
+ *     (a cleared require cache restarts the sequence) finding a temp a failed unlink left; a network mount that
+ *     resends an exclusive create after a lost reply and answers EEXIST for the file it just made; or two containers
+ *     with their own pid namespaces sharing the folder, the same small pid on thread 0 started in the same millisecond.
+ *     All four are near impossible, and each fails that save only when the other two attempts also fail, for any reason (one EEXIST and a clean next
+ *     attempt still saves). So three plain files planted at the three names no longer reach the in-place fallback (or
+ *     its Windows race at the config). The module's own tests reach the fallback with EPERM now. A caller then sees
+ *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES): only the last attempt's error rides
+ *     along, as `lastAttempt` (a plant itself when it came last), and earlier ones are not kept.
+ *     At least one caller branches on them: engine/backupstate.js marks a failed state save `retry` on EPERM or EACCES, so a
+ *     save refused this way is not retried at once (as for a swap since #9285). That is meant: somebody is planting,
+ *     and a prompt retry would only draw three more guessable names. githubdevice.js shows the code to a person, and
+ *     shows this one.
+ *     NOT closed: plant shapes that fail the create with another code. On Windows a file held open and marked for
+ *     deletion makes the create fail EPERM, not EEXIST, and EPERM is also the ordinary reason a Windows save reaches the
+ *     fallback (antivirus, a sync client), so it cannot count as a plant; and on POSIX a temp unlinked between the
+ *     create and the rename fails the rename ENOENT, a race in the rename window accepted above. Carded as kosmos#9325.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -449,8 +468,8 @@ function syncDir(dir) {
  * settings.json), where failing the save beats rewriting it in place.
  *
  * Without atomicOnly the fallback is skipped in one case too (kosmos#9285): when at least one of the
- * three failed attempts was refused because its temp name was not the opened file, the write throws
- * ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it was (refuseFollowedLink's doc says why).
+ * three failed attempts was refused because its temp name was not the opened file, or (kosmos#9307) already held a
+ * file, the write throws ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it was (refuseFollowedLink's doc says why).
  *
  * `opts.ownTempsOnly` (#5434 slice 3): before writing, reap only this file's own dead temps rather
  * than sweeping the whole folder once per process. For a folder Kosmos does not own. Not cached: it
@@ -488,11 +507,12 @@ function writeSecret(file, data, mode, opts) {
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is
      what keeps the destructive fallback essentially unreachable rather than
      merely rare. Somebody planting at each guessable name can still refuse every
-     one: with links (kosmos#9268) that never falls back (#9285); with plain files
-     it falls back, as it did before (refuseFollowedLink's doc). */
+     one: with links (kosmos#9268) or plain files (kosmos#9307) that never falls back
+     (#9285; refuseFollowedLink's doc). */
   let lastAtomicError = null;
   let swappedAttempts = 0;   // kosmos#9285: attempts refused because the temp name was not the opened file
   let firstSwap = null;      // the first of them, kept as the refusal's cause (the last error may be another kind)
+  let plantedAttempts = 0;   // kosmos#9307: those of them that found a file already at the temp name
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
@@ -511,7 +531,18 @@ function writeSecret(file, data, mode, opts) {
          The flag flips the instant the open returns and the name is confirmed to be
          the opened file (kosmos#9268), which is when "we created it" is a fact rather
          than a proxy. */
-      const tfd = fs.openSync(tmp, 'wx', createMode);
+      let tfd;
+      try { tfd = fs.openSync(tmp, 'wx', createMode); }
+      catch (e) {
+        /* kosmos#9307: something is already at a FRESH temp name (pid, thread, start time and a sequence number). Short of
+           four near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
+           the in-place fallback (on Windows, a race at the config itself). So it counts as a refusal, as a swapped name
+           does. */
+        if (e && e.code === 'EEXIST') {
+          throw Object.assign(new Error('a file was already at a fresh temp name'), { code: 'ERR_KOSMOS_TEMP_SWAPPED', planted: true, cause: e });
+        }
+        throw e;
+      }
       // kosmos#9268: refused, the next attempt takes a fresh name
       let verdict;
       try { verdict = refuseFollowedLink(tmp, tfd); }
@@ -571,7 +602,7 @@ function writeSecret(file, data, mode, opts) {
          a writer-shaped one. Not done here. */
       const earlierAtomicError = lastAtomicError;   // #5434: an earlier attempt's, for the early exit below
       lastAtomicError = err;
-      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') { swappedAttempts += 1; firstSwap = firstSwap || err; }
+      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') { swappedAttempts += 1; firstSwap = firstSwap || err; if (err.planted) plantedAttempts += 1; }
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
          `created` is the FACT, and it is set the instant the open returns and the
@@ -589,11 +620,11 @@ function writeSecret(file, data, mode, opts) {
     }
   }
 
-  // kosmos#9285: any attempt refused for a swapped temp name means somebody is planting; never fall back then (a plain
-  // file planted at one name, a guessable one, must not be enough to reach the in-place open).
+  // kosmos#9285: any attempt refused for a swapped temp name, or (kosmos#9307) one that found a file already at its
+  // fresh name, means somebody is planting; never fall back then.
   if (swappedAttempts > 0) {   // one shape every time: the first swap as the cause, the last attempt's error beside it
-    throw Object.assign(new Error('the temp name is not the file this write opened'),
-      { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError });
+    throw Object.assign(new Error('the temp names were refused: one was not the file this write opened, or already held a file'),
+      { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError, planted: plantedAttempts > 0 });
   }
   if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
 

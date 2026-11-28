@@ -140,11 +140,11 @@ test('#5434: when every atomic attempt fails, a settings save throws and leaves 
   fs.writeFileSync(settings, before);
   const realOpen = fs.openSync;
   fs.openSync = (target, flags, ...rest) => {
-    if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });   // every atomic attempt fails
+    if (flags === 'wx') throw Object.assign(new Error('refused'), { code: 'EPERM' });   // every atomic attempt fails (kosmos#9307: EPERM, not EEXIST)
     return realOpen.call(fs, target, flags, ...rest);
   };
   try {
-    assert.throws(() => claude.wireApiKeyHelper(settings, root), (e) => e.code === 'EEXIST');
+    assert.throws(() => claude.wireApiKeyHelper(settings, root), (e) => e.code === 'EPERM');
   } finally { fs.openSync = realOpen; }
   assert.equal(fs.readFileSync(settings, 'utf8'), before, 'settings.json was rewritten in place');
 });
@@ -154,7 +154,7 @@ test('#5434: CONTROL, a key save under the same failure still takes the in-place
   fs.mkdirSync(dir);
   const realOpen = fs.openSync;
   fs.openSync = (target, flags, ...rest) => {
-    if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
+    if (flags === 'wx') throw Object.assign(new Error('refused'), { code: 'EPERM' });
     return realOpen.call(fs, target, flags, ...rest);
   };
   try { claude.storeKey(dir, 'sk-fallback'); } finally { fs.openSync = realOpen; }

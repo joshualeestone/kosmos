@@ -15,8 +15,8 @@ const path = require('node:path');
 const securewrite = require('./securewrite');
 
 /* Record opens (with the fd each returned), fsyncs and renames, in order, while `fn` runs; put fs
-   back afterwards. `wxFails` makes every 'wx' create fail with EEXIST, which sends writeSecret to
-   its in-place fallback after three attempts. */
+   back afterwards. `wxFails` makes every 'wx' create fail with EPERM, which sends writeSecret to
+   its in-place fallback after three attempts (kosmos#9307: not EEXIST, which now refuses the save as a plant). */
 function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = false, fsyncOnly = null } = {}) {   // fsyncOnly(fd, events): throw only for these fds   // *Throws: false, or an error code
   const events = [];
   const realOpen = fs.openSync;
@@ -25,7 +25,7 @@ function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = fal
   const realClose = fs.closeSync;
   fs.closeSync = (fd) => { realClose(fd); if (closeThrows) throw Object.assign(new Error('close failed'), { code: closeThrows }); };
   fs.openSync = (target, flags, ...rest) => {
-    if (wxFails && flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
+    if (wxFails && flags === 'wx') throw Object.assign(new Error('refused'), { code: 'EPERM' });
     const fd = realOpen.call(fs, target, flags, ...rest);
     events.push(['open', target, flags, fd]);
     return fd;
