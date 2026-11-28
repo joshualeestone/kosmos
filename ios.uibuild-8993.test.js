@@ -124,7 +124,7 @@ test('ui-sample.sh refuses bad --build-only and --products uses before any Xcode
 /* The unpack step itself, run: its `run:` block taken from ios.yml and run in a temp RUNNER_TEMP for a good download, one
    whose checksum does not match, one that is cut short, and none at all. Only the good one is unpacked; the rest leave
    the folder empty and warn, so ui-sample.sh builds the app itself. */
-test('the unpack step: a good download is unpacked; a bad checksum, a cut-short tar or none falls back with a warning', () => {
+test('the unpack step: a good download is unpacked; a bad checksum, a cut-short tar or none falls back with a warning', { skip: require('./test-support/skip-on-win32').skipOnWin32('it runs the unpack step of the macOS iPhone build job (tar and shasum on POSIX paths), which only ever runs on a Mac') }, () => {
   const unpack = (name) => {
     const block = job(name).split('\n');
     const at = block.findIndex((l) => l.includes('- name: Unpack the shared build'));

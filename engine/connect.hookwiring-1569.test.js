@@ -72,7 +72,9 @@ function serveHeldRelease(t, { version, binary, checksum }) {
     }),
   };
   const server = http.createServer(async (req, res) => {
-    if (req.url === `/${version}/${connect.platformKey()}/claude`) {
+    // kosmos#8378: download() asks for `claude.exe` on Windows (connect.install-997.test.js pins which name is asked
+    // for); this file is about the hooks, so either name gets the held binary.
+    if (req.url === `/${version}/${connect.platformKey()}/claude` || req.url === `/${version}/${connect.platformKey()}/claude.exe`) {
       res.writeHead(200, { 'content-length': binary.length });
       res.write(binary.subarray(0, 1024));      // first chunk, then park
       await held;

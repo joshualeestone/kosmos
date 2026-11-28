@@ -131,6 +131,10 @@ test('a scoped board builds and reads back its own labels: serviceLabel, plistPa
 test('the launchd fleet probes answer in this board\'s scope: a throwaway board reads its own jobs, not the real board\'s', () => {
   const list = '123\t0\tcom.kosmos.agent.mine+launch-0a1b2c3d\n124\t0\tcom.kosmos.agent.theirs\n';
   const off = '\t"com.kosmos.agent.mine+launch-0a1b2c3d" => disabled\n\t"com.kosmos.agent.theirs" => disabled\n';
+  /* The Mac arm asks launchctl about gui/<uid>, and Node has no process.getuid on Windows, so on a Windows host the
+     forced darwin read threw before the scope was applied. A stand-in uid there; the Mac uses its own. */
+  const hadUid = typeof process.getuid === 'function';
+  if (!hadUid) process.getuid = () => 501;
   try {
     create.setRunner((file, args) => ({ ok: true, stdout: args[0] === 'list' ? list : off }));
     create.setLaunchScopeForTests('launch-0a1b2c3d');
@@ -139,7 +143,7 @@ test('the launchd fleet probes answer in this board\'s scope: a throwaway board 
     create.setLaunchScopeForTests(null);
     assert.deepEqual([...create.runningJobs('darwin')], ['theirs'], 'control: the real board reads the bare job');
     assert.deepEqual([...create.disabledJobs('darwin')], ['theirs']);
-  } finally { create.setLaunchScopeForTests(null); create.setRunner(null); }
+  } finally { create.setLaunchScopeForTests(null); create.setRunner(null); if (!hadUid) delete process.getuid; }
 });
 
 test('with the gate open, a dry-run board and a board with a test runner both keep the bare label (neither reaches launchd)', () => {

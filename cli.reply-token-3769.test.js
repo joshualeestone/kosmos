@@ -58,7 +58,8 @@ const reply = async (port, token, seen) => {
   return seen[seen.length - 1];
 };
 
-test('#3769 kosmos reply presents a well-formed agent token, and only a well-formed one', () => withStub(async (port, seen) => {
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+test('#3769 kosmos reply presents a well-formed agent token, and only a well-formed one', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   assert.equal((await reply(port, null, seen)).agent, undefined, 'no token set, so no header may be sent');
   assert.equal((await reply(port, 'zz-not-hex', seen)).agent, undefined, 'a malformed token must be dropped');
   const r = await reply(port, 'abc123def', seen);

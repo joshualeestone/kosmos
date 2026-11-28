@@ -25,6 +25,8 @@ const zlib = require('node:zlib');
 const { spawn } = require('node:child_process');
 
 const fs = require('node:fs');
+/* kosmos#8378: the store screenshots are taken on a Mac (the iPhone simulator), so the proxy only ever sees Mac paths. */
+const MAC_ONLY_PATHS = require('./test-support/skip-on-win32').skipOnWin32('the App Store screenshots are taken only on a Mac, and these arms build Mac home and checkout paths joined with a forward slash, which a Windows path is not');   // kosmos#8378
 const PROXY = path.join(__dirname, 'ios', 'store', 'shots-proxy.js');
 /* Stands in for the checkout the board runs from: its path is what the board writes into instructions, and its
    web/ is what the product ships (one icon here). */
@@ -112,7 +114,7 @@ test('/api/status says connected and keeps every other field', async () => {
   assert.deepEqual(j.agents, [{ name: 'Cleo' }]);
 });
 
-test('the checkout path becomes a made-up install path, and only that changes', async () => {
+test('the checkout path becomes a made-up install path, and only that changes', { skip: MAC_ONLY_PATHS }, async () => {
   const r = await get('/api/agent/cleo/instructions');
   assert.equal(r.status, 200);
   const j = JSON.parse(r.body);
@@ -173,7 +175,7 @@ test('a sibling of the checkout is not swapped', async () => {
   assert.equal(JSON.parse(r.body).text, CHECKOUT + '-other/x');
 });
 
-test('an answer carrying this Mac\'s home path is refused and printed as LEAK', async () => {
+test('an answer carrying this Mac\'s home path is refused and printed as LEAK', { skip: MAC_ONLY_PATHS }, async () => {
   const r = await get('/leak');
   assert.equal(r.status, 502);
   assert.ok(!r.body.includes(os.homedir()));

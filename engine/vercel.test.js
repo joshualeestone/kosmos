@@ -12,14 +12,17 @@ function fakeChild() {
   return c;
 }
 const statusSaying = (code, text) => (args, done) => { assert.deepEqual(args.slice(0, 1), ['whoami']); done(code, text); };
+/* A binary that is present and runnable on every platform: /bin/echo does not exist on Windows,
+   and there a bare path needs a PATHEXT name to count as runnable. The node running this test does. */
+const PRESENT_BIN = process.execPath;
 
-test.beforeEach(() => { vercel.resetForTests(); process.env.AGENT_WORKFORCE_VERCEL_BIN = '/bin/echo'; });
+test.beforeEach(() => { vercel.resetForTests(); process.env.AGENT_WORKFORCE_VERCEL_BIN = PRESENT_BIN; });
 test.after(() => { delete process.env.AGENT_WORKFORCE_VERCEL_BIN; });
 
 test('state is what vercel says: missing tool, present but signed out, or signed in as somebody', async () => {
   process.env.AGENT_WORKFORCE_VERCEL_BIN = '/nonexistent/gh';
   assert.deepEqual(await vercel.state(), { gh: 'missing', connected: false, login: null, phase: 'idle', code: null, url: null, because: null });
-  process.env.AGENT_WORKFORCE_VERCEL_BIN = '/bin/echo';
+  process.env.AGENT_WORKFORCE_VERCEL_BIN = PRESENT_BIN;
   vercel.setRunner(statusSaying(1, 'You are not logged into any GitHub hosts.'));
   assert.equal((await vercel.state()).connected, false);
   vercel.setRunner(statusSaying(0, 'joshualeestone-6084\n'));

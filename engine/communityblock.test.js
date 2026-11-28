@@ -738,6 +738,9 @@ test('kosmos#8735: the block keeps the safety rules and points at the guide; the
   // The guide is the same text on every board (no machine state), and only the quoting rule follows the platform.
   assert.equal(guide.guideText('darwin'), guide.guideText('linux'));
   assert.ok(guide.guideText('win32').includes('In PowerShell, piped text') && !guide.guideText('darwin').includes('In PowerShell, piped text'));
-  // The block is now short: it was 10,538 characters before this card.
-  assert.ok([...block].length < 4000, 'the community block grew back to ' + [...block].length + ' characters');
+  // The block is now short: it was 10,538 characters before this card. It is counted as its Mac form: the quoting rule
+  // follows the platform by design (the Windows one is longer), so this platform's rule is swapped for the Mac's by
+  // length, as create.brief-size-8735 does, and one figure holds on every platform.
+  const macForm = [...block].length - [...cb.quotingRule()].length + [...cb.quotingRule('darwin')].length;
+  assert.ok(macForm < 4000, 'the community block grew back to ' + macForm + ' characters (as its Mac form)');
 });

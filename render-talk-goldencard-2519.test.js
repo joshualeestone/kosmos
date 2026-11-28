@@ -962,6 +962,16 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
      fixture: an arm that reads the artifact cannot notice the producer growing a field. */
   const cap = require('./tools/capture-agent-card.js');
   const fleet = require('./test-support/fleet.js');
+  /* On a Mac the empty sandbox launch folder proves the fleet agent has no startup job, so its context is the
+     never-recorded shape (context.neverRecorded below). On Windows the job is a Scheduled Task and a test process never
+     queries the real Task Scheduler (win32job.run refuses), so the look is "could not check" and that key is absent.
+     This runner answers every query the way schtasks answers for a task that is not there, so the card is the same
+     fact on both platforms. Taken off again in the finally below. */
+  const win32job = process.platform === 'win32' ? require('./engine/win32job.js') : null;
+  if (win32job) {
+    win32job.setRunner((args) => (args && args[0] === '/Query'
+      ? { ok: false, out: 'ERROR: The system cannot find the file specified.' } : { ok: true, out: '' }));
+  }
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   try {
     const out = cap.neutralise(board.card('mara'));
@@ -1077,6 +1087,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'the producer disruption timestamp reached the recording');
   } finally {
     board.restore();
+    if (win32job) win32job.setRunner(null);
   }
 });
 

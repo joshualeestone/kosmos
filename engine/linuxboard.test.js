@@ -23,13 +23,15 @@ const os = require('node:os');
 const path = require('node:path');
 
 const linuxboard = require('./linuxboard');
+const { skipOnWin32 } = require('../test-support/skip-on-win32.js');
+const SKIP_SYSTEMD = skipOnWin32('the systemd board is Linux only, and linuxboard resolves the Kosmos folder with this computer path rules, so on Windows a POSIX folder becomes a drive path (another unit name) and every Windows folder has a backslash, which linuxboard refuses in a systemd unit');
 
 test.afterEach(() => {
   linuxboard.setRunnerForTests(null);
   linuxboard.setSystemdDirForTests(null);
 });
 
-test('boardUnitName and boardUnitPath derive correct service names', () => {
+test('boardUnitName and boardUnitPath derive correct service names', { skip: SKIP_SYSTEMD }, () => {
   const defaultHome = path.join(process.env.HOME || '', '.local', 'share', 'kosmos');
   const u = linuxboard.boardUnitName(defaultHome);
   assert.equal(u, 'kosmos-board.service');
@@ -48,7 +50,7 @@ test('boardUnitName and boardUnitPath derive correct service names', () => {
   }
 });
 
-test('boardUnitFor generates systemd unit with ConditionPathExists and board-run', () => {
+test('boardUnitFor generates systemd unit with ConditionPathExists and board-run', { skip: SKIP_SYSTEMD }, () => {
   const home = '/home/user/.local/share/kosmos';
   const content = linuxboard.boardUnitFor(home, 16180);
 
@@ -70,7 +72,7 @@ test('boardUnitFor generates systemd unit with ConditionPathExists and board-run
   assert.match(content, /^WantedBy=default\.target/m);
 });
 
-test('installBoard writes unit file and enables systemd service', () => {
+test('installBoard writes unit file and enables systemd service', { skip: SKIP_SYSTEMD }, () => {
   const calls = [];
   linuxboard.setRunnerForTests((cmd, args) => {
     calls.push({ cmd, args });
@@ -200,7 +202,7 @@ test('canRestart checks unit file existence, status and PID matching', () => {
   }
 });
 
-test('#5519: the unit carries AGENT_WORKFORCE_CREATED_URL only when the installer has a plain http(s) one', () => {
+test('#5519: the unit carries AGENT_WORKFORCE_CREATED_URL only when the installer has a plain http(s) one', { skip: SKIP_SYSTEMD }, () => {
   const was = process.env.AGENT_WORKFORCE_CREATED_URL;
   const home = fs.mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'aw-5519-'));
   const line = (u) => 'Environment="AGENT_WORKFORCE_CREATED_URL=' + u + '"';

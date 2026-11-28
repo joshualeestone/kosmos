@@ -16,6 +16,7 @@
 require('../test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -337,7 +338,7 @@ test('#5576: the bridge child carries the trace preload, and it records the fds 
   }
 });
 
-test('#5576: a line is never written into fd 2 once its number belongs to something else', async () => {
+test('#5576: a line is never written into fd 2 once its number belongs to something else', { skip: skipOnWin32('it closes fd 0 or fd 2 in a child and counts on the next open taking that lowest free number, a POSIX rule that Windows file handles do not follow') }, async () => {
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-fd2-'));
   try {
     const file = path.join(dir, 'took-fd-2.txt');
@@ -382,7 +383,7 @@ test('#5576 fix: holdStdioFds fills a free fd 0 to 2 with the null device, and l
   assert.deepEqual(opened, []);
 });
 
-test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so the next open is never fd 0', async () => {
+test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so the next open is never fd 0', { skip: skipOnWin32('it closes fd 0 or fd 2 in a child and counts on the next open taking that lowest free number, a POSIX rule that Windows file handles do not follow') }, async () => {
   const run = (guard) => new Promise((resolve) => {
     const script = 'const fs=require("node:fs");const b=require(' + JSON.stringify(BRIDGE_FILE) + ');fs.closeSync(0);'
       + (guard ? 'b.holdStdioFds();' : '') + 'const fd=fs.openSync(' + JSON.stringify(BRIDGE_FILE) + ',"r");'
@@ -400,7 +401,7 @@ test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so t
   assert.equal((await run(false)).split(' ')[0], '0', 'premise: a freed fd 0 is taken by the next open');
 });
 
-test('#5576 fix: the real bridge holds a freed fd 0 before its report, so the report\'s socket is never numbered 0', async () => {
+test('#5576 fix: the real bridge holds a freed fd 0 before its report, so the report\'s socket is never numbered 0', { skip: skipOnWin32('it closes fd 0 or fd 2 in a child and counts on the next open taking that lowest free number, a POSIX rule that Windows file handles do not follow') }, async () => {
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-free0-'));
   const closer = path.join(dir, 'close-fd-0.js');
   /* stdout first, then fd 0: on a Mac, making process.stdout reopens the null device on a closed fd 0 (measured), which

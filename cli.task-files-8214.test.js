@@ -139,7 +139,7 @@ test('#8214 board: the built route stores file_path, refuses a bad one, and the 
 });
 
 // ── the shared renderer ─────────────────────────────────────────────────────
-test('#8214 filesLines: each verdict, the tally, an older board, and words that cannot forge a line', () => {
+test('#8214 filesLines: each verdict, the tally, an older board, and words that cannot forge a line', { skip: require('./test-support/skip-on-win32').skipOnWin32('it plants a stand-in automount folder and a link to it on this disk and walks them as Mac paths, which needs a POSIX file system; a Windows temp folder is a drive path, which the Mac reader rightly calls another computer') }, () => {   // kosmos#8378
   const FP = sha('x');
   const verdicts = { '/m': { ok: true, match: true }, '/m\u202e': { ok: true, match: true }, '/c': { ok: true, match: false }, '/gone': { ok: false, words: 'missing (no such file)' },
     '/locked': { ok: false, words: 'unreadable (permission denied)' } };
@@ -265,7 +265,9 @@ test('#8214 Windows: built --file sends the absolute path; task files says match
 });
 
 test('#8214 Windows (review 3): a path the board would refuse is dropped, said, and the mark still goes', async () => {
-  const name = 'win\nodd.txt';
+  /* kosmos#8378: Windows cannot hold a line break (or any of the first 32 control characters) in a file name, so there
+     the refused name carries DEL, a control character Windows allows in a name and the board refuses all the same. */
+  const name = process.platform === 'win32' ? 'win\u007fodd.txt' : 'win\nodd.txt';
   fs.writeFileSync(path.join(OUT, name), 'win odd');
   const n = tasks.create(otherId, { sentence: 'Windows odd name', who: 'mona' }).number;
   const r = await win(['task', 'built', otherId, String(n), 'done', '--file', name], { token: tokenOf('mona'), cwd: OUT });

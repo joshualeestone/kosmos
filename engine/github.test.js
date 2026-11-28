@@ -12,14 +12,17 @@ function fakeChild() {
   return c;
 }
 const statusSaying = (code, text) => (args, done) => { assert.deepEqual(args.slice(0, 2), ['auth', 'status']); done(code, text); };
+/* A binary that is present and runnable on every platform: /bin/echo does not exist on Windows,
+   and there a bare path needs a PATHEXT name to count as runnable. The node running this test does. */
+const PRESENT_BIN = process.execPath;
 
-test.beforeEach(() => { github.resetForTests(); process.env.AGENT_WORKFORCE_GH_BIN = '/bin/echo'; });
+test.beforeEach(() => { github.resetForTests(); process.env.AGENT_WORKFORCE_GH_BIN = PRESENT_BIN; });
 test.after(() => { delete process.env.AGENT_WORKFORCE_GH_BIN; });
 
 test('state is what gh says: missing tool, present but signed out, or signed in as somebody', async () => {
   process.env.AGENT_WORKFORCE_GH_BIN = '/nonexistent/gh';
   assert.deepEqual(await github.state(), { gh: 'missing', connected: false, login: null, phase: 'idle', code: null, url: null, because: null });
-  process.env.AGENT_WORKFORCE_GH_BIN = '/bin/echo';
+  process.env.AGENT_WORKFORCE_GH_BIN = PRESENT_BIN;
   github.setRunner(statusSaying(1, 'You are not logged into any GitHub hosts.'));
   assert.equal((await github.state()).connected, false);
   github.setRunner(statusSaying(0, 'github.com\n  ✓ Logged in to github.com account joshualeestone (keyring)\n'));

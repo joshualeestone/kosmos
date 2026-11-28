@@ -340,7 +340,7 @@ test('round 4: memory notes survive the transcript cap; retryLater ends after MA
   // Newest first alone would take new + older (60 of 60) and drop the memory note.
   const st = { 'a/new.jsonl': [30, 300], 'a/older.jsonl': [30, 200], 'a/memory/notes.md': [30, 1] };
   const roots = [{ name: 'sessions/x/claude', path: '/r/a', only: ['memory/notes.md', 'new.jsonl', 'older.jsonl'] }];
-  const kept = hs.trimSessions(roots, 60, { stat: (p) => { const rel = path.relative('/r', p); const v = st[rel]; if (!v) throw new Error('nope'); return { isFile: () => true, size: v[0], mtimeMs: v[1] }; } });
+  const kept = hs.trimSessions(roots, 60, { stat: (p) => { const rel = path.relative('/r', p).split(path.sep).join('/'); const v = st[rel]; if (!v) throw new Error('nope'); return { isFile: () => true, size: v[0], mtimeMs: v[1] }; } });
   assert.deepEqual(kept[0].only, ['memory/notes.md', 'new.jsonl'], 'the old memory note first, then the newest transcript');
   const w = world();
   try {

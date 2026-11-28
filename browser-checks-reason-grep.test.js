@@ -113,9 +113,14 @@ test('the runner\'s reason pattern is readable, and can say both yes and no', ()
    holding the machine's test queue) can be stopped by nothing in this file but this
    timeout. A stall now costs seconds and a red that says so. */
 const GREP_TIMEOUT_MS = require('./test-support/eventually').scaleBudget(10000);
+/* kosmos#8378: on Windows the real grep is Git for Windows' MSYS grep. An MSYS program started by a Windows process
+   (node here) globs its own command line, and globbing treats a backslash as an escape, so the pattern's \s reached
+   grep as a bare s and the FAIL branch could no longer match an indented line. noglob turns that off; the runner's
+   own grep is started by bash, which hands it the pattern untouched, so this is what the runner's grep sees. */
+const GREP_ENV_WIN = { ...process.env, MSYS: ((process.env.MSYS || '') + ' noglob').trim() };
 function quotableByRealGrep(pattern, line) {
   const r = require('node:child_process').spawnSync(
-    'grep', ['-E', pattern], { input: line + '\n', encoding: 'utf8', timeout: GREP_TIMEOUT_MS },
+    'grep', ['-E', pattern], { input: line + '\n', encoding: 'utf8', timeout: GREP_TIMEOUT_MS, ...(process.platform === 'win32' ? { env: GREP_ENV_WIN } : {}) },
   );
   assert.ok(!(r.error && r.error.code === 'ETIMEDOUT'),
     `grep did not answer within ${GREP_TIMEOUT_MS / 1000} s (cause unknown; when run through tools/run-tests.sh, the ` +

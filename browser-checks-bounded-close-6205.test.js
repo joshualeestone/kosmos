@@ -15,6 +15,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const fs = require('node:fs');
 const nodePath = require('node:path');
 const { spawn } = require('node:child_process');
@@ -97,7 +98,7 @@ test('#6205 killPids: kills each pid by pid and swallows an already-gone pid', (
   assert.deepEqual(got, [1, 3], 'a pid whose kill throws (already gone) is not reported as killed, and does not abort the loop');
 });
 
-test('#6205 childPidsOf: finds a real child by ppid, by its own pid (the resolver the kill relies on)', async () => {
+test('#6205 childPidsOf: finds a real child by ppid, by its own pid (the resolver the kill relies on)', { skip: skipOnWin32('it reads the real process table with ps -A -o pid=,ppid=, which Windows does not have (the ps on its PATH is the Git Bash one, which takes neither option)') }, async () => {
   const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 100000)'], { stdio: 'ignore' });
   try {
     assert.ok(typeof child.pid === 'number' && child.pid > 0, 'spawned a child with a pid');
@@ -129,7 +130,7 @@ test('#6205 closeBrowserBounded: force-kill reaps the engine process TREE, not j
   assert.deepEqual(killed.sort((a, b) => a - b), [11, 33, 44, 55], 'the whole engine tree under the captured pid must be SIGKILLed, so a grandchild engine is not orphaned');
 });
 
-test('#6205 closeBrowserBounded: the DEFAULT resolvers (real childPidsOf + psParentMap) find and kill a real spawned child', async () => {
+test('#6205 closeBrowserBounded: the DEFAULT resolvers (real childPidsOf + psParentMap) find and kill a real spawned child', { skip: skipOnWin32('it reads the real process table with ps -A -o pid=,ppid=, which Windows does not have (the ps on its PATH is the Git Bash one, which takes neither option)') }, async () => {
   // No childrenNow/parents injected: this exercises the real ps-backed path end to end. The kill is still injected
   // so the test signals nothing it did not spawn; the real child is reaped by the finally.
   const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 100000)'], { stdio: 'ignore' });
@@ -145,7 +146,7 @@ test('#6205 closeBrowserBounded: the DEFAULT resolvers (real childPidsOf + psPar
   }
 });
 
-test('#6205 psParentMap: reads a non-empty pid->ppid map that includes a real spawned child pointing at us', async () => {
+test('#6205 psParentMap: reads a non-empty pid->ppid map that includes a real spawned child pointing at us', { skip: skipOnWin32('it reads the real process table with ps -A -o pid=,ppid=, which Windows does not have (the ps on its PATH is the Git Bash one, which takes neither option)') }, async () => {
   const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 100000)'], { stdio: 'ignore' });
   try {
     let map = new Map();
