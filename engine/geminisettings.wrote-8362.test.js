@@ -150,7 +150,7 @@ test('undo: a file that is gone has nothing to undo; no record at all is nothing
   assert.deepEqual(gs.undoWrites(sb.ledger), { done: true, restored: [], kept: [], left: [] });
 });
 
-test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: skipOnWin32('it makes a folder unreachable with chmod 0o000, a POSIX file mode Windows does not keep') || (process.getuid && process.getuid() === 0 ? 'root reads every folder' : false) }, () => {
+test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: skipOnWin32('what it checks exists on Windows (an unreachable file is left and named), but it makes a folder unreachable with chmod 0o000, a POSIX file mode Windows does not keep; the Windows arm is owed on kosmos#9269') || (process.getuid && process.getuid() === 0 ? 'root reads every folder' : false) }, () => {
   const sb = sandbox();
   gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
   const folder = path.dirname(path.dirname(sb.file));

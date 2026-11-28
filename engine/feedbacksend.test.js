@@ -23,7 +23,7 @@ const feedback = require('./feedback');
 const feedbacksend = require('./feedbacksend');
 const store = require('./store');
 const projects = require('./projects');
-const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_CHMOD_FAIL = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (a mark that cannot be saved), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 
 function fresh() {
   try { fs.rmSync(feedbacksend.FILE, { force: true }); } catch { /* absent is fine */ }
@@ -1043,7 +1043,7 @@ test('#5317 review 3: a re-send still in flight is not sent again by the next da
   assert.deepEqual(sent, ['2026-11-01', '2026-11-01', '2026-11-02'], 'the changed day went out twice in one tick');
 });
 
-test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', { skip: NO_POSIX_MODES }, async () => {
+test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', { skip: NO_CHMOD_FAIL }, async () => {
   feedbacksend.setOn(true);
   const sent = [];
   feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });

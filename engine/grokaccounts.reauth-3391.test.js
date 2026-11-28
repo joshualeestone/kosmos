@@ -39,7 +39,7 @@ fs.writeFileSync(FAKE, [
    instead. A start refused before anything is spawned needs only a runner Windows counts as runnable: PRESENT. */
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in grok is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
-const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_CHMOD_FAIL = skipOnWin32('what it checks exists on Windows (a rename that fails), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
 
 const OLD = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'me@example.com', refresh_token: 'OLD' } });
@@ -191,7 +191,7 @@ test('a sign-in again the watchdog ends leaves the live account and frees it', {
   }
 }));
 
-test('a rename that fails reports it and leaves the live account as it was', { skip: NO_POSIX_MODES }, () => withMode('approve', 'me@example.com', async () => {
+test('a rename that fails reports it and leaves the live account as it was', { skip: NO_CHMOD_FAIL }, () => withMode('approve', 'me@example.com', async () => {
   const live = account('.grok-ro');
   const before = grokDirs();
   fs.chmodSync(live, 0o500);   // the live dir cannot take a new file, so the rename fails
@@ -268,7 +268,7 @@ test('a NAMED new sign-in is never merged, even with an email already here', { s
   fs.rmSync(s.account.dir, { recursive: true, force: true });
 }));
 
-test('a merge whose rename fails keeps the new sign-in as its own account', { skip: NO_POSIX_MODES }, () => withMode('approve', 'rofail@example.com', async () => {
+test('a merge whose rename fails keeps the new sign-in as its own account', { skip: NO_CHMOD_FAIL }, () => withMode('approve', 'rofail@example.com', async () => {
   const BODY = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'rofail@example.com', refresh_token: 'OLD' } });
   const there = account('.grok-rofail', BODY);
   fs.chmodSync(there, 0o500);

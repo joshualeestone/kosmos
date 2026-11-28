@@ -243,7 +243,7 @@ test('review 3: an apply whose record fails is finished by pressing Apply again,
   assert.equal(fileText('sally'), BASE, 'Undo after a finished retry did not restore the earlier text');
 });
 
-test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', { skip: skipOnWin32('it makes the store unreadable with chmod 0o000, a POSIX file mode Windows does not keep (there it only marks the file read-only)') }, () => {
+test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', { skip: skipOnWin32('what it checks exists on Windows (a read error refuses and moves nothing), but it makes the store unreadable with chmod 0o000, a POSIX file mode Windows does not keep (there it only marks the file read-only); the Windows arm is owed on kosmos#9269') }, () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   const good = fs.readFileSync(adds.FILE, 'utf8');

@@ -42,7 +42,7 @@ fs.writeFileSync(FAKE, [
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in grok is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
 const SIGNALS = skipOnWin32('its stand-in grok traps SIGTERM to outlive a cancel, and Windows has no signals');
-const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
+const NO_CHMOD_FAIL = skipOnWin32('what it checks exists on Windows (a move or a delete that fails), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
 
 const OLD = (email) => JSON.stringify({ 'https://auth.x.ai::u1': { email, refresh_token: 'OLD' } });
@@ -180,9 +180,9 @@ test('#6000: a forget that FAILS at the move (no free name to move it to) cancel
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-// chmod does not stop root, so these two skip there (as #5994's do). kosmos#8378: and chmod is all they lock with, so
+// chmod does not stop root, so these three skip there (as #5994's do). kosmos#8378: and chmod is all they lock with, so
 // they skip on Windows, which does not keep POSIX file modes.
-const AS_ROOT = { skip: NO_POSIX_MODES || (typeof process.getuid === 'function' && process.getuid() === 0) };
+const AS_ROOT = { skip: NO_CHMOD_FAIL || (typeof process.getuid === 'function' && process.getuid() === 0) };
 
 test('#6000: a forget whose MOVE itself fails (the home cannot be written) cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy10', 'busy10@example.com');

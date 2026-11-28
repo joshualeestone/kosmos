@@ -278,7 +278,7 @@ test('sleep row: only the desktop read, the OK title says it was the desktop\'s 
   assert.equal(r.title, 'Your desktop\'s power settings do not put this computer to sleep');
 });
 
-test('sleep row: the admin field is a logind snippet for what fired, never prose', () => {
+test('sleep row: the admin field is a logind snippet for what fired, never prose', (t) => {
   assert.equal(sleep({ idle: { action: 'suspend', minutes: 30 } }).admin,
     "mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\\nIdleAction=ignore\\n' > /etc/systemd/logind.conf.d/zz-kosmos-idle.conf");
   // The lid fix is the plugged-in key only, so closed on battery it still sleeps (review 7); battery-only offers none.
@@ -286,7 +286,7 @@ test('sleep row: the admin field is a logind snippet for what fired, never prose
   /* Run for real with /etc/systemd/logind.conf.d swapped for a temp folder (no root): every file it writes is what logind
      reads, one [Login] section and one key a line. Idle, lid and docked all fire here, so all three files are made. */
   const cmd = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'suspend', battery: 'suspend', docked: 'suspend' } }).admin;
-  if (NO_BIN_SH) return;   // the strings above are pinned everywhere; running them needs /bin/sh
+  if (NO_BIN_SH) { t.skip(NO_BIN_SH); return; }   // the strings above are pinned everywhere; running them needs /bin/sh
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-logind-'));
   try {
     const local = cmd.split('/etc/systemd/logind.conf.d').join(tmp);
