@@ -235,7 +235,8 @@ test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal
   const dataOn = nodePath.join(SANDBOX, 'cli-data-on'); require('../test-support/compat-switch').setAt(dataOn, true);   // slice 1b: launch-env obeys the switch
   const on = { ...process.env, AGENT_WORKFORCE_DATA: dataOn };
   /* kosmos#9315: vendor providers are switched on only on macOS (enabled() answers only on darwin), so on any other host
-     the switch on still refuses: exit 2 and the refusal sentence, never the key's NAME=VALUE pairs. Pinned, not skipped. */
+     the switch on still refuses: exit 2 and the refusal sentence, never the key's NAME=VALUE pairs. Pinned, not skipped.
+     The no-key half below is reached only on macOS, where the switch can be on. */
   if (process.platform !== 'darwin') {
     let rc = 0; let said = '';
     try { execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on }); } catch (e) { rc = e.status; said = String(e.stdout); }
