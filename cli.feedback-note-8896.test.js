@@ -7,6 +7,7 @@
  */
 require('./test-support/tmpscope'); // this process's temp folders, removed when it exits
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); run with Git Bash, its check for a running board does not read the test board as Kosmos');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -131,7 +132,7 @@ test('help lists feedback note', async () => {
   assert.match((await run(['feedback', 'help'], h)).out, /kosmos feedback note \[--date YYYY-MM-DD\] \[--body-file <file>\] \[text\]/);
 });
 
-test('CONTROL: the report the CLI writes lands in the throwaway data folder', async () => {
+test('CONTROL: the report the CLI writes lands in the throwaway data folder', { skip: SKIP_POSIX_SHELL }, async () => {
   const h = makeHome();
   await run(['feedback', 'write', 'report'], h);
   const found = [];

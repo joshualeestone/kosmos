@@ -13,6 +13,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * everything would pass every refusal arm.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); run with Git Bash, its check for a running board does not read the test board as Kosmos');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -177,7 +178,7 @@ async function taskAddSends(args) {
   }
 }
 
-test('#4889 review 2: `task add <p> -- "--title" detail` sends the title as written, and the detail after it', async () => {
+test('#4889 review 2: `task add <p> -- "--title" detail` sends the title as written, and the detail after it', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await taskAddSends(['task', 'add', 'proj', '--', '--title', 'the', 'detail']);
   assert.equal(r.code, 0, r.out);
   assert.equal(r.seen.length, 1, `expected one add: ${r.out}`);
@@ -185,7 +186,7 @@ test('#4889 review 2: `task add <p> -- "--title" detail` sends the title as writ
   assert.equal(r.seen[0].detail, 'the detail');
 });
 
-test('#4889 review 2 CONTROL: a plain `task add` sends its title and detail (the harness sees a real add)', async () => {
+test('#4889 review 2 CONTROL: a plain `task add` sends its title and detail (the harness sees a real add)', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await taskAddSends(['task', 'add', 'proj', 'a title', 'more']);
   assert.equal(r.code, 0, r.out);
   assert.equal(r.seen.length, 1, r.out);
@@ -216,7 +217,7 @@ test('#4889 review 2: a non-ASCII letter after -- is text, as on Windows', async
   assert.match(r.out, /not running/, r.out);
 });
 
-test('#4889 review 3: `task add <p> -- "--t" --parent 3` files a subtask; the escape covers only the title', async () => {
+test('#4889 review 3: `task add <p> -- "--t" --parent 3` files a subtask; the escape covers only the title', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await taskAddSends(['task', 'add', 'proj', '--', '--t', '--parent', '3', 'more']);
   assert.equal(r.code, 0, r.out);
   assert.equal(r.seen.length, 1, r.out);
@@ -227,7 +228,7 @@ test('#4889 review 3: `task add <p> -- "--t" --parent 3` files a subtask; the es
   assert.equal(bad.code, 2, 'an unknown option after an escaped title is still refused: ' + bad.out);
 });
 
-test('#4889 after #4887: --who is taken after an escaped title, sits beside the option check, and past a -- is words', async () => {
+test('#4889 after #4887: --who is taken after an escaped title, sits beside the option check, and past a -- is words', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await taskAddSends(['task', 'add', 'proj', '--', '--t', '--who', 'bob', 'more']);
   assert.equal(r.code, 0, r.out);
   assert.equal(r.seen.length, 1, r.out);

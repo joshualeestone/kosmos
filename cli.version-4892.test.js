@@ -4,6 +4,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
    copy elsewhere (an agent's in /tmp, lacking newer commands). It now says so on stderr; stdout stays the version.
    Driven against a throwaway Kosmos home, never the real install. */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); run with Git Bash, its check for a running board does not read the test board as Kosmos');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -56,7 +57,7 @@ test('#4892: run through a chain of links to the installed command (as ~/.local/
   assert.equal(r.err, '', 'the installed command, reached through links, was flagged as a copy');
 });
 
-test('#4892: a patched copy elsewhere says it is not the installed one, on stderr, and stdout stays the version', () => {
+test('#4892: a patched copy elsewhere says it is not the installed one, on stderr, and stdout stays the version', { skip: SKIP_POSIX_SHELL }, () => {
   const patched = path.join(SB, 'tmp-kosmos');
   fs.writeFileSync(patched, fs.readFileSync(INSTALLED, 'utf8') + '\n# a local patch\n');
   const r = run(patched);

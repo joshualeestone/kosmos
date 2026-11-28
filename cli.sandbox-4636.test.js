@@ -16,6 +16,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * set, so a start never goes through launchd.
  */
 const test = require('node:test');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -174,7 +175,7 @@ function ownBoardHome() {
   return home;
 }
 
-test('a truly HUNG board is still reclaimed by the watchdog start, with or without a proxy', async () => {
+test('a truly HUNG board is still reclaimed by the watchdog start, with or without a proxy', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const extra of [{}, { http_proxy: DEAD_PROXY }]) {
     const home = ownBoardHome();
     const r = await withBoard('hang', (p) => run(CLI, ['start'], env(p, { KOSMOS_RECLAIM_BUSY: '1', ...extra }, null, null, home)),
@@ -188,7 +189,7 @@ test('a truly HUNG board is still reclaimed by the watchdog start, with or witho
   assert.match(other.out, /Another Kosmos install of yours/);
 });
 
-test('a person\'s start on a hung board still says busy and leaves it alone (the #4466 rule, unchanged)', async () => {
+test('a person\'s start on a hung board still says busy and leaves it alone (the #4466 rule, unchanged)', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await withBoard('hang', (p) => run(CLI, ['start'], env(p)));
   assert.equal(r.died, false, r.out);
   assert.match(r.out, /busy/);
@@ -374,7 +375,7 @@ if builtin kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc pidfile=$pf"
     (err, so, se) => resolve((so + se).replace(/\s+/g, ' ').trim())));
 }
 
-test('after a launch the listener is unreachable: kept without sandbox evidence, stopped with it, and launchd ends the wait', async () => {
+test('after a launch the listener is unreachable: kept without sandbox evidence, stopped with it, and launchd ends the wait', { skip: SKIP_POSIX_SHELL }, async () => {
   const keep = await awaitWith(false, true);
   assert.match(keep, /Kosmos started at .*so this shell cannot use it/, keep);
   assert.match(keep, /board=alive rc=0/, 'without sandbox evidence the board it launched must be left running: ' + keep);
@@ -425,7 +426,7 @@ if o="$(_ipv4_listener)"; then echo "found=[$o]"; else echo "none"; fi
     (err, so, se) => resolve((so + se).trim())));
 }
 
-test('the listener lookup: finds the loopback or wildcard IPv4 listener among others, asks lsof for IPv4 only', async () => {
+test('the listener lookup: finds the loopback or wildcard IPv4 listener among others, asks lsof for IPv4 only', { skip: SKIP_POSIX_SHELL }, async () => {
   assert.equal(await listener('p100\ncpython3\nn192.168.1.5:4636\np200\ncnode\nn127.0.0.1:4636\n'), 'found=[200 node]');
   assert.equal(await listener('p300\ncnode\nn*:4636\n'), 'found=[300 node]');
   assert.equal(await listener('p100\ncnode\nn127.0.0.1:9999\n'), 'none');   // another port
@@ -485,7 +486,7 @@ _health_probe 2; echo "second=$HEALTH_STATE flag=[\${_HEALTH_REPROBE:-}] calls=$
     }));
 }
 
-test('the one re-probe: a board that answers on the second try is up; one that never does is unreachable; the flag resets', async () => {
+test('the one re-probe: a board that answers on the second try is up; one that never does is unreachable; the flag resets', { skip: SKIP_POSIX_SHELL }, async () => {
   const late = await probe('refuse,answer,answer');
   assert.match(late.out, /first=up flag=\[\] pid=\[\] calls=2/, late.out);
   assert.match(late.out, /second=up flag=\[\] calls=3/, late.out);
@@ -612,7 +613,7 @@ test('CONTROL: without the "cannot check" reading, the STRICTER sandbox says ano
   assert.match(s.out, /another app is using port/);
 });
 
-test('a curl killed by a signal is "cannot check" only with sandbox evidence; otherwise the old reading stands', async () => {
+test('a curl killed by a signal is "cannot check" only with sandbox evidence; otherwise the old reading stands', { skip: SKIP_POSIX_SHELL }, async () => {
   // exit code not read (#3628): asserts echoed state string, not bash exit code
   const probe = (sandboxed) => new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
     + '_shell_is_sandboxed() { return ' + (sandboxed ? 0 : 1) + '; }; '
@@ -626,7 +627,7 @@ test('a curl killed by a signal is "cannot check" only with sandbox evidence; ot
   assert.match(no, /rc=1 state=down/, no);
 });
 
-test('an lsof REFUSED is "cannot check" only with sandbox evidence; otherwise a stopped board reads down (the watchdog can recover it)', async () => {
+test('an lsof REFUSED is "cannot check" only with sandbox evidence; otherwise a stopped board reads down (the watchdog can recover it)', { skip: SKIP_POSIX_SHELL }, async () => {
   // exit code not read (#3628): asserts echoed state string, not bash exit code
   const probe = (sandboxed) => new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
     + '_shell_is_sandboxed() { return ' + (sandboxed ? 0 : 1) + '; }; _ipv4_listener() { return 2; }; '
@@ -636,7 +637,7 @@ test('an lsof REFUSED is "cannot check" only with sandbox evidence; otherwise a 
   assert.match(await probe(true), /state=unreachable blind=1/);
 });
 
-test('each probe starts clean: a "cannot check" reading does not carry into the next one', async () => {
+test('each probe starts clean: a "cannot check" reading does not carry into the next one', { skip: SKIP_POSIX_SHELL }, async () => {
   // exit code not read (#3628): asserts echoed state string, not bash exit code
   const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
     + '_shell_is_sandboxed() { return 0; }; _health_blind 133; echo "first=$HEALTH_STATE/${_UNREACH_BLIND:-}"; '
@@ -646,7 +647,7 @@ test('each probe starts clean: a "cannot check" reading does not carry into the 
   assert.match(r, /next=down\/$/m, r);   // port 1: nothing listens, curl is refused, lsof names none
 });
 
-test('CONTROL: outside the sandbox, a stopped board is still "not running" at once, with the start advice', async () => {
+test('CONTROL: outside the sandbox, a stopped board is still "not running" at once, with the start advice', { skip: SKIP_POSIX_SHELL }, async () => {
   const t0 = Date.now();
   const s = await run(CLI, ['status'], env(1));   // port 1: nothing listens
   assert.ok(Date.now() - t0 < 5000, 'a stopped board took ' + (Date.now() - t0) + ' ms to read as not running');
