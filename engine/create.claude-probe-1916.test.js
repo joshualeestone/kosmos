@@ -70,10 +70,12 @@ test('#1916 probe: a real non-zero exit printing a 401 is NONE', async () => {
 
 test('#1916 probe: a HUNG probe is killed at the timeout, and its already-printed 401 still reads NONE', async () => {
   /* Proves the timeout + SIGKILL path AND partial-output survival: the fake
-     prints its 401 then sleeps 5s; with a 600ms timeout it is killed, and the
-     captured stdout still classifies as dead rather than being discarded. */
+     prints its 401 then sleeps 5s; with a 2s timeout it is killed, and the
+     captured stdout still classifies as dead rather than being discarded.
+     kosmos#9269: 2s, not 600ms: the fake is a node script now, and node must start and print inside the timeout (a slow
+     Windows start can take more than 600ms). Still below the 4s bound, and the fake exits by itself only at 5s. */
   process.env.FAKE_MODE = 'hang';
-  process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS = '600';
+  process.env.AGENT_WORKFORCE_CLAUDE_PROBE_TIMEOUT_MS = '2000';
   const started = Date.now();
   const state = await create.claudeAccountLive(null);
   const elapsed = Date.now() - started;
