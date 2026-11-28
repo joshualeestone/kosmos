@@ -5794,10 +5794,11 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
     // machine keys on. Both, from the same record, so they cannot drift.
     projectName: found.name,
     text,
+    replyExpected,
     // kosmos#9242: a file the agent attached (`kosmos post --file`), kept as the room's own attachment (scope 'project'),
     // so the room draws and serves it as a person's upload; the members it is typed to get its facts after the post.
+    // After replyExpected on purpose: server.agent-token-sender-570's wiring check reads this object up to its first }.
     ...(Array.isArray(files) && files.length ? { ...attachments.rowFields(files), trailer: attachments.wireNote(files) } : {}),
-    replyExpected,
     // #3311: the colleagues it reaches are told the room is shared outside this computer.
     federated: (() => { try { return !!fedseats.linkFor(found.id); } catch (err) { fedseats.logUnreadable(err); return false; } })(),
     /* #3224, the proactive half: only a post that is not a reply is asked which room
