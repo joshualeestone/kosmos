@@ -781,7 +781,7 @@ test('#6734: saveStream refuses a request that already went away instead of wait
   assert.equal((await kept).size, 2);
 });
 
-test('#6734: a download whose client stops reading is ended after the stall time, releasing its descriptor', async () => {
+test('#6734: a download whose client stops reading is ended after the stall time, releasing its descriptor', { skip: process.platform === 'win32' && 'kosmos#9276: every check here is the descriptor count (and its control), through /dev/fd, which Windows does not have' }, async () => {
   /* Measured on the board's side: a paused client never reads the board's close (the FIN sits unread), so the client
      cannot report it. What matters is that the board lets go of the file while that client is still connected. */
   const srv = require('./server');

@@ -58,7 +58,7 @@ async function offer(version) {
   /* kosmos#8378: the Mac arm on every host, as server.version-5084 does. On a Windows host the update takes the Windows
      arm, which finds its build through win32board rather than setInstalledRoot, so nothing was on offer. The pause is
      asked first and refused after the platform arms, so the Windows arm's refusal is reasoned to be the same; not shown. */
-  update.setPlatform('darwin');
+  if (process.platform === 'win32') update.setPlatform('darwin');   // Windows only: Linux keeps its own arm (review round 5)
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version }) }));
   update.setInstalledRoot(() => path.join(SANDBOX, 'kosmos-install-root'));
   update.setAutoPref(() => ({ on: false, ok: true }));
