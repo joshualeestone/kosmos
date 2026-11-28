@@ -17,8 +17,8 @@ const allowance = require('./allowance');
 const statusline = require('./kosmos-statusline');
 const accounts = require('./accounts');
 const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
-const NO_SETUP_SH_BAKE = require('../test-support/skip-on-win32').skipOnWin32('it expects the status line command quoted with the host path separator; on Windows the bash in setup.sh writes it unquoted with forward slashes (C:/...), measured on windows-latest run 46169273371');   // kosmos#8378, #9315
-const NO_SETUP_SH_RUN = require('../test-support/skip-on-win32').skipOnWin32('it runs the uninstall block of setup.sh (the Mac and Linux installer) under sh; under Git Bash on Windows that block did not name the default account (measured, windows-latest run 46169273371), and Windows uninstalls through its own installer');   // kosmos#8378, #9315
+const NO_SETUP_SH_BAKE = require('../test-support/skip-on-win32').skipOnWin32('it expects the status line command setup.sh bakes for the Mac and Linux bundle (the quoted runtime/bin/node); on Windows allowance.ensureStatusLine writes the winCommandFor form instead (kosmos#6213), measured on windows-latest run 46169273371');   // kosmos#8378, #9315
+const NO_SETUP_SH_RUN = require('../test-support/skip-on-win32').skipOnWin32('it runs the uninstall block of setup.sh (the Mac and Linux installer) under sh; Windows uninstalls through its own installer, so the block is never run there (under Git Bash it also did not name the default account, windows-latest run 46169273371; that cause is not traced)');   // kosmos#8378, #9315
 
 const SCRIPT = allowance.scriptPath();
 const NODE = allowance.stableNode();
@@ -266,10 +266,12 @@ test('setup.sh wires the default account with the report hooks AND the statuslin
   assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
   assert.ok(allowance.isOurs(data.statusLine), 'the statusline was not wired: ' + JSON.stringify(data && data.statusLine));
   assert.match(data.statusLine.command, /app\/engine\/kosmos-statusline\.js/, 'the command does not name the bundle copy');
-  // kosmos#9315: only this assertion is host-specific; the hooks and the status line above are checked on Windows too.
-  if (NO_SETUP_SH_BAKE) { t.diagnostic(`skipped one assertion on this host: ${NO_SETUP_SH_BAKE}`); return; }
-  assert.ok(data.statusLine.command.startsWith('"' + path.join(fs.realpathSync(r.kh), 'runtime', 'bin', 'node') + '"'),
-    'an installed bundle did not bake its own runtime node: ' + data.statusLine.command);
+  // kosmos#9315: only this check is host-specific, so it is a subtest whose skip shows; the hooks and the status line
+  // above are checked on Windows too.
+  return t.test('an installed bundle bakes its own runtime node', { skip: NO_SETUP_SH_BAKE }, () => {
+    assert.ok(data.statusLine.command.startsWith('"' + path.join(fs.realpathSync(r.kh), 'runtime', 'bin', 'node') + '"'),
+      'an installed bundle did not bake its own runtime node: ' + data.statusLine.command);
+  });
 });
 
 test('accounts.prepare still makes an account when the allowance module is missing', () => {

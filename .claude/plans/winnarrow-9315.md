@@ -17,6 +17,21 @@
    the Mac and Linux bundle's runtime/bin/node) and NO_SETUP_SH_RUN (a block of setup.sh's uninstaller run under sh).
 tools/windows-tests.js carries each file's reasons verbatim (engine/windows-tests-1777.test.js checks it).
 
+## Measured on windows-latest
+- Run 46169273371 (an experiment on the never-merge branch only: both allowance setup.sh arms unskipped): the bake
+  arm's hooks and status line pass on Windows, and only the baked-node check fails (allowance.ensureStatusLine writes
+  the winCommandFor form there, kosmos#6213). The uninstall arm did not name the default account under Git Bash; that
+  cause is not traced, and the skip stands on Windows uninstalling through its own installer.
+- Run 46169422391 (the change itself): allowance 33 pass 1 skip, anthropiccompat 22 pass 1 skip (the pinned refusal
+  arm ran and passed there), automove 61 pass 4 skip.
+
+## Review rounds 1-2
+- automove item 2 split in two: the written half asserts personMoved returned true (a waiting line can no longer pass
+  it) and runs everywhere; the waiting half is its own test with a visible skip.
+- allowance's bake arm: the host-specific check is a SUBTEST with its own skip, so the skip shows in node:test's count
+  (an early return had hidden it). The entry's count reads "one arm and two assertions".
+- anthropiccompat: the whole refusal sentence is pinned (it proves the vendor was named, not "That provider").
+
 ## Weakest premise
 Item 2 judges a pre-lock assertion as a CONTROL by reading it; a CONTROL that also checks something independent would
-be missed. Items 1 and 3 need a Windows run to be proven (the off-macOS arm cannot run here).
+be missed. Items 1 and 3 were proven on windows-latest (above); Linux was not run (linux.yml is not a live gate on main).
