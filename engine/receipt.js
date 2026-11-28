@@ -315,6 +315,19 @@ async function claudeWork(dir, holds) {
  *     replace are a file edited when their status is success. A reply written twice is read once per call id, keeping
  *     the latest status.
  */
+/* #9263: a JavaScript string's text decoded, for a path read out of a Codex exec script; null when it holds an escape a
+   string cannot (a single backslash before a letter with no escape meaning). */
+const JS_SIMPLE_ESCAPES = { '\\': '\\', "'": "'", '"': '"', '/': '/', '`': '`', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' };
+function decodeJsEscapes(text) {
+  let bad = false;
+  const out = text.replace(/\\(u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|.)/g, (m, e) => {
+    if (e.length > 1) return String.fromCharCode(parseInt(e.slice(1), 16));
+    if (Object.prototype.hasOwnProperty.call(JS_SIMPLE_ESCAPES, e)) return JS_SIMPLE_ESCAPES[e];
+    bad = true;
+    return m;
+  });
+  return bad ? null : out;
+}
 const CODEX_COMMAND_FUNCS = new Set(['shell', 'exec_command', 'container.exec']);
 const GEMINI_EDIT_TOOLS = new Set(['write_file', 'replace']);
 const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
@@ -369,13 +382,15 @@ async function providerWork(runner, dir, holds) {
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
             /* A relative path is the session's own folder's (review 1), so the same file reads the same either way.
-               An escaped backslash (`C:\\Users\\kay` as written in the script) is part of the path and is unescaped. A path
-               ends at a newline (`\n`, `\r`) or a quote; one stopped by any other backslash (a single-backslash path, as
-               String.raw keeps it) was cut partway, so it is left out rather than shown as a file it is not (#9263). */
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\\\|[^\n\\"])+)(\\[^nr]|\\$)?/g)]
-              .filter((x) => !x[2])
-              .map((x) => x[1].replace(/\\\\/g, '\\').trim()).filter(Boolean)
-              .map((f) => path.resolve(folder, f));
+               The path is a JavaScript string's text, so it is decoded as one: it ends at a newline (`\n`, `\r`, or a real
+               one) or a bare quote, and its escapes are read (`\\` is a backslash, so `C:\\Users\\kay` is `C:\Users\kay`).
+               An escape a string cannot hold (`\U`, as a single-backslash path written with String.raw has) means the path
+               cannot be read whole, and it is left out rather than shown as a file it is not (#9263). */
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\[^nr]|[^\n\\"])+)/g)]
+              .map((x) => decodeJsEscapes(x[1])).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
+              /* Never the agent's own folder as an edited file: no patch line names it, so one that resolves there was
+                 misread (#9263: `C:` resolves to the folder on Windows). */
+              .map((f) => path.resolve(folder, f)).filter((f) => f !== path.resolve(folder));
             if (paths.length) pendingPatches.set(id, paths);
           }
         } else if (p.type === 'local_shell_call' || (p.type === 'function_call' && CODEX_COMMAND_FUNCS.has(p.name))) {
