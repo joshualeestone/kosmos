@@ -12,6 +12,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test install.recoverykey-setup-6609.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -88,7 +89,7 @@ function install(r, home, target) {
 const recorded = (h) => { try { return fs.readdirSync(path.join(h, KEY_LIST_STATE)).filter((f) => /^seq-/.test(f)).sort(); } catch { return []; } };
 const cli = (home, args, env = {}) => spawnSync(process.execPath, [path.join(home, 'app', 'engine', 'manifest-verify.js'), ...args], { encoding: 'utf8', env: { ...process.env, KOSMOS_KEY_LIST: '', KOSMOS_KEY_LIST_SIG: '', ...env } });
 
-test('on: the installer fetches the list, and early, tmux, pre and post all pass with its keys; the list is recorded', () => {
+test('on: the installer fetches the list, and early, tmux, pre and post all pass with its keys; the list is recorded', { skip: SKIP_POSIX_SETUP }, () => {
   const h = installedHome('1.2.0');
   const r = install(host('1.2.3'), h, '1.2.3');
   assert.equal(r.code, 0, r.out);
@@ -96,7 +97,7 @@ test('on: the installer fetches the list, and early, tmux, pre and post all pass
   assert.deepEqual(recorded(h), ['seq-1.json']);
 });
 
-test('on: THE ATTACK review 1 named: a release signed by a built-in key the list dropped is refused at early', () => {
+test('on: THE ATTACK review 1 named: a release signed by a built-in key the list dropped is refused at early', { skip: SKIP_POSIX_SETUP }, () => {
   const r = install(host('1.2.3', { by: OTHER }), installedHome('1.2.0'), '1.2.3');
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /refused at early/);
@@ -104,14 +105,14 @@ test('on: THE ATTACK review 1 named: a release signed by a built-in key the list
   assert.equal(off.code, 0, 'CONTROL: off, the built-in key still installs it: ' + off.out);
 });
 
-test('on: no list served stops the update before anything is fetched or unpacked', () => {
+test('on: no list served stops the update before anything is fetched or unpacked', { skip: SKIP_POSIX_SETUP }, () => {
   const r = install(host('1.2.3', { list: null }), installedHome('1.2.0'), '1.2.3');
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /the release key list could not be downloaded, so the update was not installed/);
   assert.match(r.out, /refused at early/);
 });
 
-test('on: a list from another signer, and an older list than this copy took, are refused', () => {
+test('on: a list from another signer, and an older list than this copy took, are refused', { skip: SKIP_POSIX_SETUP }, () => {
   assert.match(install(host('1.2.3', { listBy: OTHER }), installedHome('1.2.0'), '1.2.3').out, /not signed by the Kosmos recovery key \(it may be mid-publish; try again in a minute\), so it was not installed/);
   const h = installedHome('1.2.0');
   assert.equal(install(host('1.2.3', { list: { seq: 2, keys: [RELEASE.pub] } }), h, '1.2.3').code, 0);
@@ -133,7 +134,7 @@ test('on: the installed copy refuses when no list is handed to it (an installer 
   assert.equal(given.status, 0, 'CONTROL: with the list it passes: ' + given.stdout);
 });
 
-test('off (as shipped): needs-key-list says no, the installer fetches no list, and a bad or missing one changes nothing', () => {
+test('off (as shipped): needs-key-list says no, the installer fetches no list, and a bad or missing one changes nothing', { skip: SKIP_POSIX_SETUP }, () => {
   const offHome = installedHome('1.2.0', { on: false });
   assert.equal(cli(offHome, ['needs-key-list']).status, 1);
   assert.equal(cli(installedHome('1.2.0'), ['needs-key-list']).status, 0, 'CONTROL: on, it says yes');

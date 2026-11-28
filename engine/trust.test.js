@@ -2,6 +2,7 @@
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks a POSIX file mode survives a write (0600, 0640), and Windows does not keep POSIX file modes');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -200,7 +201,7 @@ test('a symlinked config file is left as a symlink', () => {
   fs.rmSync(CONFIG, { force: true });
 });
 
-test('a tightened config file is not widened by our write', () => {
+test('a tightened config file is not widened by our write', { skip: NO_POSIX_MODES }, () => {
   /**
    * ⚠️ This file holds account details and sits at 600 on the real machine. A
    * replace that came back at the umask default would be a permission change

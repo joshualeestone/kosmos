@@ -12,6 +12,7 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks a POSIX file mode survives a write (0600, 0640), and Windows does not keep POSIX file modes');   // kosmos#8378
 const assert = require('node:assert/strict');
 const reporthook = require('./reporthook');
 const accounts = require('./accounts');
@@ -90,7 +91,7 @@ test('an unparseable settings file is left alone, with a sentence', () => {
   assert.equal(fs.readFileSync(p, 'utf8'), '{ this is not json', 'the file was touched anyway');
 });
 
-test('a tightened file mode survives the merge: 0600 stays 0600', () => {
+test('a tightened file mode survives the merge: 0600 stays 0600', { skip: NO_POSIX_MODES }, () => {
   const p = fresh();
   fs.writeFileSync(p, '{}', { mode: 0o600 });
   reporthook.ensureWired(p, SCRIPT);

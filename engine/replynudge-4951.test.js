@@ -7,6 +7,7 @@
  */
 require('../test-support/tmpscope');
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -273,7 +274,7 @@ test('#4951 review 3 (Opus): a batch given up on takes no cap slot; a later agen
   assert.deepEqual(typed, ['ann'], 'a given-up batch held the only cap slot');
 });
 
-test('#4951 review 3 (Opus): only a missing told record is "told nothing"; an unreadable one skips the agent', async () => {
+test('#4951 review 3 (Opus): only a missing told record is "told nothing"; an unreadable one skips the agent', { skip: NO_POSIX_MODES }, async () => {
   const root = path.join(SANDBOX, 'unreadable');
   assert.deepEqual([...rn.readNudged(root, 'none')], [], 'a missing record did not read as empty');
   fs.mkdirSync(path.dirname(rn.nudgedFile(root, 'torn')), { recursive: true });

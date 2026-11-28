@@ -13,6 +13,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test install.app-config-5896.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -64,7 +65,7 @@ function run(env, body) {
 }
 const cfgFile = (home) => path.join(home, 'Library', 'Application Support', 'com.chaoskosmos.kosmos', 'kosmos-install.json');
 
-test('#5896: a sandboxed install writes the config into ITS account folder, naming its own home and port', () => {
+test('#5896: a sandboxed install writes the config into ITS account folder, naming its own home and port', { skip: SKIP_POSIX_SETUP }, () => {
   const home = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
   const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
   const r = run({ HOME: home, AGENT_WORKFORCE_HOME: awh, KOSMOS_HOME: '/sb/kosmos', PORT: '17001' },
@@ -78,14 +79,14 @@ test('#5896: a sandboxed install writes the config into ITS account folder, nami
   assert.deepEqual(fs.readdirSync(path.dirname(cfgFile(awh))), ['kosmos-install.json'], 'a temporary file was left behind');
 });
 
-test('#5896: a moved KOSMOS_HOME with the real home is treated as a sandbox and writes NOTHING', () => {
+test('#5896: a moved KOSMOS_HOME with the real home is treated as a sandbox and writes NOTHING', { skip: SKIP_POSIX_SETUP }, () => {
   const home = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
   const r = run({ HOME: home, KOSMOS_HOME: '/sb/kosmos', PORT: '17001' }, 'write_install_config; echo "rc=$?"');
   assert.match(r.out, /rc=2/, 'the guard did not stand down with its own code');
   assert.equal(fs.existsSync(cfgFile(home)), false, 'a sandboxed install pointed the real app at the sandbox');
 });
 
-test('#5896: the real home spelled another way (resolved symlink, doubled slash) is still the real home', () => {
+test('#5896: the real home spelled another way (resolved symlink, doubled slash) is still the real home', { skip: SKIP_POSIX_SETUP }, () => {
   // os.tmpdir() on macOS is /var/..., a symlink to /private/var/...: two spellings of one directory, the same shape as
   // /Users/<u> and /System/Volumes/Data/Users/<u>.
   const home = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
@@ -98,7 +99,7 @@ test('#5896: the real home spelled another way (resolved symlink, doubled slash)
   }
 });
 
-test('#5896: a write that cannot happen returns non-zero and leaves no file behind', () => {
+test('#5896: a write that cannot happen returns non-zero and leaves no file behind', { skip: SKIP_POSIX_SETUP }, () => {
   const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
   // A FILE where the Application Support folder should be, so the folder cannot be made.
   fs.mkdirSync(path.join(awh, 'Library'));
@@ -121,7 +122,7 @@ test('#5896: a write that cannot happen returns non-zero and leaves no file behi
   } finally { fs.chmodSync(dir, 0o700); }
 });
 
-test('#5896: a home the JSON cannot carry intact is refused, not written wrong', () => {
+test('#5896: a home the JSON cannot carry intact is refused, not written wrong', { skip: SKIP_POSIX_SETUP }, () => {
   for (const bad of ['/sb/a"b', '/sb/a\\b', '/sb/a\tb']) {
     const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
     const r = run({ HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh,
@@ -131,14 +132,14 @@ test('#5896: a home the JSON cannot carry intact is refused, not written wrong',
   }
 });
 
-test('#5896: CONTROL, a real install (default KOSMOS_HOME, real home) writes the account file', () => {
+test('#5896: CONTROL, a real install (default KOSMOS_HOME, real home) writes the account file', { skip: SKIP_POSIX_SETUP }, () => {
   const home = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
   const r = run({ HOME: home, KOSMOS_HOME: home + '/.local/share/kosmos', PORT: '16180' }, 'write_install_config; echo "rc=$?"');
   assert.match(r.out, /rc=0/);
   assert.equal(JSON.parse(fs.readFileSync(cfgFile(home), 'utf8')).kosmosHome, home + '/.local/share/kosmos');
 });
 
-test('#5896: uninstall removes the account config only when it names THIS install', () => {
+test('#5896: uninstall removes the account config only when it names THIS install', { skip: SKIP_POSIX_SETUP }, () => {
   const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
   const env = { HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh, PORT: '17001' };
   // Another install of the same account wrote the file: this uninstall leaves it.

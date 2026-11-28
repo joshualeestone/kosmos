@@ -12,6 +12,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -51,7 +52,7 @@ function asks(vars) {
   return r.stdout.trim() === 'PAUSED';
 }
 
-test('installer: an update in place is held while paused; CONTROL: not paused, a lookalike, or no answer is not', () => {
+test('installer: an update in place is held while paused; CONTROL: not paused, a lookalike, or no answer is not', { skip: SKIP_POSIX_SETUP }, () => {
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: meta('{"build":"x","updates_paused": true}') }), true);
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: meta('{\n  "updates_paused": true\n}\n') }), true, 'a pretty-printed answer');
   for (const body of ['{"updates_paused": false}', '{"updates_paused": "true"}', '{"updates_paused": 1}', '{"updates_paused": truex}', '{}', '<html>', '']) {
@@ -68,7 +69,7 @@ function installedAt(v) {
   return h;
 }
 
-test('installer: only a NEWER version is held; a repair or reinstall of the same version, or an older one, is not', () => {
+test('installer: only a NEWER version is held; a repair or reinstall of the same version, or an older one, is not', { skip: SKIP_POSIX_SETUP }, () => {
   const paused = meta('{"updates_paused": true}');
   const at = (have, target) => asks({ KOSMOS_UPDATE_PAUSE_URL: paused, KOSMOS_HOME: installedAt(have), TARGET_VERSION: target });
   assert.equal(at('1.2.0', '1.2.3'), true, 'newer: held');
@@ -83,17 +84,17 @@ test('installer: only a NEWER version is held; a repair or reinstall of the same
     'an installed version that cannot be read (a broken install): held');
 });
 
-test('installer: an install whose launcher is gone but whose app is there is an update, and is held', () => {
+test('installer: an install whose launcher is gone but whose app is there is an update, and is held', { skip: SKIP_POSIX_SETUP }, () => {
   const paused = meta('{"updates_paused": true}');
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, FRESH_INSTALL: 'yes', KOSMOS_HOME: installedAt('1.2.0'), TARGET_VERSION: '1.2.3' }), true);
 });
 
-test('installer: a long answer with the flag near its start is still paused under pipefail (the reader reads to the end)', () => {
+test('installer: a long answer with the flag near its start is still paused under pipefail (the reader reads to the end)', { skip: SKIP_POSIX_SETUP }, () => {
   const body = '{"updates_paused": true, "pad": "' + 'x'.repeat(60000) + '"}';
   for (let i = 0; i < 3; i++) assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: meta(body) }), true, 'run ' + i);
 });
 
-test('installer: a first install, run-setup\'s own run, and the operator override are never held', () => {
+test('installer: a first install, run-setup\'s own run, and the operator override are never held', { skip: SKIP_POSIX_SETUP }, () => {
   const paused = meta('{"updates_paused": true}');
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, FRESH_INSTALL: 'yes' }), false, 'a first install');
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, KOSMOS_UPDATE_PAUSE_ASKED: '1' }), false, 'run-setup already asked');
@@ -101,7 +102,7 @@ test('installer: a first install, run-setup\'s own run, and the operator overrid
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused }), true, 'CONTROL: the same answer, none of those, is held');
 });
 
-test('installer: with no address named, only a release from the production site asks, at the coordinator remote access uses', () => {
+test('installer: with no address named, only a release from the production site asks, at the coordinator remote access uses', { skip: SKIP_POSIX_SETUP }, () => {
   // The default address is <coordinator>/v1/meta; a file:// coordinator stands in for it, a trailing slash included.
   const coord = path.join(tmp, 'coord-' + crypto.randomBytes(4).toString('hex'));
   fs.mkdirSync(path.join(coord, 'v1'), { recursive: true });

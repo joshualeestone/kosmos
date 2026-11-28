@@ -6,6 +6,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * that records the new-session it is asked for.
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -35,7 +36,7 @@ function launch(runner, sup = SUP) {
   return { r, rec: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '' };
 }
 
-test('#3939: a muse agent\'s pane runs node on engine/musefront.js in its folder, with the report bridge beside the script', () => {
+test('#3939: a muse agent\'s pane runs node on engine/musefront.js in its folder, with the report bridge beside the script', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const out = launch('muse');
   assert.equal(out.r.error, undefined, String(out.r.error));
   const line = out.rec.split('\n').find((l) => /^new-session/.test(l)) || '';
@@ -49,7 +50,7 @@ test('#3939: a muse agent\'s pane runs node on engine/musefront.js in its folder
     'the front\'s turns are not told which Muse binary create checked: ' + line);
 });
 
-test('#3939: with no engine to run the front from, a muse agent is refused in a sentence and no pane starts', () => {
+test('#3939: with no engine to run the front from, a muse agent is refused in a sentence and no pane starts', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   // The script alone in a folder with no engine beside it and no engine-path pointer.
   const lone = nodePath.join(SANDBOX, 'lone', 'bin');
   fs.mkdirSync(lone, { recursive: true });
@@ -60,13 +61,13 @@ test('#3939: with no engine to run the front from, a muse agent is refused in a 
   assert.notEqual(out.r.status, 0);
 });
 
-test('#3939: a muse pane gets none of the Claude Code settings', () => {
+test('#3939: a muse pane gets none of the Claude Code settings', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const out = launch('muse');
   assert.ok(/new-session/.test(out.rec), 'the muse arm did not launch: ' + out.r.stderr);
   assert.ok(!/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN/.test(out.rec), 'a muse pane got a Claude Code setting: ' + out.rec);
 });
 
-test('#3939 CONTROL: a claude agent\'s pane does not run the Muse front', () => {
+test('#3939 CONTROL: a claude agent\'s pane does not run the Muse front', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const out = launch('claude');
   assert.ok(/new-session/.test(out.rec), 'the claude arm did not launch, so this control shows nothing: ' + out.r.stderr);
   assert.ok(/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN/.test(out.rec), 'the claude pane lacks its setting, so the muse row above shows nothing: ' + out.rec);

@@ -13,6 +13,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * touches the real Application Support tree.
  */
 const test = require('node:test');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -327,7 +328,7 @@ test('#992 read() skips a row whose `at` is not a parseable date (foreign/torn a
   assert.deepEqual(taskchat.read(p, n).map((r) => r.kind), ['created'], 'the non-date `at` row is dropped');
 });
 
-test('#992 a failed transcript append never breaks the task: tasks.create still returns the task', () => {
+test('#992 a failed transcript append never breaks the task: tasks.create still returns the task', { skip: NO_POSIX_MODES }, () => {
   // #992 (iter-6 nit): the caller-side half of the best-effort promise. record()
   // swallows its own failure and returns false; this proves the task write that
   // triggered it still stands and the task is returned. Force the append to fail

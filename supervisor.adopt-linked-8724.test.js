@@ -11,6 +11,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test supervisor.adopt-linked-8724.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -52,7 +53,7 @@ function runOver(paneCmd, mark) {
   };
 }
 
-test('#8724: a job started for a linked Claude window adopts it; nothing is closed and no second agent is started', () => {
+test('#8724: a job started for a linked Claude window adopts it; nothing is closed and no second agent is started', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   for (const cmd of [fleet.CLAUDE_COMMAND, '2.0.1']) {
     assert.equal(status.isAgentSession({ command: cmd, session: 'zara', claim: 'zara' }), true,
       `the board does not count ${cmd} as a running agent, so this row tests nothing`);
@@ -65,7 +66,7 @@ test('#8724: a job started for a linked Claude window adopts it; nothing is clos
   }
 });
 
-test('#8724 CONTROL: the same marked session holding only a shell is closed and relaunched, so the rows above can fail', () => {
+test('#8724 CONTROL: the same marked session holding only a shell is closed and relaunched, so the rows above can fail', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const out = runOver('zsh', 'zara');
   assert.equal(out.killed, true, 'the control could not show a kill: ' + out.calls);
   assert.equal(out.adopted, false);

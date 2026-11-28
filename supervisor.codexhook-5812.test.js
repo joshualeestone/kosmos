@@ -7,6 +7,7 @@
  */
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -57,7 +58,7 @@ function run(name, codexHome, version = PINNED, bin = null) {
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), argv, runtime, versionHome };
 }
 
-test('a codex launch installs the hook and its trust record in the private home', () => {
+test('a codex launch installs the hook and its trust record in the private home', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run('agent-hook1', accountHome());
   assert.match(r.argv, /new-session/, r.out);
   assert.ok(r.runtime && fs.existsSync(r.runtime), `the private home is named in the launch: ${r.argv}`);
@@ -72,7 +73,7 @@ test('a codex launch installs the hook and its trust record in the private home'
   assert.equal(r.versionHome, r.runtime, 'review 6: codex --version ran against the private home, not the account\'s');
 });
 
-test('CONTROL: a hook record changed by hand is left alone, and the agent launches with NO hooks.json, saying so', () => {
+test('CONTROL: a hook record changed by hand is left alone, and the agent launches with NO hooks.json, saying so', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const name = 'agent-hook2';
   const first = run(name, accountHome());
   assert.ok(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), first.out);
@@ -87,7 +88,7 @@ test('CONTROL: a hook record changed by hand is left alone, and the agent launch
   assert.equal(fs.existsSync(nodePath.join(r.runtime, 'hooks.json')), false, 'nothing for the TUI to stop on');
 });
 
-test('review 1: a Codex other than the pinned version launches with NO hooks.json, saying so', () => {
+test('review 1: a Codex other than the pinned version launches with NO hooks.json, saying so', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const name = 'agent-hook3';
   const first = run(name, accountHome());
   assert.ok(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), first.out);
@@ -97,7 +98,7 @@ test('review 1: a Codex other than the pinned version launches with NO hooks.jso
   assert.equal(fs.existsSync(nodePath.join(r.runtime, 'hooks.json')), false);
 });
 
-test('review 5: a private home that resolves to the account home itself gets NO hook (never the person\'s own home)', () => {
+test('review 5: a private home that resolves to the account home itself gets NO hook (never the person\'s own home)', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const name = 'agent-hook4';
   const first = run(name, accountHome());
   assert.ok(first.runtime, first.out);
@@ -109,7 +110,7 @@ test('review 5: a private home that resolves to the account home itself gets NO 
   assert.equal(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), false, 'review 6: ours is removed there too');
 });
 
-test('review 7: a codex whose --version hangs does not hold the launch; the agent starts with no hook', () => {
+test('review 7: a codex whose --version hangs does not hold the launch; the agent starts with no hook', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const started = Date.now();
   const r = run('agent-hook5', accountHome(), PINNED, hangingCodex());
   assert.match(r.argv, /new-session/, r.out);

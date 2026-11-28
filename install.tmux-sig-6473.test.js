@@ -12,6 +12,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test install.tmux-sig-6473.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -91,12 +92,12 @@ test('verifyTmux: other bytes, no tmux recorded, another key: refused', () => {
   assert.equal(verifyTmux({ manifest: h3.manifest, sig: h3.sig, tmux: h3.tmux, version: '1.2.3', installedVersion: '1.2.0', keys: [PUB] }).code, 1);
 });
 
-test('installer: CONTROL: early fetches and checks the manifest, then the matching tmux passes', () => {
+test('installer: CONTROL: early fetches and checks the manifest, then the matching tmux passes', { skip: SKIP_POSIX_SETUP }, () => {
   const r = sh(host('1.2.3'), installedHome('1.2.0'), '1.2.3', EARLY_THEN_TMUX);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /tmux-ok/);
 });
-test('installer: a tmux download other than the signed one is refused before it is unpacked', () => {
+test('installer: a tmux download other than the signed one is refused before it is unpacked', { skip: SKIP_POSIX_SETUP }, () => {
   const h = host('1.2.3');
   fs.appendFileSync(h.tmux, 'planted');
   const r = sh(h, installedHome('1.2.0'), '1.2.3', EARLY_THEN_TMUX);
@@ -104,13 +105,13 @@ test('installer: a tmux download other than the signed one is refused before it 
   assert.match(r.out, /terminal manager download does not match its signed release, so it was not installed/);
   assert.match(r.out, /refused at tmux/);
 });
-test('installer: early refuses a manifest signed by another key, before tmux is fetched', () => {
+test('installer: early refuses a manifest signed by another key, before tmux is fetched', { skip: SKIP_POSIX_SETUP }, () => {
   const o = crypto.generateKeyPairSync('ed25519');
   const r = sh(host('1.2.3', { key: o.privateKey }), installedHome('1.2.0'), '1.2.3', EARLY_THEN_TMUX);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /refused at early/);
 });
-test('installer: pre reuses the manifest early fetched (no second download) and still checks the kosmos tarball', () => {
+test('installer: pre reuses the manifest early fetched (no second download) and still checks the kosmos tarball', { skip: SKIP_POSIX_SETUP }, () => {
   const h = host('1.2.3');
   const stage = fs.mkdtempSync(path.join(tmp, 'stage-'));
   fs.copyFileSync(h.tgz, path.join(stage, 'kosmos.tar.gz'));
@@ -126,7 +127,7 @@ echo "pre-ok"`;
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /refused at pre/);
 });
-test('installer: an install with no verifier fetches nothing early and does not hold tmux', () => {
+test('installer: an install with no verifier fetches nothing early and does not hold tmux', { skip: SKIP_POSIX_SETUP }, () => {
   const home = installedHome('1.2.0');
   fs.rmSync(path.join(home, 'app', 'engine', 'manifest-verify.js'));
   const h = host('1.2.3');
@@ -136,7 +137,7 @@ test('installer: an install with no verifier fetches nothing early and does not 
   assert.match(r.out, /predates signed releases/);
 });
 
-test('installer: an OLDER installed checker (no capabilities line) is not called in a new form: early is skipped, pre still checks', () => {
+test('installer: an OLDER installed checker (no capabilities line) is not called in a new form: early is skipped, pre still checks', { skip: SKIP_POSIX_SETUP }, () => {
   const home = installedHome('1.2.0', { older: true });
   assert.doesNotMatch(fs.readFileSync(path.join(home, 'app', 'engine', 'manifest-verify.js'), 'utf8'), /manifest-verify capabilities:/);
   const h = host('1.2.3');
@@ -157,7 +158,7 @@ echo "pre-ok"`;
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /refused at pre/, 'an older checker still checks the Kosmos bundle');
 });
-test('installer: an install that pins no key carries "not checked" through early, tmux, pre and post, and says so once', () => {
+test('installer: an install that pins no key carries "not checked" through early, tmux, pre and post, and says so once', { skip: SKIP_POSIX_SETUP }, () => {
   const h = host('1.2.3');
   fs.appendFileSync(h.tmux, 'x');
   const stage = fs.mkdtempSync(path.join(tmp, 'stage-'));
@@ -170,7 +171,7 @@ echo "all-ok"`);
   assert.match(r.out, /all-ok/);
   assert.match(r.out, /\(and its terminal manager\) is not checked/);
 });
-test('installer: no verifier installed: early fetches nothing', () => {
+test('installer: no verifier installed: early fetches nothing', { skip: SKIP_POSIX_SETUP }, () => {
   const home = installedHome('1.2.0');
   fs.rmSync(path.join(home, 'app', 'engine', 'manifest-verify.js'));
   const r = sh(host('1.2.3'), home, '1.2.3', 'update_manifest_ok early "" "$2" || exit 1\nprintf "dir=[%s]\\n" "$_UM_DIR"');

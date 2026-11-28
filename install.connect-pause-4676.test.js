@@ -16,6 +16,7 @@ require('./test-support/tmpscope');
  * Every stub is stopped by its own child handle, never by a pattern or a group.
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -128,13 +129,13 @@ test('#4676: a connect computer updates past another install\'s board, and is ne
   assert.equal(r.abort, false, 'a foreign board is not this install\'s board-would-not-pause streak');
 });
 
-test('#4676 CONTROL: a run computer still refuses with the #964 advice (its own start would collide)', { timeout: 60000 }, async () => {
+test('#4676 CONTROL: a run computer still refuses with the #964 advice (its own start would collide)', { skip: SKIP_POSIX_SETUP, timeout: 60000 }, async () => {
   const r = await runPause({ mode: 'run', own: false });
   assert.match(r.out, /DIE: Another Kosmos is answering on port \d+, but this install's own board is not running/, r.out);
   assert.doesNotMatch(r.out, /PASSED THE PAUSE/, r.out);
 });
 
-test('#4676 CONTROL: a connect computer whose OWN board will not pause still stops the update (#2055)', { timeout: 60000 }, async () => {
+test('#4676 CONTROL: a connect computer whose OWN board will not pause still stops the update (#2055)', { skip: SKIP_POSIX_SETUP, timeout: 60000 }, async () => {
   const r = await runPause({ mode: 'connect', own: true });
   assert.match(r.out, /DIE: A Kosmos board is still running on port \d+ and could not be paused/, r.out);
   assert.equal(r.abort, true, 'the #2055 streak is recorded for our own board');
@@ -152,7 +153,7 @@ test('#4676: switched to run after the pause left another install\'s board: this
   assert.match(r.out, new RegExp("^WHY=until you run 'kosmos start' \\(another Kosmos was using port " + r.port + '\\)$', 'm'), r.out);
 });
 
-test('#4676 CONTROL: switched to run with NO other board on the port, the board is started as chosen', { timeout: 60000 }, async () => {
+test('#4676 CONTROL: switched to run with NO other board on the port, the board is started as chosen', { skip: SKIP_POSIX_SETUP, timeout: 60000 }, async () => {
   const r = await runPause({ mode: 'connect', own: false, stub: false, after: FLIP });
   assert.match(r.out, /PASSED THE PAUSE/, r.out);
   assert.match(r.out, /^OFF=no$/m, r.out);
@@ -238,14 +239,14 @@ test('#4676: the later blocks were extracted from the shipped file', () => {
   assert.match(SETUP, /^\s*\[ "\$_kosmos_mode_word" = connect \] \|\| _kosmos_off_for_foreign \|\| info "Opening the Kosmos icon starts it/m);
 });
 
-test('#4676: the start step, chosen to run after the pause left another board: nothing started, the marker written, and why', async () => {
+test('#4676: the start step, chosen to run after the pause left another board: nothing started, the marker written, and why', { skip: SKIP_POSIX_SETUP }, async () => {
   const r = await runLater({ mode: 'run', foreign: true, part: 'start' });
   assert.match(r.out, /STEP: Another Kosmos was using port 47671 when this update started, so this computer's board was not started\. Quit that one, then run 'kosmos start'/, r.out);
   assert.equal(r.calls, '', 'no kosmos start against the other board');
   assert.equal(r.marker, true, 'board.stopped keeps launchd and the watchdog off the port');
 });
 
-test('#4676 CONTROLS: the start step keeps its connect and unreadable words, and starts a run computer with no other board', async () => {
+test('#4676 CONTROLS: the start step keeps its connect and unreadable words, and starts a run computer with no other board', { skip: SKIP_POSIX_SETUP }, async () => {
   const c = await runLater({ mode: 'connect', foreign: true, part: 'start' });
   assert.match(c.out, /STEP: This computer connects to agents on another computer/, c.out);
   const u = await runLater({ mode: 'ask', foreign: true, part: 'start' });
@@ -255,14 +256,14 @@ test('#4676 CONTROLS: the start step keeps its connect and unreadable words, and
   assert.match(n.calls, /^start --force$/m, n.calls);
 });
 
-test('#4676: the summary, chosen to run while the other board held the port, says so and what to do', async () => {
+test('#4676: the summary, chosen to run while the other board held the port, says so and what to do', { skip: SKIP_POSIX_SETUP }, async () => {
   const r = await runLater({ mode: 'run', foreign: true, part: 'summary' });
   assert.match(r.out, /Kosmos is installed, but its board was not started: another Kosmos on this computer was using port 47671 when this update started\./, r.out);
   assert.match(r.out, /Quit that one, then run 'kosmos start'\./, r.out);
   assert.equal(r.marker, true);
 });
 
-test('#4676: our own board up by the end on a computer chosen to run is a running board, not an off one', async () => {
+test('#4676: our own board up by the end on a computer chosen to run is a running board, not an off one', { skip: SKIP_POSIX_SETUP }, async () => {
   const r = await runLater({ mode: 'run', foreign: true, boardOurs: 'yes', part: 'summary' });
   assert.match(r.out, /^OFF=no$/m, r.out);
   assert.match(r.out, /SUMMARY=other/, 'not the "could not be read" or foreign wording');

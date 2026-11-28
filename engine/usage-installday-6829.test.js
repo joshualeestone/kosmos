@@ -12,6 +12,7 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude-projects');
 
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const usage = require('./usage');
 const ping = require('./ping');
@@ -60,7 +61,7 @@ test('ping records installedAt when it mints the id, keeps it through later writ
   assert.equal(ping.read().installId, 'old', 'recording it kept the id');
 });
 
-test('the timed save holds a recent day a partial scan could not fully read; a page request saves as before', { skip: process.getuid && process.getuid() === 0 ? 'root reads a mode-000 folder' : false }, async () => {
+test('the timed save holds a recent day a partial scan could not fully read; a page request saves as before', { skip: NO_POSIX_MODES || (process.getuid && process.getuid() === 0 ? 'root reads a mode-000 folder' : false) }, async () => {
   const day = (back) => new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
   const proj = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects');
   const ok = path.join(proj, 'ok');

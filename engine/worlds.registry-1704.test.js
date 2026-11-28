@@ -120,7 +120,7 @@ test('applyActiveWorldEnv sets the named world env after a switch', () => {
   assert.equal(env.AGENT_WORKFORCE_PROJECTS, path.join(base, 'worlds', 'acme', 'projects'));
   assert.equal(applied.AGENT_WORKFORCE_DATA, env.AGENT_WORKFORCE_DATA);
   // And the store root for the switched world nests under its base (APP appended).
-  assert.equal(store.dataRootFor('darwin', '/Users/x', env), path.join(base, 'worlds', 'acme', store.APP));
+  assert.equal(store.dataRootFor(process.platform, os.homedir(), env), path.join(base, 'worlds', 'acme', store.APP));
 });
 
 // ---- registry lock (#1704 slice 2): serialize the read-modify-write ----

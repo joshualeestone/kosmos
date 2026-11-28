@@ -10,6 +10,7 @@
  */
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -61,7 +62,7 @@ function run(configDir, model, extraEnv) {
 }
 const ACCT = { vendor: 'deepseek', model: 'deepseek-chat', key: KEY };
 
-test('a DeepSeek home launches claude against DeepSeek, with its model in place of the agent\'s Claude model', () => {
+test('a DeepSeek home launches claude against DeepSeek, with its model in place of the agent\'s Claude model', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), 'claude-sonnet-5');
   assert.match(r.argv, /new-session/, r.out);
   assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.deepseek\.com\/anthropic/);
@@ -71,7 +72,7 @@ test('a DeepSeek home launches claude against DeepSeek, with its model in place 
   assert.match(r.argv, /\/usr\/bin\/env( -u [A-Z_]+)+ \/usr\/bin\/true/, 'claude does not run behind the env -u prefix');
 });
 
-test('the key reaches the pane only as a launch secret, never in the argv or the supervisor output', () => {
+test('the key reaches the pane only as a launch secret, never in the argv or the supervisor output', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }));
   assert.match(r.secrets, new RegExp('^ANTHROPIC_AUTH_TOKEN=' + KEY + '$', 'm'));
   assert.equal(r.argv.includes(KEY), false, 'the key is in the tmux argv');
@@ -81,7 +82,7 @@ test('the key reaches the pane only as a launch secret, never in the argv or the
 /* What this can and cannot show: the fake tmux has no global environment, which is the real way an inherited value
    reaches a pane. So it pins the two mechanisms that defeat one there instead: every variable the account sets is a
    -e pair (a -e pair beats tmux's global value), and every other launch variable is removed with env -u. */
-test('every launch variable is either a -e pair from the account or removed with env -u; a value in the supervisor\'s own env reaches nothing', () => {
+test('every launch variable is either a -e pair from the account or removed with env -u; a value in the supervisor\'s own env reaches nothing', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', {
     ANTHROPIC_BASE_URL: 'https://elsewhere.example', ANTHROPIC_API_KEY: 'sk-ant-inherited', ANTHROPIC_MODEL: 'claude-opus-5',
   });
@@ -95,7 +96,7 @@ test('every launch variable is either a -e pair from the account or removed with
   for (const v of compat.LAUNCH_VARS.filter((x) => !(x in set))) assert.ok(r.argv.includes(`-u ${v}`), `${v} is not removed`);
 });
 
-test('an account that cannot be used stops the launch, saying why, and never starts claude against Anthropic', () => {
+test('an account that cannot be used stops the launch, saying why, and never starts claude against Anthropic', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   for (const bad of [JSON.stringify({ ...ACCT, key: '' }), JSON.stringify({ ...ACCT, model: 'claude-sonnet-5' }), '{not json']) {
     const r = run(home({ 'kosmos-vendor.json': bad }));
     assert.notEqual(r.code, 0);
@@ -110,7 +111,7 @@ test('an account that cannot be used stops the launch, saying why, and never sta
   assert.match(r.out, /it has no key set up; the agent was not started/);
 });
 
-test('review 2: when the key cannot be handed over privately, the launch is refused, never run without it', () => {
+test('review 2: when the key cannot be handed over privately, the launch is refused, never run without it', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const data = nodePath.join(SANDBOX, `data-blocked-${++n}`);
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(nodePath.join(data, 'launch-secrets'), 'a file where the secrets folder would go');
@@ -164,7 +165,7 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
   }
 });
 
-test('1b review 2: with the switch OFF a DeepSeek agent is not started (a kill switch), and its key goes nowhere', () => {
+test('1b review 2: with the switch OFF a DeepSeek agent is not started (a kill switch), and its key goes nowhere', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_DATA: DATA_OFF });
   assert.notEqual(r.code, 0);
   assert.equal(/new-session/.test(r.argv), false, 'a DeepSeek agent was started with the switch off');
@@ -172,7 +173,7 @@ test('1b review 2: with the switch OFF a DeepSeek agent is not started (a kill s
   assert.equal((r.argv + r.secrets + r.out).includes(KEY), false);
 });
 
-test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', () => {
+test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const r = run(home({ '.claude.json': '{}' }, '.claude-h'), 'claude-sonnet-5');
   assert.match(r.argv, /new-session/, r.out);
   assert.match(r.argv, /--model claude-sonnet-5/);
@@ -195,7 +196,7 @@ test('the supervisor\'s lists match the module: every vendor is recognised, ever
   assert.deepEqual(String(declared).trim().split(/\s+/).sort(), unset.slice().sort());
 });
 
-test('#7206 slice 3: a MiniMax home launches claude against MiniMax, only under its own switch', () => {
+test('#7206 slice 3: a MiniMax home launches claude against MiniMax, only under its own switch', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const mmHome = () => home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'minimax', model: 'MiniMax-M3.1-Flash', key: KEY }) }, '.kosmos-minimax-h');
   const off = run(mmHome(), 'claude-sonnet-5');   // DATA_ON holds DeepSeek's switch only
   assert.equal(/new-session/.test(off.argv), false, 'a MiniMax agent started under DeepSeek\'s switch: ' + off.out);
@@ -222,7 +223,7 @@ test('#7206 slice 3: a MiniMax home launches claude against MiniMax, only under 
   } finally { sw.setVendorAt(mmOnly, 'minimax', false); }
 });
 
-test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same case, only under its own switch', () => {
+test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same case, only under its own switch', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const glmHome = () => home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'glm', model: 'glm-5.3', key: KEY }) }, '.kosmos-glm-h');
   /* 2a review 1: DeepSeek's switch (on in DATA_ON) does not start a GLM agent. */
   const off = run(glmHome(), 'claude-sonnet-5');

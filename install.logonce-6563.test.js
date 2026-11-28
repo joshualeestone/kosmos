@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * /bin/sh (the shell a person's `curl | sh` uses), against a scratch log folder.
  */
 const test = require('node:test');
+const SKIP_POSIX_SETUP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/setup.sh, the macOS and Linux installer, through a POSIX shell; setup.sh stops on any other system, and Windows installs and updates from its own package');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -57,7 +58,7 @@ function runStartLog(env, { noFifo = false } = {}) {
 
 const count = (s, re) => (s.match(re) || []).length;
 
-test('#6563: KOSMOS_LOG_FILE_ONLY=1 logs each line to the file once and prints nothing to the console', () => {
+test('#6563: KOSMOS_LOG_FILE_ONLY=1 logs each line to the file once and prints nothing to the console', { skip: SKIP_POSIX_SETUP }, () => {
   const r = runStartLog({ KOSMOS_LOG_FILE_ONLY: '1' });
   assert.equal(r.status, 0);
   assert.equal(count(r.log, /first line/g), 1, 'the file holds the line once: ' + r.log);
@@ -66,13 +67,13 @@ test('#6563: KOSMOS_LOG_FILE_ONLY=1 logs each line to the file once and prints n
   assert.match(r.log, /inherited=0/, 'a child started after start_log does not inherit the switch');
 });
 
-test('#6563: with no fifo (exotic filesystem), KOSMOS_LOG_FILE_ONLY=1 still leaves every line on the console', () => {
+test('#6563: with no fifo (exotic filesystem), KOSMOS_LOG_FILE_ONLY=1 still leaves every line on the console', { skip: SKIP_POSIX_SETUP }, () => {
   const r = runStartLog({ KOSMOS_LOG_FILE_ONLY: '1' }, { noFifo: true });
   assert.equal(r.status, 0);
   assert.match(r.console, /first line\n[\s\S]*second line\n/, 'the console, which `kosmos update` logs, keeps the lines');
 });
 
-test('#6563 control: unset, a person piping the installer still sees every line, and the file still gets it', () => {
+test('#6563 control: unset, a person piping the installer still sees every line, and the file still gets it', { skip: SKIP_POSIX_SETUP }, () => {
   const r = runStartLog({});
   assert.equal(r.status, 0);
   assert.match(r.console, /^first line\ninherited=0\nsecond line\n$/, 'the console shows each line, untagged');
