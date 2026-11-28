@@ -7,7 +7,7 @@
 - **Test.** The fake is `claude-fake.js`, a node script with the same five modes. It was compared to the shell fake mode by mode: exit codes, stdout and stderr match byte for byte, the middle dot in the 401 line included. A copy with one character changed showed the difference, so the comparison can fail. The six skips are gone.
 
 **Measured.**
-- GitHub windows-latest: claude-probe 7/7 three times (run 46131445901). On main before this change it was 1 pass, 6 skipped (run 46120990799).
+- GitHub windows-latest: claude-probe 7/7 three times (run 46131445901, and again with the 2 s hang timeout in run 46131655627). On main before this change it was 1 pass, 6 skipped (run 46120990799).
 - Mac: claude-probe 7/7, and the 59 test files that read create.js or the probe 1163 pass, 0 fail (8 skipped, as before); windows-tests-1777 24/24.
 
 **Still owed on #9269:** handoff's stub git, filewho's UNC arm, and the chmod-forced-error arms.
