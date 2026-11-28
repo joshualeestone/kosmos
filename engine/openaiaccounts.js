@@ -27,6 +27,10 @@ const crypto = require('node:crypto');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 const runners = require('./runners');
+/* kosmos#9269: a runner path ending in .js or .cjs starts through this node (tunnelcommand.js, #8449's seam), so a
+   node stand-in can sign in on Windows, which cannot run a script by its shebang line. A real codex or grok resolves to
+   an executable (codex.exe, grok.exe on Windows), and any other path starts exactly as before. */
+const { tunnelCommand } = require('./tunnelcommand');
 // #2790: the codex-doctor-backed sign-in liveness. Top-level (no cycle: codexsigninlive
 // requires only ./runners, never this module).
 const codexsigninlive = require('./codexsigninlive');
@@ -594,7 +598,8 @@ function addWithKey({ key, label, codexBin }) {
   const madeDir = !fs.existsSync(spot.dir);
   try { fs.mkdirSync(spot.dir, { recursive: true }); }
   catch { return { ok: false, because: 'we could not make a place for that account on this computer' }; }
-  const run = spawnSync(bin, ['login', '--with-api-key'], {
+  const keyCmd = tunnelCommand(bin, ['login', '--with-api-key']);
+  const run = spawnSync(keyCmd.file, keyCmd.args, {
     input: String(key).trim(),
     env: envSet({ ...process.env }, 'CODEX_HOME', spot.dir),
     encoding: 'utf8',
@@ -1064,7 +1069,8 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
   const args = m === 'device' ? ['login', '--device-auth'] : ['login'];
   let child;
   try {
-    child = spawn(bin, args, { env: envSet({ ...process.env }, 'CODEX_HOME', spot.dir), stdio: ['ignore', 'pipe', 'pipe'] });
+    const cmd = tunnelCommand(bin, args);
+    child = spawn(cmd.file, cmd.args, { env: envSet({ ...process.env }, 'CODEX_HOME', spot.dir), stdio: ['ignore', 'pipe', 'pipe'] });
   } catch {
     activeChatgptDirs.delete(spot.dir);
     if (reauth) activeChatgptDirs.delete(reauth.dir);
