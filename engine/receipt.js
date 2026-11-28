@@ -399,30 +399,41 @@ async function providerWork(runner, dir, holds) {
             /* #9314: the paths are read from INSIDE each apply_patch call's string argument: its opening quote (", ' or
                a backtick) is found after `tools.apply_patch(` (and an optional `{name:`), and the string runs to the
                same quote unescaped. So text elsewhere in the script (a shell heredoc, a `*** Begin Patch` written in a
-               patch's own added line) is not read as a patch, and a file name may hold the other quote kinds. A call
-               whose argument is not one literal string (a variable, a concatenation) cannot be read that way, so the
-               rest of the script (outside the literal strings already read) is read as well then, as before. A call written inside an earlier patch's string is not a
-               call: the scan resumes after each string. */
+               patch's own added line) is not read as a patch, and a file name may hold the other quote kinds. A member
+               string holding no patch header (`{cwd:"x", patch:...}`) is skipped for the next member. A call whose
+               argument is not one literal string (a variable, a concatenation) cannot be read that way, so the rest of
+               the script (outside the literal strings already read) is read as well then. A call written inside an
+               earlier patch's string is not a call: the scan resumes after each string. */
             const bodies = [];
             let readWhole = false;
             let after = 0;
             const spans = [];   // the literal strings read on their own, blanked out of a whole-script reading
+            const HEADER = /\*\*\* (?:Add|Update|Delete) File: /;
+            const NEXT_MEMBER = /\s*,\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*/y;
+            const CONCAT = /\s*\+/y;
             for (const c of src.matchAll(/tools\.apply_patch\(\s*(?:\{\s*(?:[A-Za-z_$][\w$]*|"[^"\n]*"|'[^'\n]*')\s*:\s*)?/g)) {
               if (c.index < after) continue;
-              const open = c.index + c[0].length;
-              const q = src[open];
-              if (!`'"\``.includes(q || '')) { readWhole = true; continue; }
-              let i = open + 1;
-              while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
-              const end = Math.min(i, src.length);
-              const text = src.slice(open + 1, end);
-              // A first string holding no patch header is another member ({cwd:"x", patch:...}): read the rest of the
-              // script for this call instead, as before, so its paths are not lost.
-              if (!/\*\*\* (?:Add|Update|Delete) File: /.test(text)) { readWhole = true; continue; }
-              after = end + 1;
-              if (/^\s*\+/.test(src.slice(after, after + 64))) readWhole = true;   // "..." + more: a concatenation
-              bodies.push({ q, text });
-              spans.push([open + 1, end]);
+              let open = c.index + c[0].length;
+              for (let member = 0; member < 16; member += 1) {
+                const q = src[open];
+                if (!`'"\``.includes(q || '')) { readWhole = true; break; }
+                let i = open + 1;
+                while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
+                const end = Math.min(i, src.length);
+                const text = src.slice(open + 1, end);
+                after = end + 1;
+                if (!HEADER.test(text)) {
+                  // Another member ({cwd:"x", patch:...}): the next `key:` string of the same call, if there is one.
+                  NEXT_MEMBER.lastIndex = after;
+                  if (NEXT_MEMBER.test(src)) { open = NEXT_MEMBER.lastIndex; continue; }
+                  readWhole = true; break;
+                }
+                CONCAT.lastIndex = after;
+                if (CONCAT.test(src)) readWhole = true;   // "..." + more: a concatenation
+                bodies.push({ q, text });
+                spans.push([open + 1, end]);
+                break;
+              }
             }
             if (readWhole) {
               // One pass: the text between the literal strings, each string replaced by spaces of its length.
@@ -438,8 +449,8 @@ async function providerWork(runner, dir, holds) {
               if (patterns[key]) return patterns[key];
               const qe = q === '"' ? '"' : `\\${q}`;
               /* Inside a call's own string a header counts only at the start of a patch line (the string's start or after
-                 a newline), never inside an added line that mentions one. The whole-script reading is the one used before
-                 (#9263), unanchored, so a script read that way reads exactly as it did. */
+                 a newline), never inside an added line that mentions one. The whole-script reading is unanchored, as the
+                 #9263 reading was, and it cannot see which string a path is in, so pathsIn guards it below. */
               const at = whole ? '' : '(?<=^|\\\\n|\\n)';
               return (patterns[key] = {
                 pathLine: new RegExp(`${at}\\*\\*\\* (?:Add|Update|Delete) File: ((?:\\\\[^nr\\n\\r]|[^\\n\\r\\\\${qe}])+)`, 'g'),
@@ -455,6 +466,15 @@ async function providerWork(runner, dir, holds) {
                    past the end of its real string into code (a quote, then `)` `;` `+` `}` or `,`, as a patch built in
                    pieces or passed by name does) or holds a template's ${ is left out, never listed as a file name. */
                 if (whole && /['"`]\s*[)};+,]|\$\{/.test(x[1])) return false;
+                // A path that swallowed further headers (no line end between them) is not a file name, in either reading.
+                if (HEADER.test(x[1])) return false;
+                /* The whole-script reading stops at a " it assumed; a ' or backtick string's name may hold one (`a"b.md`),
+                   so a stop at " counts only where code follows it (a `)` `}` `,` `;` `+` or the end), else the path is
+                   left out rather than cut. */
+                if (whole) {
+                  const stop = x.index + x[0].length;
+                  if (text[stop] === '"' && !/"\s*(?:[)},;+\]]|$)/y.test(text.slice(stop, stop + 80))) return false;
+                }
                 /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A
                    "newline" followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it
                    is left out. */

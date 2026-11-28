@@ -22,9 +22,24 @@ that branch) and handed it over (Fleet Builders, 10:45 CST).
   not read, because the whole-script reading cannot see its quote. Left out, never wrong.
 
 ## Measured
-On main the new test fails with `hb.md"});`, ``esc.md`});`` and `h.md` listed; here all 45 receipt tests pass,
-including #9323's two timing tests (32,000 headers on a line, 16,000 alternating openers).
+On main the new test fails with `hb.md"});`, ``esc.md`});`` and `h.md` listed; here all 45 receipt tests pass (35 in
+receipt-5153, 10 in receipt-project-6842), including #9323's two timing tests (32,000 headers on a line, 16,000
+alternating openers).
 
 ## Weakest premise
 Baron's last commit (e42e56801c: a first member that is not the patch, the escape arm, an unterminated string, one-pass
 blanking) landed after his last review, and his full validation never ran; both are done here.
+
+## Review 1 (opus, measuring)
+Linear on every shape timed (to 64k repeats, ten shapes). Fixed: main's filter for a path that swallowed further headers
+was dropped (`a.md *** Delete File: b.md` listed as one file); the 32,000-header test had stopped exercising it (a space
+before the first header, so the new line anchor never matched), now with a newline variant. A member string with no
+header is skipped for the call's next `key:` string (`{cwd:'x', patch:'...'}` lost its patch). In the whole-script
+reading a stop at the assumed " counts only where code follows it (`a"b.md` in a '-string was cut to `a`). The
+concatenation check skips any run of whitespace, not 64 characters. Mutation: with the swallowed-header filter removed,
+two tests go red.
+
+Residual, accepted: in the whole-script reading (a patch passed by name, or built in pieces) a '-string name that itself
+holds `")` or `", ` followed by more is cut there (`odd").md` reads `odd`). No realistic file name has that; main read
+these right through #9323's opener guess, whose five failure modes are why this reader replaced it. And a '-string
+patch passed by name whose last path ends at its quote (`last.md'`) is left out.

@@ -364,6 +364,9 @@ test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped
   const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
   // No newline and no quote after the first header, so every later header sits inside the text the first path read.
   const src = 'await tools.apply_patch({patch:"*** Begin Patch ' + '*** Update File: x'.repeat(32000) + '"});';
+  // The same with a newline after Begin Patch, so the first header is at a patch line's start and is read (review 1 of
+  // slice 2: with the space it never matched, and the swallowed-header rule went untested).
+  const srcNl = 'await tools.apply_patch({patch:"*** Begin Patch\\n' + '*** Update File: x'.repeat(32000) + '"});';
   /* Begin Patch openers that alternate between ' and " with every quote escaped, so no string closes. One cached
      close found each header's opener a miss and rescanned to the end (4,000 repeats 1.5 s, quadratic). */
   const alt = 'await tools.exec(' + String.raw`\'*** Begin Patch\n*** Update File: a\n\"*** Begin Patch\n*** Update File: a\n`.repeat(8000) + ');';
@@ -373,6 +376,8 @@ test('#9314: a one-line script of 32,000 headers, and 16,000 alternating escaped
     ev('10:05', 'response_item', { type: 'custom_tool_call_output', call_id: 'l1', output: [{ type: 'input_text', text: 'Script completed' }] }),
     ev('10:06', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l2', input: alt + ' tools.apply_patch(x);' }),
     ev('10:06', 'response_item', { type: 'custom_tool_call_output', call_id: 'l2', output: [{ type: 'input_text', text: 'Script completed' }] }),
+    ev('10:07', 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'l3', input: srcNl }),
+    ev('10:07', 'response_item', { type: 'custom_tool_call_output', call_id: 'l3', output: [{ type: 'input_text', text: 'Script completed' }] }),
   ]));
   const t0 = process.hrtime.bigint();
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
@@ -398,8 +403,8 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
   const out = (at, id, text) => ev(at, 'response_item', { type: 'custom_tool_call_output', call_id: id, output: [{ type: 'input_text', text }] });
   fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-bdx9314.jsonl'), jl([
     ev('10:00', 'session_meta', { cwd: fs.realpathSync(bdx) }),
-    /* #9314: a path stops at the patch string's OWN quote. c2d is a single-quoted patch cut off with no End Patch line,
-       its path last, so the closing quote sits right after the name; a ' inside a double-quoted patch (c2e) is part of
+    /* #9314: a path stops at the patch string's OWN quote. b2d is a single-quoted patch cut off with no End Patch line,
+       its path last, so the closing quote sits right after the name; a ' inside a double-quoted patch (b2e) is part of
        the name. */
     call('10:16', 'b2d', "await tools.apply_patch({patch:'*** Begin Patch\\n*** Delete File: gone.md'});"),
     out('10:16', 'b2d', 'Script completed\nWall time 1 seconds'),
@@ -443,10 +448,23 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
     out('10:28', 'b2p', 'Script completed\nWall time 1 seconds'),
     call('10:29', 'b2q', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Delete File: trunc.md'),
     out('10:29', 'b2q', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 1: a path that swallowed a second header lists nothing (it is no file name); a call whose first
+       member is not the patch is read at its next member, a '-string included; a '-string name holding a " that reaches
+       the whole-script reading is left out, never cut at the "; and a concatenation after a long run of spaces is seen. */
+    call('10:30', 'b2r', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Delete File: s1.md *** Delete File: s2.md\n*** End Patch"});`),
+    out('10:30', 'b2r', 'Script completed\nWall time 1 seconds'),
+    call('10:31', 'b2s', String.raw`await tools.apply_patch({cwd:'x', patch:'*** Begin Patch\n*** Delete File: cwd2.md'});`),
+    out('10:31', 'b2s', 'Script completed\nWall time 1 seconds'),
+    call('10:32', 'b2t', String.raw`const p = '*** Begin Patch\n*** Update File: a"b2.md\n+x\n*** End Patch'; await tools.apply_patch({patch:p});`),
+    out('10:32', 'b2t', 'Script completed\nWall time 1 seconds'),
+    call('10:33', 'b2u', String.raw`await tools.apply_patch({patch:"*** Begin Patch\n*** Delete File: f1.md\n"` + ' '.repeat(70) + String.raw`+ "*** Delete File: f2.md\n*** End Patch"});`),
+    out('10:33', 'b2u', 'Script completed\nWall time 1 seconds'),
   ]));
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   assert.deepEqual(r.agents[0].files, ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
-    'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md'], 'each path stops at its own patch string\'s quote (#9314)');
+    'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
+    'cwd2.md', 'f1.md', 'f2.md'], 'each path stops at its own patch string\'s quote (#9314)');
+  assert.ok(!r.agents[0].files.some((f) => f === 'a' || f.includes('s1.md') || f.includes('s2.md')), 'a cut or swallowed name was listed: ' + JSON.stringify(r.agents[0].files));
 });
 
 test('a Gemini CLI agent: a reply written twice counts once, an edit counts only when it succeeded', async () => {
