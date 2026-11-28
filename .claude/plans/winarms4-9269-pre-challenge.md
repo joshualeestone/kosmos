@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: winarms4-9269
-diff_hash: 0c009bd494a8f1f980773d6257509e12b584c9a9199a9052a40cb8e073642a2c
-validation: GitHub windows-latest: handoff 22 pass / 2 skipped x3 (run 46134861504; on main it was 21/2). Mac: handoff 24/24 (git 2.53); a mutant gitFact calling every git failure 'not a git repository' turns the new arm red. windows-tests-1777 24/24. Tests only. The full suite runs on the PR's CI.
+diff_hash: a8eca844feb681cb74907b7c3f75bfe1969fedfe31d593d437a39d5689edeba5
+validation: rebased onto main after #9305 (handoff.test.js merged cleanly, its ALSO comment joined; Mac handoff 24/24 both normally and with KOSMOS_TEST_CHMOD_STUB=1, windows-tests-1777 24/24 after the rebase). Before it: GitHub windows-latest: handoff 22 pass / 2 skipped x3 (run 46134861504; on main it was 21/2). Mac: handoff 24/24 (git 2.53); a mutant gitFact calling every git failure 'not a git repository' turns the new arm red. windows-tests-1777 24/24. Tests only. The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-28T10:24:14Z
 iterations: 1
