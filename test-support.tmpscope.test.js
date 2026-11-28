@@ -17,7 +17,8 @@ const NO_SIGNALS = skipOnWin32('it sends the child a signal and needs a handler 
 /* kosmos#8378: the child kills itself with SIGKILL. Windows has no signals: there that kill ends the process at once with
    exit code 1 and no signal, and runs no exit handler either, so the leak these arms are about is left the same way. */
 function killedHard(r, msg) {
-  if (process.platform === 'win32') assert.ok(r.status === 1 && r.signal === null, (msg || 'not killed') + ': status ' + r.status + ', signal ' + r.signal);
+  // A crash also exits 1 with no signal; the kill writes nothing, so an empty stderr is what tells them apart.
+  if (process.platform === 'win32') assert.ok(r.status === 1 && r.signal === null && String(r.stderr) === '', (msg || 'not killed') + ': status ' + r.status + ', signal ' + r.signal);
   else assert.equal(r.signal, 'SIGKILL', msg);
 }
 
@@ -245,8 +246,8 @@ test('#6061: a killed file outside its cwd is named by its absolute path, never 
   const away = fs.mkdtempSync(path.join(base, 'away-'));
   const victim = path.join(base, 'outside-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));   // HOME away from the victim, so no ~ applies here
-  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, ...tmpEnv(base), HOME: elsewhere } });
+  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));   // the home away from the victim, so no ~ applies here
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, ...tmpEnv(base), HOME: elsewhere, USERPROFILE: elsewhere } });
   killedHard(r, String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
@@ -259,14 +260,15 @@ test('#6061 review 1: a killed file under the home folder is written with ~, so 
   const away = fs.mkdtempSync(path.join(base, 'away-'));
   const victim = path.join(base, 'homed-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, ...tmpEnv(base), HOME: base } });
+  // USERPROFILE too: a Windows home is read from it, and ~ is joined with the host separator there.
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, ...tmpEnv(base), HOME: base, USERPROFILE: base } });
   killedHard(r, String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
-  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~/homed-6061.test.js');
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~' + path.sep + 'homed-6061.test.js');
 });
 
-test('#6061 review 2: a killed process whose cwd was deleted still names its file (by its absolute path)', (t) => {
+test('#6061 review 2: a killed process whose cwd was deleted still names its file (by its absolute path)', { skip: skipOnWin32('its fixture removes the folder the child is running in, which Windows does not allow (EBUSY), so a process with a deleted cwd cannot be made there') }, (t) => {
   const base = fs.realpathSync(freshBase(t));
   const gone = fs.mkdtempSync(path.join(base, 'gone-'));
   const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));

@@ -713,7 +713,9 @@ function history(sessionName, tailBytes, opts) {
   const tail = Number.isInteger(tailBytes) && tailBytes > TAIL_BYTES ? Math.min(tailBytes, HISTORY_MAX_BYTES) : TAIL_BYTES;
   try {
     const file = fileFor(sessionName);
-    const size = fs.statSync(file).size;
+    const st = fs.statSync(file);
+    if (!st.isFile()) return null;   // kosmos#8378: as readTail: a folder (size 0 on Windows) or a device is not a report
+    const size = st.size;
     const start = Math.max(0, size - tail);
     const fd = fs.openSync(file, 'r');
     try {

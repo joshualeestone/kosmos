@@ -53,3 +53,11 @@ tools/wincand-8378.js over the 81 files on windows-latest (full history, a 1200 
 - W: the four skips whose subject exists on Windows (phonenotify ENOTDIR, limitmsg x2, setup-assistant marker) say so
   and name kosmos#9313, which owes their Windows arms.
 - N: render-talk installs its fleet inside the try, so a throw cannot leave the job runner stub set; an entry reworded.
+
+## Review 3 (one BLOCKER, fixed)
+- BLOCKER: two #6061 arms would fail on Windows: review 1 set only HOME (a Windows home is USERPROFILE) and expected '/'
+  after ~ (the host separator there); review 2 removes the child's own cwd, which Windows refuses (EBUSY). Review 1
+  sets USERPROFILE and expects path.sep; review 2 skips on Windows with that reason.
+- W: killedHard on Windows also needs an empty stderr, so a crash (exit 1, no signal) cannot pass as the kill; the
+  outside-cwd arm sets USERPROFILE beside HOME; selfreport.history refuses a non-regular file as readTail does
+  (pinned on the Mac by the /dev/null arm, reds without it, measured).
