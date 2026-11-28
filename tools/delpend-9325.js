@@ -21,7 +21,6 @@ fs.closeSync(fa);
 probe('A after close', 'held-unlinked');
 // B: PowerShell opens with DeleteOnClose and holds it for 20 s.
 const b = path.join(dir, 'delete-on-close');
-const ps = `$f=[System.IO.File]::Open('${b}',[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]'ReadWrite, Delete'); $o=New-Object System.IO.FileStream($f.SafeFileHandle,[System.IO.FileAccess]::ReadWrite); Start-Sleep 20`;
 const ps2 = `$s=New-Object System.IO.FileStream('${b}',[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]'ReadWrite, Delete',4096,[System.IO.FileOptions]::DeleteOnClose); Start-Sleep 20; $s.Close()`;
 if (process.platform === 'win32') {
   const child = cp.spawn('powershell', ['-NoProfile', '-Command', ps2], { stdio: 'inherit' });
@@ -31,5 +30,22 @@ if (process.platform === 'win32') {
   let un2; try { fs.unlinkSync(b); un2 = 'ok'; } catch (e) { un2 = e.code; }
   console.log(`MEASURED B unlink of the held DeleteOnClose file: ${un2}`);
   probe('B after unlink, still held by PowerShell', 'delete-on-close');
-  child.on('exit', () => { probe('B after PowerShell exits', 'delete-on-close'); console.log('MEASURED os ' + os.release() + ' node ' + process.version); });
+  child.on('exit', () => {
+    probe('B after PowerShell exits', 'delete-on-close');
+    // C: the classic (non-POSIX) delete disposition, set by SetFileInformationByHandle(FileDispositionInfo) on a held
+    // handle: the name should stay, delete-pending, until the handle closes. The shape an attacker would choose.
+    const c = path.join(dir, 'legacy-pending');
+    const cs = `Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles;
+public static class D { [StructLayout(LayoutKind.Sequential)] public struct FDI { public byte Delete; }
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetFileInformationByHandle(SafeFileHandle h, int cls, ref FDI info, int size); }
+'@
+$s=New-Object System.IO.FileStream('${c}',[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]'ReadWrite, Delete');
+$i=New-Object D+FDI; $i.Delete=1; $ok=[D]::SetFileInformationByHandle($s.SafeFileHandle,4,[ref]$i,1); Write-Output ("MEASURED C SetFileInformationByHandle " + $ok + " err " + [Runtime.InteropServices.Marshal]::GetLastWin32Error());
+New-Item -ItemType File -Path '${c}.ready' | Out-Null; Start-Sleep 20; $s.Close()`;
+    const cc = cp.spawn('powershell', ['-NoProfile', '-Command', cs], { stdio: 'inherit' });
+    const t1 = Date.now(); while (!fs.existsSync(c + '.ready') && Date.now() - t1 < 30000) cp.execSync('ping -n 2 127.0.0.1 >NUL');
+    probe('C classic delete disposition, held', 'legacy-pending');
+    cc.on('exit', () => { probe('C after PowerShell exits', 'legacy-pending'); console.log('MEASURED os ' + os.release() + ' node ' + process.version); });
+  });
 } else { console.log('MEASURED not win32: ' + process.platform); }
