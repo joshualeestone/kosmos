@@ -3,7 +3,8 @@
 1. A caller that sets KOSMOS_RUN_MARKER_DIR to the real folder itself (a launchd job, a pinning wrapper) never
    announced. Decided: treat the real folder named explicitly as the real markers, so it announces as unset does;
    the folders are compared as physical paths (`CDPATH= cd -P`), so a trailing slash, `..` or a symlink does not matter;
-   queued-heavy has already made the folder by then (its mkdir -p of the marker folder). Rejected: printing an
+   queued-heavy has normally made the folder by then (its mkdir -p of the marker folder; where that
+   failed, only the exact spelling or unset announces). Rejected: printing an
    "announce off" line whenever the markers are set, because every test points them at a private folder, so the line
    would print in every test's run and say nothing useful there; and naming it only in the plan, which leaves the
    real case silent. Weakest premise: the real folder is $HOME/.cache/kosmos-run-markers. A caller with a different
@@ -13,8 +14,8 @@
    QUEUED_HEAVY_ANNOUNCE=0 (run-tests.sh and this harness export it). Rejected: judging against the account's passwd
    home, which a test could then only reach through a test-only override.
 2. A name holding control characters was reported as "asked the board" while the board refused it. Everything
-   normalizeLabel refuses now becomes a space before the cut to 80: the C1 controls, U+2028/2029, the direction marks
-   and the BOM, matched as UTF-8 bytes so a C locale strips them too (round 1 measured [[:cntrl:]] alone missing them
+   normalizeLabel refuses now becomes a space before the cut to 80: the C1 controls, U+061C, U+200B/E/F,
+   U+2028/2029, the direction marks and the BOM, matched as UTF-8 bytes so a C locale strips them too (round 1 measured [[:cntrl:]] alone missing them
    there), then the ASCII controls. The spaces it trims (NBSP, U+1680, U+2000-200A, U+202F, U+205F, U+3000) become plain spaces
    too, so the empty and leading-dash checks see them (round 2). All of it is one function, _qh_board_text. An emoji that pushes past 80 UTF-16 units can still be refused (noted in the
    comment, not fixed: the card asked for the likeliest refusal).
