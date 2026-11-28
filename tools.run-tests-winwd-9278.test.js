@@ -31,12 +31,12 @@ test('#9278: the Windows loop is started only on Windows, and the Mac loop every
 /* The runner as the Windows CI job would run it, inside this test: without its own NODE_TEST_CONTEXT dropped, the inner
    node --test reports to this one and exits 0 (measured on the Windows runner: a stopped file and a green run), so it
    is dropped with the runner's other settings, as tools.run-tests-file-timeout-6668 does. */
-function runRunner(files, timeoutMs) {
+function runRunner(files, timeoutMs, extra = {}) {
   const env = { ...process.env };
   for (const k of ['NODE_TEST_CONTEXT', 'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'KOSMOS_SHELL_PLATFORM',
     'KOSMOS_TEST_FILE_TIMEOUT_MIN', 'KOSMOS_TEST_TIMEOUT_MS', 'KOSMOS_RT_STOP_OWN_NODE', 'KOSMOS_MACHINE_CLAIM_COOKIE',
     'KOSMOS_LIGHT_SIDE_COOKIE']) delete env[k];
-  Object.assign(env, { KOSMOS_TEST_FILE_TIMEOUT_S: '30', KOSMOS_WINWD_9278_INNER: '1', KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  Object.assign(env, { KOSMOS_TEST_FILE_TIMEOUT_S: '30', KOSMOS_WINWD_9278_INNER: '1', KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' }, extra);
   const started = Date.now();
   const r = spawnSync('bash', [RUNNER, '--only', ...files], { env, encoding: 'utf8', timeout: timeoutMs });
   return { r, took: Date.now() - started, out: (r.stdout || '') + (r.stderr || '') };
@@ -84,4 +84,21 @@ test('#9278: on Windows a stuck file in a LATER chunk is still stopped (the watc
   assert.notEqual(r.status, 0, 'a run with a stopped file must be red: ' + out.slice(-1500));
   assert.match(out, /run-tests: TIMED OUT after 30 s: \S*zz-hang\.test\.js \(#6668/, 'the stuck file in the later chunk was not named');
   console.log('MEASURED: ' + files.length + ' files, stopped after ' + took + ' ms');
+});
+
+/* challenge iteration 3: a Windows snapshot that comes back empty stops nothing, so the run must say so, once, and a red
+   run's summary must not claim the limit as if it held. KOSMOS_TEST_WIN_SNAP_EMPTY=1 empties every snapshot; the file
+   blocks for 50 s and then fails, so the run ends red by itself and prints its summary. */
+test('#9278: on Windows an empty process snapshot is said once, and a red run does not claim the limit held', { skip: SKIP_OFF_WIN }, () => {
+  if (process.env.KOSMOS_WINWD_9278_INNER === '1') return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'winwd9278e-'));
+  const slow = path.join(dir, 'slow-red.test.js');
+  fs.writeFileSync(slow, "require('node:test')('blocks then fails', () => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50000); throw new Error('red on purpose'); });\n");
+  const { r, out } = runRunner([slow], 200000, { KOSMOS_TEST_WIN_SNAP_EMPTY: '1' });
+  assert.ok(!(r.error && r.error.code === 'ETIMEDOUT'), 'the run did not end: ' + out.slice(-1500));
+  assert.notEqual(r.status, 0, 'the file fails on purpose: ' + out.slice(-1500));
+  const said = out.match(/the Windows process snapshot came back empty, so the per-file limit is off while it does/g) || [];
+  assert.equal(said.length, 1, 'the empty snapshot must be said exactly once: ' + out.slice(-1500));
+  assert.doesNotMatch(out, /TIMED OUT after/, 'nothing can be stopped with no snapshot');
+  assert.match(out, /Limits this run: per-file limit 30 s, but off while the Windows process snapshot came back empty/, 'the summary claimed the limit held: ' + out.slice(-1500));
 });
