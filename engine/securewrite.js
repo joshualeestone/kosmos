@@ -194,14 +194,18 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three failures with
  *     no such refusal fall back as before.
  *   - (kosmos#9307) a plain file already at a fresh temp name counts as such a refusal too: the create fails EEXIST.
- *     The name carries this process's pid, thread, start time and a sequence number, so the honest routes are a
- *     crashed earlier process with the same pid, thread AND start millisecond (which the reaper cannot remove: it reads
- *     such a temp as this process's own), a second copy of this module loaded in the same thread and millisecond (a
- *     cleared require cache restarts the sequence) finding a temp a failed unlink left, or a network mount that resends
- *     an exclusive create after a lost reply and answers EEXIST for the file it just made. Both are near impossible; the cost of either is that save failing when
- *     the other two attempts fail too (one EEXIST and a clean next attempt still saves). So three plain files planted
- *     at the three names no longer reach the in-place fallback (or its Windows race at the config). The module's own
- *     tests reach the fallback with EPERM now.
+ *     The name carries this process's pid, thread, start time and a sequence number, so there are three honest
+ *     routes: a crashed earlier process with the same pid, thread AND start millisecond (the reaper cannot remove its
+ *     temp: it reads it as this process's own); a second copy of this module loaded in the same thread and millisecond
+ *     (a cleared require cache restarts the sequence) finding a temp a failed unlink left; or a network mount that
+ *     resends an exclusive create after a lost reply and answers EEXIST for the file it just made. All three are near
+ *     impossible, and each fails that save only when the other two attempts fail too (one EEXIST and a clean next
+ *     attempt still saves). So three plain files planted at the three names no longer reach the in-place fallback (or
+ *     its Windows race at the config). The module's own tests reach the fallback with EPERM now.
+ *     NOT closed: plant shapes that fail the create with another code. On Windows a file held open and marked for
+ *     deletion makes the create fail EPERM, not EEXIST, and EPERM is also the ordinary reason a Windows save reaches the
+ *     fallback (antivirus, a sync client), so it cannot count as a plant; and on POSIX a temp unlinked between the
+ *     create and the rename fails the rename ENOENT, a race in the rename window accepted above. Carded as kosmos#9325.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -523,7 +527,7 @@ function writeSecret(file, data, mode, opts) {
       try { tfd = fs.openSync(tmp, 'wx', createMode); }
       catch (e) {
         /* kosmos#9307: something is already at a FRESH temp name (pid, thread, start time and a sequence number). Short of
-           two near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
+           three near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
            the in-place fallback (on Windows, a race at the config itself). So it counts as a refusal, as a swapped name
            does. */
         if (e && e.code === 'EEXIST') {

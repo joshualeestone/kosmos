@@ -1198,6 +1198,9 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
   assert.equal(ao.err && ao.err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'atomicOnly with three plants: ' + (ao.err && ao.err.code));
   assert.equal(ao.err.lastAttempt && ao.err.lastAttempt.planted, true, 'atomicOnly: the last attempt is not marked a plant');
   assert.equal(ao.after, 'old config');
+  // A refusal never removes what was planted: the refusal comes before the write could call a temp its own.
+  assert.ok(planted.length >= 7, 'CONTROL: the plants were made (' + planted.length + ')');
+  for (const p of planted) assert.equal(fs.readFileSync(p, 'utf8'), 'planted', 'a planted file was removed or changed: ' + p);
   const ctl = run('eperm3', () => 'eperm');
   assert.equal(ctl.err, null, 'CONTROL: three EPERM failures should take the fallback and succeed: ' + (ctl.err && ctl.err.code));
   assert.ok(ctl.inPlace >= 1, 'CONTROL: the fallback did not open the config');

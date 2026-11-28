@@ -26,8 +26,8 @@ That nothing legitimate leaves a file at a fresh temp name. The name carries pid
 number, so the honest routes are a crashed earlier process with the same pid, thread and start millisecond (the reaper
 reads such a temp as this process's own and cannot remove it), a second copy of the module loaded in the same thread and
 millisecond (a cleared require cache restarts the sequence) finding a temp a failed unlink left, or a network mount that
-resends an exclusive create after a lost reply and answers EEXIST for the file it just made. Either fails that save only when the other two attempts fail
-too; one EEXIST and a clean next attempt still saves.
+resends an exclusive create after a lost reply and answers EEXIST for the file it just made. Any of the three fails
+that save only when the other two attempts fail too; one EEXIST and a clean next attempt still saves.
 
 ## Review 1
 Seven more "every atomic attempt fails, the file is left as it was" tests forced the failure with EEXIST, which now
@@ -40,3 +40,8 @@ No other test injects EEXIST to reach the fallback or the atomicOnly exit (searc
 retry tests (#1761, #1787) still test what they name. Added: an atomicOnly arm with three plants (the refusal, never the
 raw EEXIST), a `planted` flag on the final refusal (true for a plant, false for links only), the reloaded-module route
 above, and the #9285 doc's measured claim scoped to swap refusals.
+
+## Review 3
+Mutation-checked by the reviewer: with the EEXIST refusal disabled, or with "refuse only when all three are plants", the
+new tests go red. Left open and carded (kosmos#9325): plant shapes that fail the create with another code (a Windows
+file held open and delete-pending fails EPERM, which is also the ordinary Windows fallback reason, so it cannot count).
