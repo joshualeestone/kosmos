@@ -34,6 +34,7 @@ let cli = '/fake/home/bin/kosmos';
 board.setInstalledCli(() => cli);
 board.setSpawner((cmd, args) => { spawned.push([cmd, ...args]); return { on() {}, unref() {} }; });
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const srv = require('./server.js');
 let server;
 let base;

@@ -27,6 +27,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(os.tmpdir(), 'aw-pn6487-cl
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, boardAuthState } = require('./server');
 const selfreport = require('./engine/selfreport');
 const chat = require('./engine/chat');

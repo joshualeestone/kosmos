@@ -21,20 +21,23 @@ const writeAuth = (rel, obj) => {
 /* A stand-in for codex's `login --with-api-key`: reads stdin, writes the same
    auth.json shape codex writes (probed 2026-08-24), into CODEX_HOME. It
    refuses a key that says "bad", so the failure arm is exercised too. */
-const FAKE_CODEX = nodePath.join(SANDBOX, 'fake-codex');
-fs.writeFileSync(FAKE_CODEX, `#!/bin/bash
-[ "$1" = login ] && [ "$2" = --with-api-key ] || exit 2
-key=$(cat)
-case "$key" in *bad*) exit 1;; esac
-mkdir -p "$CODEX_HOME"
-printf '{"auth_mode":"apikey","OPENAI_API_KEY":"%s"}' "$key" > "$CODEX_HOME/auth.json"
+const FAKE_CODEX = nodePath.join(SANDBOX, 'fake-codex.js');
+fs.writeFileSync(FAKE_CODEX, `#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const [a1, a2] = process.argv.slice(2);
+if (a1 !== 'login' || a2 !== '--with-api-key') process.exit(2);
+// key=$(cat): all of stdin, with its trailing newlines stripped
+const key = fs.readFileSync(0, 'utf8').replace(/\\n+$/, '');
+if (key.includes('bad')) process.exit(1);
+fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
+fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), '{"auth_mode":"apikey","OPENAI_API_KEY":"' + key + '"}');
 `, { mode: 0o755 });
-/* kosmos#8378: addWithKey spawns FAKE_CODEX, a #!/bin/bash script, so it runs by its shebang line, which Windows cannot
-   do (and an extensionless file is not runnable there at all, so every add answers MISSING_RUNNER_SENTENCE). Adding by
-   key exists on Windows, so the arms that need the stand-in to run skip there until kosmos#9269 gives them a Windows
-   stand-in; that includes three whose assertions would pass there only because nothing ran. The arms refused before
-   the runner is looked at (a bad shape) still run there. */
-const STANDIN = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but its stand-in codex is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
+fs.chmodSync(FAKE_CODEX, 0o755);   // the Mac runs it only with the exec bit (runners.isRunnable); writeFileSync's mode is masked by the umask
+/* kosmos#9269: FAKE_CODEX is a node script whose name ends .js, so addWithKey starts it as this node with the script as
+   its first argument (engine/tunnelcommand.js), on the Mac and on Windows alike, never by its shebang line. It is
+   runnable on the Mac by its exec bit and on Windows by its .js extension (PATHEXT), so every arm here runs on both. */
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -58,7 +61,7 @@ test('a ChatGPT sign-in is labelled by the email in its id token, decoded not ve
   assert.equal(row.authMode, 'chatgpt');
 });
 
-test('adding by key goes through codex\'s own login into a fresh spot, and answers the row, never the key', { skip: STANDIN }, () => {
+test('adding by key goes through codex\'s own login into a fresh spot, and answers the row, never the key', () => {
   const out = openai.addWithKey({ key: 'sk-proj-newkeynewkeynewkeyNEW1', codexBin: FAKE_CODEX });
   assert.equal(out.ok, true, out.because);
   assert.equal(out.account.label, 'work1');
@@ -73,7 +76,7 @@ test('adding by key goes through codex\'s own login into a fresh spot, and answe
   assert.equal(out2.account.keyTail, 'TWO2');
 });
 
-test('a refused key leaves no half-made account behind, and a taken label is refused in words', { skip: STANDIN }, () => {
+test('a refused key leaves no half-made account behind, and a taken label is refused in words', () => {
   const before = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort();
   const out = openai.addWithKey({ key: 'sk-proj-this-is-a-bad-key-for-sure', codexBin: FAKE_CODEX });
   assert.equal(out.ok, false);
@@ -98,7 +101,7 @@ test('what is not a key is refused before anything runs', () => {
    through addWithKey still uses FAKE_CODEX, so the key genuinely lands in
    auth.json and checkLive reads it back. */
 
-test('#1315: a key OpenAI positively rejects (invalid_api_key) is refused at add, and no account is left behind', { skip: STANDIN }, async () => {
+test('#1315: a key OpenAI positively rejects (invalid_api_key) is refused at add, and no account is left behind', async () => {
   const before = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort();
   openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
   try {
@@ -111,7 +114,7 @@ test('#1315: a key OpenAI positively rejects (invalid_api_key) is refused at add
   } finally { openai.setFetcher(null); }
 });
 
-test('#1315: a key OpenAI accepts (200) is added, and the account stands with its sign-in file', { skip: STANDIN }, async () => {
+test('#1315: a key OpenAI accepts (200) is added, and the account stands with its sign-in file', async () => {
   openai.setFetcher(async () => ({ status: 200, body: { object: 'list', data: [{ id: 'gpt-4o' }] } }));
   try {
     const out = await openai.addWithKeyLive({ key: 'sk-proj-goodkeygoodkeygoodGOOD', label: 'good-add', codexBin: FAKE_CODEX });
@@ -123,7 +126,7 @@ test('#1315: a key OpenAI accepts (200) is added, and the account stands with it
   } finally { openai.setFetcher(null); }
 });
 
-test('#1315: a key we cannot confirm bad is ACCEPTED, never blocked (a scope-restricted 401)', { skip: STANDIN }, async () => {
+test('#1315: a key we cannot confirm bad is ACCEPTED, never blocked (a scope-restricted 401)', async () => {
   /* Same asymmetry checkLive enforces: only invalid_api_key is a positive
      rejection. A project key restricted from listing models 401s here for a
      permissions reason while working fine for the agent, so refusing it at add
@@ -136,7 +139,7 @@ test('#1315: a key we cannot confirm bad is ACCEPTED, never blocked (a scope-res
   } finally { openai.setFetcher(null); }
 });
 
-test('#1315: an unreachable OpenAI at add time ACCEPTS the key, never a false rejection', { skip: STANDIN }, async () => {
+test('#1315: an unreachable OpenAI at add time ACCEPTS the key, never a false rejection', async () => {
   openai.setFetcher(async () => { throw new Error('getaddrinfo ENOTFOUND api.openai.com'); });
   try {
     const out = await openai.addWithKeyLive({ key: 'sk-proj-offlinekeyofflOFFL', label: 'offline-add', codexBin: FAKE_CODEX });
@@ -218,7 +221,7 @@ test('#1315: a locally-invalid add (bad shape) passes straight through and never
   } finally { openai.setFetcher(null); }
 });
 
-test('#1315: a key codex itself refuses locally is refused, and OpenAI is never asked', { skip: STANDIN }, async () => {
+test('#1315: a key codex itself refuses locally is refused, and OpenAI is never asked', async () => {
   let asked = false;
   openai.setFetcher(async () => { asked = true; return { status: 200, body: { data: [] } }; });
   try {
@@ -230,7 +233,7 @@ test('#1315: a key codex itself refuses locally is refused, and OpenAI is never 
   } finally { openai.setFetcher(null); }
 });
 
-test('#1315: a live-rejected add into a PRE-EXISTING dir removes only its own auth.json, never the dir or its other contents', { skip: STANDIN }, async () => {
+test('#1315: a live-rejected add into a PRE-EXISTING dir removes only its own auth.json, never the dir or its other contents', async () => {
   /* 🛑 THE CLEANUP MUST HONOUR addWithKey's OWN GUARD. addWithKey removes the
      whole directory on failure only when it CREATED it (madeDir); it can succeed
      into a pre-existing `.codex-<label>` that merely lacked an auth.json and holds
@@ -253,7 +256,7 @@ test('#1315: a live-rejected add into a PRE-EXISTING dir removes only its own au
   } finally { openai.setFetcher(null); }
 });
 
-test('#1315: a live-rejected add into a NEWLY-created dir leaves no directory behind (matches addWithKey anti-litter)', { skip: STANDIN }, async () => {
+test('#1315: a live-rejected add into a NEWLY-created dir leaves no directory behind (matches addWithKey anti-litter)', async () => {
   const before = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-')).sort();
   openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
   try {
@@ -1113,7 +1116,7 @@ test('#1026 accountModels: an absent account says nobody signed in, never a fetc
   assert.match(String(out.because), /signed in/);
 });
 
-test('#2095: addWithKey persists the EXACT typed name (not the path slug) and serves it as `name`', { skip: STANDIN }, () => {
+test('#2095: addWithKey persists the EXACT typed name (not the path slug) and serves it as `name`', () => {
   const out = openai.addWithKey({ key: 'sk-proj-namedkeynamedkeyNAM1', label: 'My Work Account', codexBin: FAKE_CODEX });
   assert.equal(out.ok, true, out.because);
   // The dir/label is slug-sanitised for a safe path...
@@ -1158,14 +1161,14 @@ test('#2095: readName/writeName are fail-open and trim; an empty name is not wri
   assert.equal(openai.readName(e), null);
 });
 
-test('#2095: addWithKey with no label leaves name null (a work-slot account is not falsely named)', { skip: STANDIN }, () => {
+test('#2095: addWithKey with no label leaves name null (a work-slot account is not falsely named)', () => {
   const out = openai.addWithKey({ key: 'sk-proj-nolabelkeynolabNOL1', codexBin: FAKE_CODEX });
   assert.equal(out.ok, true, out.because);
   assert.match(out.account.label, /^work\d+$/);
   assert.equal(out.account.name, null, 'an auto-slotted account has no human-chosen name');
 });
 
-test('#2095: a live-rejected add into a REUSED auth-less dir cleans up the name sidecar (no stale-name leak)', { skip: STANDIN }, async () => {
+test('#2095: a live-rejected add into a REUSED auth-less dir cleans up the name sidecar (no stale-name leak)', async () => {
   // Pre-create an auth-less labelled dir so addWithKey succeeds into it with
   // madeDir=false (the undo path that removes files rather than the whole dir).
   const dir = nodePath.join(SANDBOX, '.codex-reusename');
@@ -1202,7 +1205,7 @@ test('#2095: the clamp is code-point-safe (an emoji at the boundary is not split
   assert.equal([...got].length, 120, 'clamped to exactly 120 code points (119 + the whole emoji)');
 });
 
-test('#2095: a made-dir live-rejection removes the whole dir including the name file (belt-and-suspenders)', { skip: STANDIN }, async () => {
+test('#2095: a made-dir live-rejection removes the whole dir including the name file (belt-and-suspenders)', async () => {
   // The higher-stakes branch: addWithKey CREATED the dir (madeDir=true), so undo
   // rmSyncs the whole dir recursively -- the name file goes with it.
   openai.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));

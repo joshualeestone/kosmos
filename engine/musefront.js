@@ -329,7 +329,11 @@ function logTurn(workspace, text, at, arrived = null) {
       try { fs.renameSync(file, file + '.1'); } catch { cut = true; }   // cut on the opened file below, not by path
     }
     const c = fs.constants;
-    const fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
+    /* kosmos#9270: a file that must be cut is opened WITHOUT O_APPEND. On Windows libuv opens an O_APPEND file with append
+       access only, so ftruncate below failed there, the catch at the end swallowed it, and nothing was ever logged again.
+       Still truncated only after the fstat check below (never O_TRUNC at open, which would cut a hard link before the
+       check); the write then lands at offset 0 of the emptied file. */
+    const fd = fs.openSync(file, c.O_WRONLY | (cut ? 0 : c.O_APPEND) | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
     try {
       const f = fs.fstatSync(fd);
       if (f.isFile() && f.nlink === 1) {

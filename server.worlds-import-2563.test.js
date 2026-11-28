@@ -35,6 +35,8 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 // real hazard the shipped meta-guard enforces). fleet.install sets the status
 // pane-source seam to a fixture, so this board reads the fixture, never real agents.
 const fleet = require('./test-support/fleet');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
+require('./test-support/jobfixture').useJobStore();   // kosmos#8378: on Windows the import asks Task Scheduler what starts as each agent; the stand-in answers
 const srv = require('./server.js');
 const worlds = require('./engine/worlds.js');
 
@@ -75,7 +77,7 @@ test('#2563 POST /api/worlds importAgentsFrom copies agents into the new Kosmos,
   }).then(j);
   assert.equal(made.ok, true, made.because || '');
   assert.ok(made.imported, 'the response reports what it imported');
-  assert.deepEqual(made.imported.copied.map((c) => c.name), ['alice', 'bob'], 'both source agents were copied');
+  assert.deepEqual(made.imported.copied.map((c) => c.name), ['alice', 'bob'], 'both source agents were copied: ' + JSON.stringify(made.imported).slice(0, 600));
   assert.deepEqual(made.imported.refused, []);
 
   const b = worlds.baseRoot(process.env);

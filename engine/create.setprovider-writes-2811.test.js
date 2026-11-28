@@ -34,16 +34,48 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
 
 const test = require('node:test');
 const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
-const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
-/* kosmos#8378: the two best-effort arms make a write fail by taking a FOLDER's POSIX write permission away. Windows keeps
-   no such permission (chmod sets only a read-only flag, which a folder ignores), so there the write succeeds and the arm
-   cannot fail it. What they check exists on Windows; its Windows arm is owed on kosmos#9269. */
-const NO_FOLDER_MODES = skipOnWin32('what it checks exists on Windows, but it makes the write fail by taking a folder\'s POSIX write permission away (chmod 0500), which Windows does not keep; the Windows arm is owed on kosmos#9269');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const nodePath = require('node:path');
+/* kosmos#8378, kosmos#9269: the two best-effort arms make a write fail by taking a FOLDER's POSIX write permission away
+   (chmod 0500). Windows keeps no such permission (chmod sets only a read-only flag, which a folder ignores), so there the
+   same EACCES is forced through the fs calls instead: every call that would add, remove or rename an entry DIRECTLY in
+   that folder (what 0500 refuses), and nothing else, so an existing file in it can still be read and rewritten in place.
+   The calls these arms reach are fs.renameSync (the brief) and fs.openSync(tmp, 'wx') (securewrite's temp for the
+   profile). KOSMOS_TEST_CHMOD_STUB=1 runs the stub arm on a Mac or Linux. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+function denyFolderWrites(dir) {
+  const d = nodePath.resolve(dir);
+  const inDir = (p) => typeof p === 'string' && nodePath.dirname(nodePath.resolve(p)) === d;
+  const isNew = (p) => inDir(p) && !fs.existsSync(p);
+  const creates = (flags) => (typeof flags === 'string' ? /[wa]/.test(flags) : typeof flags === 'number' && (flags & fs.constants.O_CREAT) !== 0);
+  const eacces = (syscall, p) => Object.assign(new Error(`EACCES: permission denied, ${syscall} '${p}'`), { code: 'EACCES', syscall, path: p });
+  const rules = {
+    renameSync: (a, b) => (inDir(a) || inDir(b) ? ['rename', a] : null),
+    unlinkSync: (p) => (inDir(p) ? ['unlink', p] : null),
+    rmSync: (p) => (inDir(p) && fs.existsSync(p) ? ['rm', p] : null),
+    rmdirSync: (p) => (inDir(p) ? ['rmdir', p] : null),
+    mkdirSync: (p) => (isNew(p) ? ['mkdir', p] : null),
+    symlinkSync: (t, p) => (inDir(p) ? ['symlink', p] : null),
+    linkSync: (a, p) => (inDir(p) ? ['link', p] : null),
+    copyFileSync: (a, p) => (isNew(p) ? ['copyfile', p] : null),
+    openSync: (p, flags) => (isNew(p) && creates(flags) ? ['open', p] : null),
+    writeFileSync: (p, data, o) => (isNew(p) && creates((o && typeof o === 'object' ? o.flag : null) || 'w') ? ['open', p] : null),
+    appendFileSync: (p) => (isNew(p) ? ['open', p] : null),
+  };
+  const real = {};
+  for (const name of Object.keys(rules)) {
+    real[name] = fs[name];
+    fs[name] = function (...args) {
+      const hit = rules[name](...args);
+      if (hit) throw eacces(hit[0], hit[1]);
+      return real[name].apply(this, args);
+    };
+  }
+  return () => { for (const name of Object.keys(real)) fs[name] = real[name]; };
+}
 
 /* Sealed BEFORE ./create is required, and BOTH codex roots deleted, for the
    reasons create.switch-account-1373.test.js documents at length: an ambient
@@ -337,7 +369,7 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
 });
 
 
-test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', { skip: NO_FOLDER_MODES }, (t) => {
+test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', (t) => {
   /* 🛑 WHY: the header calls writes 3 and 4 "best-effort: its catch swallows", and
      round 27 measured that NO test in the repo reaches either catch. Both were
      replaced with a throw and every file that exercises `setProvider` was run: no
@@ -348,17 +380,18 @@ test('#2811: the brief RENAME is best-effort, so a failing rename does not abort
      same-directory rename throws. Read and execute stay on, so the two
      `existsSync` checks above the rename still behave normally and the rename is
      genuinely reached. */
-  if (process.getuid && process.getuid() === 0) { t.skip('running as root, so the mode bits are ignored'); return; }
+  if (!CHMOD_VIA_STUB && process.getuid && process.getuid() === 0) { t.skip('running as root, so the mode bits are ignored'); return; }
 
   const name = born('setprov-2811-renameswallow');
   const dir = create.workerDir(name);
   const cfg = nodePath.join(SIGNIN, 'config.toml');
   if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
 
-  fs.chmodSync(dir, 0o500); // readable and listable, NOT writable
+  // Readable and listable, NOT writable. kosmos#9269: on Windows the rename's EACCES is forced instead (denyFolderWrites).
+  const unblock = CHMOD_VIA_STUB ? denyFolderWrites(dir) : (fs.chmodSync(dir, 0o500), null);
   let sw;
   try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
-  finally { fs.chmodSync(dir, 0o700); }
+  finally { if (unblock) unblock(); else fs.chmodSync(dir, 0o700); }
 
   assert.equal(sw.outcome, create.OUTCOME.CREATED,
     'a failing BRIEF RENAME aborted the switch, so it is a gate and not best-effort: ' + sw.because);
@@ -379,11 +412,11 @@ test('#2811: the brief RENAME is best-effort, so a failing rename does not abort
     'the profile write (which FOLLOWS the rename) did not happen, so the rename did gate it');
 });
 
-test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', { skip: NO_FOLDER_MODES }, (t) => {
+test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', (t) => {
   /* The pair of the arm above, for write 4. Real EACCES: the profiles directory is
      made non-writable, and `store.writeProfile` writes a temp file beside the
      target and renames it, so both steps need directory write permission. */
-  if (process.getuid && process.getuid() === 0) { t.skip('running as root, so the mode bits are ignored'); return; }
+  if (!CHMOD_VIA_STUB && process.getuid && process.getuid() === 0) { t.skip('running as root, so the mode bits are ignored'); return; }
 
   const name = born('setprov-2811-profileswallow');
   const dir = create.workerDir(name);
@@ -391,10 +424,10 @@ test('#2811: the PROFILE write is best-effort, so a failing profile write does n
   if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
   const profiles = store.PROFILES;
 
-  fs.chmodSync(profiles, 0o500);
+  const unblock = CHMOD_VIA_STUB ? denyFolderWrites(profiles) : (fs.chmodSync(profiles, 0o500), null);   // kosmos#9269
   let sw;
   try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
-  finally { fs.chmodSync(profiles, 0o700); }
+  finally { if (unblock) unblock(); else fs.chmodSync(profiles, 0o700); }
 
   assert.equal(sw.outcome, create.OUTCOME.CREATED,
     'a failing PROFILE write aborted the switch, so it is a gate and not best-effort: ' + sw.because);

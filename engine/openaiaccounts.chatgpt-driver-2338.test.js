@@ -36,33 +36,48 @@ const ID_TOKEN = idToken('pete@example.com');
 // A mock `codex`: prints a URL + code, then (normal) writes a chatgpt auth.json into
 // CODEX_HOME and exits 0; (FAIL) exits 1 with no auth.json; (SLEEP) prints then sleeps
 // so a cancel can kill it mid-flight.
-const MOCK = nodePath.join(SANDBOX, 'codex-mock.sh');
-fs.writeFileSync(MOCK, `#!/bin/bash
-if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
-if [ "$FAKE_CODEX_IGNORE_TERM" = "1" ]; then trap '' TERM; echo "waiting..."; sleep 60; exit 0; fi
-if [ "$FAKE_CODEX_TRICKY" = "1" ]; then
-  # a URL with trailing punctuation, and an 8-char alnum token INSIDE the URL that
-  # must NOT be mistaken for the real hyphenated device code that follows it. The
-  # code is the REAL 4-5 shape measured 2026-09-09 (3PI3-2LM3M), which the old
-  # fixed {4}-{4} regex missed -- this fixture would return userCode:null pre-fix.
-  echo "Go to https://auth.openai.com/AB12CD34. Then enter 3PI3-2LM3M"
-else
-  echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
-fi
-if [ "$FAKE_CODEX_SLEEP" = "1" ]; then sleep 30; exit 0; fi
-if [ "$FAKE_CODEX_APIKEY" = "1" ]; then printf '{"auth_mode":"apikey","OPENAI_API_KEY":"sk-x"}' > "$CODEX_HOME/auth.json"; exit 0; fi
-printf '{"auth_mode":"chatgpt","tokens":{"id_token":"%s"}}' "$FAKE_ID_TOKEN" > "$CODEX_HOME/auth.json"
-exit 0
+const MOCK = nodePath.join(SANDBOX, 'codex-mock.js');
+fs.writeFileSync(MOCK, `#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const e = process.env;
+// exitCode, never process.exit() after a write: a write to a pipe is not always finished when exit() runs.
+(function main() {
+  if (e.FAKE_CODEX_FAIL === '1') { process.stderr.write('sign-in failed\\n'); process.exitCode = 1; return; }
+  if (e.FAKE_CODEX_IGNORE_TERM === '1') {
+    process.on('SIGTERM', () => {});   // trap '' TERM
+    process.stdout.write('waiting...\\n');
+    setTimeout(() => {}, 60000);       // sleep 60; exit 0
+    return;
+  }
+  if (e.FAKE_CODEX_TRICKY === '1') {
+    // a URL with trailing punctuation, and an 8-char alnum token INSIDE the URL that
+    // must NOT be mistaken for the real hyphenated device code that follows it. The
+    // code is the REAL 4-5 shape measured 2026-09-09 (3PI3-2LM3M), which the old
+    // fixed {4}-{4} regex missed -- this fixture would return userCode:null pre-fix.
+    process.stdout.write('Go to https://auth.openai.com/AB12CD34. Then enter 3PI3-2LM3M\\n');
+  } else {
+    process.stdout.write('Sign in at https://auth.openai.com/device and enter code WXYZ-1234\\n');
+  }
+  if (e.FAKE_CODEX_SLEEP === '1') { setTimeout(() => {}, 30000); return; }   // sleep 30; exit 0
+  const auth = path.join(e.CODEX_HOME, 'auth.json');
+  if (e.FAKE_CODEX_APIKEY === '1') { fs.writeFileSync(auth, '{"auth_mode":"apikey","OPENAI_API_KEY":"sk-x"}'); return; }
+  fs.writeFileSync(auth, '{"auth_mode":"chatgpt","tokens":{"id_token":"' + (e.FAKE_ID_TOKEN || '') + '"}}');
+})();
 `);
-fs.chmodSync(MOCK, 0o755);
-/* kosmos#8378: startChatgptLogin spawns MOCK, a #!/bin/bash script, so it runs by its shebang line, which Windows cannot
-   do (and a .sh name is not runnable there at all). The sign-in driver exists on Windows, so the arms that run MOCK skip
-   there until kosmos#9269 gives them a Windows stand-in (whose browser-mode arms must also allow for win32 always
-   signing in by device code, chatgptLoginMode). The arm whose MOCK traps SIGTERM skips for that instead: Windows has
-   no signals. The two refusal arms spawn nothing and run there. */
+fs.chmodSync(MOCK, 0o755);   // the Mac runs it only with the exec bit (runners.isRunnable)
+/* kosmos#9269: MOCK is a node script whose name ends .js, so startChatgptLogin starts it as this node with the script as
+   its first argument (engine/tunnelcommand.js), on the Mac and on Windows alike, never by its shebang line. It is
+   runnable on the Mac by its exec bit and on Windows by its .js extension (PATHEXT), so the driver arms run on both.
+   Windows always signs in by device code (chatgptLoginMode), so on Windows: a browser-mode start answers 'device', the
+   driver opens the device page itself (so this file sets the opener seam, and no real browser ever opens), and the
+   watchdog is the device one (so the watchdog arm shrinks deviceTimeout too). The arm whose MOCK ignores SIGTERM still
+   skips on Windows: Windows has no signals. The two refusal arms spawn nothing. */
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
-const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in codex is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
 const SIGNALS = skipOnWin32('its stand-in codex traps SIGTERM to outlive the watchdog, and Windows has no signals');
+const OPENED = [];
+openai.setChatgptBrowserOpener((link) => { OPENED.push(link); });
 process.env.FAKE_ID_TOKEN = ID_TOKEN;
 
 // #5727: poll chatgptLoginStatus via the shared eventually() helper, which scales its
@@ -75,11 +90,11 @@ async function waitFor(sessionId, pred, ms = 4000) {
   });
 }
 
-test('start spawns codex login and, on a clean exit with a chatgpt auth.json, reaches connected with the account', { skip: STANDIN }, async () => {
+test('start spawns codex login and, on a clean exit with a chatgpt auth.json, reaches connected with the account', async () => {
   delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP;
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser' });
   assert.equal(r.ok, true, r.because);
-  assert.equal(r.mode, 'browser');
+  assert.equal(r.mode, openai.chatgptLoginMode('browser'), 'browser on the Mac; Windows always signs in by device code');
   const s = await waitFor(r.sessionId, (x) => x.state === 'connected' || x.state === 'error');
   assert.equal(s.state, 'connected', s.error);
   assert.equal(s.account.authMode, 'chatgpt');
@@ -87,7 +102,7 @@ test('start spawns codex login and, on a clean exit with a chatgpt auth.json, re
   assert.equal(s.account.keyTail, null);
 });
 
-test('device mode passes --device-auth and the account lands connected', { skip: STANDIN }, async () => {
+test('device mode passes --device-auth and the account lands connected', async () => {
   delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP;
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'device', label: 'Side' });
   assert.equal(r.ok, true, r.because);
@@ -97,7 +112,7 @@ test('device mode passes --device-auth and the account lands connected', { skip:
   assert.equal(s.account.authMode, 'chatgpt');
 });
 
-test('a failed codex login (nonzero exit) reaches error and removes the dir it created', { skip: STANDIN }, async () => {
+test('a failed codex login (nonzero exit) reaches error and removes the dir it created', async () => {
   process.env.FAKE_CODEX_FAIL = '1';
   const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'willfail' });
   assert.equal(r.ok, true, r.because);
@@ -107,7 +122,7 @@ test('a failed codex login (nonzero exit) reaches error and removes the dir it c
   delete process.env.FAKE_CODEX_FAIL;
 });
 
-test('cancel kills the child and removes the created dir', { skip: STANDIN }, async () => {
+test('cancel kills the child and removes the created dir', async () => {
   process.env.FAKE_CODEX_SLEEP = '1';
   const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'cancelme' });
   assert.equal(r.ok, true, r.because);
@@ -143,11 +158,11 @@ test('status for an unknown session is a clean refusal', () => {
 
 // #2338 iter-1 (resource bounds). Always restore the real timers after a test
 // that shrank them, so a later test is never run with a 60ms watchdog.
-const REAL_TIMERS = { timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 };
+const REAL_TIMERS = { timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000, ttl: 2 * 60 * 1000 };
 test.afterEach(() => { openai.setChatgptTimers(REAL_TIMERS); });
 
-test('an ABANDONED sign-in (never cancelled) is killed by the watchdog and errors, not left running forever', { skip: STANDIN }, async () => {
-  openai.setChatgptTimers({ timeout: 60, ttl: 100000 }); // 60ms watchdog; long ttl so the errored session lingers to be read
+test('an ABANDONED sign-in (never cancelled) is killed by the watchdog and errors, not left running forever', async () => {
+  openai.setChatgptTimers({ timeout: 60, deviceTimeout: 60, ttl: 100000 }); // 60ms watchdog (the device one is Windows'); long ttl so the errored session lingers to be read
   process.env.FAKE_CODEX_SLEEP = '1'; // the mock prints, then sleeps 30s (never exits on its own)
   const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'abandoned' });
   assert.equal(r.ok, true, r.because);
@@ -167,7 +182,7 @@ test('an ABANDONED sign-in (never cancelled) is killed by the watchdog and error
   delete process.env.FAKE_CODEX_SLEEP;
 });
 
-test('a SETTLED session is dropped from the Map after the read-grace TTL (no unbounded growth)', { skip: STANDIN }, async () => {
+test('a SETTLED session is dropped from the Map after the read-grace TTL (no unbounded growth)', async () => {
   openai.setChatgptTimers({ timeout: 100000, ttl: 200 }); // long watchdog; 200ms grace
   delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP;
   const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'reapme' });
@@ -179,7 +194,7 @@ test('a SETTLED session is dropped from the Map after the read-grace TTL (no unb
   assert.equal(openai.chatgptLoginStatus(r.sessionId).ok, false, 'the session is reaped once the TTL elapses');
 });
 
-test('concurrent UNLABELLED starts get DIFFERENT work slots (no shared CODEX_HOME)', { skip: STANDIN }, async () => {
+test('concurrent UNLABELLED starts get DIFFERENT work slots (no shared CODEX_HOME)', async () => {
   process.env.FAKE_CODEX_SLEEP = '1'; // both stay pending, holding their slots
   const before = new Set(fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-work')));
   const a = openai.startChatgptLogin({ codexBin: MOCK });
@@ -194,7 +209,7 @@ test('concurrent UNLABELLED starts get DIFFERENT work slots (no shared CODEX_HOM
   delete process.env.FAKE_CODEX_SLEEP;
 });
 
-test('cancelling an ALREADY-CONNECTED session does not regress it (cancelled:false, account kept)', { skip: STANDIN }, async () => {
+test('cancelling an ALREADY-CONNECTED session does not regress it (cancelled:false, account kept)', async () => {
   openai.setChatgptTimers({ timeout: 100000, ttl: 100000 }); // keep the session readable
   delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP; delete process.env.FAKE_CODEX_TRICKY;
   const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'keepme' });
@@ -208,7 +223,7 @@ test('cancelling an ALREADY-CONNECTED session does not regress it (cancelled:fal
   assert.ok(after.account, 'the real account is preserved');
 });
 
-test('the auth prompt is parsed cleanly: no trailing URL punctuation, and a URL token is not the device code', { skip: STANDIN }, async () => {
+test('the auth prompt is parsed cleanly: no trailing URL punctuation, and a URL token is not the device code', async () => {
   delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP;
   process.env.FAKE_CODEX_TRICKY = '1';
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'device', label: 'tricky' });
@@ -242,7 +257,7 @@ test('a child that IGNORES SIGTERM is SIGKILLed, so its slot and dir are still f
   delete process.env.FAKE_CODEX_IGNORE_TERM;
 });
 
-test('a REUSED auth-less slot where codex writes a non-subscription auth.json is not left as a spurious account', { skip: STANDIN }, async () => {
+test('a REUSED auth-less slot where codex writes a non-subscription auth.json is not left as a spurious account', async () => {
   openai.setChatgptTimers({ timeout: 100000, ttl: 100000 });
   delete process.env.FAKE_CODEX_SLEEP; delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_IGNORE_TERM;
   process.env.FAKE_CODEX_APIKEY = '1';
@@ -260,7 +275,7 @@ test('a REUSED auth-less slot where codex writes a non-subscription auth.json is
   delete process.env.FAKE_CODEX_APIKEY;
 });
 
-test('the api-key flow will not write into a slot a live ChatGPT sign-in holds (no cross-flow credential clobber)', { skip: STANDIN }, async () => {
+test('the api-key flow will not write into a slot a live ChatGPT sign-in holds (no cross-flow credential clobber)', async () => {
   openai.setChatgptTimers({ timeout: 100000, ttl: 100000 });
   delete process.env.FAKE_CODEX_APIKEY; delete process.env.FAKE_CODEX_FAIL;
   process.env.FAKE_CODEX_SLEEP = '1'; // the chatgpt child stays pending, HOLDING .codex-crossflow
@@ -277,4 +292,4 @@ test('the api-key flow will not write into a slot a live ChatGPT sign-in holds (
   delete process.env.FAKE_CODEX_SLEEP;
 });
 
-test.after(() => { openai.setChatgptTimers({ timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 }); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+test.after(() => { openai.setChatgptTimers({ timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000, ttl: 2 * 60 * 1000 }); openai.setChatgptBrowserOpener(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });

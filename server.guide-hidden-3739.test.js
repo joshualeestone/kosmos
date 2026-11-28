@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, markGuide } = require('./server');
 const fleet = require('./test-support/fleet');
 const setupAssistant = require('./engine/setup-assistant');

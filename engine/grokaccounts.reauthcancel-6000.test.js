@@ -4,7 +4,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  * #6000 (the #5994 shape, on Grok): removing or forgetting a Grok account cancels the account's OWN unfinished
  * "Sign in again" instead of refusing until the watchdog ends it. Any other hold still refuses, a refused call (or a
  * failed one that leaves the account whole) cancels nothing, and the cancelled sign-in's late exit cannot release a hold a new sign-in takes on the path.
- * Driven against a FAKE grok that hangs (exec sleep, so a kill reaches it) or ignores SIGTERM.
+ * Driven against a FAKE grok (a node script) that hangs (the script itself waits, so a kill reaches it) or ignores SIGTERM.
  *
  *   node --test engine/grokaccounts.reauthcancel-6000.test.js
  */
@@ -21,28 +21,46 @@ const grok = require('./grokaccounts');
 const { eventually } = require('../test-support/eventually');
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const FAKE = nodePath.join(SANDBOX, 'fake-grok.sh');
-const CODE = 'printf "\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\nConfirm this code in your browser:\\n\\n  QWER-TYUI\\n\\n"';
+const FAKE = nodePath.join(SANDBOX, 'fake-grok.js');
+const CODE = "say('\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\nConfirm this code in your browser:\\n\\n  QWER-TYUI\\n\\n');";
 fs.writeFileSync(FAKE, [
-  '#!/bin/bash',
-  // ignoreterm: the trap is set BEFORE the code is printed, so "a code is showing" means a cancel cannot kill it.
-  'if [ "$FAKE_MODE" = "ignoreterm" ]; then trap \'\' TERM; ' + CODE + '; while :; do sleep 0.2; done; fi',
+  '#!/usr/bin/env node',
+  "'use strict';",
+  "const fs = require('fs');",
+  // Synchronous writes, so what is printed or written is never lost when the script exits right after it.
+  "const say = (s) => fs.writeSync(1, s);",
+  "const mode = process.env.FAKE_MODE;",
+  // ignoreterm: the handler is set BEFORE the code is printed, so "a code is showing" means a cancel cannot kill it.
+  "if (mode === 'ignoreterm') process.on('SIGTERM', () => {});",
   // writeonterm: on SIGTERM wait half a second, then write a valid sign-in for $FAKE_EMAIL and exit 0: the one way a
   // cancelled sign-in again could still try to promote, late enough for a test to put a folder back at the path first.
-  'if [ "$FAKE_MODE" = "writeonterm" ]; then trap \'sleep 0.5; printf "{\\"https://auth.x.ai::u2\\":{\\"email\\":\\"%s\\",\\"refresh_token\\":\\"NEW\\"}}" "$FAKE_EMAIL" > "$GROK_HOME/auth.json"; exit 0\' TERM; ' + CODE + '; while :; do sleep 0.2; done; fi',
+  // A second SIGTERM while it waits changes nothing, as a bash trap still set would not either.
+  "let dying = false;",
+  "if (mode === 'writeonterm') process.on('SIGTERM', () => {",
+  "  if (dying) return;",
+  "  dying = true;",
+  "  setTimeout(() => {",
+  "    try { fs.writeFileSync((process.env.GROK_HOME || '') + '/auth.json', '{\"https://auth.x.ai::u2\":{\"email\":\"' + (process.env.FAKE_EMAIL || '') + '\",\"refresh_token\":\"NEW\"}}'); }",
+  "    catch (e) { fs.writeSync(2, String(e.message) + '\\n'); }",
+  "    process.exit(0);",
+  "  }, 500);",
+  "});",
   CODE,
-  'exec sleep 30',
+  // Both trap modes wait forever (until a SIGKILL, or the write above); any other mode waits 30 s and exits 0.
+  "if (mode === 'ignoreterm' || mode === 'writeonterm') setInterval(() => {}, 200);",
+  "else setTimeout(() => process.exit(0), 30000);",
 ].join('\n') + '\n', { mode: 0o755 });
+fs.chmodSync(FAKE, 0o755);   // runnable on the Mac by its mode; Windows runs it by its .js name (PATHEXT)
 
-/* kosmos#8378: FAKE is a #!/bin/bash script that startGrokLogin spawns, so it runs by its shebang line, which Windows
-   cannot do (and a .sh name is not runnable there at all). The sign-in again and the remove and forget it races exist on
-   Windows, so those arms skip there until kosmos#9269 gives them a Windows stand-in. The arms whose stand-in traps
-   SIGTERM skip for that instead: Windows has no signals, so no Windows stand-in could make them. A start that is
-   refused before anything is spawned needs only a runner Windows counts as runnable, so it uses PRESENT and runs there. */
+/* kosmos#9269: FAKE is a node script named .js, so it runs on every platform: startGrokLogin starts a .js grok as this
+   node with the script as its first argument (engine/tunnelcommand.js), and Windows counts a .js file as runnable by
+   its extension (PATHEXT) where the Mac needs its 0755 mode. So the sign-in again and the remove and forget it races
+   run on Windows too. The arms whose stand-in catches SIGTERM still skip there: Windows has no signals (a kill there
+   ends the process outright), so no stand-in could outlive a cancel. The arms that lock with chmod run there with
+   the failing fs call stubbed instead (see failing() below). A start that is refused before anything is spawned needs only a runner Windows counts as runnable, so it uses
+   PRESENT. */
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
-const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in grok is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
 const SIGNALS = skipOnWin32('its stand-in grok traps SIGTERM to outlive a cancel, and Windows has no signals');
-const NO_CHMOD_FAIL = skipOnWin32('what it checks exists on Windows (a move or a delete that fails), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
 
 const OLD = (email) => JSON.stringify({ 'https://auth.x.ai::u1': { email, refresh_token: 'OLD' } });
@@ -84,7 +102,7 @@ test('#6000 premise: a new sign-in cannot stage into an existing account\'s fold
   assert.equal(grok.removeAccount(dir, []).removed, true, 'the refused start left a hold on the account');
 });
 
-test('#6000: removeAccount cancels the account\'s own unfinished sign-in again and deletes it', { skip: STANDIN }, async () => {
+test('#6000: removeAccount cancels the account\'s own unfinished sign-in again and deletes it', async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy', 'busy@example.com');
   const rm = grok.removeAccount(dir, []);
   assert.equal(rm.ok, true, rm.because);
@@ -111,7 +129,7 @@ test('#6000: a cancelled sign-in again that writes a valid sign-in as it dies do
   }
 });
 
-test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again and moves it aside', { skip: STANDIN }, async () => {
+test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again and moves it aside', async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy2', 'busy2@example.com');
   const f = grok.forgetAccount(dir, []);
   assert.equal(f.ok, true, f.because);
@@ -122,7 +140,7 @@ test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again a
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#6000: a REFUSED remove or forget (agents on the account: the #2570 pre-flight) cancels nothing', { skip: STANDIN }, async () => {
+test('#6000: a REFUSED remove or forget (agents on the account: the #2570 pre-flight) cancels nothing', async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy3', 'busy3@example.com');
   const rm = grok.removeAccount(dir, ['ava']);
   assert.equal(rm.ok, false);
@@ -161,7 +179,7 @@ test('#6000: the cancelled sign-in\'s late exit does not release a hold a NEW si
   }
 });
 
-test('#6000: a forget that FAILS at the move (no free name to move it to) cancels nothing', { skip: STANDIN }, async () => {
+test('#6000: a forget that FAILS at the move (no free name to move it to) cancels nothing', async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy6', 'busy6@example.com');
   const taken = [nodePath.join(SANDBOX, '.removed-grok-busy6')];
   for (let n = 2; n < 500; n += 1) taken.push(nodePath.join(SANDBOX, `.removed-grok-busy6-${n}`));
@@ -180,13 +198,36 @@ test('#6000: a forget that FAILS at the move (no free name to move it to) cancel
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-// chmod does not stop root, so these three skip there (as #5994's do). kosmos#8378: and chmod is all they lock with, so
-// they skip on Windows, which does not keep POSIX file modes.
-const AS_ROOT = { skip: NO_CHMOD_FAIL || (typeof process.getuid === 'function' && process.getuid() === 0) };
+/* kosmos#9269: these three lock with chmod on the Mac and Linux. Windows does not enforce chmod, so there the one fs
+   call the chmod makes fail is made to fail instead, with the code the chmod gives it: fs.renameSync out of the home
+   (EACCES) for the forget, fs.rmSync of the account folder (ENOTEMPTY, what a recursive rmSync reports when an entry
+   inside cannot go) for the two deletes. grokaccounts reaches fs through the module object at call time, so the
+   stub is what it calls. Each arm asserts the same outcome either way. KOSMOS_TEST_CHMOD_STUB=1 takes the Windows
+   path on any platform, so it can be run (and broken) on the Mac. */
+const CHMOD_VIA_STUB = process.platform === 'win32' || process.env.KOSMOS_TEST_CHMOD_STUB === '1';
+/* fs[name] throws `code` while `refuses(...args)` holds (after `before(...args)`, if given), and is the real call
+   otherwise. Returns the restore. */
+function failing(name, code, refuses, before) {
+  const orig = fs[name];
+  fs[name] = function stubbed(...args) {
+    if (refuses(...args)) {
+      if (before) before(orig, ...args);
+      throw Object.assign(new Error(code + ': ' + name + ' refused (a stand-in for chmod, kosmos#9269)'), { code });
+    }
+    return orig.apply(this, args);
+  };
+  return () => { fs[name] = orig; };
+}
+const same = (a, b) => nodePath.resolve(String(a)) === nodePath.resolve(String(b));
+// chmod does not stop root, so on the chmod path these three skip there (as #5994's do); the stub path does not care.
+const AS_ROOT = { skip: !CHMOD_VIA_STUB && typeof process.getuid === 'function' && process.getuid() === 0 };
 
 test('#6000: a forget whose MOVE itself fails (the home cannot be written) cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy10', 'busy10@example.com');
-  fs.chmodSync(SANDBOX, 0o555);   // the rename out of the home is refused; nothing in the account is touched
+  // The rename out of the home is refused; nothing in the account is touched.
+  const unlock = CHMOD_VIA_STUB
+    ? failing('renameSync', 'EACCES', (from, to) => same(nodePath.dirname(nodePath.resolve(String(from))), SANDBOX) || same(nodePath.dirname(nodePath.resolve(String(to))), SANDBOX))
+    : (fs.chmodSync(SANDBOX, 0o555), () => fs.chmodSync(SANDBOX, 0o755));
   try {
     const f = grok.forgetAccount(dir, []);
     assert.equal(f.ok, false);
@@ -194,7 +235,7 @@ test('#6000: a forget whose MOVE itself fails (the home cannot be written) cance
     const st = state(sessionId);
     assert.ok(st !== 'cancelled' && st !== 'error', 'a failed move cancelled the sign-in: ' + st);
   } finally {
-    fs.chmodSync(SANDBOX, 0o755);
+    unlock();
     grok.cancelGrokLogin(sessionId);
   }
   assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true);
@@ -206,9 +247,15 @@ test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the 
   const stuck = nodePath.join(dir, 'sessions');
   fs.mkdirSync(stuck, { recursive: true });
   fs.writeFileSync(nodePath.join(stuck, 'kept.jsonl'), '{}');
-  fs.chmodSync(stuck, 0o555);   // its file cannot be deleted, so rmSync throws after the rest is gone
+  // Its file cannot be deleted, so rmSync throws after the rest is gone. The stub does what the chmod leaves: every
+  // entry but sessions/ removed (auth.json among them), then the throw.
+  const unlock = CHMOD_VIA_STUB
+    ? failing('rmSync', 'ENOTEMPTY', (p) => same(p, dir), (orig) => {
+      for (const n of fs.readdirSync(dir)) if (n !== 'sessions') orig(nodePath.join(dir, n), { recursive: true, force: true });
+    })
+    : (fs.chmodSync(stuck, 0o555), () => fs.chmodSync(stuck, 0o755));
   let rm;
-  try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(stuck, 0o755); }
+  try { rm = grok.removeAccount(dir, []); } finally { unlock(); }
   assert.equal(rm.ok, false);
   assert.match(rm.because, /could not delete/);
   // rmSync walks entries in directory-listing order and stops at the first error, so on a filesystem that lists
@@ -225,9 +272,12 @@ test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the 
 
 test('#6000: a delete that fails while the account is still WHOLE cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-whole13', 'whole13@example.com');
-  fs.chmodSync(dir, 0o555);   // nothing inside can be deleted, so auth.json stays and the account is whole
+  // Nothing inside can be deleted, so auth.json stays and the account is whole.
+  const unlock = CHMOD_VIA_STUB
+    ? failing('rmSync', 'ENOTEMPTY', (p) => same(p, dir))
+    : (fs.chmodSync(dir, 0o555), () => fs.chmodSync(dir, 0o755));
   let rm;
-  try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(dir, 0o755); }
+  try { rm = grok.removeAccount(dir, []); } finally { unlock(); }
   assert.equal(rm.ok, false);
   assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true, 'fixture: auth.json was deleted');
   const st = state(sessionId);
@@ -236,7 +286,7 @@ test('#6000: a delete that fails while the account is still WHOLE cancels nothin
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-test('#6000: an account already gone from the disk still has its own unfinished sign-in again cancelled', { skip: STANDIN }, async () => {
+test('#6000: an account already gone from the disk still has its own unfinished sign-in again cancelled', async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-gone7', 'gone7@example.com');
   fs.rmSync(dir, { recursive: true, force: true });   // removed outside Kosmos
   const rm = grok.removeAccount(dir, []);
@@ -246,7 +296,7 @@ test('#6000: an account already gone from the disk still has its own unfinished 
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#6000: forgetting an account already gone from the disk also cancels its own unfinished sign-in again', { skip: STANDIN }, async () => {
+test('#6000: forgetting an account already gone from the disk also cancels its own unfinished sign-in again', async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-gone9', 'gone9@example.com');
   fs.rmSync(dir, { recursive: true, force: true });   // removed outside Kosmos
   const f = grok.forgetAccount(dir, []);
@@ -276,7 +326,7 @@ test('#6000: a sign-in again cancelled a moment ago (its child still exiting) do
   }
 });
 
-test('#6000: any OTHER hold still refuses (a new sign-in staging into that name)', { skip: STANDIN }, async () => {
+test('#6000: any OTHER hold still refuses (a new sign-in staging into that name)', async () => {
   const r = grok.startGrokLogin({ grokBin: FAKE, label: 'staging5' });
   assert.equal(r.ok, true, r.because);
   STARTED.push(r.sessionId);
