@@ -194,17 +194,20 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     failures with no such refusal fall back as before.
  *   - (kosmos#9307) anything already at a fresh temp name (a plain file, a directory, a dangling link on POSIX) counts
  *     as such a refusal too: the create fails EEXIST.
- *     The name carries this process's pid, thread, start time and a sequence number, so there are three honest
- *     routes: a crashed earlier process with the same pid, thread AND start millisecond (the reaper cannot remove its
+ *     The name carries this process's pid, thread, start time and a sequence number, so there are four
+ *     honest routes: a crashed earlier process with the same pid, thread AND start millisecond (the reaper cannot remove its
  *     temp: it reads it as this process's own); a second copy of this module loaded in the same thread and millisecond
- *     (a cleared require cache restarts the sequence) finding a temp a failed unlink left; or a network mount that
- *     resends an exclusive create after a lost reply and answers EEXIST for the file it just made. All three are near
- *     impossible, and each fails that save only when the other two attempts fail too (one EEXIST and a clean next
+ *     (a cleared require cache restarts the sequence) finding a temp a failed unlink left; a network mount that
+ *     resends an exclusive create after a lost reply and answers EEXIST for the file it just made; or two containers
+ *     with their own pid namespaces sharing the folder, the same small pid on thread 0 started in the same millisecond.
+ *     All four are near impossible, and each fails that save only when the other two attempts fail too (one EEXIST and a clean next
  *     attempt still saves). So three plain files planted at the three names no longer reach the in-place fallback (or
  *     its Windows race at the config). The module's own tests reach the fallback with EPERM now. A caller then sees
- *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES), which ride along as `lastAttempt`:
- *     no caller branches on those codes after a save (checked), and the one that shows a code to a person
- *     (githubdevice.js) shows this one instead.
+ *     ERR_KOSMOS_TEMP_SWAPPED, not the other attempts' own errors (ENOSPC, EACCES), which ride along as `lastAttempt`.
+ *     At least one caller branches on them: engine/backupstate.js marks a failed state save `retry` on EPERM or EACCES, so a
+ *     save refused this way is not retried at once (as for a swap since #9285). That is meant: somebody is planting,
+ *     and a prompt retry would only draw three more guessable names. githubdevice.js shows the code to a person, and
+ *     shows this one.
  *     NOT closed: plant shapes that fail the create with another code. On Windows a file held open and marked for
  *     deletion makes the create fail EPERM, not EEXIST, and EPERM is also the ordinary reason a Windows save reaches the
  *     fallback (antivirus, a sync client), so it cannot count as a plant; and on POSIX a temp unlinked between the
@@ -530,7 +533,7 @@ function writeSecret(file, data, mode, opts) {
       try { tfd = fs.openSync(tmp, 'wx', createMode); }
       catch (e) {
         /* kosmos#9307: something is already at a FRESH temp name (pid, thread, start time and a sequence number). Short of
-           three near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
+           four near-impossible routes (refuseFollowedLink's doc names them) it was planted, and three plants would reach
            the in-place fallback (on Windows, a race at the config itself). So it counts as a refusal, as a swapped name
            does. */
         if (e && e.code === 'EEXIST') {

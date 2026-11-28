@@ -84,7 +84,7 @@ for (const [name, write] of WRITERS) {
       if (flags === 'wx') { refused += 1; throw Object.assign(new Error('refused'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
       return realOpen.call(fs, target, flags, ...rest);
     };
-    try { assert.throws(() => write(), /refused/); } finally { fs.openSync = realOpen; }
+    try { assert.throws(() => write(), (e) => e && e.code === 'EPERM'); } finally { fs.openSync = realOpen; }   // the raw error, not a refusal
     assert.equal(refused, 3, 'the injected failure did not fire on all three atomic attempts');
     assert.deepEqual(fs.readFileSync(file), before, 'the file was rewritten in place');
   });

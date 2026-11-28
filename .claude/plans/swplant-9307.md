@@ -51,3 +51,11 @@ Mutation-checked (three mutations, each red). Added: directory and dangling-link
 check narrowed to regular files the test goes red), and the doc says a caller now sees ERR_KOSMOS_TEMP_SWAPPED rather
 than the other attempts' own codes, which ride as `lastAttempt` (no caller branches on them; githubdevice.js shows the
 code to a person, and shows this one).
+
+## Review 5
+Mutation-checked again (four mutations, each red). Corrected: the doc said no caller branches on the other attempts'
+codes "(checked)"; engine/backupstate.js does (it marks a failed state save `retry` on EPERM or EACCES), found by the
+reviewer after my search looked only near each call. Behaviour kept: a refused save is not retried at once, as for a
+swap since #9285, because a prompt retry only draws three more guessable names. Added the fourth honest route
+(containers with their own pid namespaces sharing a folder). The store test matches the raw EPERM by code. The
+dangling-link arm's "not followed" line was dropped (it could not fail where it runs).
