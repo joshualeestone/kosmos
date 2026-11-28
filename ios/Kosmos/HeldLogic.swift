@@ -190,7 +190,9 @@ enum Held {
         r.setValue("application/json", forHTTPHeaderField: "Accept")
     }
     static func queueRequest(_ mac: Settings.Mac, stopped: Bool) -> URLRequest {
-        var r = URLRequest(url: URL(string: "/api/community/moderation?status=" + (stopped ? "quarantined" : "held") + "&limit=\(max)", relativeTo: mac.url)!.absoluteURL)
+        let status = stopped ? "quarantined" : "held"
+        // One whole "/api/..." literal, so the route audit (server.ios-routes-6838) can read the route it asks for.
+        var r = URLRequest(url: URL(string: "/api/community/moderation?status=\(status)&limit=\(max)", relativeTo: mac.url)!.absoluteURL)
         sign(&r, mac)
         return r
     }
