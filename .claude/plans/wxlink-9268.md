@@ -57,3 +57,10 @@ the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac a
   save is not refused on Windows; trust.test.js 51 pass. The same 9 #1787 and #1793 arms as before fail, by name.
 - Windows, run 46119979883, after review 2: all four #9268 arms pass (24 pass in securewrite.test.js, the hard-link
   arm among them); trust.test.js 51 pass; the same 9 #1787 and #1793 arms fail, by name.
+- Review 3's mutants, each now failing an arm: the cleanup guard replaced with `true` (the re-pointed-link arm: it
+  deleted somebody's file) and `refuse = gone` replaced with `false` (the removed-name arm: the secret reached where
+  the link pointed). Removing the "not a regular file" rule fails no arm, on the Mac or on Windows (run 46120311980,
+  a never-merged mutant build): a folder at the name has another inode, so the identity rule refuses it first. The
+  rule stays for a mount whose identities cannot be read, where no test can reach it, and the code says so.
+- Accepted residue, stated in the code: the check runs once, right after the open, so a name swapped between it and
+  the rename still goes over the config. That window is the rename's own (it takes a path) and predates #9268.
