@@ -144,7 +144,7 @@ test('a front place\'s grace starts again each time the turn comes free: time sp
   hj.start({ root: r, agent: 'renet', label: 'by start', now: T0 + 40 });   // and then held by someone else for an hour
   ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 50 });
   hj.end({ root: r, agent: 'renet' });
-  const k = ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 60 * 60 * 1000 });
+  const k = ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 20 * 60 * 1000 });   // ten graces, inside PLACE_IDLE_MS
   assert.deepEqual([k.turn, names(k.ahead)], [false, ['mona']], 'mona lost the front for time the turn was not free');
 });
 
@@ -156,21 +156,22 @@ function withProcesses(fn) {
   rs.processStart = () => { seen.ps += 1; return 'A'; };
   try { return fn(seen); } finally { Object.assign(rs, was); }
 }
-// Twenty places past the 12 h ceiling, each tied to a process with a recorded start: every one needs a ps read to be shown.
+// Twenty places that asked a minute ago, each tied to a process with a recorded start: each one wants a ps read.
 function agedLine(r, now, base, n = 20) {
   const H = 60 * 60 * 1000;
-  const line = Array.from({ length: n }, (_, i) => ({ agent: 'a' + i, label: 'job ' + i, pid: base + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H, front: null, missed: 0 }));
+  const line = Array.from({ length: n }, (_, i) => ({ agent: 'a' + i, label: 'job ' + i, pid: base + i, pidStart: 'A', since: now - H, at: now - 60 * 1000, front: null, missed: 0 }));
   fs.writeFileSync(path.join(r, ht.FILE), JSON.stringify(line));
 }
 
-test('round 1: listing the line shares heavyjobs\' ps budget, and shows only the places it could check (the rest stay in the file)', () => withProcesses((seen) => {
+test('round 1: listing the line shares heavyjobs\' ps budget; a place it did not read is still shown, on signal 0 (round 3)', () => withProcesses((seen) => {
   const r = root();
   const now = Date.now();
   agedLine(r, now, 96100);
   const shownNow = ht.waiting({ root: r, now });
   assert.ok(seen.ps <= 8, 'ps ran ' + seen.ps + ' times for one listing');
-  assert.ok(shownNow.length >= 1 && shownNow.length === seen.ps, 'shown ' + shownNow.length + ' places for ' + seen.ps + ' reads: an unread aged place was shown');
-  assert.equal(ht.readLine(r).length, 20, 'a place the read could not check was dropped from the file');
+  assert.ok(seen.ps >= 1, 'control: the listing asked ps at all');
+  assert.equal(shownNow.length, 20, 'a place over the ps budget was left off: the idle limit keeps every place inside the ceiling');
+  assert.equal(ht.readLine(r).length, 20);
 }));
 
 test('round 1: one take spends at most the same ps budget on the line and the jobs together', () => withProcesses((seen) => {
@@ -204,4 +205,19 @@ test('round 2: a job this read could not check still holds the turn, so the turn
   const t = ht.take({ root: r, agent: 'angel', label: 'v', now, othersOf: () => undefined, startOf: () => undefined });
   assert.deepEqual([t.ok, t.turn, t.holder && t.holder.agent], [true, false, 'renet'], 'an unchecked overnight job was taken as a free turn');
   assert.equal(hj.readAll(r).length, 1, 'control: the unchecked job is still in the file');
+});
+
+test('round 3: a place nobody has asked for in PLACE_IDLE_MS is gone, even one tied to a running process', () => {
+  const r = root();
+  const startOf = () => 'P';   // its process runs, with a matching start: no ceiling would remove it
+  ht.take({ root: r, agent: 'renet', label: 'suite', now: T0 });
+  ht.take({ root: r, agent: 'angel', label: 'v', pid: 4900, now: T0 + 10, startOf });
+  assert.deepEqual(names(ht.waiting({ root: r, now: T0 + 10 + ht.PLACE_IDLE_MS, startOf })), ['angel'], 'inside the limit the place stays');
+  assert.deepEqual(ht.waiting({ root: r, now: T0 + 11 + ht.PLACE_IDLE_MS, startOf }), [], 'a place that stopped asking stayed past the limit');
+  assert.deepEqual(ht.readLine(r), [], 'and it left the file');
+  ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 });
+  const m = ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 2 * ht.PLACE_IDLE_MS });
+  assert.equal(m.place, 1, 'control: asking again keeps the place, however long the wait');
+  ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 3 * ht.PLACE_IDLE_MS - 1 });
+  assert.equal(ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 4 * ht.PLACE_IDLE_MS - 2 }).place, 1);
 });
