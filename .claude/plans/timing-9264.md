@@ -25,6 +25,12 @@ and a CLI that waits on stdin longer than the short peek still fails it.
   go red (killed at 20 s).
 - `KOSMOS_PIPED_PEEK_MS=300` -> `3000` (restored after): the new #9264 test goes red.
 
+## Rejected
+- A coarse upper bound (10 to 15 s) between the 250 ms floor and the 20 s kill: it would not catch a 3 s wait, and
+  it brings back load sensitivity (a run of this runner's own tests took 46 s at load 32, #6668's notes).
+- Exact-text matching of the peek's lines: a harmless reformat of the embedded node script would turn it red, the
+  same false red this card removes. The check matches the hand-off and the timer by pattern instead.
+
 ## Weakest premise
 The length check reads the source, not the running CLI: a peek made longer some other way (a second timer, a sleep
 before the read) would pass it. A behaviour-level check of that needs a clock, which is what this card removes.
