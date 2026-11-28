@@ -669,6 +669,47 @@ test('when writing the task fails on our side (a full disk), the call answers 50
   assert.equal((await call(made.json.url, { title: 'control: works again' })).status, 201);
 });
 
+test('kosmos#9309: a save the secure writer refuses (a swapped temp, a planted link) answers 503, never 400; CONTROL: a request error is still 400', async () => {
+  const securewrite = require('./engine/securewrite');
+  const orig = securewrite.writeSecret;
+  for (const code of ['ERR_KOSMOS_TEMP_SWAPPED', 'ERR_KOSMOS_SYMLINK', 'EACCES', 'UNKNOWN']) {   // UNKNOWN: libuv on Windows
+    let calls = 0;
+    securewrite.writeSecret = (file, ...rest) => {
+      if (!/webhooks\.json$/.test(String(file))) return orig(file, ...rest);   // only the webhooks file is refused
+      calls += 1;
+      throw Object.assign(new Error('refusing to write a secret through a symlink at /Users/someone/secret/webhooks.json'), { code });
+    };
+    let r;
+    try { r = await api(P(), { method: 'POST', body: { name: 'Refused ' + code } }); } finally { securewrite.writeSecret = orig; }
+    assert.equal(calls, 1, 'the webhooks file was refused once: ' + code);
+    assert.equal(r.status, 503, code);
+    assert.ok(r.json.error.includes(code), 'the person is told the code: ' + r.json.error);
+    if (code === 'EACCES') assert.match(r.json.error, /not allowed to write there/, 'a common disk code is said in plain words too');
+    assert.doesNotMatch(r.json.error, /someone|secret/, 'the message, which names the path, is never shown: ' + r.json.error);
+  }
+  assert.equal((await api(P(), { method: 'POST', body: { name: 'x'.repeat(webhooks.NAME_MAX + 1) } })).status, 400, 'CONTROL: a name too long is the request');
+  assert.equal((await api(P(), { method: 'POST', body: { name: 'control: works again' } })).status, 201);
+});
+
+test('kosmos#9309: a call whose task save fails with any coded error (libuv UNKNOWN, a swapped temp) answers 503 with the code, never 400 or the path', async () => {
+  const tasksMod = require('./engine/tasks');
+  const made = await api(P(), { method: 'POST', body: { name: 'Coded failure' } });
+  const orig = tasksMod.create;
+  for (const code of ['UNKNOWN', 'ERR_KOSMOS_TEMP_SWAPPED']) {
+    tasksMod.create = () => { throw Object.assign(new Error("UNKNOWN: unknown error, open '/Users/someone/secret/tasks.json'"), { code }); };
+    let r;
+    try { r = await call(made.json.url, { title: 'x' }); } finally { tasksMod.create = orig; }
+    assert.equal(r.status, 503, code + ': a 400 would make a sender drop the event');
+    assert.ok(r.json.error.includes(code), r.json.error);
+    assert.doesNotMatch(r.json.error, /someone|secret/, 'no path to an outside sender: ' + r.json.error);
+  }
+  tasksMod.create = () => { throw new Error('there is something wrong with that title'); };   // CONTROL: an uncoded error is the request's
+  let bad;
+  try { bad = await call(made.json.url, { title: 'x' }); } finally { tasksMod.create = orig; }
+  assert.equal(bad.status, 400, 'an uncoded error is the request, so a sender does not retry it');
+  assert.equal((await call(made.json.url, { title: 'control: works again' })).status, 201);
+});
+
 test('a webhooks file that is JSON of the wrong shape is treated as damaged (503), then set aside, not overwritten', async () => {
   const file = path.join(require('./engine/store').ROOT, 'webhooks', 'webhooks.json');
   const made = await api(P(), { method: 'POST', body: { name: 'Shape' } });

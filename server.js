@@ -5128,6 +5128,26 @@ function sendJsonTagged(req, res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store', etag: tag });
   res.end(body);
 }
+/* kosmos#9309: how a webhook route answers a failed read or save. The request's own errors (a bad name, the cap, an
+   unknown id, a bad title) carry no code and are shown as they are, 400. A busy lock or an UNREADABLE file is this
+   computer's state, 503 with its own fixed sentence. Any other error with a code is this computer's too (an fs E-code,
+   libuv's UNKNOWN on Windows, a securewrite refusal such as ERR_KOSMOS_TEMP_SWAPPED or ERR_KOSMOS_SYMLINK): 503, and
+   since its message can name a file's absolute path, the caller gets the code and the log gets the error. 503, never
+   400, so a sender like Zapier retries rather than dropping the event for good. */
+const TROUBLE_WORDS = { ENOSPC: 'the disk is full', EACCES: 'it is not allowed to write there', EPERM: 'it is not allowed to write there',
+  EROFS: 'the disk is read-only', EDQUOT: 'the disk quota is used up' };   // plain words for the common disk codes, no path
+function webhookTrouble(err, what) {
+  const msg = String((err && err.message) || '');
+  const code = String((err && err.code) || '');
+  const machine = code !== '' && code !== 'UNREADABLE';
+  if (machine) console.error('[webhooks] ' + what + ' failed: ' + code + ': ' + msg);
+  return {
+    msg,
+    ours: code === 'UNREADABLE' || machine || /busy|exclusive access/i.test(msg),
+    said: machine ? 'we could not ' + what + ' on this computer just now' + (TROUBLE_WORDS[code] ? ': ' + TROUBLE_WORDS[code] : '') + ' (' + code + ')' : msg,
+  };
+}
+
 function sendJson(res, code, obj) {
   if (answeredAlready(res, 'sendJson ' + code)) return;
   // #7686 review 4: serialise BEFORE the head, so a value that cannot be written (circular, too large) throws with no
@@ -28368,13 +28388,10 @@ const server = http.createServer(async (req, res) => {
       try {
         made = tasks.create(hook.projectId, { sentence: title, detail: detail || undefined, made: { via: 'webhook', by: still.name } });   // the name as it is now, if renamed mid-call
       } catch (err) {
-        const msg = String((err && err.message) || '');
-        if (/no project by that name/.test(msg)) { nope(); return; }
-        /* Busy or unreadable is OUR state and worth retrying: a 4xx would tell a sender like Zapier
-           to drop the event for good. */
-        // Includes a disk that refused the write (ENOSPC, EACCES, EROFS...), as the settings routes do.
-        const ourTrouble = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
-        sendJson(res, ourTrouble ? 503 : 400, { error: msg || 'we could not add that task' });
+        const t = webhookTrouble(err, 'add that task');
+        if (/no project by that name/.test(t.msg)) { nope(); return; }
+        // Busy, unreadable or a refused save is OUR state and worth retrying (webhookTrouble, kosmos#9309).
+        sendJson(res, t.ours ? 503 : 400, { error: t.said || 'we could not add that task' });
         return;
       }
       webhooks.touch(hook.id);
@@ -28401,10 +28418,8 @@ const server = http.createServer(async (req, res) => {
     try { project = projects.get(id); } catch { sendJson(res, 503, { error: 'we could not read your projects just now' }); return; }
     if (!project) { sendJson(res, 404, { error: 'no project by that name' }); return; }
     const fail = (err, fallback) => {
-      const msg = String((err && err.message) || '');
-      // Our own state (unreadable, busy, a disk that refused the write) is 5xx; the request's is 400.
-      const ourTrouble = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
-      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (ourTrouble ? 503 : 400), { error: msg || fallback });
+      const t = webhookTrouble(err, 'save the webhooks');   // kosmos#9309: the code, never a path, to the person
+      sendJson(res, /no webhook by that id/.test(t.msg) && !t.ours ? 404 : (t.ours ? 503 : 400), { error: t.said || fallback });
     };
     const made0 = project.createdAt || null;
     /* Making, renaming and deleting are the person's, from the screen (the same advisory check as
