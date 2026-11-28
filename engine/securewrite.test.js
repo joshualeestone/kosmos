@@ -1114,8 +1114,9 @@ test('#9285: three followed links refuse an ordinary save too: no in-place fallb
 });
 
 /* kosmos#9285 review 2: the temp names are guessable, so somebody can plant links at two names and a plain file at the
-   third. That third attempt fails with EEXIST, not as a swap, and before this rule counted only swaps, two of three
-   let the save reach the in-place fallback. Any swap among the failures must refuse it. */
+   third. That third attempt failed with EEXIST, not as a swap (since kosmos#9307 it is a refusal too), and before this
+   rule counted only swaps, two of three let the save reach the in-place fallback. Any swap among the failures must
+   refuse it. */
 test('#9285: links at two temp names and a plain file at the third still refuse the save, with no in-place fallback', (t) => {
   const file = fresh('mixed');
   fs.writeFileSync(file, 'old config');
@@ -1149,9 +1150,56 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
   assert.equal(fs.readFileSync(planted[2], 'utf8'), 'planted', 'the planted file was touched');
 });
 
+/* kosmos#9307: a plain file planted at all three guessable temp names made each create fail EEXIST, and three EEXISTs
+   reached the in-place fallback (on Windows, a race at the config itself). A file already at a FRESH temp name is a plant,
+   so it refuses the save as a swapped name does; one is enough when the other attempts fail for another reason. CONTROL:
+   three EPERM failures still take the fallback and write, so the rule is about EEXIST, not about failing. */
+test('#9307: plain files planted at the temp names refuse the save, with no in-place fallback; EPERM still falls back', (t) => {
+  const realOpen = fs.openSync;
+  const planted = [];
+  t.after(() => { fs.openSync = realOpen; for (const p of planted) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  const run = (name, failFor) => {
+    const file = fresh(name);
+    fs.writeFileSync(file, 'old config');
+    let opens = 0;
+    let inPlace = 0;
+    fs.openSync = function (p, flags, ...rest) {
+      if (flags === 'wx' && String(p).includes('.kosmos-')) {
+        opens += 1;
+        const how = failFor(opens);
+        if (how === 'plant') { planted.push(String(p)); fs.writeFileSync(String(p), 'planted'); }   // the real open then fails EEXIST
+        else if (how === 'eperm') throw Object.assign(new Error('refused'), { code: 'EPERM' });
+      }
+      if (String(p) === file) inPlace += 1;
+      return realOpen.call(fs, p, flags, ...rest);
+    };
+    let err = null;
+    try { securewrite.writeSecret(file, 'secret-9307', 0o600); } catch (e) { err = e; }
+    fs.openSync = realOpen;
+    return { err, opens, inPlace, after: fs.readFileSync(file, 'utf8') };
+  };
+  const all = run('plant3', () => 'plant');
+  assert.equal(all.opens, 3, 'the atomic path did not try three names');
+  assert.ok(all.err, 'three planted files did not refuse the save');
+  assert.equal(all.err.code, 'ERR_KOSMOS_TEMP_SWAPPED');
+  assert.equal(all.err.cause && all.err.cause.planted, true, 'the refusal does not say it was a plant');
+  assert.equal(all.err.cause.cause && all.err.cause.cause.code, 'EEXIST', 'the EEXIST is not kept');
+  assert.equal(all.inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(all.after, 'old config', 'the config was changed');
+  const one = run('plant1', (n) => (n === 2 ? 'plant' : 'eperm'));
+  assert.ok(one.err && one.err.code === 'ERR_KOSMOS_TEMP_SWAPPED', 'one plant among EPERM failures did not refuse: ' + (one.err && one.err.code));
+  assert.equal(one.inPlace, 0, 'one plant: the in-place fallback opened the config');
+  assert.equal(one.after, 'old config');
+  const ctl = run('eperm3', () => 'eperm');
+  assert.equal(ctl.err, null, 'CONTROL: three EPERM failures should take the fallback and succeed: ' + (ctl.err && ctl.err.code));
+  assert.ok(ctl.inPlace >= 1, 'CONTROL: the fallback did not open the config');
+  assert.equal(ctl.after, 'secret-9307', 'CONTROL: the fallback did not write');
+});
+
 /* kosmos#9285 review 5: the swap rule runs BEFORE the atomicOnly exit, so an atomicOnly write with a mixed plant (links
-   at two names, a plain file at the third, whose EEXIST is the last error) still gets ERR_KOSMOS_TEMP_SWAPPED, with
-   the first swap as its cause and the EEXIST kept beside it. */
+   at two names, a plain file at the third) still gets ERR_KOSMOS_TEMP_SWAPPED, with the first swap as its cause and
+   the last attempt kept beside it. Since kosmos#9307 that third attempt is itself a refusal (a plant), its EEXIST
+   kept as its cause. */
 test('#9285: atomicOnly with a mixed plant raises ERR_KOSMOS_TEMP_SWAPPED, the first swap as its cause', (t) => {
   const file = fresh('mixedatomic');
   fs.writeFileSync(file, 'old config');
@@ -1178,6 +1226,8 @@ test('#9285: atomicOnly with a mixed plant raises ERR_KOSMOS_TEMP_SWAPPED, the f
   assert.ok(err, 'the write did not throw');
   assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'atomicOnly took the last error (EEXIST) instead of the refusal');
   assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
-  assert.equal(err.lastAttempt && err.lastAttempt.code, 'EEXIST', 'the last attempt\'s error was dropped');
+  assert.equal(err.lastAttempt && err.lastAttempt.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the last attempt\'s error was dropped');
+  assert.equal(err.lastAttempt.planted, true, 'the plain file at the third name is a plant (kosmos#9307)');
+  assert.equal(err.lastAttempt.cause && err.lastAttempt.cause.code, 'EEXIST', 'its EEXIST is kept as its cause');
   assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
 });

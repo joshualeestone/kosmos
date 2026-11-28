@@ -190,11 +190,13 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     place. And on a mount whose fstat and lstat
  *     answers disagree every time (another device or inode, or a link count above one), every attempt is refused,
  *     so every such save there fails, every time; that is unmeasured and carded as kosmos#9308. Three failures with
- *     no such refusal fall back as
- *     before, and that includes a plain file planted at all three names (each create fails EEXIST): not closed here,
- *     as it was before #9268, and carded as kosmos#9307 (the same race at the config applies). EEXIST is what this
- *     module's own tests use to reach the fallback, so counting it as
- *     planting would change what the fallback is for every caller; that is its own change, not this one.
+ *     no such refusal fall back as before.
+ *   - (kosmos#9307) a plain file already at a fresh temp name counts as such a refusal too: the create fails EEXIST,
+ *     and with pid, thread, start time and a sequence number in the name the only honest route is a crashed writer of
+ *     the same pid and start millisecond, and the reaper removes a dead writer's temps before these attempts. So three
+ *     plain files planted at the three names no longer reach the in-place fallback (or its Windows race at the config).
+ *     The module's own tests reach the fallback with EPERM now. The cost: a temp the reaper cannot prove dead (its pid
+ *     reads alive) at the very name this write draws fails the save rather than rewriting the file in place.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -488,8 +490,8 @@ function writeSecret(file, data, mode, opts) {
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is
      what keeps the destructive fallback essentially unreachable rather than
      merely rare. Somebody planting at each guessable name can still refuse every
-     one: with links (kosmos#9268) that never falls back (#9285); with plain files
-     it falls back, as it did before (refuseFollowedLink's doc). */
+     one: with links (kosmos#9268) or plain files (kosmos#9307) that never falls back
+     (#9285; refuseFollowedLink's doc). */
   let lastAtomicError = null;
   let swappedAttempts = 0;   // kosmos#9285: attempts refused because the temp name was not the opened file
   let firstSwap = null;      // the first of them, kept as the refusal's cause (the last error may be another kind)
@@ -511,7 +513,18 @@ function writeSecret(file, data, mode, opts) {
          The flag flips the instant the open returns and the name is confirmed to be
          the opened file (kosmos#9268), which is when "we created it" is a fact rather
          than a proxy. */
-      const tfd = fs.openSync(tmp, 'wx', createMode);
+      let tfd;
+      try { tfd = fs.openSync(tmp, 'wx', createMode); }
+      catch (e) {
+        /* kosmos#9307: something is already at a FRESH temp name (pid, thread, start time and a sequence number). The
+           only honest route is a crashed writer with the same pid and start millisecond, and the reaper removes those;
+           otherwise it was planted, and three plants would reach the in-place fallback (on Windows, a race at the config
+           itself). So it counts as a refusal, as a swapped name does. */
+        if (e && e.code === 'EEXIST') {
+          throw Object.assign(new Error('a file was already at a fresh temp name'), { code: 'ERR_KOSMOS_TEMP_SWAPPED', planted: true, cause: e });
+        }
+        throw e;
+      }
       // kosmos#9268: refused, the next attempt takes a fresh name
       let verdict;
       try { verdict = refuseFollowedLink(tmp, tfd); }
@@ -589,8 +602,8 @@ function writeSecret(file, data, mode, opts) {
     }
   }
 
-  // kosmos#9285: any attempt refused for a swapped temp name means somebody is planting; never fall back then (a plain
-  // file planted at one name, a guessable one, must not be enough to reach the in-place open).
+  // kosmos#9285: any attempt refused for a swapped temp name, or (kosmos#9307) one that found a file already at its
+  // fresh name, means somebody is planting; never fall back then.
   if (swappedAttempts > 0) {   // one shape every time: the first swap as the cause, the last attempt's error beside it
     throw Object.assign(new Error('the temp name is not the file this write opened'),
       { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError });
