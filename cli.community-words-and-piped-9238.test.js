@@ -75,12 +75,13 @@ function run(args, port, stdin) {
       env.CLI9238 = CLI;
     }
     const started = Date.now();
-    const child = spawn(cmd, argv, { env, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
+    // kosmos#9264: its own process group, so the 20 s kill below reaches the CLI and its peek under a /bin/sh parent too
+    const child = spawn(cmd, argv, { env, detached: true, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
     if (fd !== null) fs.closeSync(fd);
     let out = '', cliDone = null;
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; if (cliDone === null && out.includes('CLI_DONE_9238')) cliDone = Date.now() - started; });
-    const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
+    const killer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } }, 20000);
     child.on('error', reject);
     child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
