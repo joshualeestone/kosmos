@@ -132,7 +132,7 @@ test('#9188 engine/tasklist.js: the compact list quotes a title with a mark word
 });
 
 test('#9188 both CLIs: an open task\'s title cannot print a row mark; a plain one is unchanged (control)', async () => {
-  MAC_HOME = MAC_HOME || macHome(true);
+  if (!SKIP_POSIX_SHELL) MAC_HOME = MAC_HOME || macHome(true);   // kosmos#8378: the Mac CLI's home (symlinks); only the Mac half uses it
   // kosmos#8378: on Windows only the Windows CLI's half runs (the Mac CLI runs install/kosmos by its shebang).
   for (const [label, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a, MAC_HOME)]].filter(([l]) => !(SKIP_POSIX_SHELL && l === 'Mac'))) {
     const r = await run(['task', 'list', projectId]);

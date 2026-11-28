@@ -16,7 +16,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * set, so a start never goes through launchd.
  */
 const test = require('node:test');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, or /bin/sh or /bin/bash by an absolute POSIX path, which Windows cannot do');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');

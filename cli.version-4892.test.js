@@ -4,7 +4,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
    copy elsewhere (an agent's in /tmp, lacking newer commands). It now says so on stderr; stdout stays the version.
    Driven against a throwaway Kosmos home, never the real install. */
 const test = require('node:test');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, which a Windows computer never runs (Windows runs its own CLI, tools/windows/kosmos-cli.js); run with Git Bash, its check for a running board does not read the test board as Kosmos');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -57,13 +56,15 @@ test('#4892: run through a chain of links to the installed command (as ~/.local/
   assert.equal(r.err, '', 'the installed command, reached through links, was flagged as a copy');
 });
 
-test('#4892: a patched copy elsewhere says it is not the installed one, on stderr, and stdout stays the version', { skip: SKIP_POSIX_SHELL }, () => {
+test('#4892: a patched copy elsewhere says it is not the installed one, on stderr, and stdout stays the version', () => {
   const patched = path.join(SB, 'tmp-kosmos');
   fs.writeFileSync(patched, fs.readFileSync(INSTALLED, 'utf8') + '\n# a local patch\n');
   const r = run(patched);
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, '9.9.9\n', 'stdout is no longer just the version');
   assert.match(r.err, /This kosmos command \(.*tmp-kosmos\) is not the one installed with Kosmos/);
-  assert.ok(r.err.includes(INSTALLED), 'the warning does not name the command to run instead');
+  // kosmos#8378: under Git Bash (Windows) the script names the path in its own spelling, /c/... with forward slashes.
+  const asBash = process.platform === 'win32' ? '/' + INSTALLED[0].toLowerCase() + INSTALLED.slice(2).replace(/\\/g, '/') : INSTALLED;
+  assert.ok(r.err.includes(INSTALLED) || r.err.includes(asBash), 'the warning does not name the command to run instead: ' + r.err);
   assert.ok(!/—/.test(r.err));
 });

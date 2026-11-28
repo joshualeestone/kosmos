@@ -9,6 +9,7 @@
 require('./test-support/tmpscope');
 const test = require('node:test');
 const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const RUNS = SKIP_POSIX_SHELL ? 1 : 2;   // kosmos#8378: CLI runs per test where both CLIs run (only the Windows one on Windows)
 const assert = require('node:assert/strict');
 const http = require('node:http');
 
@@ -313,7 +314,7 @@ test('#8547: an agent the board does not offer makes the run exit 1, on both CLI
       const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
       assert.equal(m.code, 1, m.out);
     }
-    assert.equal(deletes(seen).length, SKIP_POSIX_SHELL ? 1 : 2, 'tasky was not deleted on each run');
+    assert.equal(deletes(seen).length, RUNS, 'tasky was not deleted on each run');
   });
   await withStub(CLEAN, async (port) => {
     assert.equal((await winRun(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);
@@ -340,7 +341,7 @@ test('#8547: a 2xx answer neither CLI can read stops as "may have been deleted" 
       assert.equal(m.code, 3, m.out);
       assert.match(m.out, /tasky may have been deleted: Kosmos accepted the request but we could not read how it went\./);
     }
-    assert.equal(deletes(seen).length, SKIP_POSIX_SHELL ? 1 : 2, 'each run should stop after its first delete');
+    assert.equal(deletes(seen).length, RUNS, 'each run should stop after its first delete');
   });
 });
 
