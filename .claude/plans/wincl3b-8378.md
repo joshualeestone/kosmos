@@ -79,3 +79,7 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
   (a temp folder typed in another letter case, not yet made). Reasons that read as coverage claims now say "needs no
   skip on Windows"; redisable's says off macOS it schedules and logs nothing. Deferred: startimports' review-4 arm
   checks TEXT_EXTS.size beside its macOS-guard checks and skips as a whole; that count still runs on the Mac.
+- After review 3, on the Windows runner (run 46136406318): every file now in the Windows job passes there (reporthook
+  29, receipt 32, usageagy 14, pdfpreview 11, projects 163 with the case arm, runnable 22, board-proof 18,
+  trust.canonical-spelling 5, live-execution 3; 0 fail). The case arm can fail: with the fold removed (a never-merged
+  mutant build, run 46136503594) it, and only it, fails.
