@@ -197,9 +197,10 @@ function start({ root, agent, label, pid, now = Date.now(), startOf = defaultSta
       const had = here.find((j) => j.agent === agent && j.pid === p && j.pidStart);
       if (had) job.pidStart = had.pidStart;
     }
-    // kosmos#9230: a re-announce's `at` is always later than the record it replaces, so live()'s drop key (which holds
-    // `at`) can never match the new record, even when both land in the same millisecond.
-    for (const j of here) if (j.agent === agent && j.pid === p && Number.isFinite(j.at) && j.at >= job.at) job.at = j.at + 1;
+    // kosmos#9230: a re-announce never takes the very `at` of a record it replaces (the same millisecond), so live()'s
+    // drop key (which holds `at`) cannot match the new record. Only an equal `at` moves it: a record stamped ahead of
+    // this clock is not inherited, as that would stretch the 12 h ceiling by the skew.
+    while (here.some((j) => j.agent === agent && j.pid === p && j.at === job.at)) job.at += 1;
     const was = here.find((j) => j.agent === agent && j.pid === p && j.pidStart === job.pidStart);
     if (was && judge(was, { now, startOf: othersOf, agentAlive: null }) !== 'drop') job.since = was.since;   // announced again, shown or hidden: since stays
     list.push(job);
@@ -253,7 +254,7 @@ function live({ root, now = Date.now(), startOf = defaultStartOf, agentAlive = n
     // Exactly the records this read dropped go (re-read under the lock, so a start made meanwhile stays); nothing is
     // judged again, so a second pass with the budget spent cannot change what this read decided.
     // kosmos#9230: `at` too, so a re-announce made meanwhile (same agent, pid and kept since) is never this drop: start()
-    // gives a re-announce an `at` later than the record it replaces, even in the same millisecond.
+    // never gives a re-announce the `at` of a record it replaces, even in the same millisecond.
     const key = (j) => j.agent + '\u0000' + j.pid + '\u0000' + j.since + '\u0000' + j.at;
     const gone = new Set(all.filter((_, i) => verdict[i] === 'drop').map(key));
     require('./filelock').withFileLock(fileOf(root), () => {
