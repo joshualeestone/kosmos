@@ -18,7 +18,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert/strict');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-inreplyto-3224-'));
@@ -225,7 +224,7 @@ test('#3745: an agent\'s in_reply_to is kept on its post as replyTo, so the room
 });
 
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
-test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', { skip: skipOnWin32('what it checks exists on Windows and fails open there: with a folder where the message log goes, the reader reads an empty log, not an unreadable one (kosmos#9279, a real bug; this skip goes when it is fixed)') }, async () => {
+test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', async () => {
   const b = room('Beta failclosed 3224');
   const seed = await post({ project: b.id, text: 'seed', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
   const mB = seed.json.delivery.id;
