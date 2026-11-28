@@ -1,0 +1,27 @@
+# #9262 MEASUREMENT ONLY, on branch angel-9262-never-merge (never merged, no PR).
+name: ftw9262
+on:
+  push:
+    branches: ["angel-9262-never-merge"]
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: each file with the helper, fake-tmux skips off
+        shell: bash
+        run: |
+          set +e
+          for f in $(cat .github/ftw9262-files.txt); do
+            timeout 300 node --test --test-timeout=60000 "$f" > out.txt 2>&1; rc=$?
+            echo "=== $f rc=$rc $(grep -E '^ℹ (pass|fail|skipped)' out.txt | tr '\n' ' ')"
+            grep -E '^✖ ' out.txt | grep -v 'failing tests' | sort -u | head -12 | cut -c1-200
+          done
