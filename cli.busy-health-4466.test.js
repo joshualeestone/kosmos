@@ -259,7 +259,7 @@ test('#4466 an --auto report stays inside the hook timeout END TO END: a slow he
   assert.doesNotMatch(out.stderr, /busy, retrying/, '#6682: the --auto report said the busy line');
 }, 2500));
 
-test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgcut', async (port) => {
+test('#4466 `kosmos msg` whose reply is CUT twice (not timed out) is a maybe: exit 3, wait for their answer, not "is it running?"', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgcut', async (port) => {
   // The health check passes; the send's connection is then dropped (curl 52/56), and the one retry is cut too.
   // kosmos#9243: a maybe, as the timeout and the Windows CLI: exit 3 and wait for their answer, never a probe.
   const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }));
