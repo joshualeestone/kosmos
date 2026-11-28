@@ -1582,6 +1582,10 @@ function install(provider, opts) {
    */
   const refuse = (because) => ({ ...blankJob(), phase: 'failed', because });
 
+  /* kosmos#9287: an unknown name first, on every platform. Behind the platform gate, a made-up name on Windows or
+     Linux was refused as a real runner that computer cannot install, naming it as if it existed. */
+  if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
+
   /* The platform gate (first a macOS-only gate, Splinter's ruling 2026-09-01): a runner installs only where a build
      for that OS is pinned above, so no OS is handed another's binary. Refuse BEFORE any bytes move, in the job shape
      the screen already reads; the sentence names the thing and says nothing moved. `o.platform` is the test seam.
@@ -1596,11 +1600,9 @@ function install(provider, opts) {
       ? platformGate.canDownloadKeyedRunner(plat)
       : platformGate.canDownloadRunner(plat);
   if (!allowed) {
-    const what = m ? m.name : provider;
-    return refuse(`installing ${what} from here is not supported on this kind of computer (${plat}), so nothing was downloaded`);
+    return refuse(`installing ${m.name} from here is not supported on this kind of computer (${plat}), so nothing was downloaded`);
   }
 
-  if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
   // Join a LIVE job before consulting presence: during `proving` the
   // symlink already exists, and answering a synthetic `installed` for a
   // binary whose prove may still fail would briefly report a runner that
