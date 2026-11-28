@@ -368,8 +368,11 @@ async function providerWork(runner, dir, holds) {
           const src = String(p.input || '');
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
-            /* A relative path is the session's own folder's (review 1), so the same file reads the same either way. */
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ([^\n\\"]+)/g)].map((x) => x[1].trim()).filter(Boolean)
+            /* A relative path is the session's own folder's (review 1), so the same file reads the same either way.
+               The patch sits inside a JavaScript string, so a backslash in a path arrives escaped (`C:\\Users\\kay`): an
+               escaped backslash is part of the path and is unescaped; any other escape (`\n`) or a quote ends it (#9263). */
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\\\|[^\n\\"])+)/g)]
+              .map((x) => x[1].replace(/\\\\/g, '\\').trim()).filter(Boolean)
               .map((f) => path.resolve(folder, f));
             if (paths.length) pendingPatches.set(id, paths);
           }
