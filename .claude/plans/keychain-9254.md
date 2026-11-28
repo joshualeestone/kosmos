@@ -57,3 +57,6 @@ A file that only names the option (a comment, shorthand) is reported by name, ne
 
 ## Review 5
 The header says the original launcher is not covered by any record we hold, so this guard keeps the repo safe and does not prove that launch fixed. open -a Chrome (the short name) is read.
+
+## Review 6
+The direct-run rule is scoped to TEST browsers (Chrome for Testing, Chromium, the headless shell): the person's own Chrome already has keychain access, and a mock keychain against their profile would lose their saved logins, so open -a "Google Chrome" <url> is allowed (controls). New arms: open of a .app path with no -a, path.join(..., Contents, MacOS, ...), spawn(chromium.executablePath()). The regex is split into named arms. The MCP-config test is dropped: engine/agentbrowser.test.js pins that config more fully.
