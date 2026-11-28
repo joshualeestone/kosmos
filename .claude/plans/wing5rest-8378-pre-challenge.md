@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: wing5rest-8378
-diff_hash: 87cebcc987da063e21b9f8e9d3d0a7e907a7bda7d39d521a69a1d23f94709a73
+diff_hash: ad77c1f4df76e4ffe49ecdca5b101160e1e4e1f2f364adaf8d7c2edc8301fe47
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-28T13:51:52Z
@@ -32,7 +32,7 @@ tools/wincand-8378.js runs there; full history and a 1200 s per-file cap, as the
 Mac: every touched file run alone after each round; the guard engine/windows-tests-1777 green after each.
 Mutations: the two selfreport checks (readTail, history) each red the new /dev/null arm when removed.
 
-**Closing validation.** Full validation of 597bf2abad (rebased onto main 6969a70584; the rebase touched only main's own four files, none of this branch) passed through queued-heavy: 32031 node tests, 31444 pass, 0 fail, 587 skipped; test:shell 4 shards all green; validation_rc 0, audit_rc 0, clean tree, head unchanged (07:51 CST 11-28).
+**Closing validation.** Full validation of 597bf2abad (rebased onto main 6969a70584; the rebase touched only main's own four files, none of this branch) passed through queued-heavy: 32031 node tests, 31444 pass, 0 fail, 587 skipped; test:shell 4 shards all green; validation_rc 0, audit_rc 0, clean tree, head unchanged (07:51 CST 11-28). When the 0.8.31 hold lifted, main took 58 Windows entries into tools/windows-tests.js; the branch was rebased (08:3x CST) and that file merged once from its final states (232 + 27 + 58 = 317 entries, none twice, no entry changed on both sides). Every other file is byte-identical to the validated head; engine/windows-tests-1777 and tools.windows-tests-schtasks-7247 61/61 after.
 
 ### Per-Iteration Breakdown
 
