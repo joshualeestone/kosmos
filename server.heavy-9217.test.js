@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, boardAuthState, _heavyJobsNowForTest: heavyJobsNow } = require('./server');
+const { start, server, boardAuthState, _heavyJobsNowForTest: heavyJobsNow, _heavyMissingSinceForTest: heavyMissingSince } = require('./server');
 const store = require('./engine/store');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
@@ -300,11 +300,11 @@ test('kosmos#9217 slice 2: take is the turn on a free computer, a kept place beh
   assert.ok(status.heavyLine[0].name && status.heavyLine[0].name !== bo, 'the line carries the name the board shows');
   const got = await (await fetch(`${base}/api/heavy`, { headers: { 'x-kosmos-agent-token': tb } })).json();
   assert.deepEqual(got.line.map((e) => e.agent), [bo], 'GET /api/heavy lists the line too');
-  assert.deepEqual(await (await asAgent(ta, { action: 'release' })).json(), { ok: true, left: 0, ended: 1 });
+  assert.deepEqual(await (await asAgent(ta, { action: 'release' })).json(), { ok: true, left: 0, ended: 1, others: 0 });
   r = await asAgent(tb, { action: 'take', label: 'bo validation' });
   assert.equal((await r.json()).turn, true, 'released, the turn goes to the front of the line');
   assert.deepEqual((await (await fetch(`${base}/api/status`)).json()).heavyLine, []);
-  assert.deepEqual(await (await asAgent(tb, { action: 'release' })).json(), { ok: true, left: 0, ended: 1 });
+  assert.deepEqual(await (await asAgent(tb, { action: 'release' })).json(), { ok: true, left: 0, ended: 1, others: 0 });
 });
 
 test('kosmos#9217 slice 2: a page cannot take a turn, and a refused take writes no place', async () => {
@@ -316,4 +316,20 @@ test('kosmos#9217 slice 2: a page cannot take a turn, and a refused take writes 
   assert.equal((await r.json()).error, 'say what the job is on one line');
   assert.deepEqual((await (await fetch(`${base}/api/status`)).json()).heavyLine, []);
   assert.deepEqual(await jobsInStatus(), []);
+});
+
+test('kosmos#9217 slice 2: a take alone starts a missing waiter\'s grace and, once it has run out, drops the place (no page polling needed)', async () => {
+  const { ada } = twoAgents();
+  const ta = sendertoken.mint(ada).token;
+  const lineFile = require('node:path').join(store.ROOT, require('./engine/heavyturns').FILE);
+  const t0 = Date.now();
+  fs.writeFileSync(lineFile, JSON.stringify([{ agent: 'hv-ghost-gone', label: 'left', pid: null, pidStart: null, since: t0, at: t0, front: null, missed: 0 }]));
+  heavyMissingSince.delete('hv-ghost-gone');
+  let r = await (await asAgent(ta, { action: 'take', label: 'ada suite' })).json();
+  assert.deepEqual([r.turn, r.place, (r.ahead || []).map((e) => e.agent)], [false, 2, ['hv-ghost-gone']], 'inside the grace the place is kept');
+  assert.ok(heavyMissingSince.has('hv-ghost-gone'), 'the take did not start the missing waiter\'s grace');
+  heavyMissingSince.set('hv-ghost-gone', Date.now() - 91 * 1000);   // as if 91 s had passed
+  r = await (await asAgent(ta, { action: 'take', label: 'ada suite' })).json();
+  assert.equal(r.turn, true, 'past the grace, the gone waiter still held the front');
+  await asAgent(ta, { action: 'release' });
 });

@@ -107,9 +107,9 @@ test('release gives up a place without touching another agent\'s, and ending the
   ht.take({ root: r, agent: 'renet', label: 'suite', now: T0 });
   ht.take({ root: r, agent: 'angel', label: 'validation', now: T0 + 10 });
   ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 20 });
-  assert.deepEqual(ht.release({ root: r, agent: 'angel' }), { ok: true, left: 1, ended: 0 });
+  assert.deepEqual(ht.release({ root: r, agent: 'angel' }), { ok: true, left: 1, ended: 0, others: 0 });
   assert.deepEqual(names(ht.waiting({ root: r, now: T0 + 21 })), ['mona']);
-  assert.deepEqual(ht.release({ root: r, agent: 'renet' }), { ok: true, left: 0, ended: 1 });
+  assert.deepEqual(ht.release({ root: r, agent: 'renet' }), { ok: true, left: 0, ended: 1, others: 0 });
   assert.equal(ht.take({ root: r, agent: 'mona', label: 'cut', now: T0 + 30 }).turn, true);
 });
 
@@ -146,4 +146,52 @@ test('a front place\'s grace starts again each time the turn comes free: time sp
   hj.end({ root: r, agent: 'renet' });
   const k = ht.take({ root: r, agent: 'kitty', label: 'shots', now: T0 + 60 * 60 * 1000 });
   assert.deepEqual([k.turn, names(k.ahead)], [false, ['mona']], 'mona lost the front for time the turn was not free');
+});
+
+function withProcesses(fn) {
+  const rs = require('./restoresink');
+  const was = { processStart: rs.processStart, pidAlive: rs.pidAlive };
+  const seen = { ps: 0 };
+  rs.pidAlive = () => true;
+  rs.processStart = () => { seen.ps += 1; return 'A'; };
+  try { return fn(seen); } finally { Object.assign(rs, was); }
+}
+// Twenty places past the 12 h ceiling, each tied to a process with a recorded start: every one needs a ps read to be shown.
+function agedLine(r, now, base, n = 20) {
+  const H = 60 * 60 * 1000;
+  const line = Array.from({ length: n }, (_, i) => ({ agent: 'a' + i, label: 'job ' + i, pid: base + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H, front: null, missed: 0 }));
+  fs.writeFileSync(path.join(r, ht.FILE), JSON.stringify(line));
+}
+
+test('round 1: listing the line shares heavyjobs\' ps budget, and shows only the places it could check (the rest stay in the file)', () => withProcesses((seen) => {
+  const r = root();
+  const now = Date.now();
+  agedLine(r, now, 96100);
+  const shownNow = ht.waiting({ root: r, now });
+  assert.ok(seen.ps <= 8, 'ps ran ' + seen.ps + ' times for one listing');
+  assert.ok(shownNow.length >= 1 && shownNow.length === seen.ps, 'shown ' + shownNow.length + ' places for ' + seen.ps + ' reads: an unread aged place was shown');
+  assert.equal(ht.readLine(r).length, 20, 'a place the read could not check was dropped from the file');
+}));
+
+test('round 1: one take spends at most the same ps budget on the line and the jobs together', () => withProcesses((seen) => {
+  const r = root();
+  const now = Date.now();
+  agedLine(r, now, 96200, 19);   // one under MAX_LINE, so the take may join
+  const t = ht.take({ root: r, agent: 'renet', label: 'suite', now });
+  assert.equal(t.ok, true);
+  assert.ok(seen.ps <= 8, 'ps ran ' + seen.ps + ' times inside one take');
+}));
+
+test('round 1: the holder taking again with a new label re-announces it, as start does', () => {
+  const r = root();
+  ht.take({ root: r, agent: 'renet', label: 'first', now: T0 });
+  const t = ht.take({ root: r, agent: 'renet', label: 'renamed', now: T0 + 5 });
+  assert.deepEqual([t.turn, t.job.label], [true, 'renamed']);
+  assert.deepEqual(hj.live({ root: r, now: T0 + 6 }).map((j) => [j.label, j.since]), [['renamed', T0]], 'the label did not change, or since moved');
+});
+
+test('round 1: release says how many of the agent\'s own jobs are left (tied to other processes)', () => {
+  const r = root();
+  hj.start({ root: r, agent: 'renet', label: 'tied', pid: 4700, now: T0, startOf: () => 'P' });
+  assert.deepEqual(ht.release({ root: r, agent: 'renet' }), { ok: true, left: 0, ended: 0, others: 1 });
 });
