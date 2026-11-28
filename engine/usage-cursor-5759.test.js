@@ -9,6 +9,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  */
 
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -146,7 +147,7 @@ test('#5759: a parent last written before the window is head-read once, and its 
   await same('another subagent row', { rebuilt: false });
 });
 
-test('#5759: an unreadable skipped parent with two subagents counts as one unreadable file, as a full read counts it', async (t) => {
+test('#5759: an unreadable skipped parent with two subagents counts as one unreadable file, as a full read counts it', { skip: NO_POSIX_MODES }, async (t) => {
   reset();
   const old = Date.parse(DAY + 'T00:00:00Z') - 3 * H;
   const parent = write('p/locked.jsonl', cwdLine('/w/agent'), old);
@@ -204,7 +205,7 @@ test('#5759 (the stated bound): a same-size rewrite BEFORE the seam is not seen 
   assert.equal((await full()).days[DAY].m.output_tokens, 22, 'CONTROL: a full read sees the rewrite');
 });
 
-test('#5759: a file that becomes unreadable after it was read is dropped and counted unreadable, as a full read does', async (t) => {
+test('#5759: a file that becomes unreadable after it was read is dropped and counted unreadable, as a full read does', { skip: NO_POSIX_MODES }, async (t) => {
   reset();
   write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5));
   const b = write('p/b.jsonl', cwdLine('/w/b') + row('b1', 7));
@@ -221,7 +222,7 @@ test('#5759: a file that becomes unreadable after it was read is dropped and cou
   assert.equal(two.unreadable, 2);
 });
 
-test('#5759: a skipped parent that becomes unreadable leaves its subagent an orphan, as a full read does', async (t) => {
+test('#5759: a skipped parent that becomes unreadable leaves its subagent an orphan, as a full read does', { skip: NO_POSIX_MODES }, async (t) => {
   reset();
   const old = Date.parse(DAY + 'T00:00:00Z') - 3 * H;
   const parent = write('p/old.jsonl', cwdLine('/w/agent'), old);

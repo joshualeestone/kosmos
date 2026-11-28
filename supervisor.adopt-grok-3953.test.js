@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * existing, claimed session whose pane runs the given command.
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -42,7 +43,7 @@ function runOver(paneCmd) {
   return { r, calls, killed: /^kill-session/m.test(calls), adopted: /is already running -- leaving it alone/.test(r.stderr) };
 }
 
-test('#3953: a supervisor re-run adopts a LIVE Grok agent instead of killing it, for every name the board counts as Grok', () => {
+test('#3953: a supervisor re-run adopts a LIVE Grok agent instead of killing it, for every name the board counts as Grok', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   for (const cmd of ['grok-native', 'grok', 'grok.exe']) {
     assert.equal(status.isGrokCommand(cmd), true, `the board does not count ${cmd} as Grok, so this row tests nothing`);
     const out = runOver(cmd);
@@ -53,7 +54,7 @@ test('#3953: a supervisor re-run adopts a LIVE Grok agent instead of killing it,
   }
 });
 
-test('#3953 CONTROL: the same session crashed back to a shell is still killed and relaunched', () => {
+test('#3953 CONTROL: the same session crashed back to a shell is still killed and relaunched', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const out = runOver('zsh');
   assert.equal(out.killed, true, 'the control could not show a kill, so the rows above prove nothing: ' + out.calls);
   assert.equal(out.adopted, false);
@@ -84,7 +85,7 @@ function launch(runner, serverPath = 'PATH=/usr/bin:/bin') {
   return { r, rec: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '' };
 }
 
-test('#3953: a Grok, Gemini or Codex pane gets node on its PATH, after the server\'s own PATH', () => {
+test('#3953: a Grok, Gemini or Codex pane gets node on its PATH, after the server\'s own PATH', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const nodeDir = nodePath.dirname(spawnSync('/bin/bash', ['-c', 'command -v node'], { encoding: 'utf8' }).stdout.trim());
   assert.ok(nodeDir && nodeDir !== '.', 'this machine has no node on PATH, so the supervisor resolves none and the test proves nothing');
   for (const runner of ['grok', 'gemini', 'codex']) {
@@ -95,7 +96,7 @@ test('#3953: a Grok, Gemini or Codex pane gets node on its PATH, after the serve
   }
 });
 
-test('#3953: with no PATH on the server (none set, unset with -PATH, or no server), the pane gets this script\'s PATH plus node', () => {
+test('#3953: with no PATH on the server (none set, unset with -PATH, or no server), the pane gets this script\'s PATH plus node', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const nodeDir = nodePath.dirname(spawnSync('/bin/bash', ['-c', 'command -v node'], { encoding: 'utf8' }).stdout.trim());
   for (const serverPath of ['', '-PATH']) {
     const out = launch('grok', serverPath);
@@ -104,7 +105,7 @@ test('#3953: with no PATH on the server (none set, unset with -PATH, or no serve
   }
 });
 
-test('#3953 CONTROL: a Claude pane\'s PATH is left alone (its hook finds node itself)', () => {
+test('#3953 CONTROL: a Claude pane\'s PATH is left alone (its hook finds node itself)', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const out = launch('claude');
   assert.ok(/new-session/.test(out.rec), 'the claude arm did not launch: ' + out.r.stderr);
   assert.ok(!/-e PATH=/.test(out.rec), 'a Claude pane had its PATH rewritten: ' + out.rec);

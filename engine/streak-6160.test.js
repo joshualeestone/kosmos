@@ -8,6 +8,7 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  *   node --test engine/streak-6160.test.js
  */
 const test = require('node:test');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, and Windows does not enforce POSIX file modes, so that case cannot be made there');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -111,7 +112,7 @@ test('record: a missed day on disk starts again at 1, with no note', () => {
   assert.deepEqual(streak.record('2026-10-14', at('2026-10-14')), { count: 1, congrats: false });
 });
 
-test('record: a write that fails reports the count on disk, not one that was never kept', (t) => {
+test('record: a write that fails reports the count on disk, not one that was never kept', { skip: NO_POSIX_MODES }, (t) => {
   fresh();
   streak.record('2026-10-13', at('2026-10-13'));
   const dir = path.dirname(streak.file());

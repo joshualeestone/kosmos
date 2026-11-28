@@ -12,6 +12,7 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  * stub) is REFUSED rather than silently falling through to the PATH.
  */
 const test = require('node:test');
+const SKIP_POSIX_TMUX = require('../test-support/skip-on-win32').skipOnWin32('it fakes tmux with test-support/fake-tmux.sh, a shell script run by its shebang line; the board reads no tmux on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -37,7 +38,7 @@ function withTmux(bin, env, fn) {
   }
 }
 
-test('list-panes is read through AGENT_WORKFORCE_TMUX_BIN, so a fixture pane is seen and the PATH is never consulted', () => {
+test('list-panes is read through AGENT_WORKFORCE_TMUX_BIN, so a fixture pane is seen and the PATH is never consulted', { skip: SKIP_POSIX_TMUX }, () => {
   const panes = path.join(SANDBOX, 'panes.txt');
   fs.writeFileSync(panes, fleet.line({ session: 'fixture-discord', title: 'working' }) + '\n');
   const board = withTmux(FAKE, { AGENT_WORKFORCE_FAKE_PANES: panes }, () => status.snapshot());
@@ -46,7 +47,7 @@ test('list-panes is read through AGENT_WORKFORCE_TMUX_BIN, so a fixture pane is 
     'the fixture pane was not seen, so the read went somewhere other than the variable: ' + JSON.stringify(board.agents.map((a) => a.sessionName)));
 });
 
-test('CONTROL: /bin/echo as the tmux is refused, not passed over to the real tmux', () => {
+test('CONTROL: /bin/echo as the tmux is refused, not passed over to the real tmux', { skip: SKIP_POSIX_TMUX }, () => {
   /* The old stub. If this ever reads a real board, the fallthrough is back. */
   let threw = null;
   try { withTmux('/bin/echo', {}, () => status.snapshot()); } catch (e) { threw = e; }
@@ -54,7 +55,7 @@ test('CONTROL: /bin/echo as the tmux is refused, not passed over to the real tmu
   assert.match(String(threw.message), /could not read it|make sense/, String(threw.message));
 });
 
-test('an empty fixture is an empty board, not a refusal (a Mac with no agents is a valid state)', () => {
+test('an empty fixture is an empty board, not a refusal (a Mac with no agents is a valid state)', { skip: SKIP_POSIX_TMUX }, () => {
   const board = withTmux(FAKE, { AGENT_WORKFORCE_FAKE_PANES: '', AGENT_WORKFORCE_FAKE_SESSIONS: '', AGENT_WORKFORCE_FAKE_SCREEN: '' }, () => status.snapshot());
   assert.deepEqual(board.agents, [], JSON.stringify(board.agents));
 });

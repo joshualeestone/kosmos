@@ -9,6 +9,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * `-e KOSMOS_AGENT_TOKEN=<token>`.
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -113,7 +114,7 @@ function fixture() {
 }
 
 for (const provider of PROVIDERS) {
-  test(`${provider}: token reaches the provider but never tmux argv or logs`, () => {
+  test(`${provider}: token reaches the provider but never tmux argv or logs`, { skip: SKIP_POSIX_SUPERVISOR }, () => {
     const f = fixture();
     const evidence = path.join(f.root, 'evidence.txt');
     const argvRecord = path.join(f.root, 'argv.bin');
@@ -170,7 +171,7 @@ for (const provider of PROVIDERS) {
   });
 }
 
-test('a refused tmux launch removes the unconsumed secret file without logging it', () => {
+test('a refused tmux launch removes the unconsumed secret file without logging it', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const f = fixture();
   const argvRecord = path.join(f.root, 'argv.bin');
   const modeRecord = path.join(f.root, 'mode.txt');
@@ -200,7 +201,7 @@ test('a refused tmux launch removes the unconsumed secret file without logging i
   }
 });
 
-test('an unavailable supervisor entry path launches without handing secrets to the provider', () => {
+test('an unavailable supervisor entry path launches without handing secrets to the provider', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const f = fixture();
   const evidence = path.join(f.root, 'evidence.txt');
   const argvRecord = path.join(f.root, 'argv.bin');
@@ -237,7 +238,7 @@ test('an unavailable supervisor entry path launches without handing secrets to t
   }
 });
 
-test('an inherited secret with a newline cannot inject another environment variable', () => {
+test('an inherited secret with a newline cannot inject another environment variable', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const f = fixture();
   const evidence = path.join(f.root, 'evidence.txt');
   const argvRecord = path.join(f.root, 'argv.bin');
@@ -272,7 +273,7 @@ test('an inherited secret with a newline cannot inject another environment varia
   }
 });
 
-test('a NODE_OPTIONS door cannot require code in the provider', () => {
+test('a NODE_OPTIONS door cannot require code in the provider', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const f = fixture();
   const marker = path.join(f.root, 'node-options-ran');
   for (const name of Object.keys(f.refused)) {
@@ -307,7 +308,7 @@ test('a NODE_OPTIONS door cannot require code in the provider', () => {
   }
 });
 
-test('only engine-listed token doors reach the provider and Kosmos launch values stay intact', () => {
+test('only engine-listed token doors reach the provider and Kosmos launch values stay intact', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const f = fixture();
   const evidence = path.join(f.root, 'evidence.txt');
   const environment = path.join(f.root, 'provider.env');

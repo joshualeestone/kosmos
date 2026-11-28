@@ -1,6 +1,7 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 const test = require('node:test');
+const SKIP_POSIX_TMUX = require('../test-support/skip-on-win32').skipOnWin32('it fakes a slow tmux with a #!/bin/sh script run by its shebang line; the board reads no tmux on Windows');   // kosmos#8378
 const assert = require('node:assert/strict');
 const st = require('./status');
 
@@ -194,7 +195,7 @@ test('#7693: a pane the gather has no text for keeps its unsent record: only the
   }
 });
 
-test('#7693: the board\'s thread turns while a real (fake, slow) tmux answers, and the board is built from its text', async () => {
+test('#7693: the board\'s thread turns while a real (fake, slow) tmux answers, and the board is built from its text', { skip: SKIP_POSIX_TMUX }, async () => {
   const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unheld-7693-'));
   const bin = path.join(dir, 'tmux');
@@ -224,7 +225,7 @@ exit 0
   }
 });
 
-test('#7693: a slow list does not make fresh captures read as old', async () => {
+test('#7693: a slow list does not make fresh captures read as old', { skip: SKIP_POSIX_TMUX }, async () => {
   const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unheld-7693-'));
   const bin = path.join(dir, 'tmux');

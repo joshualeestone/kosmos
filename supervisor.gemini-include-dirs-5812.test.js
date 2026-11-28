@@ -9,6 +9,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test supervisor.gemini-include-dirs-5812.test.js
  */
 const test = require('node:test');
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -54,7 +55,7 @@ function run({ runner = 'gemini', projects, trust, session = 'gem-agent', world 
   return { rec, args, stderr: r.stderr || '', tree, root, theirs, agentFile, agentTrust };
 }
 
-test('a gemini agent on a project launches with that project\'s folder in its workspace', () => {
+test('a gemini agent on a project launches with that project\'s folder in its workspace', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const proj = nodePath.join(SANDBOX, 'proj-a');
   fs.mkdirSync(proj, { recursive: true });
   const other = nodePath.join(SANDBOX, 'proj-b');
@@ -68,7 +69,7 @@ test('a gemini agent on a project launches with that project\'s folder in its wo
   assert.equal(out.theirs, null, 'the person\'s trust file is not created');
 });
 
-test('a missing project folder is left out of the launch and logged; the agent still launches', () => {
+test('a missing project folder is left out of the launch and logged; the agent still launches', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const gone = nodePath.join(SANDBOX, 'gone-folder');
   const out = run({ projects: [{ name: 'G', folder: gone, agents: ['gem-agent'] }] });
   assert.ok(out.rec.includes('new-session'));
@@ -77,7 +78,7 @@ test('a missing project folder is left out of the launch and logged; the agent s
   assert.match(out.stderr, /#5812: the project folder .*gone-folder was left out .*not there/);
 });
 
-test('a folder the person marked do not trust in Gemini is left out, logged, and its record kept', () => {
+test('a folder the person marked do not trust in Gemini is left out, logged, and its record kept', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const proj = nodePath.join(SANDBOX, 'proj-deny');
   fs.mkdirSync(proj, { recursive: true });
   const out = run({ projects: [{ name: 'D', folder: proj, agents: ['gem-agent'] }], trust: { [proj]: 'DO_NOT_TRUST' } });
@@ -88,7 +89,7 @@ test('a folder the person marked do not trust in Gemini is left out, logged, and
   assert.equal(out.agentFile, null, 'no folders, no trust file for the pane');
 });
 
-test('an agent in a named world is matched by its roster name, not its world launch key', () => {
+test('an agent in a named world is matched by its roster name, not its world launch key', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const proj = nodePath.join(SANDBOX, 'proj-world');
   fs.mkdirSync(proj, { recursive: true });
   const out = run({ projects: [{ name: 'W', folder: proj, agents: ['gem-agent'] }], session: 'gem-agent+w5812', world: 'w5812' });
@@ -96,7 +97,7 @@ test('an agent in a named world is matched by its roster name, not its world lau
   assert.ok(out.rec.includes('--include-directories ' + proj), out.rec);
 });
 
-test('a -discord launch key is matched by its roster name too', () => {
+test('a -discord launch key is matched by its roster name too', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const proj = nodePath.join(SANDBOX, 'proj-discord');
   fs.mkdirSync(proj, { recursive: true });
   const out = run({ projects: [{ name: 'X', folder: proj, agents: ['gem-agent'] }], session: 'gem-agent-discord' });
@@ -104,7 +105,7 @@ test('a -discord launch key is matched by its roster name too', () => {
   assert.ok(out.rec.includes('--include-directories ' + proj), out.rec);
 });
 
-test('a project folder with spaces in its path reaches the launch as one argument', () => {
+test('a project folder with spaces in its path reaches the launch as one argument', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const proj = nodePath.join(SANDBOX, 'My Projects', 'a b');
   fs.mkdirSync(proj, { recursive: true });
   const out = run({ projects: [{ name: 'S', folder: proj, agents: ['gem-agent'] }] });
@@ -112,7 +113,7 @@ test('a project folder with spaces in its path reaches the launch as one argumen
   assert.ok(i >= 0 && out.args[i + 1] === proj, JSON.stringify(out.args.slice(-6)));
 });
 
-test('a grok agent gets no gemini folders', () => {
+test('a grok agent gets no gemini folders', { skip: SKIP_POSIX_SUPERVISOR }, () => {
   const proj = nodePath.join(SANDBOX, 'proj-grok');
   fs.mkdirSync(proj, { recursive: true });
   const out = run({ runner: 'grok', projects: [{ name: 'K', folder: proj, agents: ['gem-agent'] }] });
