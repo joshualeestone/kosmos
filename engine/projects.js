@@ -525,9 +525,10 @@ function isUnderTmpDir(folder) {
   const fold = (p) => (p && process.platform === 'win32' ? p.toLowerCase() : p);
   const target = fold(canonicalPath(folder));
   if (!target) return false;
-  /* kosmos#9267: each root in its given spelling too, because a folder that does not exist yet cannot be resolved,
-     and on Windows the temp folder's given spelling can be a short 8.3 name, such as JOHNSM~1, that resolves long. */
-  const roots = new Set([os.tmpdir(), '/tmp'].flatMap((r) => [path.resolve(r), canonicalPath(r)]).filter(Boolean).map(fold));
+  /* kosmos#9267: each root in its given spelling too (a folder not yet made cannot be resolved, and Windows can give
+     TEMP as an 8.3 name). /tmp only off Windows: there it resolves to C:\tmp, a person's own folder Windows never clears. */
+  const bases = process.platform === 'win32' ? [os.tmpdir()] : [os.tmpdir(), '/tmp'];
+  const roots = new Set(bases.flatMap((r) => [path.resolve(r), canonicalPath(r)]).filter(Boolean).map(fold));
   for (const root of roots) {
     if (target === root) return true;
     const withSep = root.endsWith(path.sep) ? root : root + path.sep;   // kosmos#9267: a backslash on Windows

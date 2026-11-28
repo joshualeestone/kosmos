@@ -370,7 +370,8 @@ async function providerWork(runner, dir, holds) {
           if (/tools\.apply_patch\(/.test(src)) {
             /* A relative path is the session's own folder's (review 1), so the same file reads the same either way. */
             /* kosmos#9263: the patch is a JavaScript string, so a path backslash (a Windows path) is written `\\`; any
-               other escape, such as `\n`, ends the path. */
+               other escape, such as `\n`, ends the path. Only a double-quoted string's `\\` is modelled; other
+               string forms and escapes (\u, template strings) are not. */
             const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\\\|[^\n\\"])+)/g)].map((x) => x[1].replace(/\\\\/g, '\\').trim()).filter(Boolean)
               .map((f) => path.resolve(folder, f));
             if (paths.length) pendingPatches.set(id, paths);
