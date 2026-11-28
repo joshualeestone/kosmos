@@ -4,15 +4,14 @@ Hand-out: Splinter, 00:38 11-28. List: #8378 comment 7235424591; how-to: 7235170
 7235404367. Measured throughout on GitHub's Windows runner through the never-merged branch wing5srv-8378-never-merge.
 
 Result on the runner: 58 of 59 files failed, 126 tests (run 46119265069). Now all 59 pass, 0 failing (run 46121613128,
-46122481509 after review round 1, 46123222340 after round 3 with server.faketmux-win-8378 too: 60 files, 463 pass,
-24 skip, 0 fail). Tests passing went from 344 to 463; skips from 13 to 24, each new one named below (round 1 unskipped
-compat-hidden's OFF arm and round 3 skipped attachment-range's abandoned download, so the count stayed 24).
+46122481509 after review round 1, and 46124242300 on round 6's head with server.faketmux-win-8378 too: 60 files,
+465 pass, 25 skip, 0 fail). Tests passing went from 344 to 465; skips from 13 to 25, each new one named below.
 
 🛑 What that green means (review round 3): the stand-in serves fake tmux's tmux-shaped rows, so on a Windows host every
 card is a Mac card (no claude.exe rows, reachedByChannel false, delivery through tmux). The green says each route is
 reachable and answers on a Windows host; it does NOT say the Windows board behaves this way. That is #9262's fix
 (win32roster.rowLine rows, delivery through the supervisor), which this does not close. Also not checked on Windows,
-beyond the skips: the descriptor counts in the attachment tests (#9276; their other checks run), the add route's
+beyond the skips: the remaining descriptor counts in the attachment tests (#9276; those tests' other checks run), the add route's
 switch gate in compat-hidden, and the Windows arm of update-pause.
 
 ## The shared cause, fixed rather than skipped
@@ -63,8 +62,9 @@ switch gate in compat-hidden, and the Windows arm of update-pause.
 - register-routes-6714 (3): the macOS login-job survey this file stands in; on Windows the survey reads Task Scheduler
   (#9284, filed here).
 - attachment-range-6805 (1, review round 3): the abandoned ranged download, whose whole subject is the descriptor (#9276).
-- Not skips, but not checked on Windows: the descriptor counts in attachment-stream-6734 and headers-twice-7686 run only
-  where /dev/fd exists; the rest of each test runs (#9276, filed here).
+- attachment-stream-6734 (1, review round 5): the stall arm, whose every check is the descriptor count (#9276).
+- Not skips, but not checked on Windows: the other descriptor counts in attachment-stream-6734 and headers-twice-7686 run
+  only where /dev/fd exists; the rest of each of those tests runs (#9276, filed here).
 
 ## Guarded
 - server.faketmux-win-8378.test.js (new, every host): the helper does nothing off Windows; asked to act as Windows it
