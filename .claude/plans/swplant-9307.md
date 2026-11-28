@@ -24,8 +24,9 @@ reach the fallback, which is the #9285 review 2 gap again.
 ## Weakest premise
 That nothing legitimate leaves a file at a fresh temp name. The name carries pid, thread, start time and a sequence
 number, so the honest routes are a crashed earlier process with the same pid, thread and start millisecond (the reaper
-reads such a temp as this process's own and cannot remove it), or a network mount that resends an exclusive create after
-a lost reply and answers EEXIST for the file it just made. Either fails that save only when the other two attempts fail
+reads such a temp as this process's own and cannot remove it), a second copy of the module loaded in the same thread and
+millisecond (a cleared require cache restarts the sequence) finding a temp a failed unlink left, or a network mount that
+resends an exclusive create after a lost reply and answers EEXIST for the file it just made. Either fails that save only when the other two attempts fail
 too; one EEXIST and a clean next attempt still saves.
 
 ## Review 1
@@ -33,3 +34,9 @@ Seven more "every atomic attempt fails, the file is left as it was" tests forced
 refuses before atomicOnly is consulted, so they passed whatever atomicOnly did (agyhooks, setupsettings, person,
 create.codex, trust, settingswrite, allowance fsync-5434). Moved to EPERM; measured: with atomicOnly ignored in
 securewrite.js all seven files go red (1, 3, 2, 1, 5, 3, 2 failures), so they test their claim again.
+
+## Review 2
+No other test injects EEXIST to reach the fallback or the atomicOnly exit (searched the whole repo); the planted-once
+retry tests (#1761, #1787) still test what they name. Added: an atomicOnly arm with three plants (the refusal, never the
+raw EEXIST), a `planted` flag on the final refusal (true for a plant, false for links only), the reloaded-module route
+above, and the #9285 doc's measured claim scoped to swap refusals.

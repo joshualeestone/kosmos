@@ -1108,6 +1108,7 @@ test('#9285: three followed links refuse an ordinary save too: no in-place fallb
   assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
   assert.equal(err.cause && err.cause.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the first swap is not the cause');
   assert.equal(err.lastAttempt && err.lastAttempt.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the last attempt is not kept');
+  assert.equal(err.planted, false, 'links only: the refusal is not marked a plant (kosmos#9307)');
   assert.equal(inPlace, 0, 'the in-place fallback opened the config');
   assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
   for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
@@ -1153,12 +1154,13 @@ test('#9285: links at two temp names and a plain file at the third still refuse 
 /* kosmos#9307: a plain file planted at all three guessable temp names made each create fail EEXIST, and three EEXISTs
    reached the in-place fallback (on Windows, a race at the config itself). A file already at a FRESH temp name is a plant,
    so it refuses the save as a swapped name does; one is enough when the other attempts fail for another reason. CONTROL:
-   three EPERM failures still take the fallback and write, so the rule is about EEXIST, not about failing. */
+   three EPERM failures still take the fallback and write, so the rule is about EEXIST, not about failing. A single plant
+   followed by a clean attempt still saves: the #1761 and #1787 retry tests in this file cover that. */
 test('#9307: plain files planted at the temp names refuse the save, with no in-place fallback; EPERM still falls back', (t) => {
   const realOpen = fs.openSync;
   const planted = [];
   t.after(() => { fs.openSync = realOpen; for (const p of planted) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
-  const run = (name, failFor) => {
+  const run = (name, failFor, opts) => {
     const file = fresh(name);
     fs.writeFileSync(file, 'old config');
     let opens = 0;
@@ -1174,7 +1176,7 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
       return realOpen.call(fs, p, flags, ...rest);
     };
     let err = null;
-    try { securewrite.writeSecret(file, 'secret-9307', 0o600); } catch (e) { err = e; }
+    try { securewrite.writeSecret(file, 'secret-9307', 0o600, opts); } catch (e) { err = e; }
     fs.openSync = realOpen;
     return { err, opens, inPlace, after: fs.readFileSync(file, 'utf8') };
   };
@@ -1182,6 +1184,7 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
   assert.equal(all.opens, 3, 'the atomic path did not try three names');
   assert.ok(all.err, 'three planted files did not refuse the save');
   assert.equal(all.err.code, 'ERR_KOSMOS_TEMP_SWAPPED');
+  assert.equal(all.err.planted, true, 'the refusal does not say a plant caused it');
   assert.equal(all.err.cause && all.err.cause.planted, true, 'the refusal does not say it was a plant');
   assert.equal(all.err.cause.cause && all.err.cause.cause.code, 'EEXIST', 'the EEXIST is not kept');
   assert.equal(all.inPlace, 0, 'the in-place fallback opened the config');
@@ -1190,6 +1193,11 @@ test('#9307: plain files planted at the temp names refuse the save, with no in-p
   assert.ok(one.err && one.err.code === 'ERR_KOSMOS_TEMP_SWAPPED', 'one plant among EPERM failures did not refuse: ' + (one.err && one.err.code));
   assert.equal(one.inPlace, 0, 'one plant: the in-place fallback opened the config');
   assert.equal(one.after, 'old config');
+  // atomicOnly with plants as the only failures: the same refusal, never the raw EEXIST.
+  const ao = run('plant3ao', () => 'plant', { atomicOnly: true });
+  assert.equal(ao.err && ao.err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'atomicOnly with three plants: ' + (ao.err && ao.err.code));
+  assert.equal(ao.err.lastAttempt && ao.err.lastAttempt.planted, true, 'atomicOnly: the last attempt is not marked a plant');
+  assert.equal(ao.after, 'old config');
   const ctl = run('eperm3', () => 'eperm');
   assert.equal(ctl.err, null, 'CONTROL: three EPERM failures should take the fallback and succeed: ' + (ctl.err && ctl.err.code));
   assert.ok(ctl.inPlace >= 1, 'CONTROL: the fallback did not open the config');

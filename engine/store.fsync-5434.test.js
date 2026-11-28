@@ -78,14 +78,14 @@ for (const [name, write] of WRITERS) {
     const file = write();
     const before = fs.readFileSync(file);
     const realOpen = fs.openSync;
-    let planted = 0;
+    let refused = 0;
     fs.openSync = (target, flags, ...rest) => {
-      // 'wx' is the flag writeSecret opens its temp with; if that ever changes this stub stops matching and `planted` says so
-      if (flags === 'wx') { planted += 1; throw Object.assign(new Error('planted'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
+      // 'wx' is the flag writeSecret opens its temp with; if that ever changes this stub stops matching and `refused` says so
+      if (flags === 'wx') { refused += 1; throw Object.assign(new Error('refused'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
       return realOpen.call(fs, target, flags, ...rest);
     };
-    try { assert.throws(() => write(), /planted/); } finally { fs.openSync = realOpen; }
-    assert.equal(planted, 3, 'the planted failure did not fire on all three atomic attempts');
+    try { assert.throws(() => write(), /refused/); } finally { fs.openSync = realOpen; }
+    assert.equal(refused, 3, 'the injected failure did not fire on all three atomic attempts');
     assert.deepEqual(fs.readFileSync(file), before, 'the file was rewritten in place');
   });
 }

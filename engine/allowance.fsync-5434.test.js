@@ -89,10 +89,10 @@ for (const [name, write] of WRITERS) {
     const file = write(dir);
     const before = fs.readFileSync(file, 'utf8');
     const realOpen = fs.openSync;
-    let planted = 0;
+    let refused = 0;
     fs.openSync = (target, flags, ...rest) => {
-      // 'wx' is the flag writeSecret opens its temp with; if that ever changes `planted` says so
-      if (flags === 'wx' && String(target).startsWith(file)) { planted += 1; throw Object.assign(new Error('planted'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
+      // 'wx' is the flag writeSecret opens its temp with; if that ever changes `refused` says so
+      if (flags === 'wx' && String(target).startsWith(file)) { refused += 1; throw Object.assign(new Error('refused'), { code: 'EPERM' }); }   // kosmos#9307: EPERM, not EEXIST
       return realOpen.call(fs, target, flags, ...rest);
     };
     // The writer's own contract on a failed save, called directly (no helper assertion to swallow): the statusline
@@ -108,7 +108,7 @@ for (const [name, write] of WRITERS) {
         assert.ok(got && got.tokens === 9e6, 'a failed save did not still return the new estimate: ' + JSON.stringify(got));
       }
     } finally { fs.openSync = realOpen; }
-    assert.equal(planted, 3, 'the planted failure did not fire on all three atomic attempts');
+    assert.equal(refused, 3, 'the injected failure did not fire on all three atomic attempts');
     assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file was rewritten in place');
   });
 

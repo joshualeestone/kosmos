@@ -182,10 +182,11 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *   - (kosmos#9285) when the three atomic attempts all fail and at least one was refused this way, the write throws
  *     ERR_KOSMOS_TEMP_SWAPPED and the file is left as it was, for every caller, atomicOnly or not: it never takes the
  *     in-place fallback. A refusal is positive evidence that somebody is planting in the folder (the temp names are
- *     guessable, so a plain file at one of the three names must not open the way), and on Windows that fallback has no
- *     O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back would hand the same person a
- *     race at the config itself. On no measured mount does an ordinary save see this refusal (the Mac, GitHub's
- *     Windows runner, a Linux container). The cost is wider than three such refusals: ONE is enough when the other
+ *     guessable; a plain file planted at a name is the same evidence, and counts too since kosmos#9307, below), and on
+ *     Windows that fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back
+ *     would hand the same person a race at the config itself. On no measured mount does an ordinary save see a SWAP
+ *     refusal (the Mac, GitHub's Windows runner, a Linux container); the plain-file case is not measured on a network
+ *     mount (below). The cost is wider than three such refusals: ONE is enough when the other
  *     two attempts fail for any reason, so a sync client or antivirus that moved one fresh temp, with two renames
  *     failing EPERM (the usual reason Windows reaches the fallback), now fails that save rather than rewrite in
  *     place. And on a mount whose fstat and lstat
@@ -195,8 +196,9 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *   - (kosmos#9307) a plain file already at a fresh temp name counts as such a refusal too: the create fails EEXIST.
  *     The name carries this process's pid, thread, start time and a sequence number, so the honest routes are a
  *     crashed earlier process with the same pid, thread AND start millisecond (which the reaper cannot remove: it reads
- *     such a temp as this process's own), or a network mount that resends an exclusive create after a lost reply and
- *     answers EEXIST for the file it just made. Both are near impossible; the cost of either is that save failing when
+ *     such a temp as this process's own), a second copy of this module loaded in the same thread and millisecond (a
+ *     cleared require cache restarts the sequence) finding a temp a failed unlink left, or a network mount that resends
+ *     an exclusive create after a lost reply and answers EEXIST for the file it just made. Both are near impossible; the cost of either is that save failing when
  *     the other two attempts fail too (one EEXIST and a clean next attempt still saves). So three plain files planted
  *     at the three names no longer reach the in-place fallback (or its Windows race at the config). The module's own
  *     tests reach the fallback with EPERM now.
@@ -498,6 +500,7 @@ function writeSecret(file, data, mode, opts) {
   let lastAtomicError = null;
   let swappedAttempts = 0;   // kosmos#9285: attempts refused because the temp name was not the opened file
   let firstSwap = null;      // the first of them, kept as the refusal's cause (the last error may be another kind)
+  let plantedAttempts = 0;   // kosmos#9307: those of them that found a file already at the temp name
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
@@ -587,7 +590,7 @@ function writeSecret(file, data, mode, opts) {
          a writer-shaped one. Not done here. */
       const earlierAtomicError = lastAtomicError;   // #5434: an earlier attempt's, for the early exit below
       lastAtomicError = err;
-      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') { swappedAttempts += 1; firstSwap = firstSwap || err; }
+      if (err && err.code === 'ERR_KOSMOS_TEMP_SWAPPED') { swappedAttempts += 1; firstSwap = firstSwap || err; if (err.planted) plantedAttempts += 1; }
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
          `created` is the FACT, and it is set the instant the open returns and the
@@ -609,7 +612,7 @@ function writeSecret(file, data, mode, opts) {
   // fresh name, means somebody is planting; never fall back then.
   if (swappedAttempts > 0) {   // one shape every time: the first swap as the cause, the last attempt's error beside it
     throw Object.assign(new Error('the temp names were refused: one was not the file this write opened, or already held a file'),
-      { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError });
+      { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: firstSwap, lastAttempt: lastAtomicError, planted: plantedAttempts > 0 });
   }
   if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
 
