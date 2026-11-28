@@ -119,18 +119,23 @@ for (i, fr) in fixtureRows.enumerated() where i < expectedRows.count {
     guard let a = P.parseAccounts(one)?.first else { check(false, "row \(i) parses"); continue }
     let p = M.pill(a, fixClock)
     let want = expectedRows[i]
-    check(p.words == want["words"] && p.tone.rawValue == want["tone"], "fixture: " + (want["name"] ?? "?") + " -> " + p.words)
+    check(p.words == want["words"] && p.tone.rawValue == want["tone"] && M.name(a) == want["shown"], "fixture: " + (want["name"] ?? "?") + " -> " + M.name(a) + ", " + p.words)
 }
+// Review 2: the section order, against the page's accountGroupsHtml on the same rows.
+let groupRows = fixtureObj?["groupRows"] as? [[String: Any]] ?? []
+let groupData = (try? JSONSerialization.data(withJSONObject: ["accounts": groupRows])) ?? Data()
+let wantGroups = fixtureObj?["expectedGroups"] as? [String] ?? []
+check(groupRows.count >= 4 && M.groups(P.parseAccounts(groupData) ?? []).map(\.label) == wantGroups, "fixture: the sections in the page's order " + wantGroups.joined(separator: ", "))
 
 section("groups and the sample")
 let mixed = P.parseAccounts(Data(#"{"accounts":[{"dir":"/o1","provider":"openai"},{"dir":"/c1","provider":"anthropic"},{"dir":"/o2","provider":"openai"}]}"#.utf8)) ?? []
 let gs = M.groups(mixed)
-check(gs.map(\.id) == ["openai", "anthropic"] && gs.map(\.label) == ["OpenAI / Codex", "Anthropic / Claude"], "a section per provider, in the order the board lists them")
-let compat = P.parseAccounts(Data(#"{"accounts":[{"dir":"/g","provider":"glm","keyTail":"9z1b"},{"dir":"/m","provider":"minimax","email":"m@example.com"},{"dir":"/c","provider":"anthropic","email":"c@example.com"}]}"#.utf8)) ?? []
-check(M.groups(compat).map(\.label) == ["Z.ai GLM", "MiniMax", "Anthropic / Claude"], "GLM and MiniMax have their own sections (review 1: the picker files them under Claude)")
+check(gs.map(\.label) == ["Anthropic / Claude", "OpenAI"], "no providerName: OpenAI is \"OpenAI\", any other \"Anthropic / Claude\"; sorted by PROVIDER_ORDER, not the board's order")
+let compat = P.parseAccounts(Data(#"{"accounts":[{"dir":"/g","provider":"glm","providerName":"Z.ai GLM","keyTail":"9z1b"},{"dir":"/m","provider":"minimax","providerName":"MiniMax","email":"m@example.com"},{"dir":"/c","provider":"anthropic","email":"c@example.com"}]}"#.utf8)) ?? []
+check(M.groups(compat).map(\.label) == ["Anthropic / Claude", "Z.ai GLM", "MiniMax"], "GLM and MiniMax have their own sections, by the board's providerName, in PROVIDER_ORDER")
 check(M.name(compat[0]) == "API key ending 9z1b" && M.name(compat[1]) == "m@example.com" && M.name(compat[2]) == "c@example.com", "a GLM key is named by its tail; email first, as acctPrimaryName")
 check(page.contains("if (p === 'glm') return 'Z.ai GLM';") && page.contains("if (p === 'minimax') return 'MiniMax';"), "the page's words for the two")
-check(gs[0].rows.map(\.dir) == ["/o1", "/o2"] && gs[1].rows.map(\.dir) == ["/c1"], "rows keep the board's order inside their section")
+check(gs[0].rows.map(\.dir) == ["/c1"] && gs[1].rows.map(\.dir) == ["/o1", "/o2"], "rows keep the board's order inside their section")
 check(M.groups([]).isEmpty, "no accounts, no sections")
 let sampleRows = P.parseAccounts(Data(Models.sampleList.utf8)) ?? []
 check(sampleRows.count == 3, "the sample has three accounts")

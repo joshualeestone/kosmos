@@ -106,6 +106,7 @@ enum NewAgentPicker {
         var loginExpiresInDays: Int? = nil       // connection.loginExpiresInDays, an integer only
         var loginExpiresAt: Double? = nil        // connection.loginExpiresAt, ms
         var notConfirmedSince: Double? = nil     // connection.notConfirmedSince, ms
+        var providerName: String? = nil          // the row's providerName (the page's group heading)
     }
     // Number.isFinite: a real number, never a boolean (JSONSerialization reads true as 1).
     static func finite(_ v: Any?) -> Double? {
@@ -124,7 +125,8 @@ enum NewAgentPicker {
                     because: (c?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                     loginValidUntil: finite(c?["loginValidUntil"]), loginStopsAt: finite(c?["loginStopsAt"]),
                     loginEnded: c?["loginEnded"] as? Bool == true, loginExpiresInDays: integer(c?["loginExpiresInDays"]),
-                    loginExpiresAt: finite(c?["loginExpiresAt"]), notConfirmedSince: finite(c?["notConfirmedSince"]))
+                    loginExpiresAt: finite(c?["loginExpiresAt"]), notConfirmedSince: finite(c?["notConfirmedSince"]),
+                    providerName: (r["providerName"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     // acctProvider: 'antigravity' and 'meta' by provider or authMode, a keyed provider by its id, else Claude.

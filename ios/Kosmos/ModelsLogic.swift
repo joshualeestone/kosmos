@@ -41,37 +41,52 @@ enum Models {
         let label: String
         let rows: [Account]
     }
-    /* Review 1: the page's ACCT_KEYED_ROUTE also has glm and minimax (switchKeyedWord: "Z.ai GLM", "MiniMax"), which the
-       picker's Provider does not (it maps them to Claude). This screen states which provider an account is, so it
-       sections them by their own row; the picker's gap is noted on the card, not widened here. */
-    static let ownProviders: [String: String] = ["glm": "Z.ai GLM", "minimax": "MiniMax"]
-    static func section(_ a: Account) -> (id: String, label: String) {
-        if let label = ownProviders[a.rawProvider] { return (a.rawProvider, label) }
-        return (a.provider.rawValue, a.provider.label)
+    // acctProvider, the page's own (ACCT_KEYED_ROUTE's ids, antigravity and meta by provider or authMode, else anthropic).
+    static let keyedIds: Set<String> = ["openai", "google", "xai", "alibaba", "deepseek", "glm", "minimax"]
+    static func providerId(_ a: Account) -> String {
+        let p = a.rawProvider
+        if p == "antigravity" || a.live.authMode == "antigravity" { return "antigravity" }
+        if p == "meta" || a.live.authMode == "muse" { return "meta" }
+        return keyedIds.contains(p) ? p : "anthropic"
     }
-    // acctPrimaryName, with glm and minimax as the keyed providers the page counts them (named by the key's tail).
+    // PROVIDER_ORDER and providerRank: a provider the order does not know sorts after all it knows.
+    static let providerOrder = ["anthropic", "openai", "google", "antigravity", "xai", "meta", "alibaba", "deepseek", "glm", "minimax", "moonshot", "mistral"]
+    static func providerRank(_ id: String) -> Int {
+        let v = id.lowercased() == "claude" ? "anthropic" : id.lowercased()
+        return providerOrder.firstIndex(of: v) ?? providerOrder.count
+    }
+    // The row's name, as the page's row draws it: the two subscription rows by their own rule (review 2), the rest by
+    // acctPrimaryName, whose keyed list has glm and minimax (named by the key's tail) where the picker's does not.
     static func name(_ a: Account) -> String {
-        if ownProviders[a.rawProvider] != nil, a.name == nil, a.email == nil, let t = a.keyTail { return "API key ending " + t }
+        if a.live.authMode == "antigravity" { return a.email ?? "Google subscription" }
+        if a.live.authMode == "muse" { return "Meta account" }
+        if ["glm", "minimax"].contains(a.rawProvider), a.name == nil, a.email == nil, let t = a.keyTail { return "API key ending " + t }
         return NewAgentPicker.primaryName(a)
     }
-    // One section per provider, in the order the board lists them (its first row of each), rows in the board's order.
+    // accountGroupsHtml (review 2): grouped by the row's providerName (an OpenAI row with none is "OpenAI", any other
+    // "Anthropic / Claude"), in the order the board lists them, then stable-sorted by PROVIDER_ORDER of each group's
+    // first row; rows keep the board's order.
     static func groups(_ rows: [Account]) -> [Group] {
-        var order: [(id: String, label: String)] = []
+        var order: [String] = []
         var by: [String: [Account]] = [:]
         for a in rows {
-            let s = section(a)
-            if by[s.id] == nil { order.append(s) }
-            by[s.id, default: []].append(a)
+            let name = a.live.providerName ?? (a.rawProvider == "openai" ? "OpenAI" : "Anthropic / Claude")
+            if by[name] == nil { order.append(name) }
+            by[name, default: []].append(a)
         }
-        return order.map { Group(id: $0.id, label: $0.label, rows: by[$0.id] ?? []) }
+        let ranked = order.enumerated().sorted { x, y in
+            let rx = providerRank(providerId(by[x.element]![0])), ry = providerRank(providerId(by[y.element]![0]))
+            return rx != ry ? rx < ry : x.offset < y.offset
+        }
+        return ranked.map { Group(id: $0.element, label: $0.element, rows: by[$0.element] ?? []) }
     }
 
     // The sample build's accounts: one of each pill colour, two providers.
     static let sampleList = #"""
     {"accounts":[
-     {"dir":"/s/claude","provider":"anthropic","email":"dana@example.com","connection":{"badge":"working","observedAgeMs":120000}},
-     {"dir":"/s/claude2","provider":"anthropic","name":"Team account","connection":{"badge":"signed_in_unverified"}},
-     {"dir":"/s/openai","provider":"openai","keyTail":"4f2a","connection":{"state":"none","because":"The key was refused."}}
+     {"dir":"/s/claude","provider":"anthropic","providerName":"Anthropic / Claude","email":"dana@example.com","connection":{"badge":"working","observedAgeMs":120000}},
+     {"dir":"/s/claude2","provider":"anthropic","providerName":"Anthropic / Claude","name":"Team account","connection":{"badge":"signed_in_unverified"}},
+     {"dir":"/s/openai","provider":"openai","providerName":"OpenAI / Codex","keyTail":"4f2a","connection":{"state":"none","because":"The key was refused."}}
     ]}
     """#
 
@@ -147,9 +162,21 @@ enum Models {
         return "expires in " + String(days) + unit
     }
 
-    // The connBadge chain, in the page's order.
+    // The connBadge chain, in the page's order, after the two subscription rows the page draws before it (review 2).
     static func pill(_ a: Account, _ clock: Clock = Clock()) -> Pill {
         let l = a.live
+        // Gemini on the Google subscription: a remembered answer, always the muted "Signed in".
+        if l.authMode == "antigravity" { return Pill(words: "Signed in", tone: .unknown) }
+        // Meta Muse: its own three states and the default.
+        if l.authMode == "muse" {
+            let ago = agoWords(l.observedAgeMs)
+            if a.badge == "working" { return Pill(words: "Signed in" + (ago.isEmpty ? "" : " · confirmed " + ago), tone: .connected) }
+            if a.badge == "signed_in_unverified", let since = l.notConfirmedSince {
+                return Pill(words: "Not confirmed since " + shortDate(since, clock, yearWhenOther: true), tone: .unverified)
+            }
+            if a.badge == "rejected" { return Pill(words: "Not connected", tone: .none) }
+            return Pill(words: "Signed in", tone: .unverified)
+        }
         let badge = a.badge
         let nowMs = clock.now.timeIntervalSince1970 * 1000
         let ageStr = agoWords(l.observedAgeMs)

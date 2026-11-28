@@ -34,8 +34,11 @@ struct ModelsView: View {
                             .font(.subheadline).foregroundColor(Palette.secondary)
                     }
                 }
-            } else {
+            } else if sample || shownURL == mac?.url {
                 accountSections
+            } else {
+                // Review 2: for the frame between a computer switch and .task starting over, never the old computer's rows.
+                Section { Text(Models.Words.reading).font(.subheadline).foregroundColor(Palette.secondary) }
             }
         }
         .listStyle(.insetGrouped)

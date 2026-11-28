@@ -44,3 +44,11 @@ That `/held` carries enough to draw each row honestly. It is the disk's record (
 - M7 the could-not-read line was red; the page's is a neutral hint. Now secondary.
 - M8 the UI test's header and footer checks waited for nothing, and grouped headers are uppercased: they wait, and the header keeps its case (textCase(nil)).
 - Measured: run-models.sh 94/94; parity 3/3; 20 iOS node files; app and UI typecheck.
+
+### Round 2 (sonnet, 13:2x CST 11-28): no BLOCKER, 3 MAJOR, 7 MINOR.
+- MAJOR 1 the page draws two rows before its chain: Gemini through Antigravity (named by email, else "Google subscription"; always the grey "Signed in") and Meta Muse ("Meta account"; Signed in · confirmed <ago>, Not confirmed since, Not connected, or Signed in). Ported in Models.pill and Models.name, and the parity test now lifts both branches and checks each row's NAME too (the fixture has 34 rows).
+- MAJOR 2 sections were in first-appearance order; the page stable-sorts by PROVIDER_ORDER of each group's first row (acctProvider). Ported (an unknown provider is acctProvider's anthropic, so it sorts with Claude, as the page does).
+- MAJOR 3 the heading came from the phone's Provider enum; the page groups and labels by the row's providerName ("OpenAI" or "Anthropic / Claude" without one). Ported; the parity test checks the order of fixture.json groupRows against accountGroupsHtml itself.
+- M fixed: the previous computer's rows for the frame before .task resets (the list shows only for shownURL == mac.url); the UI test finds rows by identifier whatever element type, and the vacuous "no Check now" assertion is gone.
+- M kept: the page's qualifier tags beside look-alike names, the organization line and a key tail under a chosen name (a second line per row; a follow-up if two accounts read alike in use); a failed pull replaces the list, as the page's non-follow-up read does; the dot colours are the app's palette, not the page's CSS values (the parity test pins the class); the picker's primaryName still lacks glm and minimax (noted on the card, outside this slice).
+- Measured: run-models.sh 102/102; parity 4/4; room 965/965; 20 iOS node files 113/113; app and UI typecheck (only the known RoomView.swift:762 at a 1 s limit).

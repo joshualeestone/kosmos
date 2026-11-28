@@ -41,12 +41,24 @@ function pagePill() {
   const ago = lift('function agoWords(ms) {', '\n}\n', 'agoWords') + '\n}\n';
   const advWhen = lift('function loginAdvWhen(ms) {', '\n}\n', 'loginAdvWhen') + '\n}\n';
   // Every locale-dependent call must be one this pins, or the machine's locale leaks back in.
-  const helpers = provider + ago + advWhen;
+  // Review 2: names (acctPrimaryName, acctChosenName) and the section order (accountGroupsHtml, providerRank).
+  const names = lift('function acctChosenName(', '\n}\n', 'acctChosenName') + '\n}\n'
+    + lift('function acctPrimaryName(', '\n}\n', 'acctPrimaryName') + '\n}\n';
+  const order = lift('const PROVIDER_ORDER = ', '\n', 'PROVIDER_ORDER') + '\n' + lift('const PROVIDER_ORDER_ALIAS = ', '\n', 'PROVIDER_ORDER_ALIAS') + '\n'
+    + lift('function providerRank(', '\n}\n', 'providerRank') + '\n}\n' + lift('function accountGroupsHtml(', '\n}\n', 'accountGroupsHtml') + '\n}\n';
+  // Review 2: the two subscription rows the page draws before the chain (Gemini through Antigravity, Meta Muse).
+  const agy = lift("if (a && a.authMode === 'antigravity') {", '/* #3939 slice 3c-2: Meta Muse', 'the Antigravity row');
+  const museStart = "if (a && a.authMode === 'muse') {";
+  const museEnd = "+ '</div></div>';\n    }";
+  const muse = lift(museStart, museEnd, 'the Muse row') + museEnd;
+  const rows = 'function specialRow(a, list) { ' + agy + muse + ' return null; }\nfunction acctUsageHtml() { return \'\'; }\n';
+  const helpers = provider + ago + advWhen + names + order + rows;
   const src = chain + helpers;
   const calls = (src.match(/toLocale[A-Za-z]*\(|Intl\.|localeCompare\(/g) || []).length;
-  const pinnable = (src.match(/\.toLocale(?:Date|Time)String\((?:undefined|\[\])/g) || []).length;
+  const pinnable = (src.match(/\.toLocale(?:Date|Time)String\((?:undefined|\[\])|\.toLocaleString\(\)/g) || []).length;
   assert.equal(calls, pinnable, 'the chain calls something locale-dependent this test does not pin');
-  const pin = (s) => s.replace(/\.toLocale(Date|Time)String\((?:undefined|\[\])/g, ".toLocale$1String('" + fixture.locale + "'");
+  const pin = (s) => s.replace(/\.toLocale(Date|Time)String\((?:undefined|\[\])/g, ".toLocale$1String('" + fixture.locale + "'")
+    .replace(/\.toLocaleString\(\)/g, ".toLocaleString('" + fixture.locale + "')");
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   // isKeyed and canCheckSignIn only choose a tooltip's wording, which the phone does not show.
   // eslint-disable-next-line no-new-func
@@ -55,16 +67,17 @@ function pagePill() {
   const marked = chain.replace(/connBadge = /g, () => '__hit.add(' + (n++) + '); connBadge = ');
   branches = n;
   assert.ok(n >= 12, 'the chain has its branches (' + n + ')');
-  return new Function('esc', '__hit', pin(helpers) + '\nreturn function (a) { const isOpenai = acctProvider(a) === "openai"; const isKeyed = false; '
-    + 'const canCheckSignIn = false; let connBadge; ' + pin(marked).replace(/^\s*let connBadge;\s*$/m, '') + '; return connBadge; };')(esc, hit);
+  return new Function('esc', '__hit', pin(helpers) + '\nreturn { chain: function (a) { const isOpenai = acctProvider(a) === "openai"; const isKeyed = false; '
+    + 'const canCheckSignIn = false; let connBadge; ' + pin(marked).replace(/^\s*let connBadge;\s*$/m, '') + '; return connBadge; }, specialRow, acctPrimaryName, accountGroupsHtml };')(esc, hit);
 }
 
-// The pill's visible words and its tone, read from the span the page builds.
+const unesc = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+// The pill's visible words and its tone, read from the pill span alone (a whole row also holds its name and buttons).
 function read(html) {
-  const tone = (html.match(/class="acct-(connected|loginok|unverified|none|unknown)\b/) || [])[1] || '';
-  const words = html.replace(/<span class="vh">[\s\S]*?<\/span>/g, '').replace(/<[^>]*>/g, '')
-    .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  return { words, tone };
+  const m = html.match(/<span class="acct-(connected|loginok|unverified|none|unknown)\b[^>]*>([\s\S]*?)<\/span>(?:<\/div>|$)/);
+  if (!m) return { words: '', tone: '' };
+  const words = unesc(m[2].replace(/<span class="vh">[\s\S]*?<\/span>/g, '').replace(/<span class="dot"[^>]*><\/span>/g, '').replace(/<[^>]*>/g, ''));
+  return { words, tone: m[1] };
 }
 
 function actual() {
@@ -75,8 +88,12 @@ function actual() {
   // eslint-disable-next-line no-global-assign
   Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [fixture.nowMs])); } static now() { return fixture.nowMs; } };
   try {
-    const pill = pagePill();
-    return fixture.rows.map((r) => Object.assign({ name: r.name }, read(pill(r.account))));
+    const f = pagePill();
+    return fixture.rows.map((r) => {
+      const special = f.specialRow(r.account, [r.account]);
+      const shown = special ? unesc((special.match(/<b>([\s\S]*?)<\/b>/) || [])[1] || '') : f.acctPrimaryName(r.account);
+      return Object.assign({ name: r.name, shown }, read(special || f.chain(r.account)));
+    });
   } finally {
     // eslint-disable-next-line no-global-assign
     Date = RealDate;
@@ -100,6 +117,18 @@ test('#8959 D2a: the fixture reaches every branch of the page\'s chain (a new br
   const missed = [];
   for (let i = 0; i < branches; i++) if (!hit.has(i)) missed.push(i);
   assert.deepEqual(missed, [], 'connBadge branches no fixture row reaches (0-based, in the chain\'s order)');
+});
+
+// Review 2: the page's section order for the fixture's groupRows, as accountGroupsHtml draws it.
+function pageGroups() {
+  const f = pagePill();
+  const html = f.accountGroupsHtml(fixture.groupRows, () => '');
+  return (html.match(/<span class="acct-prov-name">([\s\S]*?)<\/span>/g) || []).map((s) => unesc(s.replace(/<[^>]*>/g, '')));
+}
+
+test('#8959 D2a: the page orders the sections as fixture.json\'s expectedGroups says (the phone is checked against it too)', () => {
+  assert.ok(Array.isArray(fixture.groupRows) && fixture.groupRows.length >= 4, 'the fixture has rows to group');
+  assert.deepEqual(pageGroups(), fixture.expectedGroups);
 });
 
 test('#8959 D2a: every row draws a tone and some words (the lift is not silently empty)', () => {

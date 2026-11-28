@@ -298,6 +298,130 @@
      "loginExpiresAt": 0
     }
    }
+  },
+  {
+   "name": "agy with email",
+   "account": {
+    "dir": "",
+    "provider": "google",
+    "authMode": "antigravity",
+    "email": "g@example.com",
+    "connection": {
+     "badge": "signed_in_unverified"
+    }
+   }
+  },
+  {
+   "name": "agy no email",
+   "account": {
+    "dir": "",
+    "provider": "antigravity",
+    "authMode": "antigravity",
+    "connection": {
+     "badge": "working"
+    }
+   }
+  },
+  {
+   "name": "muse working",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {
+     "badge": "working",
+     "observedAgeMs": 180000
+    }
+   }
+  },
+  {
+   "name": "muse since",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {
+     "badge": "signed_in_unverified",
+     "notConfirmedSince": 1795543200000
+    }
+   }
+  },
+  {
+   "name": "muse rejected",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {
+     "badge": "rejected"
+    }
+   }
+  },
+  {
+   "name": "muse other",
+   "account": {
+    "dir": "",
+    "provider": "meta",
+    "authMode": "muse",
+    "connection": {}
+   }
+  },
+  {
+   "name": "glm key",
+   "account": {
+    "dir": "/g",
+    "provider": "glm",
+    "keyTail": "9z1b",
+    "connection": {
+     "state": "connected"
+    }
+   }
   }
+ ],
+ "groupRows": [
+  {
+   "dir": "/o",
+   "provider": "openai",
+   "providerName": "OpenAI / Codex"
+  },
+  {
+   "dir": "/g",
+   "provider": "glm",
+   "providerName": "Z.ai GLM"
+  },
+  {
+   "dir": "",
+   "provider": "meta",
+   "authMode": "muse",
+   "providerName": "Meta Muse"
+  },
+  {
+   "dir": "/c",
+   "provider": "anthropic"
+  },
+  {
+   "dir": "/o2",
+   "provider": "openai"
+  },
+  {
+   "dir": "",
+   "provider": "google",
+   "authMode": "antigravity",
+   "providerName": "Google Gemini"
+  },
+  {
+   "dir": "/x",
+   "provider": "mystery",
+   "providerName": "Somebody new"
+  }
+ ],
+ "expectedGroups": [
+  "Anthropic / Claude",
+  "Somebody new",
+  "OpenAI / Codex",
+  "OpenAI",
+  "Google Gemini",
+  "Meta Muse",
+  "Z.ai GLM"
  ]
 }

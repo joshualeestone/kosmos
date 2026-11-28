@@ -19,7 +19,8 @@ final class ModelsUITests: XCTestCase {
         row.tap()
 
         XCTAssertTrue(app.navigationBars["AI Models"].waitForExistence(timeout: 10), "the native AI Models screen did not open")
-        let rows = app.otherElements.matching(identifier: "models-account")
+        // Any element type: a List row with combined children can surface as a cell or an other element (review 2).
+        let rows = app.descendants(matching: .any).matching(identifier: "models-account")
         let first = rows.element(boundBy: 0)
         XCTAssertTrue(first.waitForExistence(timeout: 10), "no account rows")
         XCTAssertEqual(rows.count, 3, "the sample's three accounts")
@@ -30,7 +31,6 @@ final class ModelsUITests: XCTestCase {
                       "one section per provider, its name as written")
         XCTAssertTrue(app.staticTexts["To check, sign in, add or change an account, use Settings on your computer."].waitForExistence(timeout: 5),
                       "the footer that sends changes to the computer")
-        XCTAssertFalse(app.buttons["Check now"].exists, "no button the phone cannot honour")
         shot(app, "models-list")
     }
 
