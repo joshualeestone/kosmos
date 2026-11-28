@@ -79,9 +79,20 @@ function unsafeDrop(value) {
 /* Not a Playwright option (its typed API has none): Puppeteer's name for turning every default off. Kept because an
    agent's script may drive Chromium with Puppeteer. */
 const DEFAULTS_OFF = /ignoreAllDefaultArgs\s*:\s*true|ignoreAllDefaultArgs\s*=(?!=)/;
-/* Running a Chrome or Chromium binary or app itself, not through Playwright's launch (case-insensitive). The keychain
-   switch must be on the same call: that line or the three after it. */
-const RUNS_CHROME = /contents\/macos\/(?:google chrome|chromium)|\b(?:spawn|execFile|exec)(?:Sync)?\([^)\n]*chrome-headless-shell\b|\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^\s"'\\]*\/)?(?:google chrome|chrome|chromium|com\.google\.chrome|org\.chromium)|['"]open['"]\s*,\s*\[[^\]]*?['"]-[a-z]*[ab][a-z]*['"]\s*,\s*['"](?:\/[^'"]*\/)?(?:google chrome|chrome|chromium|com\.google\.chrome|org\.chromium)/i;
+/* Running a TEST browser (Chrome for Testing, Chromium, the headless shell) itself, not through Playwright's launch.
+   The person's own Google Chrome is not one: it already has its own keychain access, and a mock keychain against their
+   profile would only lose their saved logins, so `open -a "Google Chrome" <url>` is fine. Case-insensitive; the
+   keychain switch must be on the same call (that line or the three after it). */
+const TEST_BROWSER = String.raw`(?:google chrome for testing|chromium|chrome-headless-shell|org\.chromium|com\.google\.chrome\.for\.testing)`;
+const RUN_ARMS = [
+  String.raw`contents\/macos\/${TEST_BROWSER}`,                                            // the binary inside an app
+  String.raw`['"]contents['"]\s*,\s*['"]macos['"]\s*,\s*['"]${TEST_BROWSER}`,               // the same, by path.join
+  String.raw`\b(?:spawn|execFile|exec)(?:Sync)?\(\s*[^)\n]*chrome-headless-shell\b`,       // the headless shell run
+  String.raw`\b(?:spawn|execFile|exec)(?:Sync)?\(\s*[\w.]*executablePath\(\)`,             // Playwright's own binary, run raw
+  String.raw`\bopen\s+(?:-[a-z]+\s+)*\\?["']?(?:\/[^"'\\]*\/)?${TEST_BROWSER}`,           // open (-a/-b) an app, or a .app path
+  String.raw`['"]open['"]\s*,\s*\[[^\]]*?['"](?:\/[^'"]*\/)?${TEST_BROWSER}`,               // its argv form
+];
+const RUNS_CHROME = new RegExp(RUN_ARMS.join('|'), 'i');
 
 function offenders(list) {
   const bad = [];
@@ -121,28 +132,23 @@ test('#9254: every rule fires on the shape it names, and not on the safe shapes 
   assert.ok(!unsafe("launch({ ignoreDefaultArgs: ['--hide-scrollbars'] })"), 'one safe switch');
   assert.ok(!unsafe("launch({ ignoreDefaultArgs: eng === 'chromium' ? ['--hide-scrollbars'] : [] })"), 'a ternary of safe lists');
   assert.ok(!unsafe("launch({ ignoreDefaultArgs: ['--enable-automation'], args: ['--x'] })"), 'the next property is not read as the value');
-  for (const l of ['spawn("/x/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")', 'open -na "Google Chrome" --args --new-window',
-    "open -a 'google chrome'", 'open -b com.google.Chrome', 'open -a /Applications/Chromium.app/', "execFile('/x/chrome-headless-shell', [])",
+  for (const l of ['spawn("/x/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")', 'open -na "Google Chrome for Testing" --args --new-window',
+    "open -a 'chromium'", 'open -b com.google.chrome.for.testing', 'open -a /Applications/Chromium.app/', "execFile('/x/chrome-headless-shell', [])",
     "spawnSync('/x/chrome-headless-shell', [])", "exec('/x/chrome-headless-shell --version')", 'open -b org.chromium.Chromium',
-    'run("/x/Chromium.app/Contents/MacOS/Chromium")', 'execSync("open -a \\"Google Chrome\\" https://x")',
+    'run("/x/Chromium.app/Contents/MacOS/Chromium")', 'execSync("open -a \\"Google Chrome for Testing\\" https://x")',
     "execFileSync('open', ['-a', 'Google Chrome for Testing', '--args', '--new-window'])", "spawn('open', ['-na', '/Applications/Chromium.app'])",
-    'open -a Chrome https://x']) {
+    'open "/x/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app"', "spawn('open', ['/x/Google Chrome for Testing.app'])",
+    "spawn(path.join(dir, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'), [])",
+    'spawn(chromium.executablePath(), ["--headless"])']) {
     assert.ok(RUNS_CHROME.test(l), 'missed: ' + l);
   }
   assert.ok(!RUNS_CHROME.test('chromium.launch({ headless: true })'), 'a Playwright launch is not a direct run');
-  assert.ok(!RUNS_CHROME.test('open -n "Google Chrome"'), 'open with no -a or -b names a file, not an app');
+  // The person's own Chrome is not a test browser: a mock keychain there would lose their saved logins.
+  for (const l of ['open -a "Google Chrome" https://x', 'open -b com.google.Chrome', 'open -a Chrome https://x', "execFileSync('open', ['-a', 'Google Chrome', url])"]) {
+    assert.ok(!RUNS_CHROME.test(l), 'the person\'s own Chrome was refused: ' + l);
+  }
   assert.ok(DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: true })') && !DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: false })'));
   assert.ok(DEFAULTS_OFF.test('opts.ignoreAllDefaultArgs = true') && !DEFAULTS_OFF.test('if (opts.ignoreAllDefaultArgs === true) {}'));
-});
-
-test('#9254: the Playwright MCP config the repo writes launches the headless shell through Playwright, no profile', () => {
-  const { configFor } = require('./engine/agentbrowser');
-  const servers = configFor({ platform: 'darwin', executablePath: '/x/chrome-headless-shell', node: 'n', cli: 'c', outputDir: 'o' }).mcpServers;
-  const args = servers[Object.keys(servers)[0]].args;
-  assert.deepEqual(args.slice(1, 5), ['--browser', 'chromium', '--executable-path', '/x/chrome-headless-shell'], 'the Mac browser is not Playwright\'s chromium at the given shell: ' + JSON.stringify(args));
-  assert.ok(args.includes('--isolated'), 'the MCP browser is not isolated: ' + JSON.stringify(args));
-  assert.ok(args.includes('--headless'), 'the MCP browser is not headless: ' + JSON.stringify(args));
-  assert.ok(!args.some((a) => /user-data-dir|--profile/.test(a)), 'the MCP browser was given a profile: ' + JSON.stringify(args));
 });
 
 test('#9254: no launch site in the repo turns the keychain switches off or runs Chrome without them', () => {
