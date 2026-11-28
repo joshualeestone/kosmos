@@ -357,8 +357,8 @@ rt_wd_loop() {
 }
 rt_file_watchdog_start() {
   [ "$KOSMOS_TEST_PART" != shell ] || return 0
-  # kosmos#9278: on Windows the watchdog cannot see node (Git Bash has no pgrep, and its ps lists no native process
-  # with -A -o), so a file stuck in a sync call is not stopped; the leftover-process check (#4273) and the stops at the
+  # kosmos#9278: on Windows the watchdog cannot see node (Git Bash has no pgrep, and its ps refuses -A -o; its
+  # ps -W lists Windows processes but with no parent or command line), so a file stuck in a sync call is not stopped; the leftover-process check (#4273) and the stops at the
   # end of a run (#8890, #9159) read the same ps. Said once, here; the watchdog's "not found yet" line is not said there.
   if [ "$_RT_WIN" = 1 ]; then echo "run-tests: on Windows the per-file limit (#6668) and the leftover-process checks and stops (#4273, #8890, #9159) do not run: Git Bash has no pgrep and its ps cannot list Windows processes (kosmos#9278)" >&2; fi
   # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
