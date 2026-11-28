@@ -22,4 +22,13 @@ converged: true
 
 #### Iteration 1
 **Reviewer model:** sonnet
-**New findings:** none. Checked: the other arms that share candidates() never meet the shell form; nodeCmd is refreshed on every non-null look; the 1 s sleep is far inside the 30 s scaled appear budget and before TERM; no Windows change; the regex matches the shebang form on macOS and Linux; the arm cannot pass for a wrong reason.
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
+**What the reviewer checked, each found sound:**
+- [CHECKED] The term and int arms share candidates(): their node is a bare node --test or the real binary path, so the new shell check never matches them.
+- [CHECKED] nodeCmd is overwritten on every look that passes the check, so the final value is a post-exec reading.
+- [CHECKED] A shell-form look returns null before assigning, so the arm cannot settle on a watchdog while nodeCmd holds the shell form.
+- [CHECKED] The 1 s sleep is far inside the 30 s scaled appear budget, and TERM or INT is sent only after the watchdog is settled, after the exec.
+- [CHECKED] The sleeping stand-in adds no process holding the runner's own command line, so no spurious watchdog candidate.
+- [CHECKED] Windows: no new behaviour (the arm already depends on bash, pgrep and ps; the regex matches only POSIX /bin paths).
+- [CHECKED] The regex matches the shebang form as ps shows it on macOS and Linux (/bin/sh <path>/node --test ...); the trailing space keeps /bin/shfoo out.
+- [CHECKED] The arm cannot pass for a wrong reason: its assertion still requires the real node's full path, and if the regex stopped matching the arm would fail every run, not rarely.
