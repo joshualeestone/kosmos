@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude-projects');
 
 const test = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert/strict');
 require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
@@ -83,7 +84,7 @@ test('undo: off until the person turns it on; a kept copy undoes a closed task\'
   assert.equal((await fetch(base + '/api/project/undo-p/task/9/undo')).status, 404);
 });
 
-test('the real `kosmos keep-copy` reaches the board and a copy is kept, a name with a space and a quote included', async () => {
+test('the real `kosmos keep-copy` reaches the board and a copy is kept, a name with a space and a quote included', { skip: skipOnWin32('it writes a file whose name holds a double quote, which Windows does not allow in a name, and runs install/kosmos, the Mac and Linux CLI') }, async () => {
   await put('/api/undo-setting', { on: true });
   const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'vic');
   fs.mkdirSync(folder, { recursive: true });

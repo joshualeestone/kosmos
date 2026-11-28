@@ -287,7 +287,8 @@ function routesFrom(files) {
   return { found, problems, inPlace, unmatched: SITES.filter((d) => files.some((f) => f.rel === d.file) && !matchedSites.has(d)) };
 }
 
-const appFiles = () => swiftFiles().map((f) => ({ rel: path.relative(__dirname, f), text: fs.readFileSync(f, 'utf8') }));
+// kosmos#8378: SITES names files with /, so the relative path is joined with / on every platform (Windows: \\).
+const appFiles = () => swiftFiles().map((f) => ({ rel: path.relative(__dirname, f).split(path.sep).join('/'), text: fs.readFileSync(f, 'utf8') }));
 
 /* A whole Swift file as two per-line views, scanned once so state carries across lines (review 3):
    - code: comments removed (line comments and nested block comments), raw strings (#"..."#) and multi-line strings blanked, ordinary
