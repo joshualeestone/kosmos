@@ -26,3 +26,14 @@ open the Chrome for Testing app directly.
 ## Weakest premise
 That the launcher was a launch site in a repo this guard reads. The guard cannot see a hand-typed command or a tool
 outside the repo, which is what the fleet rule is for.
+
+## Review 1 (hardening, all reasonable)
+- The repo root's tests and scripts are read too (not recursively; not the guard itself).
+- ignoreDefaultArgs: the whole value is read (brackets counted, so multi-line and ternaries), and only a plain list of
+  --hide-scrollbars / --enable-automation is allowed; a variable, a spread, true or a quoted key is refused.
+  ignoreAllDefaultArgs is refused outright.
+- A direct run: case-insensitive, open -a / open -b with a path or bundle id, and a spawn of chrome-headless-shell; the
+  switch must be on the same call (that line or the next three), not anywhere in the file.
+- The MCP config the repo writes (engine/agentbrowser.js configFor) is asserted: Playwright's chromium at the shell,
+  isolated, no profile.
+Residual, stated: a Chrome path built entirely from variables is not readable as text.
