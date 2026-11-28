@@ -499,7 +499,17 @@ test('a hung tunnel times out: turning on fails in plain words, and the next tur
     assert.equal(r.code, 400);
     assert.match(r.json.error, /could not be reached/);
     assert.equal(phonenotify.readState().on, false);
-    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    /* kosmos#9251: the second turn-on goes to a HEALTHY tunnel that answers no sooner than 700 ms after this timer is set
+       (on a loaded box the tunnel may start late and find the gate already open), as one can on a slow box, so the "not
+       stuck" check below is made against a slow tunnel, not only when the box happens to be busy (with the 500 ms limit
+       left set, this arm reds; measured). */
+    const G = path.join(SANDBOX, 'slow-ok-gate'); setTimeout(() => fs.writeFileSync(G, ''), 700);
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel('slow-ok', { gate: G, out: `{"token":"${MINTED}"}\n` });
+    /* kosmos#9251: the 500 ms limit was for the hung half only. Kept for this call, a healthy tunnel that is merely slow
+       on a loaded box (measured: one answering in 700 ms) timed out too and read as "stuck". With the normal limit (20 s), a
+       400 here almost certainly means the timed-out turn-on left later ones stuck (a mutant that never clears the in-flight
+       turn-on reds it); only a box slow beyond that limit, or a tunnel that fails to start, could give one otherwise. */
+    delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS;
     const again = await call('PUT', '/api/phone-notify', { body: { on: true } });
     assert.equal(again.code, 200, 'a timed-out turn-on left later turn-ons stuck');
   } finally {
