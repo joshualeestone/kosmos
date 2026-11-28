@@ -871,7 +871,8 @@ test('#9268: a temp name swapped for another file after the open is refused, and
   securewrite.writeSecret(file, 'secret-9268b', 0o600);
   fs.openSync = realOpen;
   assert.ok(planted, 'the plant never happened, so this tests nothing');
-  assert.equal(fs.existsSync(elsewhere) ? fs.readFileSync(elsewhere, 'utf8') : '', '', 'the secret went through the fd to where the link pointed');
+  /* After a swap the file the open made has no name the writer can find, so it stays, empty (refuseFollowedLink's doc). */
+  assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret went through the fd to where the link pointed');
   assert.equal(fs.readFileSync(planted, 'utf8'), 'ATTACKER', 'the swapped-in file was moved or changed, which is not ours to do');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268b', 'the planted file became the config, or the save did not land');
 });
@@ -891,4 +892,31 @@ test('#9268 CONTROL: an ordinary save takes the atomic path (atomicOnly does not
   finally { fs.openSync = realOpen; }
   assert.equal(fs.readFileSync(file, 'utf8'), 'plain-9268');
   assert.equal(opens, 1, 'an ordinary save was refused and retried at a fresh name');
+});
+
+/* kosmos#9268 review 2: the name swapped for a HARD link to the file the open made. Device and inode then match, so
+   only the link count shows it: a second name for the config would keep the secret readable there. */
+test('#9268: a temp name that is a second hard link to the opened file is refused, so the config gets no second name', (t) => {
+  const file = fresh('hardlinked');
+  const elsewhere = fresh('attacker3');
+  const realOpen = fs.openSync;
+  let planted = null;
+  fs.openSync = function (p, flags, ...rest) {
+    if (planted === null && flags === 'wx' && String(p).includes('.kosmos-')) {
+      planted = String(p);
+      fs.symlinkSync(elsewhere, planted);
+      const fd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+      fs.unlinkSync(planted);
+      fs.linkSync(elsewhere, planted);                          // and the name becomes a second name for it
+      return fd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; try { fs.rmSync(planted, { force: true }); fs.rmSync(elsewhere, { force: true }); } catch { /* fine */ } });
+  securewrite.writeSecret(file, 'secret-9268c', 0o600);
+  fs.openSync = realOpen;
+  assert.ok(planted, 'the plant never happened, so this tests nothing');
+  assert.equal(fs.readFileSync(elsewhere, 'utf8'), '', 'the secret was written into the file the attacker holds a name for');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268c', 'the save did not land');
+  assert.notEqual(fs.statSync(file).ino, fs.statSync(elsewhere).ino, 'the config is a second name of the attacker\'s file');
 });

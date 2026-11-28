@@ -143,35 +143,46 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-t${THREAD}-${START
 const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
 
 /**
- * kosmos#9268: is the temp name still the very file this open made? On Windows a create-exclusive open can FOLLOW a
+ * kosmos#9268: did this open land somewhere other than the temp name? On Windows a create-exclusive open can FOLLOW a
  * link planted at the name: Node maps `'wx'` to CREATE_NEW, and CreateFile follows a reparse point, so a dangling
  * link is not an existing file to it and the open creates the link's TARGET (measured on GitHub's Windows runner,
  * engine/trust.test.js). A POSIX O_CREAT|O_EXCL refuses a link itself.
  *
- * So the question is not "is the name a link now" but "is the name a regular file with the same device and inode as
- * the open file": a name swapped after the open (the link removed, or replaced by another file) fails it too.
- * Compared as bigints, so a large Windows file index is exact. Refused, the fd is closed, and when the name is still
- * a link to the file this open made (same device and inode, still empty), that file is removed: it holds nothing,
- * and leaving it would leave a file where somebody else chose. The name itself is never touched. Returns true when
- * it refused.
+ * It refuses only on POSITIVE evidence that the name is not the file the fd holds, never because something could not
+ * be read, so a mount whose stat answers are unusual (a share, a FUSE file system) still writes as before:
+ *   - the name is gone, or is a link, or is not a regular file;
+ *   - the name has more than one hard link (a second name for the file would keep the secret readable there);
+ *   - both device and inode are readable and nonzero on both sides, and differ (a name swapped after the open).
+ * Compared as bigints, so a large Windows file index is exact.
+ *
+ * Refused, the fd is closed once, and when the name is still a link to the file this open made (same device and
+ * inode, still empty) that file is removed: it holds nothing, and leaving it would leave a file where somebody else
+ * chose. After a swap the made file has no name this can find, so it stays where it is, empty; nothing is ever written
+ * to it. The temp name itself is never touched. Returns true when it refused.
  */
 function refuseFollowedLink(tmp, fd) {
   let made = null;
   let named = null;
+  let gone = false;
   try { made = fs.fstatSync(fd, { bigint: true }); } catch { made = null; }
-  try { named = fs.lstatSync(tmp, { bigint: true }); } catch { named = null; }
-  const sameFile = (st) => made && st && st.isFile() && st.dev === made.dev && st.ino === made.ino;
-  if (sameFile(named)) return false;
-  let closed = false;
-  try {
-    let target = null;
-    if (named && named.isSymbolicLink()) { try { target = fs.realpathSync(tmp); } catch { target = null; } }
-    fs.closeSync(fd); closed = true;
-    if (target) {
+  try { named = fs.lstatSync(tmp, { bigint: true }); } catch (e) { gone = !!(e && e.code === 'ENOENT'); }
+  const known = (st) => st && st.dev !== 0n && st.ino !== 0n;
+  const sameFile = (st) => known(made) && known(st) && st.dev === made.dev && st.ino === made.ino;
+  let refuse = gone;
+  if (named) {
+    if (named.isSymbolicLink() || !named.isFile() || named.nlink > 1n) refuse = true;
+    else if (known(made) && known(named) && !sameFile(named)) refuse = true;
+  }
+  if (!refuse) return false;
+  let target = null;
+  if (named && named.isSymbolicLink()) { try { target = fs.realpathSync(tmp); } catch { target = null; } }
+  try { fs.closeSync(fd); } catch { /* closed either way: never a second close of a number that may be reused */ }
+  if (target) {
+    try {
       const there = fs.lstatSync(target, { bigint: true });
-      if (sameFile(there) && there.size === 0n) fs.unlinkSync(target);
-    }
-  } catch { if (!closed) { try { fs.closeSync(fd); } catch { /* already closed */ } } }
+      if (there.isFile() && sameFile(there) && there.size === 0n) fs.unlinkSync(target);
+    } catch { /* it stays; it holds nothing */ }
+  }
   return true;
 }
 
@@ -436,10 +447,11 @@ function writeSecret(file, data, mode, opts) {
          attempts, three 0600 temps each holding the first bytes of the NEW secret,
          then the fallback succeeded and the caller saw a clean write. The header's
          "needs death in the window" claim was false until this: no death needed.
-         The flag flips the instant the inode exists, which is the only moment
-         "we created it" is a fact rather than a proxy. */
+         The flag flips the instant the open returns and the name is confirmed to be
+         the opened file (kosmos#9268), which is when "we created it" is a fact rather
+         than a proxy. */
       const tfd = fs.openSync(tmp, 'wx', createMode);
-      if (refuseFollowedLink(tmp, tfd)) throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_SYMLINK' });   // kosmos#9268: the next attempt takes a fresh name
+      if (refuseFollowedLink(tmp, tfd)) throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_TEMP_SWAPPED' });   // kosmos#9268: the next attempt takes a fresh name
       created = true;
       try {
         /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
