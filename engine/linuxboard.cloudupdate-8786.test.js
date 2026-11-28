@@ -21,6 +21,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const linuxboard = require('./linuxboard');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+// linuxboard resolves the Kosmos folder with this computer's path rules (path.resolve), so on Windows every folder is a
+// drive path with backslashes, and a systemd unit refuses a backslash; systemd itself is Linux only.
+const SKIP_SYSTEMD_UNIT = skipOnWin32('the systemd board is Linux only, and linuxboard refuses a folder with a backslash in a systemd unit, which every Windows folder has');
+const SKIP_BIN_BASH = skipOnWin32('it runs setup.sh\'s uninstall through /bin/bash by an absolute POSIX path, which Windows cannot run');
 
 test.afterEach(() => {
   linuxboard.setRunnerForTests(null);
@@ -61,7 +66,7 @@ function shellFns(names) {
   }).join('\n');
 }
 
-test('setup.sh names the nightly units the way linuxboard does, for the default home and another', () => {
+test('setup.sh names the nightly units the way linuxboard does, for the default home and another', { skip: skipOnWin32('linuxboard resolves the Kosmos folder with this computer\'s path rules, so on Windows a POSIX folder (/srv/...) becomes a drive path and hashes to another unit name than setup.sh gives it; the systemd board is Linux only') }, () => {
   const fns = shellFns(['_kosmos_linux_unit_name', '_kosmos_linux_cloud_update_base']);
   const def = path.join(os.homedir(), '.local', 'share', 'kosmos');
   for (const kh of [def, '/srv/kosmos other home']) {
@@ -72,7 +77,7 @@ test('setup.sh names the nightly units the way linuxboard does, for the default 
   }
 });
 
-test('setup.sh\'s uninstall removes the nightly units it names, and is called beside the pause check', () => {
+test('setup.sh\'s uninstall removes the nightly units it names, and is called beside the pause check', { skip: SKIP_BIN_BASH }, () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
   assert.match(src, /_kosmos_linux_remove_pause_check\n {6}_kosmos_linux_remove_cloud_update\n/);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudupdate-uninstall-'));
@@ -95,7 +100,7 @@ test('setup.sh\'s uninstall removes the nightly units it names, and is called be
   }
 });
 
-test('the nightly service runs kosmos cloud-update once a night, outside the board, on this board\'s port', () => {
+test('the nightly service runs kosmos cloud-update once a night, outside the board, on this board\'s port', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const home = '/home/user/.local/share/kosmos-x';
   const { names, service, timer } = linuxboard.cloudUpdateUnitsFor(home, 17123);
   assert.match(service, /^Type=oneshot$/m);
@@ -116,7 +121,7 @@ test('the nightly service runs kosmos cloud-update once a night, outside the boa
   assert.match(timer, /^WantedBy=timers\.target$/m);
 });
 
-test('a Kosmos folder that would add a directive is refused; a port that is not a number never reaches the unit', () => {
+test('a Kosmos folder that would add a directive is refused; a port that is not a number never reaches the unit', { skip: SKIP_SYSTEMD_UNIT }, () => {
   assert.throws(() => linuxboard.cloudUpdateUnitsFor('/home/user/kos\nExecStartPre=/bin/false', 17000));
   // Number() of it is NaN, so the board's own port is used, as boardUnitFor does.
   const { service } = linuxboard.cloudUpdateUnitsFor('/home/user/kos', '17000\nExecStartPre=/bin/false');
@@ -124,7 +129,7 @@ test('a Kosmos folder that would add a directive is refused; a port that is not 
   assert.match(service, new RegExp('^Environment="PORT=' + require('./create').boardPort() + '"$', 'm'));
 });
 
-test('installBoard on a Cloud box writes the nightly units and enables the timer', () => {
+test('installBoard on a Cloud box writes the nightly units and enables the timer', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const calls = [];
   linuxboard.setRunnerForTests(record(calls));
   linuxboard.setCloudForTests(() => true);
@@ -145,7 +150,7 @@ test('installBoard on a Cloud box writes the nightly units and enables the timer
   }
 });
 
-test('CONTROL: installBoard off a Cloud box (or when the latch cannot be read) writes no nightly unit', () => {
+test('CONTROL: installBoard off a Cloud box (or when the latch cannot be read) writes no nightly unit', { skip: SKIP_SYSTEMD_UNIT }, () => {
   for (const cloud of [() => false, () => { throw new Error('unreadable'); }]) {
     const calls = [];
     linuxboard.setRunnerForTests(record(calls));
@@ -165,7 +170,7 @@ test('CONTROL: installBoard off a Cloud box (or when the latch cannot be read) w
   }
 });
 
-test('a refused nightly timer does not fail the board install, and says why', () => {
+test('a refused nightly timer does not fail the board install, and says why', { skip: SKIP_SYSTEMD_UNIT }, () => {
   linuxboard.setRunnerForTests((cmd, args) => (args.join(' ').includes('--now kosmos-cloud-update')
     ? { ok: false, stdout: '', stderr: 'Failed to enable unit: no\n' }
     : { ok: true, stdout: '' }));
@@ -206,7 +211,7 @@ test('removeBoard removes the nightly units even off a Cloud box, stopping the t
   }
 });
 
-test('the nightly service carries what the board unit carries, so setup.sh rewrites the board unit with it', () => {
+test('the nightly service carries what the board unit carries, so setup.sh rewrites the board unit with it', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const was = { t: process.env.AGENT_WORKFORCE_TMUX_BIN, u: process.env.AGENT_WORKFORCE_CREATED_URL };
   try {
     process.env.AGENT_WORKFORCE_TMUX_BIN = '/usr/bin/tmux';
@@ -224,7 +229,7 @@ test('the nightly service carries what the board unit carries, so setup.sh rewri
   }
 });
 
-test('installBoard on a box that is no longer a Cloud box removes an earlier install\'s nightly units', () => {
+test('installBoard on a box that is no longer a Cloud box removes an earlier install\'s nightly units', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const calls = [];
   linuxboard.setRunnerForTests(record(calls));
   linuxboard.setCloudForTests(() => false);
@@ -244,7 +249,7 @@ test('installBoard on a box that is no longer a Cloud box removes an earlier ins
   }
 });
 
-test('a latch that cannot be read (not gone) keeps an earlier install\'s nightly units', () => {
+test('a latch that cannot be read (not gone) keeps an earlier install\'s nightly units', { skip: SKIP_SYSTEMD_UNIT }, () => {
   for (const gone of [() => false, () => { throw new Error('EACCES'); }]) {
     const calls = [];
     linuxboard.setRunnerForTests(record(calls));
@@ -263,7 +268,7 @@ test('a latch that cannot be read (not gone) keeps an earlier install\'s nightly
   }
 });
 
-test('setup.sh\'s uninstall stops a nightly run in flight, after disabling its timer (a stub systemctl records the calls)', () => {
+test('setup.sh\'s uninstall stops a nightly run in flight, after disabling its timer (a stub systemctl records the calls)', { skip: skipOnWin32('it runs setup.sh\'s uninstall through /bin/bash by an absolute POSIX path, with a #!/bin/sh systemctl stub run by its shebang line, neither of which Windows can run') }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudupdate-uninstall-stop-'));
   try {
     const kh = '/srv/kosmos-y';

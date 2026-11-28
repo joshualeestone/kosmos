@@ -8,6 +8,10 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
  */
 const test = require('node:test');
 const jobfix = require('../test-support/jobfixture');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the arms that put an agent ON Qwen
+/* kosmos#8378: Kosmos refuses a Qwen agent on Windows (#5977 r3: "Kosmos cannot start a Qwen agent on Windows yet"), so an
+   agent cannot be switched onto Qwen or moved between Qwen accounts there; the arms that do skip. The rest runs. */
+const NO_QWEN = skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so an agent cannot be switched onto Qwen or moved between Qwen accounts there');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -30,7 +34,8 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const CODEX_BIN = nodePath.join(BIN, 'codex');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js)
+for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 const BINS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN };
 
 const create = require('./create');
@@ -68,7 +73,7 @@ test('#5977: jobProvider reads Qwen from a codex job whose account home holds an
   assert.equal(create.jobProvider({ runner: 'claude' }), 'anthropic');
 });
 
-test('#5977: claude -> Qwen switches to codex on the named Qwen account, writes it as the account home, records alibaba', () => {
+test('#5977: claude -> Qwen switches to codex on the named Qwen account, writes it as the account home, records alibaba', { skip: NO_QWEN }, () => {
   const acct = qwenAccount('sw1');
   const name = born('qw-claude-to-qwen', 'claude', null, 'anthropic');
   const sw = create.setProvider(name, 'alibaba', { ...BINS, accountDir: acct, pickedByPerson: true });
@@ -83,7 +88,7 @@ test('#5977: claude -> Qwen switches to codex on the named Qwen account, writes 
   assert.equal(fs.existsSync(nodePath.join(create.workerDir(name), 'AGENTS.md')), true, 'the brief moved to the codex file');
 });
 
-test('#5977: OpenAI -> Qwen is a real switch (same runner, different provider), and Qwen -> Qwen is refused', () => {
+test('#5977: OpenAI -> Qwen is a real switch (same runner, different provider), and Qwen -> Qwen is refused', { skip: NO_QWEN }, () => {
   const acct = qwenAccount('sw2');
   const name = born('qw-openai-to-qwen', 'codex', null, 'openai');
   const sw = create.setProvider(name, 'alibaba', { ...BINS, accountDir: acct });
@@ -94,7 +99,7 @@ test('#5977: OpenAI -> Qwen is a real switch (same runner, different provider), 
   assert.match(again.because, /already runs on Qwen/);
 });
 
-test('#5977: a switch to Qwen needs a known, usable Qwen account, and refuses without changing anything', () => {
+test('#5977: a switch to Qwen needs a known, usable Qwen account, and refuses without changing anything', { skip: NO_QWEN }, () => {
   const name = born('qw-refusals', 'claude', null, 'anthropic');
   const before = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   const none = create.setProvider(name, 'alibaba', { ...BINS });
@@ -134,7 +139,7 @@ test('review 1: the account route does not move an OpenAI agent onto a Qwen fold
 
 /* #6214: a stopped bulk move puts an unreached agent back with create.restoreAccount. It rewrites the job only, with
    every other field as it is, for any runner; for Qwen the profile record Repair rebuilds from goes back too. */
-test('#6214: a Qwen agent put back after a stopped move is back on its old account in the job AND in the profile', () => {
+test('#6214: a Qwen agent put back after a stopped move is back on its old account in the job AND in the profile', { skip: NO_QWEN }, () => {
   const a = qwenAccount('pbA'), b = qwenAccount('pbB');
   const name = born('qw-putback', 'codex', a, 'alibaba');
   store.writeProfile(name, { qwenAccount: a });
@@ -153,7 +158,7 @@ test('#6214: a Qwen agent put back after a stopped move is back on its old accou
 /* #6231 item 13: the job cannot be rewritten AND the Qwen record cannot be put back. The answer must say the record now
    names the old account (a Repair rebuilds from it), not only the job's failure. */
 test('#6231: a Qwen put-back whose job write fails and whose record cannot be undone says so', (t) => {
-  if (process.getuid && process.getuid() === 0) { t.skip('root can write a read-only folder'); return; }   // this file is not run on Windows (tools/windows-tests.js)
+  if (process.getuid && process.getuid() === 0) { t.skip('root can write a read-only folder'); return; }   // kosmos#8378: this arm passed on GitHub's Windows runner too (run 46114804176)
   const a = qwenAccount('udA'), b = qwenAccount('udB');
   const name = born('qw-undo', 'codex', b, 'alibaba');
   store.writeProfile(name, { qwenAccount: b });

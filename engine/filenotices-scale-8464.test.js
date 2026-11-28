@@ -16,7 +16,10 @@ const fn = require('./filenotices');
 const fw = require('./filewriters');
 const projects = require('./projects');
 
-const real = fs.realpathSync(SB);
+/* kosmos#8378: the OS's own spelling (realpathSync.native), as the caller hands queue its path (filewriters.js) and as
+   queue compares the folder. On Windows the temp folder is a short name (C:\Users\RUNNER~1\...) that only the native
+   form expands, so with the JS realpath no notice was fingerprinted there at all. */
+const real = fs.realpathSync.native(SB);
 let seq = 0;
 const lines = (n, tag = 'line') => Array.from({ length: n }, (_, i) => `${tag} ${i + 1}`).join('\n') + '\n';
 function fileWith(text) {
@@ -26,6 +29,7 @@ function fileWith(text) {
 }
 function owner() { return 'own' + (++seq); }
 const handed = (who) => fn.handOver(who);
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 
 test('kosmos#8464 a change after the notice is counted at the hand-over: lines added and removed, of how many', () => {
   const f = fileWith(lines(10));
@@ -55,7 +59,7 @@ test('kosmos#8464 an unchanged file, a deleted one and a new one each say so', (
   assert.match(fn.contextText(handed(c)), /So far, by anyone \(you included\), the file has 2 lines added and 0 lines removed \(it was new\)\./);
 });
 
-test('kosmos#8464 no scale is said for a link, a file over the bounds, or a notice made without a file', () => {
+test('kosmos#8464 no scale is said for a link, a file over the bounds, or a notice made without a file', { skip: NO_SYMLINK }, () => {
   const target = fileWith(lines(3));
   const link = path.join(real, 'link' + (++seq) + '.md');
   fs.symlinkSync(target, link);
@@ -73,7 +77,7 @@ test('kosmos#8464 no scale is said for a link, a file over the bounds, or a noti
   assert.doesNotMatch(fn.contextText(plain), /So far/);
 });
 
-test('kosmos#8464 a file that becomes a link after the notice gets no scale (nothing is read through it)', () => {
+test('kosmos#8464 a file that becomes a link after the notice gets no scale (nothing is read through it)', { skip: NO_SYMLINK }, () => {
   const f = fileWith(lines(3)); const who = owner();
   fn.queue(who, 'x', { file: f });
   const secret = fileWith(lines(40, 'secret'));
@@ -107,7 +111,7 @@ test('kosmos#8464 end to end: another agent about to change an owned file queues
 
 /* Review 2, the blocker: path.resolve drops '..' before the kernel follows a link, so P/l/../x.md (l a link to outside)
    is placed inside the project but would be read outside. The notice must measure the in-project file it names. */
-test('kosmos#8464 review 2: a path through a link and ".." is measured as the in-project file, never the outside one', () => {
+test('kosmos#8464 review 2: a path through a link and ".." is measured as the in-project file, never the outside one', { skip: NO_SYMLINK }, () => {
   const id = 'dots' + (++seq);
   const folder = path.join(real, 'projects', id); fs.mkdirSync(folder, { recursive: true });
   const own = 'dotown' + seq;   // its own owner: notices not acknowledged stay queued, so a shared name would mix tests
@@ -131,7 +135,7 @@ test('kosmos#8464 review 2: a path through a link and ".." is measured as the in
 
 /* Review 1 and 2: an agent controls the project folder. The notice keeps the real path of the file's folder; a folder
    replaced by a link to somewhere else afterwards gets no scale, so nothing outside is read. */
-test('kosmos#8464 review 1: a folder replaced by a link to outside after the notice gets no scale, and nothing outside is read', () => {
+test('kosmos#8464 review 1: a folder replaced by a link to outside after the notice gets no scale, and nothing outside is read', { skip: NO_SYMLINK }, () => {
   const inside = path.join(real, 'in' + (++seq)); fs.mkdirSync(inside);
   const outside = path.join(real, 'out' + seq); fs.mkdirSync(outside);
   fs.writeFileSync(path.join(inside, 'id'), 'guess1\nguess2\nguess3\n');
@@ -148,7 +152,7 @@ test('kosmos#8464 review 1: a folder replaced by a link to outside after the not
   assert.match(fn.contextText(handed(w2)), /So far, by anyone \(you included\), the file has 1 line added/, 'CONTROL: an unmoved folder is measured');
 });
 
-test('kosmos#8464 review 2: a path through a link is not measured by queue (the caller passes the resolved path)', () => {
+test('kosmos#8464 review 2: a path through a link is not measured by queue (the caller passes the resolved path)', { skip: NO_SYMLINK }, () => {
   const inside = path.join(real, 'li' + (++seq)); fs.mkdirSync(inside);
   fs.writeFileSync(path.join(inside, 'f'), 'a\n');
   const ln = path.join(real, 'lk' + seq); fs.symlinkSync(inside, ln);
@@ -175,7 +179,7 @@ test('kosmos#8464 review 2: a file that grows past the bounds says so; one never
   assert.match(fn.contextText(handed(b)), /So far: the file has not been made yet\./);
 });
 
-test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the board nor gets a scale', () => {
+test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the board nor gets a scale', { skip: require('../test-support/skip-on-win32').skipOnWin32('it makes a FIFO with mkfifo, which Windows does not have') }, () => {
   const f = fileWith(lines(3)); const who = owner();
   fn.queue(who, 'x', { file: f });
   fs.rmSync(f);
@@ -209,7 +213,7 @@ test('kosmos#8464 review 1: a newline-only change, an empty new file and a chang
 
 /* Review 3, the blocker: the path was resolved twice in noteWrite and only the first was checked. A link flipped between
    the two (here inside who(), the window the reviewer used) sent an outside folder through. Resolved once now. */
-test('kosmos#8464 review 3: a link flipped while the write is being noted does not send an outside file through', () => {
+test('kosmos#8464 review 3: a link flipped while the write is being noted does not send an outside file through', { skip: NO_SYMLINK }, () => {
   const id = 'flip' + (++seq);
   const folder = path.join(real, 'projects', id); fs.mkdirSync(path.join(folder, 'realsub'), { recursive: true });
   const own = 'flipown' + seq;

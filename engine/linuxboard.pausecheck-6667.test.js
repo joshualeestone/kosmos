@@ -20,6 +20,9 @@ const os = require('node:os');
 const path = require('node:path');
 
 const linuxboard = require('./linuxboard');
+// kosmos#8378: linuxboard resolves the Kosmos folder with this computer's path rules (path.resolve), so on Windows every
+// folder is a drive path with backslashes, and a systemd unit refuses a backslash; systemd itself is Linux only.
+const SKIP_SYSTEMD_UNIT = require('../test-support/skip-on-win32').skipOnWin32('the systemd board is Linux only, and linuxboard refuses a folder with a backslash in a systemd unit, which every Windows folder has');
 
 test.afterEach(() => {
   linuxboard.setRunnerForTests(null);
@@ -47,7 +50,7 @@ test('the pause check is named from the board unit, and never as a board unit', 
   assert.doesNotMatch(linuxboard.pauseCheckNames(other).service, /^kosmos-board/);
 });
 
-test('the pause check runs kosmos board-revive once a minute, and is not a keep-alive', () => {
+test('the pause check runs kosmos board-revive once a minute, and is not a keep-alive', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const home = '/home/user/.local/share/kosmos-x';
   const { names, service, timer } = linuxboard.pauseCheckUnitsFor(home);
   assert.match(service, /^Type=oneshot$/m);
@@ -67,7 +70,7 @@ test('a Kosmos folder that would add a directive is refused for the pause check 
   assert.throws(() => linuxboard.pauseCheckUnitsFor('/home/user/kos\nExecStartPre=/bin/false'));
 });
 
-test('installBoard writes the pause check and enables its timer after the board', () => {
+test('installBoard writes the pause check and enables its timer after the board', { skip: SKIP_SYSTEMD_UNIT }, () => {
   const calls = [];
   linuxboard.setRunnerForTests((cmd, args) => { calls.push(args.join(' ')); return { ok: true, stdout: '' }; });
   const { tmp, home } = sandbox('pausecheck-install-');
@@ -87,7 +90,7 @@ test('installBoard writes the pause check and enables its timer after the board'
   }
 });
 
-test('a refused pause-check timer does not fail the board install, and says why', () => {
+test('a refused pause-check timer does not fail the board install, and says why', { skip: SKIP_SYSTEMD_UNIT }, () => {
   linuxboard.setRunnerForTests((cmd, args) => (args.includes('--now')
     ? { ok: false, stdout: '', stderr: 'Failed to enable unit: no\n' }
     : { ok: true, stdout: '' }));

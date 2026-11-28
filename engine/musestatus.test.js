@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'muse-status-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
@@ -229,6 +230,10 @@ test('#3939 3c-1: slice 3a\'s single mark file (an ISO time, or none) is still r
   fs.writeFileSync(muse.signedInMarker(), JSON.stringify({ at: new Date(T + 30).toISOString() }) + '\n');
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an old mark after the refusal was not believed');
   fs.writeFileSync(muse.signedInMarker(), '{}\n');   // no time at all: its mtime, which is now, after T+20
+  /* kosmos#8378: a second in the past, still long after T+20. Just after a write, Windows can report an mtime a
+     millisecond past Date.now(), and legacySign ignores a time in the future (2 of 8 runs there failed for that). */
+  const past = new Date(Date.now() - 1000);
+  fs.utimesSync(muse.signedInMarker(), past, past);
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an old mark with no time was not read');
   clean();
 }));
@@ -275,14 +280,18 @@ test('#3939 3c-1: the refused credential is the one the turn STARTED with (round
 
 test('#3939 3c-1: a Muse file unread at the refusal, or a note body that cannot be read, never makes the file answer yes', () => withXdg((xdg) => {
   clean();
+  // Written on every platform: the garbled-note half below needs Muse's file present, or "no" proves nothing.
   const f = writeAuth(xdg, { meta: { token: 't' } });
-  fs.chmodSync(f, 0o000);
-  let atStart;
-  try { atStart = muse.fileAtStart(); } finally { fs.chmodSync(f, 0o600); }
-  assert.equal(atStart.fileUnread, true, 'CONTROL: the failed read was seen');
-  muse.markSignedOut(T, atStart);
-  assert.equal(muse.signedIn().signedIn, false, 'the refused credential came back once the file read again');
-  clean();
+  // The unread half makes Muse's file unreadable with chmod 0o000, a POSIX file mode Windows does not keep (kosmos#8378).
+  if (!NO_POSIX_MODES) {
+    fs.chmodSync(f, 0o000);
+    let atStart;
+    try { atStart = muse.fileAtStart(); } finally { fs.chmodSync(f, 0o600); }
+    assert.equal(atStart.fileUnread, true, 'CONTROL: the failed read was seen');
+    muse.markSignedOut(T, atStart);
+    assert.equal(muse.signedIn().signedIn, false, 'the refused credential came back once the file read again');
+    clean();
+  }
   place('note', T, 'not json');
   assert.equal(muse.signedIn().signedIn, false, 'a garbled note let the file answer yes');
   assert.equal(muse.markTurnSignedIn(T + 10), true, 'CONTROL: a later completed turn still restores the answer');

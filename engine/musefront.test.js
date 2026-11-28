@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const { EventEmitter } = require('node:events');
 const { mkTemp } = require('../test-support/tmpdir.js');
 const front = require('./musefront');
@@ -205,14 +206,14 @@ test('the session id is made once, kept in the agent folder (mode 600), and reus
   assert.match(a.id, front.UUID_RE);
   assert.equal(a.note, null);
   const file = front.sessionFile(dir);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const b = front.loadSession(dir);
   assert.equal(b.id, a.id, 'a restart must continue the same Muse session');
   // An unreadable id is replaced, and the pane is told.
   fs.writeFileSync(file, 'not-a-uuid\n', { mode: 0o644 });
   fs.chmodSync(file, 0o644);
   const c = front.loadSession(dir, { randomUUID: () => '99999999-8888-4777-8666-555555555555' });
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'a replaced session file kept its old mode');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'a replaced session file kept its old mode');
   assert.equal(c.id, '99999999-8888-4777-8666-555555555555');
   assert.match(c.note, /could not be read/);
   assert.equal(fs.readFileSync(file, 'utf8').trim(), c.id);
@@ -852,7 +853,7 @@ test('#4603 N12: the model a turn names is kept beside the session id; a turn wi
   assert.equal(kept(), 'muse-spark-1', 'an unsafe model string was kept');
   h.f.feed('four\r'); await h.f.drained();
   assert.equal(kept(), 'muse-spark-2', 'a changed model was not kept');
-  assert.equal((fs.statSync(front.modelFile(ws)).mode & 0o777).toString(8), '600');
+  if (!NO_POSIX_MODES) assert.equal((fs.statSync(front.modelFile(ws)).mode & 0o777).toString(8), '600');
 });
 
 test('#4603 N12 review 1: a link or fifo at the model file is not followed or replaced; forgetModel clears a kept model at start', () => {

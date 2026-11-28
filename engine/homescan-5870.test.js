@@ -53,9 +53,13 @@ function readsOf(file, fn) {
   try { fn(); } finally { fs.readFileSync = orig; }
   return n;
 }
+/* kosmos#8378: the arms that ask whether a hook's script was found or denied run the macOS guard (platform darwin) over
+   this host's folders, and it reads a hook's command as a POSIX shell line naming POSIX paths; on Windows the sandbox is a
+   drive path, so no script is found (measured: the scripts were not found on the Windows runner). The read counts are platform-neutral and still run there. */
+const POSIX_GUARD = require('../test-support/skip-on-win32').skipOnWin32('it runs the macOS guard (platform darwin, through its seam) over folders made on this host, and that guard reads a hook\'s command as a POSIX shell line naming POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
 const pass = (cache, ...names) => { for (const n of names) setup.guardTokenOnlyFolder(agentDir(n), n, { ...DEPS, agentConfigDirs: [OTHER], ...(cache ? { launchCache: cache } : {}) }); };
 
-test('#5870: one pass over two agents reads the other home\'s plugin record once; without a shared cache, once per agent (the control)', () => {
+test('#5870: one pass over two agents reads the other home\'s plugin record once; without a shared cache, once per agent (the control)', (t) => {
   const shared = readsOf(RECORD, () => pass(new Map(), 'pilot-a', 'pilot-b'));
   assert.equal(shared, 1, `one read per pass, got ${shared}`);
   const unshared = readsOf(RECORD, () => pass(null, 'pilot-c', 'pilot-d'));
@@ -63,13 +67,14 @@ test('#5870: one pass over two agents reads the other home\'s plugin record once
   // The plugin's own config file too, and the hook it names is still denied for BOTH agents of the shared pass.
   const hooks = path.join(PLUGIN, 'hooks', 'hooks.json');
   assert.equal(readsOf(hooks, () => pass(new Map(), 'pilot-e', 'pilot-f')), 1, 'a plugin config file is read once per pass');
+  if (POSIX_GUARD) { t.skip(POSIX_GUARD); return; }
   for (const n of ['pilot-e', 'pilot-f']) {
     const deny = readSettings(agentDir(n)).permissions.deny;
     assert.ok(deny.some((r) => r.includes('p-start.sh')), `${n}: the plugin hook's script is denied`);
   }
 });
 
-test('#5870: a change to the home between passes is seen (a new pass is a new cache)', () => {
+test('#5870: a change to the home between passes is seen (a new pass is a new cache)', { skip: POSIX_GUARD }, () => {
   const settings = path.join(OTHER, 'settings.json');
   const cache1 = new Map();
   pass(cache1, 'pilot-g');
@@ -127,7 +132,7 @@ test('#5870 review 2: an agent folder\'s own settings (which the guard rewrites 
   assert.ok([...cache.keys()].some((k) => k.startsWith('#5870 read json') && k.endsWith(path.join(OTHER, 'settings.json'))), 'control: a home tier is cached');
 });
 
-test('#5870 review 3: a config nested very deep gives the same scan with and without the cache (one file named, every script still found)', () => {
+test('#5870 review 3: a config nested very deep gives the same scan with and without the cache (one file named, every script still found)', { skip: POSIX_GUARD }, () => {
   const d = agentDir('pilot-deep');
   // 12,000 levels: JSON.parse takes it; a recursive freeze would overflow the stack.
   fs.writeFileSync(path.join(d, '.mcp.json'), '{"a":' + '['.repeat(12000) + ']'.repeat(12000) + '}');

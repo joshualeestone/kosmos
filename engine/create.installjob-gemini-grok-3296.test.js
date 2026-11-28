@@ -40,7 +40,8 @@ const GEMINI_BIN = nodePath.join(BIN, 'gemini');
 const GROK_BIN = nodePath.join(BIN, 'grok');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
 const AGY_BIN = nodePath.join(BIN, 'agy'); // #3568: the override must keep the basename agy
-for (const b of [CLAUDE_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN, AGY_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js)
+for (const b of [CLAUDE_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN, AGY_BIN]) require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 const BINS = { claudeBin: CLAUDE_BIN, tmuxBin: TMUX_BIN, geminiBin: GEMINI_BIN, grokBin: GROK_BIN };
 /* register.repair does NOT forward bin paths to installJob (it passes only model/platform/
    runner), so installJob resolves them via runners.resolveBin, which honours these env
@@ -73,7 +74,9 @@ function bornMissingJob(name, provider) {
   return name;
 }
 
-test.beforeEach(() => { create.setRunner(okRun); create.setDryRun(false); });
+/* kosmos#8378: on Windows a job is a Scheduled Task, and installJob first asks whether one is already registered; the
+   stand-in Task Scheduler (test-support/jobfixture.js) answers that, and keeps the job it writes, in the sandbox. */
+test.beforeEach(() => { create.setRunner(okRun); create.setDryRun(false); require('../test-support/jobfixture').useJobStore(); });
 test.afterEach(() => { create.setDryRun(true); create.setRunner(null); });
 
 /* Windows now RUNS gemini/grok (engine/win32keyed.js through the per-turn supervisor), so a

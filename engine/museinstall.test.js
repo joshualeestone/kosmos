@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { writeRunnerStub } = require('../test-support/runnerstub');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'muse-install-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
@@ -17,7 +18,8 @@ delete process.env.AGENT_WORKFORCE_MUSE;
 const museinstall = require('./museinstall');
 test.after(() => { museinstall.resetForTests(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-const writeLauncher = () => { fs.mkdirSync(path.dirname(BIN), { recursive: true }); fs.writeFileSync(BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); };
+// kosmos#8378: writeRunnerStub, so the launcher counts as runnable on Windows too (a .cmd beside it); same path, same body.
+const writeLauncher = () => { writeRunnerStub(path.dirname(BIN), path.basename(BIN)); };
 function setup({ platform = 'darwin', sandboxOk = true } = {}) {
   fs.rmSync(path.dirname(BIN), { recursive: true, force: true });
   museinstall.resetForTests();

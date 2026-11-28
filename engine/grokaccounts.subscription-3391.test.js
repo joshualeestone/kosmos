@@ -155,6 +155,14 @@ fs.writeFileSync(FAKE, [
   'esac',
 ].join('\n') + '\n', { mode: 0o755 });
 
+/* kosmos#8378: FAKE is a #!/bin/bash script that startGrokLogin spawns, so it runs by its shebang line, which Windows
+   cannot do (and a .sh name is not runnable there at all). The sign-in driver exists on Windows, so the arms that run
+   it skip there until kosmos#9269 gives them a Windows stand-in. A start refused before anything is spawned needs only
+   a runner Windows counts as runnable, so those arms use PRESENT and run there. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in grok is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
+const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
+
 // 15s, not 5s: these spawn real child processes, and a loaded shared box can be slow to schedule them.
 // #5727: delegate to the shared load-aware poll helper. At scale 1 this is byte-identical
 // to the former hand-rolled loop (25ms step, resolves the first truthy pred() value, fails
@@ -170,7 +178,7 @@ function withMode(mode, fn) {
   return fn(rec).finally(() => { delete process.env.XAI_API_KEY; });
 }
 
-test('driver: approve -> awaiting-code with the URL and code -> connected with a subscription row', () => withMode('approve', async (rec) => {
+test('driver: approve -> awaiting-code with the URL and code -> connected with a subscription row', { skip: STANDIN }, () => withMode('approve', async (rec) => {
   const out = grok.startGrokLogin({ label: 'mine', grokBin: FAKE });
   assert.equal(out.ok, true);
   const dir = nodePath.join(SANDBOX, '.grok-mine');
@@ -192,21 +200,21 @@ test('driver: approve -> awaiting-code with the URL and code -> connected with a
   assert.ok(grok.list().some((a) => a.dir === dir), 'the account is listed afterwards');
 }));
 
-test('driver: a non-zero exit is an error and the dir it made is removed', () => withMode('fail', async () => {
+test('driver: a non-zero exit is an error and the dir it made is removed', { skip: STANDIN }, () => withMode('fail', async () => {
   const out = grok.startGrokLogin({ label: 'failing', grokBin: FAKE });
   const s = await waitFor(() => { const x = grok.grokLoginStatus(out.sessionId); return x.state === 'error' ? x : null; });
   assert.match(s.error, /did not complete/);
   await waitFor(() => !fs.existsSync(nodePath.join(SANDBOX, '.grok-failing')));
 }));
 
-test('driver: exit 0 without a usable sign-in is an error, not a connected account', () => withMode('noauth', async () => {
+test('driver: exit 0 without a usable sign-in is an error, not a connected account', { skip: STANDIN }, () => withMode('noauth', async () => {
   const out = grok.startGrokLogin({ label: 'hollow', grokBin: FAKE });
   const s = await waitFor(() => { const x = grok.grokLoginStatus(out.sessionId); return x.state === 'error' ? x : null; });
   assert.equal(s.account, null);
   await waitFor(() => !fs.existsSync(nodePath.join(SANDBOX, '.grok-hollow')));
 }));
 
-test('driver: cancel ends a pending sign-in, frees its slot, and removes its dir; forget/remove refuse it while pending', () => withMode('hang', async () => {
+test('driver: cancel ends a pending sign-in, frees its slot, and removes its dir; forget/remove refuse it while pending', { skip: STANDIN }, () => withMode('hang', async () => {
   grok.setGrokTimers({ forceKill: 200 });
   const out = grok.startGrokLogin({ label: 'pending', grokBin: FAKE });
   const dir = nodePath.join(SANDBOX, '.grok-pending');
@@ -221,7 +229,7 @@ test('driver: cancel ends a pending sign-in, frees its slot, and removes its dir
   assert.deepEqual(grok.cancelGrokLogin(out.sessionId), { ok: true, cancelled: false }, 'cancelling a settled sign-in claims nothing');
 }));
 
-test('driver: the watchdog ends an abandoned sign-in as an error', () => withMode('hang', async () => {
+test('driver: the watchdog ends an abandoned sign-in as an error', { skip: STANDIN }, () => withMode('hang', async () => {
   grok.setGrokTimers({ timeout: 300, forceKill: 200 });
   const out = grok.startGrokLogin({ label: 'abandoned', grokBin: FAKE });
   const s = await waitFor(() => { const x = grok.grokLoginStatus(out.sessionId); return x.state === 'error' ? x : null; });
@@ -233,7 +241,7 @@ test('driver: the watchdog ends an abandoned sign-in as an error', () => withMod
 test('driver: a name that already holds an account is refused before anything runs', () => {
   const d = fresh('.grok-taken');
   writeAuth(d, ENTRY({ refresh_token: 'r' }));
-  const out = grok.startGrokLogin({ label: 'taken', grokBin: FAKE });
+  const out = grok.startGrokLogin({ label: 'taken', grokBin: PRESENT });
   assert.equal(out.ok, false);
   assert.match(out.because, /already a Grok account/);
   assert.ok(fs.existsSync(nodePath.join(d, 'auth.json')), 'the existing account is untouched');
@@ -252,7 +260,7 @@ test('driver: no runner binary, or a path that is not runnable, is refused befor
 
 /* ---- slots, claims and anti-litter (iteration-2 review) ---------------------- */
 
-test('two unlabelled sign-ins at once get DIFFERENT work slots', () => withMode('hang', async () => {
+test('two unlabelled sign-ins at once get DIFFERENT work slots', { skip: STANDIN }, () => withMode('hang', async () => {
   grok.setGrokTimers({ forceKill: 200 });
   for (const n of [1, 2, 3, 4]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
   const a = grok.startGrokLogin({ grokBin: FAKE });
@@ -264,7 +272,7 @@ test('two unlabelled sign-ins at once get DIFFERENT work slots', () => withMode(
   await waitFor(() => !grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work1')) && !grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')));
 }));
 
-test('a slot an API-key add has CLAIMED is skipped by an unlabelled sign-in and refused by a named one', () => withMode('hang', async () => {
+test('a slot an API-key add has CLAIMED is skipped by an unlabelled sign-in and refused by a named one', { skip: STANDIN }, () => withMode('hang', async () => {
   grok.setGrokTimers({ forceKill: 200 });
   for (const n of [1, 2, 3]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
   const claimed = nodePath.join(SANDBOX, '.grok-work1');
@@ -284,7 +292,7 @@ test('a slot an API-key add has CLAIMED is skipped by an unlabelled sign-in and 
   fs.rmSync(claimed, { recursive: true, force: true }); fs.rmSync(namedDir, { recursive: true, force: true });
 }));
 
-test('anti-litter on a REUSED slot removes only what grok writes, and a reused slot drops the old display name', () => withMode('noauth', async () => {
+test('anti-litter on a REUSED slot removes only what grok writes, and a reused slot drops the old display name', { skip: STANDIN }, () => withMode('noauth', async () => {
   for (const n of [1, 2]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
   const slot = nodePath.join(SANDBOX, '.grok-work1');
   fs.mkdirSync(slot, { recursive: true });
@@ -303,7 +311,7 @@ test('anti-litter on a REUSED slot removes only what grok writes, and a reused s
   fs.rmSync(slot, { recursive: true, force: true });
 }));
 
-test('anti-litter on a REUSED slot keeps a grok folder that was there BEFORE this sign-in (an earlier agent\'s logs/)', () => withMode('noauth', async () => {
+test('anti-litter on a REUSED slot keeps a grok folder that was there BEFORE this sign-in (an earlier agent\'s logs/)', { skip: STANDIN }, () => withMode('noauth', async () => {
   for (const n of [1, 2]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
   const slot = nodePath.join(SANDBOX, '.grok-work1');
   fs.mkdirSync(nodePath.join(slot, 'logs'), { recursive: true });
@@ -345,13 +353,13 @@ test('a NAMED sign-in refuses a dir whose auth.json we cannot describe, so a fai
   const d = fresh('.grok-twoentries');
   writeAuth(d, { 'https://auth.x.ai::a': { email: 'a@x' }, 'https://auth.x.ai::b': { email: 'b@x' } });
   assert.equal(grok.identityOf(d), null, 'CONTROL: it is not described as an account');
-  const out = grok.startGrokLogin({ label: 'twoentries', grokBin: FAKE });
+  const out = grok.startGrokLogin({ label: 'twoentries', grokBin: PRESENT });
   assert.equal(out.ok, false);
   assert.match(out.because, /already a Grok account/);
   assert.ok(fs.existsSync(nodePath.join(d, 'auth.json')), 'the credentials are untouched');
 });
 
-test('driver: the sign-in moves on as soon as the URL is out, even if no separate code line appears', () => withMode('urlonly', async () => {
+test('driver: the sign-in moves on as soon as the URL is out, even if no separate code line appears', { skip: STANDIN }, () => withMode('urlonly', async () => {
   grok.setGrokTimers({ forceKill: 200 });
   const out = grok.startGrokLogin({ label: 'urlonly', grokBin: FAKE });
   const s = await waitFor(() => { const x = grok.grokLoginStatus(out.sessionId); return x.authUrl ? x : null; });
@@ -361,7 +369,7 @@ test('driver: the sign-in moves on as soon as the URL is out, even if no separat
   await waitFor(() => !fs.existsSync(nodePath.join(SANDBOX, '.grok-urlonly')));
 }));
 
-test('driver: a SYMLINKED work slot is skipped, not fatal, for an unnamed sign-in (as the unnamed key add does)', () => withMode('hang', async () => {
+test('driver: a SYMLINKED work slot is skipped, not fatal, for an unnamed sign-in (as the unnamed key add does)', { skip: STANDIN }, () => withMode('hang', async () => {
   grok.setGrokTimers({ forceKill: 200 });
   for (const n of [1, 2, 3]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
   const target = fs.mkdtempSync(nodePath.join(SANDBOX, 'elsewhere-'));

@@ -33,6 +33,11 @@ const remove = require('./remove');
 const status = require('./status');
 const leftover = require('./delete-leftover');
 const fleet = require('../test-support/fleet');
+/* kosmos#8378: the arms that hand the folder check a tmux pane listing with this sandbox's folders in it. A tmux pane's
+   folder is an absolute POSIX path (the parser refuses any other), and Kosmos runs no tmux on Windows (its folder read
+   there is status.setWin32FolderSource), so on a Windows host each such line reads as unreadable and refuses for that
+   reason, not the one the arm checks. */
+const TMUX_FOLDERS = require('../test-support/skip-on-win32').skipOnWin32('it hands the folder check tmux pane folders, which are absolute POSIX paths, and Kosmos runs no tmux on Windows (the same folder matching runs there in delete-leftover.win32folders-8640.test.js)');
 
 leftover.setRunner(() => ({ ok: true, stdout: '' }));
 remove.setRunner(() => ({ ok: true, stdout: '' }));
@@ -103,7 +108,7 @@ test('negative control: with nothing running the leftover is still offered, and 
   assert.equal(mac.plan('juan').ok, true, 'a session that only starts with the name held this one');
 });
 
-test('a pane whose session and claim match nothing, but which works in the agent\'s folder, is running', () => {
+test('a pane whose session and claim match nothing, but which works in the agent\'s folder, is running', { skip: TMUX_FOLDERS }, () => {
   const dir = leftoverAgent('agent1');
   status.setPaneSource(() => fleet.line({ session: 'orchestrator', claim: '', title: '✳ Claude Code' }));
   status.setPaneFolderSource(() => `%1\torchestrator\t${dir}\n`);
@@ -116,7 +121,7 @@ test('a pane whose session and claim match nothing, but which works in the agent
   assert.ok(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'the running agent lost its folder');
 });
 
-test('a pane working in a subfolder of the agent\'s folder holds it too; a sibling sharing the prefix does not', () => {
+test('a pane working in a subfolder of the agent\'s folder holds it too; a sibling sharing the prefix does not', { skip: TMUX_FOLDERS }, () => {
   const dir = leftoverAgent('agent2');
   status.setPaneFolderSource(() => `%2\tw\t${nodePath.join(dir, 'notes')}\n`);
   const p2 = mac.plan('agent2');
@@ -144,7 +149,7 @@ test('the claim must be THIS world\'s key: in the default world a name+world cla
   assert.equal(mac.plan('greed').ok, false);
 });
 
-test('kosmos#8644 item 2: a folder split by a newline refuses only the agents it could be inside (it used to refuse every one)', () => {
+test('kosmos#8644 item 2: a folder split by a newline refuses only the agents it could be inside (it used to refuse every one)', { skip: TMUX_FOLDERS }, () => {
   const dir = leftoverAgent('agent5');
   // Someone else's pane in "/somewhere/else<newline>...": its real folder is under /somewhere, never inside agent5.
   status.setPaneFolderSource(() => `%1\tw\t/somewhere/else\n${dir}/tail-of-a-split-path\n`);
@@ -156,7 +161,7 @@ test('kosmos#8644 item 2: a folder split by a newline refuses only the agents it
   assert.equal(mac.plan('agent5').ok, true, 'a split folder that is only a string prefix of agent5 refused agent5');
 });
 
-test('kosmos#8644 item 2: an agent whose folder name holds a newline, with a pane working in it, still refuses', () => {
+test('kosmos#8644 item 2: an agent whose folder name holds a newline, with a pane working in it, still refuses', { skip: require('../test-support/skip-on-win32').skipOnWin32('it makes a folder whose name holds a newline, which Windows does not allow in a file name, and reads it from a tmux pane listing') }, () => {
   const name = 'ag\nent7';
   const dir = leftoverAgent(name);
   status.setPaneFolderSource(() => '');
@@ -186,7 +191,7 @@ test('kosmos#8644 item 2: a line that starts a pane and does not read, or a frag
   assert.equal(mac.plan('agent5b').ok, true, 'CONTROL: a readable listing of an unrelated pane refused');
 });
 
-test('the folder match is case-blind on a Mac, and matches the folder\'s real path (on a Mac /var is /private/var)', () => {
+test('the folder match is case-blind on a Mac, and matches the folder\'s real path (on a Mac /var is /private/var)', { skip: TMUX_FOLDERS }, () => {
   const dir = leftoverAgent('agent6');
   status.setPaneFolderSource(() => `%1\tw\t${dir.replace(/agent6$/, 'AGENT6')}\n`);
   const p6 = mac.plan('agent6');
@@ -216,7 +221,7 @@ test('a recorded folder outside where Kosmos keeps agents is not matched against
   assert.match(p.because, /not where Kosmos keeps agents/);
 });
 
-test('a pane in the workers folder itself holds no agent (a boundary, not an ancestor match)', () => {
+test('a pane in the workers folder itself holds no agent (a boundary, not an ancestor match)', { skip: TMUX_FOLDERS }, () => {
   leftoverAgent('agent11');
   status.setPaneFolderSource(() => `%1\tw\t${process.env.AGENT_WORKFORCE_WORKERS}\n`);
   assert.equal(mac.plan('agent11').ok, true);
@@ -224,7 +229,7 @@ test('a pane in the workers folder itself holds no agent (a boundary, not an anc
 
 /* The production half of paneFolders: a real tmux PROGRAM is run (the repo's fake, test-support/fake-tmux.sh), with no
    pane source injected, so shDetail, the listing format and the parser are exercised as on a Mac. */
-test('production read: the fake tmux reports a pane in the agent\'s folder, and the plan refuses', () => {
+test('production read: the fake tmux reports a pane in the agent\'s folder, and the plan refuses', { skip: require('../test-support/skip-on-win32').skipOnWin32('it runs test-support/fake-tmux.sh, a #!/bin/sh script, by its shebang line, and Kosmos runs no tmux on Windows') }, () => {
   const dir = leftoverAgent('agent12');
   const panes = nodePath.join(SANDBOX, 'fake-panes.txt');
   const folders = nodePath.join(SANDBOX, 'fake-folders.txt');
@@ -248,7 +253,7 @@ test('production read: the fake tmux reports a pane in the agent\'s folder, and 
   }
 });
 
-test('production read: a tmux that answers the folder read with an error refuses the plan', () => {
+test('production read: a tmux that answers the folder read with an error refuses the plan', { skip: require('../test-support/skip-on-win32').skipOnWin32('it runs a #!/bin/sh tmux stub by its shebang line, and Kosmos runs no tmux on Windows (there it passes only because the stub cannot start)') }, () => {
   leftoverAgent('agent13');
   const stub = nodePath.join(SANDBOX, 'tmux-folders-fail.sh');
   // Lists panes for the roster read; fails the folder read the way a broken tmux does (non-zero, not "no server").
