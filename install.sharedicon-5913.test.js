@@ -32,7 +32,7 @@ const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundl
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
   'sealed_marker_tag', 'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir', 'app_bundle_version',
   'version_at_least', 'own_icon_placed'].map(fnSource).join('\n');
-const ME = String(process.getuid ? process.getuid() : -1);   // kosmos#8378: Windows has no getuid, and every test here skips off a Mac, so loading must not throw
+const ME = String(process.getuid ? process.getuid() : -1);   // kosmos#8378: Windows has no getuid; every test that uses ME skips off a Mac, and the text-only tests run everywhere, so loading must not throw
 /* "Another account": any uid but the one running the test. A fixed one (502, as this test had) is the runner's OWN
    uid when CI runs as a Mac's second account, and then "another account's marker" is this account's own: CI read
    rc=1 where this Mac (uid 501) read rc=0, and the reader asked as 502 with only a 502 marker gives rc=1 (measured). */
