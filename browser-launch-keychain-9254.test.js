@@ -15,8 +15,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * in a variable cannot be seen: engine/agentbrowser.js runs the headless shell that way (execP(exe, ['--version']),
  * which exits before any keychain read). A .py file is read for direct runs only (Python's ignore_default_args is
  * not matched; nothing here drives Playwright from Python). The MCP config the repo writes is pinned by
- * engine/agentbrowser.test.js. The
- * fleet rule proposed on the card covers what no repo scan can.
+ * engine/agentbrowser.test.js. The fleet rule proposed on the card covers what no repo scan can.
  *
  *   node --test browser-launch-keychain-9254.test.js
  */
@@ -80,24 +79,27 @@ function unsafeDrop(value) {
   const strs = [...v.matchAll(/'([^'\\]*)'|"([^"\\]*)"/g)].map((x) => x[1] !== undefined ? x[1] : x[2]);
   return strs.some((x) => !SAFE_DROPS.has(x));
 }
-/* Not a Playwright option (its typed API has none): Puppeteer's name for turning every default off. Kept because an
-   agent's script may drive Chromium with Puppeteer. */
+/* Playwright's own internal field for every default off (its client turns ignoreDefaultArgs: true into it, and
+   launchServer passes it through); not in its typed API, so only code reaching past the API would write it. */
 const DEFAULTS_OFF = /ignoreAllDefaultArgs\s*:\s*true|ignoreAllDefaultArgs\s*=(?!=)/;
 /* Running a TEST browser (Chrome for Testing, Chromium, the headless shell) itself, not through Playwright's launch.
    The person's own Google Chrome is not one: it already has its own keychain access, and a mock keychain against their
    profile would only lose their saved logins, so `open -a "Google Chrome" <url>` is fine. Case-insensitive; the
    keychain switch must be on the same call (that line or the three after it). */
 const TEST_BROWSER = String.raw`(?:(?:google )?chrome for testing|chromium|chrome-headless-shell|org\.chromium|com\.google\.chrome\.for\.testing)`;
+const ROOTED = String.raw`(?:\/|\$HOME\/|\$\{HOME\}\/|~\/)`;   // a path from the root or the home folder
 const RUN_ARMS = [
   String.raw`contents\/macos\/${TEST_BROWSER}`,                                            // the binary inside an app
   String.raw`['"]contents['"]\s*,\s*['"]macos['"]\s*,\s*['"]${TEST_BROWSER}`,               // the same, by path.join
   String.raw`\b(?:spawn|execFile|exec)(?:Sync)?\(\s*[^)\n]*chrome-headless-shell\b`,       // the headless shell run
   String.raw`\b(?:spawn|execFile|exec)(?:Sync)?\(\s*[\w.]*executablePath\(\)`,             // Playwright's own binary, run raw
-  String.raw`\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:\/[^"'\\]*\/)?${TEST_BROWSER}`,   // open -a/-b an app
-  String.raw`\bopen\s+(?:-[a-z]+\s+)*\\?["']?\/[^"'\\\n]*${TEST_BROWSER}[^"'\\\n]*\.app`,   // open a .app by its path (prose is neither)
-  String.raw`['"]open['"]\s*,\s*\[[^\]]*?['"](?:\/[^'"]*\/)?${TEST_BROWSER}`,               // its argv form
+  String.raw`\bopen\s+(?:-[a-z]+\s+)*-[a-z]*[ab][a-z]*\s+\\?["']?(?:${ROOTED}[^"'\\]*\/)?${TEST_BROWSER}`,   // open -a/-b an app
+  String.raw`\bopen\s+(?:-[a-z]+\s+)*\\?["']?${ROOTED}[^"'\\\n]*${TEST_BROWSER}[^"'\\\n]*\.app`,   // open a .app by its path (prose is neither)
+  String.raw`['"](?:[^'"\s]*\/)?open['"]\s*,\s*\[[^\]]*?['"](?:${ROOTED}[^'"]*\/)?${TEST_BROWSER}`,   // its argv form, open or /usr/bin/open
 ];
 const RUNS_CHROME = new RegExp(RUN_ARMS.join('|'), 'i');
+/* A shell's escaped space (Google\ Chrome\ for\ Testing) is read as the space it stands for. */
+const runsChrome = (line) => RUNS_CHROME.test(line.replace(/\\ /g, ' '));
 
 function offenders(list) {
   const bad = [];
@@ -108,7 +110,7 @@ function offenders(list) {
     for (const v of dropValues(src)) if (unsafeDrop(v)) bad.push(rel + ': ignoreDefaultArgs drops more than a safe switch: ' + (v === null ? '(no value it can read)' : v.trim().slice(0, 80)));
     const lines = src.split('\n');
     lines.forEach((l, i) => {
-      if (RUNS_CHROME.test(l) && !lines.slice(i, i + 4).join('\n').includes('--use-mock-keychain')) bad.push(rel + ':' + (i + 1) + ': runs a Chrome binary without --use-mock-keychain');
+      if (runsChrome(l) && !lines.slice(i, i + 4).join('\n').includes('--use-mock-keychain')) bad.push(rel + ':' + (i + 1) + ': runs a Chrome binary without --use-mock-keychain');
     });
   }
   return bad;
@@ -144,17 +146,20 @@ test('#9254: every rule fires on the shape it names, and not on the safe shapes 
     "execFileSync('open', ['-a', 'Google Chrome for Testing', '--args', '--new-window'])", "spawn('open', ['-na', '/Applications/Chromium.app'])",
     'open "/x/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app"', "spawn('open', ['/x/Google Chrome for Testing.app'])",
     "spawn(path.join(dir, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'), [])",
-    'spawn(chromium.executablePath(), ["--headless"])']) {
-    assert.ok(RUNS_CHROME.test(l), 'missed: ' + l);
+    'spawn(chromium.executablePath(), ["--headless"])', "spawn('/usr/bin/open', ['-a', 'Chromium'])",
+    'open "$HOME/Library/Caches/ms-playwright/chromium-1200/chrome-mac-arm64/Google Chrome for Testing.app"',
+    'open ~/Library/Caches/ms-playwright/chromium-1200/chrome-mac-arm64/Google\\ Chrome\\ for\\ Testing.app',
+    'open -a "${HOME}/x/Google Chrome for Testing.app" --args --x']) {
+    assert.ok(runsChrome(l), 'missed: ' + l);
   }
   assert.ok(!RUNS_CHROME.test('chromium.launch({ headless: true })'), 'a Playwright launch is not a direct run');
   // The person's own Chrome is not a test browser: a mock keychain there would lose their saved logins.
   for (const l of ['open -a "Google Chrome" https://x', 'open -b com.google.Chrome', 'open -a Chrome https://x', "execFileSync('open', ['-a', 'Google Chrome', url])"]) {
-    assert.ok(!RUNS_CHROME.test(l), 'the person\'s own Chrome was refused: ' + l);
+    assert.ok(!runsChrome(l), 'the person\'s own Chrome was refused: ' + l);
   }
   // Prose that names a test browser is not a launch.
   for (const l of ['// we open Chromium once per run', 'throw new Error("cannot open chromium-profile dir")']) {
-    assert.ok(!RUNS_CHROME.test(l), 'prose was read as a launch: ' + l);
+    assert.ok(!runsChrome(l), 'prose was read as a launch: ' + l);
   }
   assert.ok(RUNS_CHROME.test('open -a "Chrome for Testing"'), 'the short app name was missed');
   assert.ok(DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: true })') && !DEFAULTS_OFF.test('launch({ ignoreAllDefaultArgs: false })'));

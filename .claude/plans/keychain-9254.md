@@ -63,3 +63,6 @@ The direct-run rule is scoped to TEST browsers (Chrome for Testing, Chromium, th
 
 ## Review 7
 open counts as a launch only with -a/-b or a /-rooted .app path, so prose naming Chromium is not flagged (controls). "Chrome for Testing" without Google is read. The header says a .py file is read for direct runs only.
+
+## Review 8 (the last round under the 8-round cap; these fixes were not reviewed again)
+The argv form reads /usr/bin/open (how this repo calls it); paths from $HOME, ${HOME} or ~ are read; a shell escaped space is read as a space. The ignoreAllDefaultArgs comment is corrected (Playwright's internal field, not Puppeteer's). Controls for each.
