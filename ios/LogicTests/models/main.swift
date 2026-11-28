@@ -118,6 +118,17 @@ for (i, fr) in fixtureRows.enumerated() where i < expectedRows.count {
     check(p.words == want["words"] && p.tone.rawValue == want["tone"], "fixture: " + (want["name"] ?? "?") + " -> " + p.words)
 }
 
+section("groups and the sample")
+let mixed = P.parseAccounts(Data(#"{"accounts":[{"dir":"/o1","provider":"openai"},{"dir":"/c1","provider":"anthropic"},{"dir":"/o2","provider":"openai"}]}"#.utf8)) ?? []
+let gs = M.groups(mixed)
+check(gs.map(\.provider) == [.openai, .anthropic], "a section per provider, in the order the board lists them")
+check(gs[0].rows.map(\.dir) == ["/o1", "/o2"] && gs[1].rows.map(\.dir) == ["/c1"], "rows keep the board's order inside their section")
+check(M.groups([]).isEmpty, "no accounts, no sections")
+let sampleRows = P.parseAccounts(Data(Models.sampleList.utf8)) ?? []
+check(sampleRows.count == 3, "the sample has three accounts")
+check(sampleRows.map { P.primaryName($0) + ", " + M.pill($0, clock).words } == ["dana@example.com, Signed in · active 2 minutes ago", "Team account, Signed in", "API key ending 4f2a, The key was refused."],
+      "the sample's rows read as the UI test expects")
+
 section("the page says the same words")
 for w in ["Signed in · stops working ", "Login expired", "'Signed in until '", "'Signed in · login '", "Signed in · login good until ",
           "Not connected' + (ageStr ? ' · rejected '", "' · checked ' : ' · active '", "Not confirmed since ",

@@ -36,6 +36,30 @@ enum Models {
         return .got(rows)
     }
 
+    struct Group: Equatable {
+        let provider: NewAgentPicker.Provider
+        let rows: [Account]
+    }
+    // One section per provider, in the order the board lists them (its first row of each), rows in the board's order.
+    static func groups(_ rows: [Account]) -> [Group] {
+        var order: [NewAgentPicker.Provider] = []
+        var by: [NewAgentPicker.Provider: [Account]] = [:]
+        for a in rows {
+            if by[a.provider] == nil { order.append(a.provider) }
+            by[a.provider, default: []].append(a)
+        }
+        return order.map { Group(provider: $0, rows: by[$0] ?? []) }
+    }
+
+    // The sample build's accounts: one of each pill colour, two providers.
+    static let sampleList = #"""
+    {"accounts":[
+     {"dir":"/s/claude","provider":"anthropic","email":"dana@example.com","connection":{"badge":"working","observedAgeMs":120000}},
+     {"dir":"/s/claude2","provider":"anthropic","name":"Team account","connection":{"badge":"signed_in_unverified"}},
+     {"dir":"/s/openai","provider":"openai","keyTail":"4f2a","connection":{"state":"none","because":"The key was refused."}}
+    ]}
+    """#
+
     // The pill's colour, named for the page's classes.
     enum Tone: String, Equatable { case connected, loginok, unverified, none, unknown }
 
