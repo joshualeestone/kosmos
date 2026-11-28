@@ -42,8 +42,9 @@
  * service just verified. Report it as a refusal in the caller's own shape instead.
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
- * have, and (kosmos#9268) an atomicOnly write whose last of three attempts is refused this way raises
- * ERR_KOSMOS_TEMP_SWAPPED, on which no caller branches. The three token-door call sites catch ERR_KOSMOS_SYMLINK
+ * have, and (kosmos#9268, #9285) any write whose three atomic attempts all fail, one of them refused because the
+ * temp name was not the opened file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or not; no caller branches on it, and
+ * every caller's general catch takes it. The three token-door call sites catch ERR_KOSMOS_SYMLINK
  * directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
@@ -162,8 +163,8 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  * leaving it would leave a file where somebody else chose. Returns null to go on, or the verdict to refuse with.
  *
  * What a refusal leaves (kosmos#9285): whatever was planted at the temp name (a link, a swapped-in file, a second hard
- * link, a folder) stays, because the name is never touched; the reaper takes it later, once this writer has ended,
- * since it carries a temp name. And when the name is no longer a link to the made file (swapped, removed), the made
+ * link, a folder) stays, because the name is never touched; the reaper unlinks a planted file or link later, once this
+ * writer has ended, since it carries a temp name, but cannot remove a planted folder, which stays. And when the name is no longer a link to the made file (swapped, removed), the made
  * file stays where the link pointed, empty, since nothing is ever written to it; it carries no temp name, so nothing
  * reaps it. (A second hard link is the made file itself under the planted name, and goes with that name.)
  *
@@ -174,13 +175,15 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     the made file back to the temp name before this check (Windows lets a file held open be renamed). The name is
  *     then the opened file and passes, and the saved config keeps the access list it was created with where the link
  *     pointed. Closing it needs the file's own access list set or checked at the open; that is not done here.
- *   - (kosmos#9285) when all three atomic attempts are refused this way, the write throws ERR_KOSMOS_TEMP_SWAPPED
- *     and the file is left as it was, for every caller, atomicOnly or not: it never takes the in-place fallback.
- *     Three refusals are positive evidence that somebody is planting links in the folder, and on Windows that
- *     fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back would hand
- *     the same person a race at the config itself. An ordinary save never sees this refusal, so the cost is a failed
- *     save while somebody is tampering, chosen over a write that could be read. Any other mix of failures falls back
- *     as before.
+ *   - (kosmos#9285) when the three atomic attempts all fail and at least one was refused this way, the write throws
+ *     ERR_KOSMOS_TEMP_SWAPPED and the file is left as it was, for every caller, atomicOnly or not: it never takes the
+ *     in-place fallback. A refusal is positive evidence that somebody is planting in the folder (the temp names are
+ *     guessable, so a plain file planted at one name must not open the way), and on Windows that fallback has no
+ *     O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back would hand the same person a
+ *     race at the config itself. On no measured mount does an ordinary save see this refusal (the Mac, GitHub's
+ *     Windows runner, a Linux container); a share or a sync client that removed or replaced a fresh temp three times
+ *     running would now fail that save rather than rewrite in place. Three failures with no such refusal fall back as
+ *     before.
  * This closes the larger gap Windows added: the open following a planted link, with nobody racing it.
  */
 function refuseFollowedLink(tmp, fd) {
@@ -434,6 +437,10 @@ function syncDir(dir) {
  * is not a secret and holds other content a failed write must never empty (an account's Claude
  * settings.json), where failing the save beats rewriting it in place.
  *
+ * Without atomicOnly the fallback is skipped in one case too (kosmos#9285): when one of the three
+ * failed attempts was refused because its temp name was not the opened file, the write throws
+ * ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it was (refuseFollowedLink's doc says why).
+ *
  * `opts.ownTempsOnly` (#5434 slice 3): before writing, reap only this file's own dead temps rather
  * than sweeping the whole folder once per process. For a folder Kosmos does not own. Not cached: it
  * reads the folder on every save, which is fine at a once-per-birth or once-per-launch call rate (an unchanged file returns before saving).
@@ -568,8 +575,10 @@ function writeSecret(file, data, mode, opts) {
     }
   }
 
+  // kosmos#9285: any attempt refused for a swapped temp name means somebody is planting; never fall back then (a plain
+  // file planted at one name, a guessable one, must not be enough to reach the in-place open).
+  if (swappedAttempts > 0) throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_TEMP_SWAPPED', cause: lastAtomicError });
   if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
-  if (swappedAttempts === 3) throw lastAtomicError;     // kosmos#9285: links planted at every name; never fall back
 
   /* The in-place fallback. It exists so a write that cannot take the atomic path
      fails soft rather than outright, and every line of it is defensive. */

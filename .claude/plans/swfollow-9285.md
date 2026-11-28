@@ -5,14 +5,16 @@ NITs open. One commit on main.
 
 ## The call on the first WARNING: three forced refusals reached the in-place fallback
 
-Changed: when all three atomic attempts are refused because the temp name was not the opened file
-(ERR_KOSMOS_TEMP_SWAPPED), the write throws that error and leaves the file as it was, for every caller. It never takes
-the in-place fallback. Any other mix of atomic failures falls back as before.
+Changed: when the three atomic attempts all fail and at least one was refused because its temp name was not the
+opened file, the write throws ERR_KOSMOS_TEMP_SWAPPED and leaves the file as it was, for every caller. It never takes
+the in-place fallback. Three failures with no such refusal fall back as before. (Review 2: "all three" was a hole: the
+temp names are guessable, so a plain file planted at one name made it two of three and opened the fallback.)
 
 Why: three such refusals are positive evidence that somebody is planting links in the config's folder, and on Windows
 the fallback has no O_NOFOLLOW (refuseSymlinkTarget checks the config, then opens it), so falling back hands the same
-person a race at the config itself, easiest when the config does not exist yet. An ordinary save never sees this
-refusal, so the cost is a failed save while somebody is tampering.
+person a race at the config itself, easiest when the config does not exist yet. On no measured mount does an ordinary
+save see this refusal; on a share or sync client that removed or replaced a fresh temp three times running, the save
+now fails instead of rewriting in place. That is the cost, and the unmeasured mounts below are where it would show.
 
 What I first decided, and what changed my mind: the first version of this branch kept the fallback and documented it
 ("costs a write its atomicity, not its secrecy"). Review 1 showed that is only true when nobody races the fallback, and
@@ -42,3 +44,6 @@ Linux container on overlay; network shares, FUSE and OneDrive-style folders are 
 
 - engine/securewrite.test.js and engine/trust.test.js on the Mac: 92 pass, 0 fail; the new arm fails with the rule
   removed.
+- Review 2: a mixed arm (links at two names, a plain file at the third) refuses the save with no in-place open, and
+  fails with the old "all three" rule; the rule runs before the atomicOnly exit, so an atomicOnly write gets the same
+  code; the header, the writeSecret doc and the leftovers sentence (a planted folder is never reaped) match the code.

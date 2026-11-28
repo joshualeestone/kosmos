@@ -1090,3 +1090,39 @@ test('#9285: three followed links refuse an ordinary save too: no in-place fallb
   assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
   for (const tgt of targets) assert.equal(fs.existsSync(tgt) ? fs.readFileSync(tgt, 'utf8') : '', '', 'a planted link target got the secret');
 });
+
+/* kosmos#9285 review 2: the temp names are guessable, so somebody can plant links at two names and a plain file at the
+   third. That third attempt fails with EEXIST, not as a swap, and before this rule counted only swaps, two of three
+   let the save reach the in-place fallback. Any swap among the failures must refuse it. */
+test('#9285: links at two temp names and a plain file at the third still refuse the save, with no in-place fallback', (t) => {
+  const file = fresh('mixed');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const planted = [];
+  const targets = [];
+  let opens = 0;
+  let inPlace = 0;
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      opens += 1;
+      planted.push(String(p));
+      if (opens === 3) { fs.writeFileSync(String(p), 'planted'); return realOpen.call(fs, p, flags, ...rest); }   // EEXIST
+      const elsewhere = fresh('attacker9');
+      targets.push(elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      return realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+    }
+    if (String(p) === file) inPlace += 1;
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  t.after(() => { fs.openSync = realOpen; for (const p of [...planted, ...targets]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9285b', 0o600); } catch (e) { err = e; }
+  fs.openSync = realOpen;
+  assert.equal(opens, 3, 'the atomic path did not try three names');
+  assert.ok(err, 'a mix of planted links and a planted file did not refuse the save');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED');
+  assert.equal(inPlace, 0, 'the in-place fallback opened the config');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  assert.equal(fs.readFileSync(planted[2], 'utf8'), 'planted', 'the planted file was touched');
+});
