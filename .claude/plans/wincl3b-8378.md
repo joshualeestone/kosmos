@@ -49,10 +49,14 @@ owes the Windows arms.
 
 ## Weakest premise
 
-That the reporthook shell-form arms, asked for `darwin`, accept a Windows sandbox path (backslashes, `~` in an 8.3
-name) as a script path; ensureWired refuses shell-special characters. The Windows run after this slice decides it.
+That a skip which names a Mac or Linux script hides nothing Windows ships. Each was checked from the script and its
+callers (setup.sh refuses other systems; the release tools run on the release Mac), not from a Windows install.
 
 ## Checked
 
 - Every edited file passes on the Mac, with engine/windows-tests-1777.test.js green.
-- The Windows run after this slice is the control that the fixed arms pass there and the skipped ones skip.
+- Windows, all 62 files, run 46118072144: 4 failing tests (99 before this slice), 59 of 62 files green. Two were
+  reporthook's shell-form arms (the shell form rightly refuses a backslash, so they now use POSIX literals) and one
+  was isUnderTmpDir comparing a not-yet-made folder in the temp folder's 8.3 spelling (each root is now compared both
+  as given and resolved; added to #9267). Run 46118283614 on those three files: projects and reporthook green; the
+  one red left in the cluster is #9268's arm, on purpose.
