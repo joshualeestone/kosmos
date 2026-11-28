@@ -952,8 +952,10 @@ test('#9268: a link re-pointed after the open at another file never gets that fi
 });
 
 /* kosmos#9268 review 3: the name REMOVED after the open (and, separately, a folder put there). Neither is the file the
-   fd holds: without the "gone" and "not a regular file" rules the secret is written through the fd to where the link
-   pointed, and the rename then fails and the loop retries, leaving the secret behind. */
+   fd holds. The removed arm pins the "gone" rule: without it the secret is written through the fd to where the link
+   pointed, the rename then fails, and the loop retries, leaving the secret behind. The folder arm is a control for
+   the refusal as a whole: the link-count or identity rule refuses a folder first, so it does not pin "not a regular
+   file" (refuseFollowedLink's doc). */
 for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by a folder', (p) => { fs.unlinkSync(p); fs.mkdirSync(p); }]]) {
   test(`#9268: a temp name ${label} after the open is refused, and the secret never reaches where the link pointed`, (t) => {
     const file = fresh('gone');
@@ -978,3 +980,77 @@ for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by
     assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268e', 'the save did not land');
   });
 }
+
+/* kosmos#9268 review 5: every attempt meets a followed link, and the caller asked for no in-place rewrite. It must get
+   ERR_KOSMOS_TEMP_SWAPPED (not ERR_KOSMOS_SYMLINK, which callers read as "the config is a link"), its config must be
+   left as it was, each refused open's fd closed exactly once, and the loop must have tried three fresh names. */
+test('#9268: atomicOnly with a link followed at every attempt throws ERR_KOSMOS_TEMP_SWAPPED, leaves the config, and closes each refused fd once', (t) => {
+  const file = fresh('allrefused');
+  fs.writeFileSync(file, 'old config');
+  const realOpen = fs.openSync;
+  const realClose = fs.closeSync;
+  const planted = [];
+  const opened = [];   // one entry per refused open: { fd, closes } (a closed fd number is reused, so not keyed by it)
+  fs.openSync = function (p, flags, ...rest) {
+    if (flags === 'wx' && String(p).includes('.kosmos-')) {
+      const elsewhere = fresh('attacker6');
+      planted.push(String(p), elsewhere);
+      fs.symlinkSync(elsewhere, String(p));
+      const fd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link, every time
+      opened.push({ fd, closes: 0 });
+      return fd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  fs.closeSync = function (fd) {
+    const open = opened.filter((o) => o.fd === fd).pop();   // the newest open of that number
+    if (open) open.closes += 1;
+    return realClose.call(fs, fd);
+  };
+  t.after(() => { fs.openSync = realOpen; fs.closeSync = realClose; for (const p of planted) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  let err = null;
+  try { securewrite.writeSecret(file, 'secret-9268f', 0o600, { atomicOnly: true }); } catch (e) { err = e; }
+  fs.openSync = realOpen; fs.closeSync = realClose;
+  assert.ok(err, 'a write with every temp name refused did not throw');
+  assert.equal(err.code, 'ERR_KOSMOS_TEMP_SWAPPED', 'the refusal carries the wrong code');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'old config', 'the config was changed');
+  assert.equal(opened.length, 3, 'the loop did not try three fresh names');
+  opened.forEach((o, i) => assert.equal(o.closes, 1, `refused open ${i + 1} was closed ${o.closes} times, not once`));
+});
+
+/* kosmos#9268 review 7: a different file renamed onto the made file's path after the fd is closed and before the
+   cleanup's unlink. The unlink takes a path, so the cleanup checks the file again just before it; somebody's file put
+   there must survive. */
+test('#9268: a file renamed onto the made file\'s path after the close is never removed by the cleanup', (t) => {
+  const file = fresh('renamedonto');
+  const elsewhere = fresh('attacker7');
+  const theirs = fresh('theirs7');
+  const realOpen = fs.openSync;
+  const realClose = fs.closeSync;
+  let planted = null;
+  let followedFd = null;
+  fs.openSync = function (p, flags, ...rest) {
+    if (planted === null && flags === 'wx' && String(p).includes('.kosmos-')) {
+      planted = String(p);
+      fs.symlinkSync(elsewhere, planted);
+      followedFd = realOpen.call(fs, elsewhere, 'wx', ...rest);   // the Windows open follows the link
+      return followedFd;
+    }
+    return realOpen.call(fs, p, flags, ...rest);
+  };
+  fs.closeSync = function (fd) {
+    const r = realClose.call(fs, fd);
+    if (fd === followedFd) {
+      followedFd = null;
+      fs.writeFileSync(theirs, 'their bytes');
+      fs.renameSync(theirs, elsewhere);                           // somebody's file now sits at the made file's path
+    }
+    return r;
+  };
+  t.after(() => { fs.openSync = realOpen; fs.closeSync = realClose; for (const p of [planted, elsewhere, theirs]) { try { fs.rmSync(p, { force: true }); } catch { /* fine */ } } });
+  securewrite.writeSecret(file, 'secret-9268g', 0o600);
+  fs.openSync = realOpen; fs.closeSync = realClose;
+  assert.ok(planted, 'the plant never happened, so this tests nothing');
+  assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'their bytes', 'the cleanup removed a file the open did not make');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret-9268g', 'the save did not land');
+});

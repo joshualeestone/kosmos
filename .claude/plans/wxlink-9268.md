@@ -41,6 +41,9 @@ That a device and inode readable and nonzero on both sides mean the same thing t
 product writes to. Where they would disagree for an ordinary file, every save there is refused three times and takes
 the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac agree (the ordinary-save control).
 
+A second, of the same kind: that a fresh regular file reports one hard link. A mount that inflated the count would
+have every save there refused the same way.
+
 ## Checked
 
 - engine/securewrite.test.js #9268 arms, each with a control that removes the rule it pins: the followed link (fails
@@ -57,3 +60,20 @@ the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac a
   save is not refused on Windows; trust.test.js 51 pass. The same 9 #1787 and #1793 arms as before fail, by name.
 - Windows, run 46119979883, after review 2: all four #9268 arms pass (24 pass in securewrite.test.js, the hard-link
   arm among them); trust.test.js 51 pass; the same 9 #1787 and #1793 arms fail, by name.
+- Review 3's mutants, each now failing an arm: the cleanup guard replaced with `true` (the re-pointed-link arm: it
+  deleted somebody's file) and `refuse = gone` replaced with `false` (the removed-name arm: the secret reached where
+  the link pointed). Removing the "not a regular file" rule fails no arm, on the Mac or on Windows (run 46120311980,
+  a never-merged mutant build): a folder at the name has more than one link on the Mac and another inode on both,
+  so the link-count or identity rule refuses it first. The
+  rule stays for a mount whose identities cannot be read, where no test can reach it, and the code says so.
+- Accepted residue, stated in the code: the check runs once, right after the open, so a name swapped between it and
+  the rename still goes over the config. That window is the rename's own (it takes a path) and predates #9268.
+- Review 5: an arm with a link followed at every attempt and atomicOnly pins the error code (fails with
+  ERR_KOSMOS_SYMLINK in its place), the config left as it was, three fresh names, and each refused fd closed once
+  (fails with the close removed). A second accepted residue is stated in the code: on Windows, somebody who can write
+  in the config's folder can move the made file back to the temp name before the check, so it passes, and the config
+  keeps the access list it was created with where the link pointed. Closing that needs the access list set or checked
+  at the open, which this does not do; it is reasoned from Windows semantics, not measured.
+- Review 6: the check's call is wrapped so an unexpected throw from it still closes the fd. Deferred, with reason: the
+  new code reaches only atomicOnly callers, none of which branches on it, and what it reports is the safe failure
+  (the config untouched).
