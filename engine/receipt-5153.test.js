@@ -474,11 +474,15 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
     out('10:37', 'b2y', 'Script completed\nWall time 1 seconds'),
     call('10:38', 'b2z', String.raw`const p = "*** Begin Patch\n*** Update File: libv.js\n+tools.apply_patch('*** Delete File: fakev.md')\n*** Delete File: realv.md"; await tools.apply_patch(p);`),
     out('10:38', 'b2z', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 4: a literal piece concatenated after the patch (`+ "\n"`) is read as a piece, so the
+       whole-script reading is not turned on and a log string's header (decoy.md) is not listed. */
+    call('10:39', 'b3a', String.raw`console.log("*** Add File: decoy.md"); await tools.apply_patch('*** Begin Patch\n*** Update File: tail.md\n+x\n*** End Patch' + "\n");`),
+    out('10:39', 'b3a', 'Script completed\nWall time 1 seconds'),
   ]));
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   assert.deepEqual(r.agents[0].files, ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
     'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
-    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md'], 'each path stops at its own patch string\'s quote (#9314)');
+    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md', 'tail.md'], 'each path stops at its own patch string\'s quote (#9314)');
   assert.ok(!r.agents[0].files.some((f) => f === 'a' || f === 'x' || f.includes('s1.md') || f.includes('s2.md') || /["'`]\}?\)\s*;/.test(f)), 'a cut, swallowed or run-on name (a quote, then `);` or `});`) was listed: ' + JSON.stringify(r.agents[0].files));
 });
 

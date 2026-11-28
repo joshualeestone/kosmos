@@ -428,11 +428,28 @@ async function providerWork(runner, dir, holds) {
                   if (NEXT_MEMBER.test(src)) { open = NEXT_MEMBER.lastIndex; continue; }
                   readWhole = true; break;
                 }
-                CONCAT.lastIndex = after;
-                if (CONCAT.test(src)) readWhole = true;   // "..." + more: a concatenation
                 const span = [open + 1, end];
                 bodies.push({ q, text, span });
                 spans.push(span);
+                /* "..." + more: a concatenation. Each further piece that is a literal is read the same way, with its own
+                   quote (review 4: a trailing `+ "\n"` turned on the whole-script reading, which then listed header text
+                   from a log string); only a piece that is not a literal (a variable, a call) needs the whole script. */
+                for (let piece = 0; ; piece += 1) {
+                  CONCAT.lastIndex = after;
+                  if (!CONCAT.test(src)) break;
+                  if (piece >= 64) { readWhole = true; break; }   // past 64 pieces the rest is read with the whole script
+                  let o = CONCAT.lastIndex;
+                  while (o < src.length && /\s/.test(src[o])) o += 1;
+                  const pq = src[o];
+                  if (!`'"\``.includes(pq || '')) { readWhole = true; break; }
+                  let k = o + 1;
+                  while (k < src.length && src[k] !== pq) k += src[k] === '\\' ? 2 : 1;
+                  const pend = Math.min(k, src.length);
+                  const pspan = [o + 1, pend];
+                  bodies.push({ q: pq, text: src.slice(o + 1, pend), span: pspan });
+                  spans.push(pspan);
+                  after = pend + 1;
+                }
                 break;
               }
             }

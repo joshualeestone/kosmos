@@ -60,3 +60,15 @@ overlapped the literal's; such calls are now dropped. Also: `]` in the run-on ru
 Tests b2y (realn.md listed) and b2z (fakev.md not) fail on the commit before. Timing unchanged (linear, 13 shapes).
 Residual, accepted: a ' or backtick piece read by the fallback with a name holding `")` (`o'k").md` reads `o'k`), fewer
 than main; an escaped `\\n` before a header in an added line is read as a line start, as on main.
+
+## Review 4 (sonnet, measuring)
+Fuzz, 10,000 scripts per seed: wrong names 431 here against 4,196 on main (443 against 4,107 on seed 2); right names
+left out 0 on both. Of 20,000 scripts 2 regressed against main: a patch literal followed by `+ "\n"` turned on the
+whole-script reading, which listed a log string's header. Each further literal piece of a concatenation is now read as
+its own piece with its own quote; only a piece that is not a literal turns the whole reading on (and past 64 pieces the
+rest goes to it, measured: 64,001 pieces read in 24 ms). Test b3a fails on the commit before (decoy.md listed).
+Residual, accepted: a call passing a variable still turns on the whole-script reading, whose decoys (header text in
+comments and log strings) are the 431; ten times fewer than main, and removing the fallback would trade them for
+left-out names.
+Test count: 35 in receipt-5153 (the Codex, Gemini and timing tests hold the cases b2d to b3a) and 10 in
+receipt-project-6842, 45 in all.
