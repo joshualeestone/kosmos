@@ -155,7 +155,7 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'create.runner-dir-1616.test.js',   // kosmos#8378: the runnable-binary gate (a folder, a stripped file, a real stub); the two tmux-path arms skip there (Windows runs agents without tmux)
   'create.qwen-5977.test.js',   // kosmos#8378: the Qwen account checks; the arms that switch an agent onto Qwen skip there (Kosmos refuses a Qwen agent on Windows, #5977 r3)
   'create.blockdrop-1673.test.js',   // kosmos#8378: a block dropped by the byte cap is reported, with runner stubs and the stand-in Task Scheduler
-  'create.claude-probe-1916.test.js',   // kosmos#8378: the probe verdict table; the arms that run its fake claude by its shebang skip there (a Windows arm is owed on kosmos#9269)
+  'create.claude-probe-1916.test.js',   // kosmos#8378: the probe verdict table, and the real probe with a node stand-in claude started through tunnelCommand (kosmos#9269)
   'create.installjob-gemini-grok-3296.test.js',   // kosmos#8378: Gemini, Grok and Antigravity backfills and repairs against the stand-in Task Scheduler
   'connect.willinstall-dryrun-1556.test.js',   // kosmos#8378: the will-install dry run and its control, with a runner stub Windows counts as runnable
   'firstrun.willinstall-wiring-1556.test.js',   // kosmos#8378: the first-run will-install wiring, with a runner stub Windows counts as runnable

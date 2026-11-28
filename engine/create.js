@@ -5693,7 +5693,10 @@ function defaultClaudeProbe(configDir) {
        as a dead sign-in and false-refusing the create. This flag uses only MCP
        servers from --mcp-config (none given), ignoring all others, so the probe
        measures the ACCOUNT's own auth and nothing else. */
-    execFile(bin, ['-p', '--strict-mcp-config', 'reply with the single word ok'],
+    /* kosmos#9269: through tunnelCommand (#8449's seam), so a node stand-in runs on Windows: a .js path starts as this node
+       with the script first, and a real claude (an executable) starts exactly as before. */
+    const probeCmd = require('./tunnelcommand').tunnelCommand(bin, ['-p', '--strict-mcp-config', 'reply with the single word ok']);
+    execFile(probeCmd.file, probeCmd.args,
       { env, timeout, maxBuffer: 1 << 20, killSignal: 'SIGKILL' },
       (err, stdout, stderr) => {
         // On timeout, err.killed is true and partial stdout/stderr survive -- the
