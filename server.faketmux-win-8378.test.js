@@ -103,3 +103,19 @@ test('in a board child, installForChild has win32roster.make and win32capture.ma
     win.reset();
   }
 });
+
+test('reset() forgets what the helper installed, so fleet.restore() in this process goes back to none', () => {
+  const status = require('./engine/status');
+  const messages = require('./engine/messages');
+  try {
+    assert.equal(win.serveOnWindows('win32'), true);
+    assert.equal(typeof win.current().source, 'function', 'CONTROL: something was installed to forget');
+    win.reset();
+    assert.deepEqual(win.current(), { source: null, capture: null }, 'reset kept the helper state');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+    messages.setRunner(null);
+    win.reset();
+  }
+});
