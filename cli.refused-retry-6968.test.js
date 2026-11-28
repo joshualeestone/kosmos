@@ -289,8 +289,9 @@ test('#6968: msg\'s second ask after a cut reply is one plain try: a board that 
   // would ask again 3 s after that, into the restarted board: a third try, and a second POST the board records.
   const env = baseEnv(port, { TMUX_PANE: '%42', KOSMOS_REFUSED_RETRY_MS: '3000' });
   const out = await runCli(['msg', 'mara', 'only', 'once'], env);
-  assert.notEqual(out.code, 0, out.stdout + out.stderr);
-  assert.match(out.stdout, /It may still have happened: check before doing it again/);
+  // kosmos#9243: cut, then refused, is a maybe (exit 3) that says wait for their answer, as Windows, never a probe.
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /did not answer when asked once more\. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again\./);
   assert.equal(tries(env, /\/api\/msg/), 2, 'the send and msg\'s own second ask, and no third');
   assert.equal(seen.filter((s) => s.method === 'POST' && s.url.startsWith('/api/msg')).length, 1, JSON.stringify(seen));
 }, { cutFirstPost: true }));

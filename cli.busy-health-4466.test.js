@@ -284,6 +284,13 @@ test('#9243 `kosmos msg --no-reply` not confirmed: do not send it again, never w
   assert.doesNotMatch(out.stdout, /wait for their answer/);
 }));
 
+test('#9243 `kosmos msg --no-reply` cut twice: exit 3, do not send it again, never wait for an answer', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgcut', async (port) => {
+  const out = await runCli(['msg', '--no-reply', 'mara', 'fyi'], baseEnv(port, { TMUX_PANE: '%42' }));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /with no id, kosmos msg --status cannot check it, and you asked for no reply, so do not send it again\./);
+  assert.doesNotMatch(out.stdout, /wait for their answer/);
+}));
+
 test('#9243 `kosmos msg` that times out twice: exit 3, wait for their answer (no id), one retry', { skip: SKIP_POSIX_SHELL }, () => withBoard('msghang', async (port, firstFile) => {
   const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }), 45000);
   assert.equal(out.code, 3, out.stdout + out.stderr);
