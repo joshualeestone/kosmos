@@ -11,10 +11,16 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
   JavaScript string carries one) is now part of the path; any other escape still ends it. A new arm, a patched name
   `a\b.md`, fails on the old reader (it read `a`) and passes now, on the Mac.
 - **#9267, fixed here.** engine/projects.js `isUnderTmpDir` joined the boundary with `/`, so on Windows no folder in
-  `%TEMP%` read as temp and the #525 temp-folder refusal never fired. It joins with `path.sep` now.
+  `%TEMP%` read as temp and the #525 temp-folder refusal never fired. It joins with `path.sep` now, compares each temp
+  root both as given and resolved (an 8.3 name), and on Windows compares case-blind. engine/projects.test.js moves from
+  HOST_BRANCH_EXCLUDED into the Windows job's ALSO list (it passed there in full: run 46118283614, 162 pass, 0 fail),
+  so the fix is guarded where it matters; on the Mac `path.sep` is `/` and no arm could see it. Note for Windows: a
+  folder under `C:\tmp` now reads as temp too (`/tmp` resolves there), as `/tmp/anything` already did on the Mac.
 - **#9268, carded, not fixed, and its arm left red.** securewrite's create-exclusive (`'wx'`) temp file follows a
   planted dangling symbolic link on Windows (engine/trust.test.js "a file planted at the temp path"). A skip would
-  hide a guarantee that does not hold, so the test stays red until #9268 is fixed.
+  hide a guarantee that does not hold, so the test is not skipped. It is red only where somebody runs trust.test.js
+  on Windows (the never-merged measurement branch here): the file is in HOST_BRANCH_EXCLUDED, so the Windows CI job
+  does not run it, and card #9268 (PR #9289, which fixes it) is what tracks it.
 
 ## Test fixes (the test assumed a POSIX host)
 
@@ -33,10 +39,13 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
 ## Skips, each naming its mechanism
 
 update.marker (the run-setup shell line through /bin/sh), remove.redisable (launchd's own disable record),
-pdfpreview (Linux stand-ins found by the POSIX execute bit; a `"` in a file name), the release and fleet tools
+pdfpreview's two Linux renderer arms (stand-ins found by the POSIX execute bit; a `"` in a file name; its refusal and
+--out arms run for the Windows renderer on every host and for Linux off Windows), the release and fleet tools
 (build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), the shell report hook
 (install/kosmos-report-hook.sh), the macOS cwd-case arm of trust.canonical-spelling, tool-guard's two POSIX controls,
-and runnable-not-directory's tmux-key arm (machine.js does not probe tmux on Windows).
+and the 7 startimports arms that run the macOS guard (its parser arm runs everywhere, with host-resolved paths).
+runnable-not-directory skips nothing: its installedCheck arm checks claude and codex on Windows, where machine.js does
+not probe tmux.
 **Not in this slice:** engine/orgchartfile.test.js and teamcreate-structure-4557.test.js. Mona Lisa owns both on
 #9272 (branch wincl-9272): she measured that #4660 and the teamcreate arms fail on Windows for path spelling and a
 roster seam, not a shell script, fixes those, and puts the sh-script orgchart arms beside node stand-ins. An earlier

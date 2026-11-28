@@ -154,7 +154,6 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const { test } = require('node:test');
-const SKIP_TMUX_KEY = require('./test-support/skip-on-win32').skipOnWin32('it checks the tmux key of installedCheck, which engine/machine.js does not probe on Windows, where Kosmos runs no tmux');   // kosmos#8378
 const assert = require('node:assert');
 
 const ENGINE = path.join(__dirname, 'engine');
@@ -789,7 +788,7 @@ test('isRunnable rejects a directory and accepts a real executable', () => {
   } finally { f.cleanup(); }
 });
 
-test('machine.js installedCheck answers NOT PRESENT for a directory named like the binary', { skip: SKIP_TMUX_KEY }, () => {
+test('machine.js installedCheck answers NOT PRESENT for a directory named like the binary', () => {
   /* 🛑 THIS REPLACED A TOKEN SEARCH, AND THE MEASUREMENT THAT DEMANDED IT:
      machine.js KEEPS its accessSync and is correct only because
      `if (!st.isFile()) { ...; continue; }` sits above it. The old arm asserted
@@ -809,7 +808,9 @@ test('machine.js installedCheck answers NOT PRESENT for a directory named like t
        ⇒ Same family as the devicedoor and githubdevice candidate-branch finding,
        one level down: per-KEY coverage rather than per-BRANCH. An arm that drives
        shared code through one of its inputs proves nothing about the others. */
-    const keys = ['claude', 'codex', 'tmux'];
+    /* kosmos#8378: Windows has no tmux, and installedCheck does not probe it there (engine/machine.js), so there the
+       keys are the two it does probe. */
+    const keys = process.platform === 'win32' ? ['claude', 'codex'] : ['claude', 'codex', 'tmux'];
     for (const key of keys) {
       const opts = { claudeBin: f.realBin, tmuxBin: f.realBin, codexBin: f.realBin };
       opts[key === 'claude' ? 'claudeBin' : key === 'codex' ? 'codexBin' : 'tmuxBin'] = f.asDirectory;
