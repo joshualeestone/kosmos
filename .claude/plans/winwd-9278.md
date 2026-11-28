@@ -40,6 +40,11 @@ runner (tools.run-tests-winwd-9278.test.js in ALSO_ROOT). Mac and Linux start th
   but kill by command line under the run root; a separate step, so this one stays reviewable. Still said at the start.
 - A shim twin (Volta's non-exec node) on Windows: not seen on a Windows box yet.
 
+## Not covered
+- node behind a shim on Windows; a pid reused between the snapshot and its taskkill /T (milliseconds).
+- The cost of the Windows tick was not measured over a whole Windows suite; the tick is a twentieth of the limit
+  (1 to 30 s) so the default limit looks every 30 s.
+
 ## Weakest premise
 That node --test's per-file children are direct children of node.exe on Windows (true in every measured run on Node 26).
 A file whose command line does not end with a listed name is named by its last word (a quoted path with a space keeps
