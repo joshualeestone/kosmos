@@ -203,6 +203,9 @@ test('#9238 the real Windows CLI, with its own probe: the title typed bare with 
 test('#9238 CONTROL the real Windows CLI with words and nothing on stdin goes past the check (to the dead board)', async () => {
   const r = await runWin(['community', 'post', 'just these words'], null);
   assert.doesNotMatch(r.out, /there are words on the command line and text piped in too/, r.out);
+  // ...and it really went on to the send, which fails at the dead port: not a crash or a hang before the probe.
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /We could not reach Kosmos to post that/);
 });
 
 test('#9238 PowerShell: words AND text piped in (which never reaches node) are refused with the --body-file way, nothing sent', async () => {
@@ -212,7 +215,7 @@ test('#9238 PowerShell: words AND text piped in (which never reaches node) are r
   assert.equal(code, 2, h.all());
   assert.equal(h.sent.length, 0, 'it was sent anyway: ' + JSON.stringify(h.sent[0] && h.sent[0].body));
   assert.match(h.all(), /Nothing was posted: text piped into kosmos in PowerShell does not reach it/);
-  assert.match(h.all(), /kosmos community post --body-file <file>/);
+  assert.match(h.all(), /kosmos community post --channel <channel> --topic '<a short title>' --body-file <file>/);
 });
 
 test('#9238 CONTROL PowerShell with words and nothing piped still sends the words', async () => {
