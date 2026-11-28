@@ -90,7 +90,7 @@ const WRONG_WORLD_STATUS = 421;
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
   msg: 'Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written; --no-reply: they are told no answer is wanted)',
-  heavy: 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N] | kosmos heavy take "<what the job is>" [--pid N] | kosmos heavy release [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid. take is the turn when nobody has one and nobody is ahead of you, else it keeps your place in line and exits 3: ask again to keep it, and take a free turn within 2 minutes or lose your place. release ends your turn or gives up your place)',
+  heavy: 'Usage: kosmos heavy | kosmos heavy start "<what the job is>" [--pid N] | kosmos heavy end [--pid N] | kosmos heavy take "<what the job is>" [--pid N] | kosmos heavy release [--pid N]   (shows other agents and the person that a heavy job, such as a long test run, is running on this computer; it clears itself when the process you name, or you, are gone; a job started with --pid ends with that --pid. take is the turn when nobody has one and nobody is ahead of you, else it keeps your place in line and exits 10: ask again to keep it (a place not asked for in 30 minutes is gone), and take a free turn within 2 minutes or go to the back of the line (out on a second miss). release ends your turn or gives up your place)',
   'reply-channel': 'Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, and their thread with you says you answer there, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; --file <path>: attach one file from your Files folder or a project you are on, up to 100 MB) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
@@ -2936,16 +2936,16 @@ function heavySend(sub) {
     }
     const j = r.json;
     const ok = r.status === 200 && j && j.ok === true;
-    // kosmos#9217 slice 2, worded as install/kosmos: take is the turn (0) or a kept place (3); release ends either.
+    // kosmos#9217 slice 2, worded as install/kosmos: take is the turn (0) or a kept place (10); release ends either.
     if (ok && j.turn === true && j.job) { ctx.out('Your turn: ' + j.job.label + ' is recorded as running' + (j.job.pid ? ' while process ' + j.job.pid + ' runs' : '') + '. kosmos heavy release' + (j.job.pid ? ' --pid ' + j.job.pid : '') + ' when it is done.'); return 0; }
     if (ok && j.turn === false && Number.isSafeInteger(j.place)) {
       const n = j.place;
       const nth = n + (n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th');
       const ahead = Array.isArray(j.ahead) ? j.ahead : [];
       const nm = (x) => x.name || x.agent;
-      const who = j.holder ? nm(j.holder) + ' has the turn (' + j.holder.label + ', since ' + heavyWhen(j.holder.since) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
+      const who = j.holder ? nm(j.holder) + ' has the turn (' + (j.holder.unchecked ? 'Kosmos could not check it just now' : j.holder.label + ', since ' + heavyWhen(j.holder.since)) + ')' : 'the turn is free for ' + (ahead[0] ? nm(ahead[0]) : 'the agent ahead of you') + ', who has up to 2 minutes to take it';
       ctx.out('Not yet: you are ' + nth + ' in line; ' + who + (ahead.length > 1 || (j.holder && ahead.length) ? '. Ahead of you: ' + ahead.map(nm).join(', ') : '') + '. Ask again with kosmos heavy take to keep your place.');
-      return 3;
+      return 10;   // a code no other verb uses: 3 is "maybe" (a timed-out take is 3, never "wait")
     }
     if (ok && typeof j.left === 'number') {
       if (j.ended) ctx.out('Released: your turn has ended, and it no longer shows on the board.');

@@ -28609,7 +28609,10 @@ const server = http.createServer(async (req, res) => {
         if (!t.ok) { sendJson(res, t.refused ? 400 : 503, { error: t.because }); return; }
         heavyMissingSince.delete(name);   // it just answered as itself: not missing
         const display = new Map((roster || []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a.name || a.sessionName]));
-        const brief = (j) => (j ? { agent: j.agent, name: display.get(j.agent) || j.agent, label: j.label, pid: j.pid, since: j.since } : null);
+        // Another agent's job this read could not check is named but not described (GET /api/heavy lists it only to its own
+        // agent, kosmos#9222): it still holds the turn.
+        const brief = (j) => (!j ? null : j.unchecked && j.agent !== name ? { agent: j.agent, name: display.get(j.agent) || j.agent, unchecked: true }
+          : { agent: j.agent, name: display.get(j.agent) || j.agent, label: j.label, pid: j.pid, since: j.since });
         sendJson(res, 200, body.action === 'release' ? { ok: true, left: t.left, ended: t.ended, others: typeof t.others === 'number' ? t.others : 0 }
           : t.turn ? { ok: true, turn: true, job: brief(t.job) }
             : { ok: true, turn: false, place: t.place, holder: brief(t.holder), ahead: t.ahead.map(brief) });

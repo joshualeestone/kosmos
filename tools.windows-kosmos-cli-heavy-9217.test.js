@@ -134,15 +134,15 @@ test('heavy take: the turn returns 0 and says how to release it; it sends take w
   assert.deepEqual([post.body.action, post.body.label, post.body.pid], ['take', 'suite', 4242]);
 });
 
-test('heavy take: a kept place returns 3 and says the place, the holder and who is ahead', async () => {
+test('heavy take: a kept place returns 10 (3 is "maybe" elsewhere) and says the place, the holder and who is ahead', async () => {
   const r = await run(['heavy', 'take', 'suite'], answering('behind'));
-  assert.equal(r.code, 3, r.err);
+  assert.equal(r.code, 10, r.err);
   assert.match(r.out, /^Not yet: you are 2nd in line; ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: bo\. Ask again with kosmos heavy take to keep your place\.$/);
 });
 
 test('heavy take: behind a free turn, it names who has up to 2 minutes to take it', async () => {
   const r = await run(['heavy', 'take', 'suite'], answering('free'));
-  assert.equal(r.code, 3, r.err);
+  assert.equal(r.code, 10, r.err);
   assert.match(r.out, /^Not yet: you are 2nd in line; the turn is free for bo, who has up to 2 minutes to take it\. Ask again with kosmos heavy take to keep your place\.$/);
 });
 
@@ -170,9 +170,20 @@ test('a bare heavy lists the line of turns after what is running', async () => {
 
 test('heavy take names agents by the name the board shows; release with no pid points at --pid when that is all you have', async () => {
   const r = await run(['heavy', 'take', 'suite'], () => [200, { ok: true, turn: false, place: 2, holder: { agent: 'ada', name: 'Ada', label: 'cut', pid: null, since: S }, ahead: [{ agent: 'bo', name: 'Bo', label: 'v', pid: null, since: S }] }]);
-  assert.equal(r.code, 3, r.err);
+  assert.equal(r.code, 10, r.err);
   assert.match(r.out, /^Not yet: you are 2nd in line; Ada has the turn \(cut, since \d\d:\d\d\)\. Ahead of you: Bo\./);
   const rel = await run(['heavy', 'release'], () => [200, { ok: true, left: 0, ended: 0, others: 1 }]);
   assert.equal(rel.code, 0, rel.err);
   assert.match(rel.out, /^You had no turn and no place in line without a process\. Your 1 recorded job is tied to a process: release it with kosmos heavy release --pid N \(kosmos heavy lists them\)\.$/);
+});
+
+test('heavy take: another agent\'s job Kosmos could not check is named as the holder, not described', async () => {
+  const r = await run(['heavy', 'take', 'suite'], () => [200, { ok: true, turn: false, place: 1, holder: { agent: 'ada', name: 'Ada', unchecked: true }, ahead: [] }]);
+  assert.equal(r.code, 10, r.err);
+  assert.match(r.out, /^Not yet: you are 1st in line; Ada has the turn \(Kosmos could not check it just now\)\. Ask again with kosmos heavy take to keep your place\.$/);
+});
+
+test('heavy take: a take that timed out is "maybe" (3), never the "wait" code (10)', async () => {
+  const r = await run(['heavy', 'take', 'suite'], () => { throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); });
+  assert.notEqual(r.code, 10, 'a timed-out take read as "you are waiting"');
 });

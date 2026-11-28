@@ -11,13 +11,15 @@
  * heavyjobs.live() shows, so there is no second record of the same fact, and an agent that only ever uses `start`
  * still counts as the holder for everyone who asks to take.
  *
- * The line lives in <data root>/heavy-line.json, oldest place first. A place is judged as a heavy-job record is
- * (heavyjobs.judge): with --pid it lasts while that process runs; without, while its agent is on the roster, and either
- * way at most MAX_AGE_MS from the last time it asked. A place at the FRONT, with the turn free, must be taken within
- * GRACE_MS of another agent's take first finding the turn free for it (so in the waiter's favour, never less): past that
- * it goes to the back once, and out on the second miss, so an agent that stopped asking cannot hold the line. Every
- * start-time read in one take shares one heavyjobs ps budget (budgetedStartOf); server.js heavyNow shares one between
- * the jobs and the line, and a take route hands its read's budget on to take().
+ * The line lives in <data root>/heavy-line.json, oldest place first. A place lasts while its agent keeps asking: one
+ * that has not called take for PLACE_IDLE_MS (30 min) is gone, whatever its process, so the board never names as next
+ * an agent that stopped asking. Inside that, it is judged as a heavy-job record is (heavyjobs.judge): with --pid while
+ * that process runs, without while its agent is on the roster. A place at the FRONT, with the turn free, must be taken
+ * within GRACE_MS of another agent's take first finding the turn free for it (so in the waiter's favour, never less):
+ * past that it goes to the back once, and out on the second miss.
+ * Start-time reads: the places and the jobs judged in one take share one heavyjobs ps budget (budgetedStartOf, which
+ * the server's take route also hands to its refresh read); the caller's own process is read fresh, and recording the
+ * turn (heavyjobs.start) reads it, and its agent's aged records, with start's own small budget.
  *
  * Weakest premise: that agents poll take. The line informs; it does not stop an agent that runs its job without it.
  */
@@ -28,6 +30,7 @@ const hj = require('./heavyjobs');
 
 const FILE = 'heavy-line.json';
 const GRACE_MS = 2 * 60 * 1000;
+const PLACE_IDLE_MS = 30 * 60 * 1000;   // a place nobody has asked for in this long is gone (round 3)
 const MAX_LINE = 20;   // a bound on the file, not a policy: no computer has twenty agents waiting for one turn
 const MAX_PLACES_PER_AGENT = 4;   // as heavyjobs' MAX_PER_AGENT: one place for each wrapper an agent runs
 
@@ -69,8 +72,8 @@ const mine = (agent, p) => (e) => e.agent === agent && e.pid === p;
 const shown = (e) => ({ agent: e.agent, label: e.label, pid: e.pid, since: e.since });
 // A place is judged by the heavy-job rules: `since` is when it joined, `at` the last time it asked. A place the read could
 // not check ('hide') stays in the file and in its own agent's view of the line, but off the board, as a job does.
-const keeps = (e, opts) => hj.judge(e, opts) !== 'drop';
-const checked = (e, opts) => hj.judge(e, opts) === 'show';
+const judgePlace = (e, opts) => (opts.now - e.at > PLACE_IDLE_MS ? 'drop' : hj.judge(e, opts));
+const keeps = (e, opts) => judgePlace(e, opts) !== 'drop';
 
 /* Take a turn, or keep a place. Returns { ok, turn: true, job } when the caller now holds the turn,
    { ok, turn: false, place, holder, ahead } when it waits (place is 1 for first in line), or { ok: false, because }. */
@@ -161,12 +164,12 @@ function release({ root, agent, pid }) {
 }
 
 /* The line, oldest place first, as { agent, label, pid, since }: a read, which never waits, and removes only the
-   places it judged gone. Only places this read could check, as the board shows only checked jobs; with ps over
-   budget, a place it could not vouch for is left off for this read (it stays in the file). */
+   places it judged gone. The idle limit keeps every place far inside heavyjobs' 12 h ceiling, so a place this read did
+   not ask ps about (over budget) is shown on signal 0, as a job inside the ceiling is. */
 function waiting({ root, now = Date.now(), startOf = null, agentAlive = null }) {
   const s = startOf || hj.budgetedStartOf(now);
   const all = readLine(root);
-  const verdict = all.map((e) => hj.judge(e, { now, startOf: s, agentAlive }));
+  const verdict = all.map((e) => judgePlace(e, { now, startOf: s, agentAlive }));
   if (verdict.includes('drop')) {
     // As heavyjobs.live does: exactly the places this read dropped leave the file (re-read under the lock, so a place
     // taken meanwhile stays), when the lock can be had at once. Without it a gone waiter's place would outlive the
@@ -180,4 +183,4 @@ function waiting({ root, now = Date.now(), startOf = null, agentAlive = null }) 
   return all.filter((_, i) => verdict[i] === 'show').map(shown);
 }
 
-module.exports = { FILE, GRACE_MS, MAX_LINE, MAX_PLACES_PER_AGENT, readLine, take, release, waiting };
+module.exports = { FILE, GRACE_MS, PLACE_IDLE_MS, MAX_LINE, MAX_PLACES_PER_AGENT, readLine, take, release, waiting };

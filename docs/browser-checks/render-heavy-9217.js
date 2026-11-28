@@ -33,7 +33,8 @@ function check(name, pass, detail) {
 
   // `inject === undefined` leaves the real board's heavyJobs untouched (the board under test runs none); `line` likewise.
   async function slotAfter(inject, line) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    // en-US: the day the page prints and the one this check expects are worded in one locale, whatever LANG says.
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'en-US' });
     const page = await ctx.newPage();
     await page.route('**/api/status*', async (route) => {
       try {
@@ -85,7 +86,7 @@ function check(name, pass, detail) {
   check('slice 2: a free turn with a line still shows, and takes space',
     !!free && free.text === 'No heavy job is running; next in line: Mona Lisa.' && free.display !== 'none' && free.h > 0, JSON.stringify(free));
   const older = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 22, 30);
-  const day = older.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const day = older.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const old = await slotAfter([{ agent: 'Angel', label: 'overnight', since: older.getTime() }]);
   check('a job not started today shows its day', !!old && old.text === 'A heavy job is running on this computer: overnight (Angel, since ' + day + ' 22:30).', JSON.stringify(old && old.text) + ' want day ' + day);
 

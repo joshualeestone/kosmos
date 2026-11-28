@@ -344,9 +344,9 @@ test('kosmos#9217 slice 2: one status read runs ps at most 8 times for the jobs 
   const now = Date.now(), H = 60 * 60 * 1000;
   const jobsFile = p.join(store.ROOT, require('./engine/heavyjobs').FILE), lineFile = p.join(store.ROOT, require('./engine/heavyturns').FILE);
   try {
-    // Ten aged jobs and ten aged places, each tied to a process with a recorded start: every one wants a ps read.
+    // Ten aged jobs and ten places that asked a minute ago, each tied to a process with a recorded start: each wants a ps read.
     fs.writeFileSync(jobsFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-j' + i, label: 'j', pid: 97100 + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H }))));
-    fs.writeFileSync(lineFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-w' + i, label: 'w', pid: 97200 + i, pidStart: 'A', since: now - 13 * H, at: now - 13 * H, front: null, missed: 0 }))));
+    fs.writeFileSync(lineFile, JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ agent: 'hv-w' + i, label: 'w', pid: 97200 + i, pidStart: 'A', since: now - H, at: now - 60 * 1000, front: null, missed: 0 }))));
     heavyJobsNow(null, now);
     assert.ok(ps <= 8, 'ps ran ' + ps + ' times in one read of the jobs and the line');
     assert.ok(ps >= 1, 'control: the read asked ps at all');
