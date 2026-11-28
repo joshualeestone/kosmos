@@ -5,6 +5,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * read `{}` as a refusal, or mapped a failure to the "already done" 400 would pass every engine test.
  */
 const test = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -22,6 +23,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const store = require('./engine/store');
 const create = require('./engine/create');
@@ -45,7 +47,7 @@ async function post(route, raw) {
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
-test('#6714: hide and show over HTTP; a name with no notice is 400, a bad name or body is 400', async () => {
+test('#6714: hide and show over HTTP; a name with no notice is 400, a bad name or body is 400', { skip: skipOnWin32('it expects the notice the macOS login-job survey offers, which this file stands in; on Windows the survey reads Task Scheduler and offers none here, while registering exists there (kosmos#9284)') }, async () => {
   ranAgent('rt-brigitte');
   assert.equal((await post('/api/register/hide', JSON.stringify({ name: 'rt-brigitte' }))).status, 200);
   assert.ok(register.survey().hidden.includes('rt-brigitte'), 'the hide did not reach the survey');
@@ -59,7 +61,7 @@ test('#6714: hide and show over HTTP; a name with no notice is 400, a bad name o
   assert.ok(!register.survey().hidden.includes('rt-brigitte'));
 });
 
-test('#6714: POST /api/register: {} and no body mean all, a name means that one, a refused name is 400', async () => {
+test('#6714: POST /api/register: {} and no body mean all, a name means that one, a refused name is 400', { skip: skipOnWin32('it expects the notice the macOS login-job survey offers, which this file stands in; on Windows the survey reads Task Scheduler and offers none here, while registering exists there (kosmos#9284)') }, async () => {
   ranAgent('rt-a');
   ranAgent('rt-b');
   const one = await post('/api/register', JSON.stringify({ name: 'rt-a' }));
@@ -79,7 +81,7 @@ test('#6714: POST /api/register: {} and no body mean all, a name means that one,
   assert.ok(bare.body.results.some((r) => r.name === 'rt-c'), 'no body did not start the remaining agent');
 });
 
-test('#6714 review 11: a hide the board cannot record is a 500, never the "already done" 400', async () => {
+test('#6714 review 11: a hide the board cannot record is a 500, never the "already done" 400', { skip: skipOnWin32('it expects the notice the macOS login-job survey offers, which this file stands in; on Windows the survey reads Task Scheduler and offers none here, while registering exists there (kosmos#9284)') }, async () => {
   ranAgent('rt-writefail');
   const file = require('node:path').join(store.ROOT, 'restart-notices-hidden.json');
   fs.rmSync(file, { force: true });

@@ -7,6 +7,7 @@
  *   - `?unanswered=1` lists only the posts that asked it something and that no post of its cites.
  */
 require('./test-support/tmpscope');
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
@@ -172,7 +173,7 @@ test('?unanswered=1 leaves out the person\'s post that could not reach the reade
   assert.ok(!r.text.includes('[' + missed + ']'), 'a post that could not reach the reader is listed as waiting on it:\n' + r.text);
 });
 
-test('?unanswered=1 on a room log that cannot be read still answers as a board that knows the flag, and says it may be wrong', async () => {
+test('?unanswered=1 on a room log that cannot be read still answers as a board that knows the flag, and says it may be wrong', { skip: SKIP_POSIX_MODES }, async () => {
   const pid = newRoom('Answered4926h');
   post(pid, { text: '@grokseat an ask', mentioned: [WHO] });   // grows the log, so the next read re-reads it
   fs.chmodSync(messages.LOG, 0o000);

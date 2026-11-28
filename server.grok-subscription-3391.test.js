@@ -10,6 +10,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.grok-subscription-3391.test.js
  */
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -71,7 +73,7 @@ async function poll(sessionId, want, ms = 5000) {
   );
 }
 
-test('start -> status shows the URL and code -> connected; the account is in GET /api/accounts', async () => {
+test('start -> status shows the URL and code -> connected; the account is in GET /api/accounts', { skip: SKIP_FAKE_RUNNER }, async () => {
   const r = await post('/api/accounts/grok/subscription/start', { label: 'routed' });
   assert.equal(r.status, 200);
   const { sessionId } = await r.json();
@@ -120,7 +122,7 @@ test('a label that is not a string is refused with a 400, and no sign-in starts'
 /* The BLOCKER the iteration-2 review found: an API-key add must never land on a slot a
    pending sign-in holds, or the sign-in's cleanup deletes the key (and its success would be
    overridden by it). Both orders, through the real routes. */
-test('a key add during a pending sign-in never lands on its slot; a named one is refused; cancelling keeps the key account', async () => {
+test('a key add during a pending sign-in never lands on its slot; a named one is refused; cancelling keeps the key account', { skip: SKIP_FAKE_RUNNER }, async () => {
   grokAccounts.setGrokTimers({ forceKill: 200 });
   grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
   process.env.FAKE_MODE = 'hang';
@@ -160,7 +162,7 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
 /* Round 19 raised that the Disconnect/Delete sentence says "key" for a sign-in Kosmos
    cannot describe (identityOf null). It cannot be reached: forget and remove refuse such a
    dir before any sentence is built. This pins that refusal, so the deferral stays true. */
-test('a Grok dir holding a sign-in Kosmos cannot describe is refused by Disconnect and Delete, so no "key" sentence is sent', async () => {
+test('a Grok dir holding a sign-in Kosmos cannot describe is refused by Disconnect and Delete, so no "key" sentence is sent', { skip: SKIP_FAKE_TMUX }, async () => {
   const dir = nodePath.join(SANDBOX, '.grok-garbled');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, 'auth.json'), '{not json', { mode: 0o600 });
@@ -188,7 +190,7 @@ test('GET /api/accounts badges a connected subscription row signed_in_unverified
 });
 
 /* #3391 part 2: `reauthDir` on start signs in again AS an existing subscription account. */
-test('start with reauthDir signs in again as that account; a bad reauthDir is refused', async () => {
+test('start with reauthDir signs in again as that account; a bad reauthDir is refused', { skip: SKIP_FAKE_RUNNER }, async () => {
   const live = nodePath.join(SANDBOX, '.grok-again');
   fs.mkdirSync(live, { recursive: true });
   fs.writeFileSync(nodePath.join(live, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u0': { email: 'route@example.com', refresh_token: 'OLD' } }), { mode: 0o600 });

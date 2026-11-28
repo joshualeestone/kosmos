@@ -26,6 +26,7 @@
  */
 
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
@@ -145,7 +146,7 @@ async function trustAndRestart(name) {
   return { status: res.status, body: await res.json() };
 }
 
-test('a Claude default-account agent: the trust key is the NATIVE realpath, and it restarts', async () => {
+test('a Claude default-account agent: the trust key is the NATIVE realpath, and it restarts', { skip: SKIP_FAKE_TMUX }, async () => {
   const name = 'tr-claude-default';
   const folder = born(name);
   const r = await trustAndRestart(name);
@@ -172,7 +173,7 @@ test('a Claude default-account agent: the trust key is the NATIVE realpath, and 
     'the folder was not marked trusted under the native key: ' + JSON.stringify(cfg.projects[nativeKey]));
 });
 
-test('a codex agent: a trusted [projects."…"] block is written, and it restarts', async () => {
+test('a codex agent: a trusted [projects."…"] block is written, and it restarts', { skip: SKIP_FAKE_TMUX }, async () => {
   const name = 'tr-codex-default';
   const folder = born(name, { runner: 'codex' });
   const r = await trustAndRestart(name);
@@ -197,7 +198,7 @@ test('a codex agent: a trusted [projects."…"] block is written, and it restart
   assert.match(toml, /trust_level = "trusted"/, 'the block does not mark the folder trusted: ' + toml);
 });
 
-test('BEST-EFFORT / NON-GATING: a failed trust write still restarts the agent', async () => {
+test('BEST-EFFORT / NON-GATING: a failed trust write still restarts the agent', { skip: SKIP_FAKE_TMUX }, async () => {
   /* Force a soft trust-write REFUSAL without touching any real file: a
      non-default claude account whose .claude.json is a SYMLINK. trustFolder
      refuses a symlinked config (it will not replace somebody's arrangement) and

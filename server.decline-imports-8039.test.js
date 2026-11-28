@@ -9,6 +9,7 @@
 'use strict';
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
 
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');
 const assert = require('node:assert/strict');
@@ -105,7 +106,7 @@ async function press(name, { person = true } = {}) {
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
-test('with the dialog on the screen, the press writes the No on the agent\'s own account and restarts', async () => {
+test('with the dialog on the screen, the press writes the No on the agent\'s own account and restarts', { skip: SKIP_FAKE_TMUX }, async () => {
   const dir = account('acct-a');
   const other = account('acct-other');
   const folder = born('di-yes', dir);
@@ -122,7 +123,7 @@ test('with the dialog on the screen, the press writes the No on the agent\'s own
   assert.ok(restarts > before, 'it wrote and did not restart, so the agent stays at the dialog');
 });
 
-test('a typed message is refused at the dialog, and nothing reaches the pane', async () => {
+test('a typed message is refused at the dialog, and nothing reaches the pane', { skip: SKIP_FAKE_TMUX }, async () => {
   born('di-typed', account('acct-e'));
   fs.writeFileSync(SCREEN, DIALOG);
   const res = await fetch(base + '/api/agent/di-typed/thread', {
@@ -137,7 +138,7 @@ test('a typed message is refused at the dialog, and nothing reaches the pane', a
   assert.doesNotMatch(JSON.stringify(await res2.json().catch(() => ({}))), /a message typed now would answer No/, 'CONTROL: refused with no dialog up');
 });
 
-test('an answer already on file while it still asks: nothing restarts, and it says the answer is not being read', async () => {
+test('an answer already on file while it still asks: nothing restarts, and it says the answer is not being read', { skip: SKIP_FAKE_TMUX }, async () => {
   const dir = account('acct-f');
   const folder = born('di-already', dir);
   fs.writeFileSync(nodePath.join(dir, '.claude.json'), JSON.stringify({ projects: { [folder]: { [trust.IMPORTS_KEY]: false, [trust.IMPORTS_SHOWN_KEY]: true } } }), 'utf8');
@@ -149,7 +150,7 @@ test('an answer already on file while it still asks: nothing restarts, and it sa
   assert.equal(restarts, before, 'it restarted, which only brings the question back');
 });
 
-test('an agent folder inside a repository rooted above it: refused with the terminal ending, nothing written, no restart', async () => {
+test('an agent folder inside a repository rooted above it: refused with the terminal ending, nothing written, no restart', { skip: SKIP_FAKE_TMUX }, async () => {
   const dir = account('acct-g');
   const folder = born('di-inrepo', dir);
   const root = nodePath.dirname(folder);
@@ -194,7 +195,7 @@ test('only the person\'s page can answer: no screen header, no answer', async ()
   assert.equal(restarts, before);
 });
 
-test('the thread offers the box only while the real dialog is on the screen', async () => {
+test('the thread offers the box only while the real dialog is on the screen', { skip: SKIP_FAKE_TMUX }, async () => {
   born('di-thread', account('acct-d'));
   fs.writeFileSync(SCREEN, DIALOG);
   const on = await (await fetch(base + '/api/agent/di-thread/thread')).json();

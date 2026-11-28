@@ -15,6 +15,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * resolved through the messages.setRunner pane seam, as server.report-reply-loopback-1968 does.
  */
 
+const SKIP_NFD = require('./test-support/skip-on-win32').skipOnWin32('it names a folder in decomposed Unicode (NFD) and relies on the disk finding the composed folder by it, which macOS does and Windows (it keeps names as typed) does not; Windows refuses it anyway, as no such file');   // kosmos#8378
+const SKIP_NO_FIFO = require('./test-support/skip-on-win32').skipOnWin32('it makes a FIFO with mkfifo, which Windows does not have');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
@@ -204,7 +206,7 @@ test('#6726: a folder is refused', () => withLeo(async () => {
   await refused({ text: 'hi', file: path.join(PROJ, 'cuts') }, /that is a folder/);
 }));
 
-test('#6726: a FIFO and a device are refused as not ordinary files', () => withLeo(async () => {
+test('#6726: a FIFO and a device are refused as not ordinary files', { skip: SKIP_NO_FIFO }, () => withLeo(async () => {
   const fifo = path.join(FILES, 'pipe');
   execFileSync('mkfifo', [fifo]);
   await refused({ text: 'hi', file: fifo }, /not an ordinary file/);
@@ -244,7 +246,7 @@ test('#6726 r1-1: a nested project the agent is not on is refused when its folde
   await refused({ text: 'hi', file: write(path.join(NESTED, 'cased.txt'), 'x').replace(path.sep + 'inner' + path.sep, path.sep + 'INNER' + path.sep) }, /only a file directly in your Files folder/);
 }));
 
-test('#6726 r1-1: a nested project the agent is not on is refused when its name is typed decomposed (NFD)', () => withLeo(async () => {
+test('#6726 r1-1: a nested project the agent is not on is refused when its name is typed decomposed (NFD)', { skip: SKIP_NFD }, () => withLeo(async () => {
   write(path.join(PROJ, CAFE_NFC, 'menu.txt'), 'x');
   const nfd = path.join(PROJ, CAFE_NFD, 'menu.txt');
   assert.notEqual(nfd, path.join(PROJ, CAFE_NFC, 'menu.txt'), 'the two spellings must differ as strings, or this arm proves nothing');
@@ -280,7 +282,7 @@ test('#6726 r1-3: a hard link is refused, whether its other name is outside or i
   await refused({ text: 'hi', file: mine }, /hard link/);
 }));
 
-test('#6726 r1-4: the open never blocks: O_NONBLOCK is in the flags, and a FIFO with no writer is refused at once', () => {
+test('#6726 r1-4: the open never blocks: O_NONBLOCK is in the flags, and a FIFO with no writer is refused at once', { skip: SKIP_NO_FIFO }, () => {
   assert.ok(replyfile.OPEN_FLAGS & fs.constants.O_NONBLOCK, 'the open can block on a FIFO swapped in after the stat');
   const fifo = path.join(SANDBOX, 'swapped-fifo');
   execFileSync('mkfifo', [fifo]);

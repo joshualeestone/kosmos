@@ -23,6 +23,8 @@
    leak check then saw aw-projects-*. The exit sweep runs after every in-process timer; a child process that outlives
    this file is not covered (#6362), and none here does (stubbed reveal, fake tmux, DRY_RUN). */
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
+const SKIP_STATUS_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it asks /api/status whether the board still answers, and with the server loaded as a module (not started as the board) /api/status reads the roster through tmux, which this file stands in with test-support/fake-tmux.sh, a shell script Windows cannot run; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,12 +33,13 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-projects-'));
 // ⚠️ HOME IS SANDBOXED TOO, and it is not a nicety. `/api/folders` is rooted at
 // `os.homedir()`, which on POSIX reads `$HOME` — so without this the folder
 // tests built their fixtures in the OPERATOR'S REAL HOME, including a symlink
-// pointing at `/etc`. A crash between creating that and the `finally` would
+// pointing outside home. A crash between creating that and the `finally` would
 // leave it sitting there. The plan's own rule is to sandbox every root the
 // code writes to, and this route reads one the others do not.
 const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, not HOME
 // #2724: SEAL THE ENGINE'S HOME SEAM TOO, not only the OS home. `accounts.js`
 // resolves `AGENT_WORKFORCE_HOME || os.homedir()`, so sealing `$HOME` alone
 // leaves the account lookup steerable by an ambient `AGENT_WORKFORCE_HOME` --
@@ -409,7 +412,11 @@ test('a SYMLINK inside home pointing outside it is refused', async () => {
   // link is inside home by every prefix test there is.
   const link = path.join(HOME, 'escape-hatch');
   fs.rmSync(link, { force: true });
-  fs.symlinkSync('/etc', link);
+  // kosmos#8378: a real folder beside home on every platform (Windows has no /etc); a junction needs no privilege
+  // there, and the type is ignored elsewhere.
+  const outside = path.join(SANDBOX, 'outside-home');
+  fs.mkdirSync(outside, { recursive: true });
+  fs.symlinkSync(outside, link, 'junction');
   const res = await req(`/api/folders?path=${encodeURIComponent(link)}`);
   assert.equal(res.status, 403, res.body);
   assert.ok(!/"folders"/.test(res.body), 'and nothing outside home was listed');
@@ -770,7 +777,7 @@ async function withCorruptStore(fn) {
   }
 }
 
-test('a corrupt store does not kill the board, on any projects route', async () => {
+test('a corrupt store does not kill the board, on any projects route', { skip: SKIP_STATUS_TMUX }, async () => {
   // ⚠️ MEASURED before the fix: the list route answered its honest 500 and the
   // very next request for ONE project took the whole process down (exit 9).
   // The app that watches the fleet dying on a plain read is worse than every
@@ -2877,7 +2884,7 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
   });
 });
 
-test('#3745: a room post can reply to another post in the same room, and only that', async () => {
+test('#3745: a room post can reply to another post in the same room, and only that', async (t) => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
     const first = await post(`/api/project/${project.id}/room`, { text: 'trial length is 14 days' });
@@ -2909,18 +2916,22 @@ test('#3745: a room post can reply to another post in the same room, and only th
     assert.equal(JSON.parse(across.body).delivery.state, 'could_not', across.body);
     const final = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
     assert.equal(final.length, rows.length, 'a reply to another room\'s post was posted');
-    // An unreadable record fails CLOSED: 200 with could_not, never a 500 and never a blind post.
-    const messages = require('./engine/messages');
-    const aside = messages.LOG + '.aside-3745';
-    fs.renameSync(messages.LOG, aside);
-    fs.mkdirSync(messages.LOG);
-    messages.resetForTests();
-    let blind;
-    try { blind = await post(`/api/project/${project.id}/room`, { text: 'while unreadable', reply_to: firstId }); }
-    finally { fs.rmSync(messages.LOG, { recursive: true, force: true }); fs.renameSync(aside, messages.LOG); messages.resetForTests(); }
-    assert.equal(blind.status, 200, blind.body);
-    assert.equal(JSON.parse(blind.body).delivery.state, 'could_not', blind.body);
-    assert.match(JSON.parse(blind.body).delivery.because, /could not check/);
+    // kosmos#8378: off Windows only; there the log reader takes a folder for an empty log (#9279).
+    if (process.platform === 'win32') t.diagnostic('the unreadable-record arm is left out on Windows, where the message log reader takes a folder for an empty log (kosmos#9279)');
+    else {
+      // An unreadable record fails CLOSED: 200 with could_not, never a 500 and never a blind post.
+      const messages = require('./engine/messages');
+      const aside = messages.LOG + '.aside-3745';
+      fs.renameSync(messages.LOG, aside);
+      fs.mkdirSync(messages.LOG);
+      messages.resetForTests();
+      let blind;
+      try { blind = await post(`/api/project/${project.id}/room`, { text: 'while unreadable', reply_to: firstId }); }
+      finally { fs.rmSync(messages.LOG, { recursive: true, force: true }); fs.renameSync(aside, messages.LOG); messages.resetForTests(); }
+      assert.equal(blind.status, 200, blind.body);
+      assert.equal(JSON.parse(blind.body).delivery.state, 'could_not', blind.body);
+      assert.match(JSON.parse(blind.body).delivery.because, /could not check/);
+    }
     const still = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
     assert.equal(still.length, rows.length, 'a reply was posted while the record could not be read');
   });
@@ -3488,7 +3499,7 @@ test('a project records who asked for it, and a process runaway is paused while 
   assert.equal(stored.made.via, 'process');
 });
 
-test('the first agent brings its own home, once, and never regrows a removed one (#166)', async () => {
+test('the first agent brings its own home, once, and never regrows a removed one (#166)', { skip: SKIP_FAKE_TMUX }, async () => {
   reset();
   const projectsEngine = require('./engine/projects');
   const fsx = require('node:fs');
@@ -3546,7 +3557,7 @@ test('the first agent brings its own home, once, and never regrows a removed one
     'the removed seed came back');
 });
 
-test('#732: the first agent is not born stale: its home exists before it does and rides into the creation, so the block is composed at birth', async () => {
+test('#732: the first agent is not born stale: its home exists before it does and rides into the creation, so the block is composed at birth', { skip: SKIP_FAKE_TMUX }, async () => {
   reset();
   const fsx = require('node:fs');
   const projectsEngine = require('./engine/projects');
@@ -3582,7 +3593,7 @@ test('#732: the first agent is not born stale: its home exists before it does an
   assert.ok(src.slice(callAt, callAt + 1600).includes('projects: projectsToJoin,'), 'the creation is not handed the list the seed pushed into');
 });
 
-test('#2279: first-run completion seeds the welcome home even with no agent created through Kosmos', async () => {
+test('#2279: first-run completion seeds the welcome home even with no agent created through Kosmos', { skip: SKIP_FAKE_TMUX }, async () => {
   reset();
   const fsx = require('node:fs');
   const projectsEngine = require('./engine/projects');
@@ -3631,7 +3642,7 @@ test('#2279: first-run completion seeds the welcome home even with no agent crea
   assert.notEqual(homeRow.seeded, true, 'the response claimed seeded on an adopt, not a creation');
 });
 
-test('#2279: first-run completion does not seed a second welcome home over one the agent path already made', async () => {
+test('#2279: first-run completion does not seed a second welcome home over one the agent path already made', { skip: SKIP_FAKE_TMUX }, async () => {
   reset();
   const fsx = require('node:fs');
   const projectsEngine = require('./engine/projects');

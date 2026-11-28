@@ -24,6 +24,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * server.socket-split.test.js does.
  */
 
+const SKIP_SH_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stands in tmux with a shell script, which Windows cannot run by name, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
@@ -109,7 +110,7 @@ function boardWithStoppedAgent({ job, named = true }) {
 
 
 
-test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', () => {
+test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', { skip: SKIP_SH_TMUX }, () => {
   const row = (boardWithStoppedAgent({ job: true }).agents || []).find((a) => a.sessionName === 'quiet');
   assert.ok(row, 'the stopped agent fell out of the roster');
   assert.equal(row.running, false);
@@ -129,14 +130,14 @@ test('#671: the plain offline sentence carries the launch model and the honest c
     'the sentence still asserts the cause is unknowable, beside the box that holds it (#1663)');
 });
 
-test('#671: a job-less agent gets no self-starting claim, because nothing will start it', () => {
+test('#671: a job-less agent gets no self-starting claim, because nothing will start it', { skip: SKIP_SH_TMUX }, () => {
   const row = (boardWithStoppedAgent({ job: false }).agents || []).find((a) => a.sessionName === 'quiet');
   assert.ok(row, 'the job-less agent fell out of the roster');
   assert.doesNotMatch(row.because, /starts itself/,
     'the sentence promises a self-start to an agent with no job, which is false');
 });
 
-test('#671: the composer speaks the row\'s own cause at the decision point, and leaves live-pane reasons alone', () => {
+test('#671: the composer speaks the row\'s own cause at the decision point, and leaves live-pane reasons alone', { skip: SKIP_SH_TMUX }, () => {
   const PAGE_SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(REPO, 'web', 'index.html'), 'utf8'));
   // eslint-disable-next-line no-new-func
   const dmOffLine = new Function(
@@ -165,7 +166,7 @@ test('#671: the composer speaks the row\'s own cause at the decision point, and 
     'a live row\'s state line was spoken as a reachability reason');
 });
 
-test('#684: an offline agent with a chosen name is not disclosed as unnamed, and one without one is', () => {
+test('#684: an offline agent with a chosen name is not disclosed as unnamed, and one without one is', { skip: SKIP_SH_TMUX }, () => {
   /* The offline mapper hardcoded nameDerived: false, so every offline agent
      WITH a chosen name wore the panel's no-name disclosure about a name
      somebody chose (witnessed on the first-run journey walk: a just-created

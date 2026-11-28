@@ -72,7 +72,7 @@ test('#6506 axis 4: gitFact reports branch, sha and clean/dirty inside a work tr
 /* kosmos#8378: the git-erroring arm puts a #!/bin/sh stub named git on PATH. Windows finds a command on PATH by its
    extension (git.exe), so there the real git answers and the arm checks nothing it means to; it is skipped there, after
    the two arms before it have run. */
-const STUB_GIT_ON_PATH = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows (a git that errors is not called not-a-repo), but its stub git is a #!/bin/sh script found on PATH by name and run by its shebang line, which Windows cannot do; a Windows arm is owed on kosmos#9269');
+const STUB_GIT_ON_PATH = require('../test-support/skip-on-win32').skipOnWin32('its stub git is a #!/bin/sh script found on PATH by name and run by its shebang line, which Windows cannot do; the bad-config arm below checks the same answer there with the real git');
 
 test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different answers', (t) => {
   const d = tmp('kosmos-handoff-nogit-');
@@ -94,6 +94,23 @@ test('#6506 axis 4: not-a-repo, git-missing and git-erroring are three different
     process.env.PATH = bin + path.delimiter + saved2;
     assert.equal(handoff.gitFact(d), 'git could not read this folder: fatal: detected dubious ownership in repository', 'a git error must not read as not-a-repo');
   } finally { process.env.PATH = saved2; }
+});
+
+/* kosmos#9269: the git-erroring answer with the REAL git, so it runs on every platform (the stub-on-PATH arm above
+   cannot run on Windows, which finds a command by its .exe). A global config git cannot parse makes git stop with
+   "fatal: bad config line 1", which is not "not a git repository". The control is the first assertion of the arm above:
+   the same kind of folder, with a readable config, answers 'not a git repository'. */
+test('kosmos#9269: a git that errors on its own config is "could not read", not "not a git repository" (every platform)', () => {
+  const d = tmp('kosmos-handoff-badcfg-');
+  const cfg = path.join(tmp('kosmos-handoff-cfg-'), 'bad.gitconfig');
+  fs.writeFileSync(cfg, '[core\nthis is not config\n');
+  const saved = process.env.GIT_CONFIG_GLOBAL;
+  try {
+    process.env.GIT_CONFIG_GLOBAL = cfg;
+    assert.match(handoff.gitFact(d), /^git could not read this folder: fatal: bad config line 1/, 'a git error must not read as not-a-repo');
+  } finally {
+    if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = saved;
+  }
 });
 
 test('#6506 axis 4: a repository with no commits yet says so, not an error', () => {

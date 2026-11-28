@@ -275,14 +275,25 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const tc = (at, input, cached, output) => ev(at, 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output } } });
   const call = (at, id, src) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: src });
   const out = (at, id, text) => ev(at, 'response_item', { type: 'custom_tool_call_output', call_id: id, output: [{ type: 'input_text', text }] });
-  const patch = (...files) => 'const r = await tools.apply_patch({patch:"*** Begin Patch\\n' + files.map((f) => '*** ' + f + '\\n+x\\n').join('') + '*** End Patch"});';
+  /* #9263: the patch is a JavaScript string, so a backslash in a path (every Windows absolute one) is written escaped. */
+  const patch = (...files) => 'const r = await tools.apply_patch({patch:"*** Begin Patch\\n' + files.map((f) => '*** ' + f.replace(/\\/g, '\\\\') + '\\n+x\\n').join('') + '*** End Patch"});';
   fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-kay.jsonl'), jl([
     ev('10:00', 'session_meta', { cwd: fs.realpathSync(kay) }),
     ev('10:00', 'turn_context', { model: 'gpt-5.6-sol' }),
     call('10:05', 'c1', 'await tools.exec_command({cmd:"rm -rf secret"}); await tools.exec_command({cmd:"ls"});'),
     out('10:05', 'c1', 'Script completed\nWall time 1 seconds'),
-    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md')),
+    /* #9263: a path with a backslash in it, as a Windows Codex writes one, read whole on any host. */
+    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: lib\\deep.js', 'Update File: .')),
     out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
+    /* #9263: single-backslash paths (String.raw) cannot be trusted whole, so they are left out, never shown as `C:`,
+       the folder (`\U`, `\t` and the like are escapes a path is not trusted to mean), or the `src` a raw `src\new.md`
+       stops at. */
+    call('10:12', 'c2b', 'await tools.apply_patch({patch:String.raw`*** Begin Patch\n*** Update File: C:\\Users\\kay\\cut.js\n+x\n*** Update File: C:\\tools.js\n+x\n*** Update File: src\\new.md\n+x\n*** End Patch`});'),
+    out('10:12', 'c2b', 'Script completed\nWall time 1 seconds'),
+    /* #9263: an ordinary escape in a quoted string is decoded; one that decodes to a control character (`\u0009`) is
+       never a real file name, and a path naming the agent's own folder (`.`, in c2) is never listed as a file. */
+    call('10:14', 'c2c', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: it\\\'s.md\\n+x\\n*** Update File: tab\\u0009.md\\n+x\\n*** End Patch"});'),
+    out('10:14', 'c2c', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),
     tc('10:30', 1000, 400, 100),
@@ -298,7 +309,7 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
   const a = r.agents[0];
   assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
   assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
-  assert.deepEqual(a.files, ['src/new.js', 'notes.md'], 'only the patch that completed');
+  assert.deepEqual(a.files, [path.join('src', 'new.js'), 'notes.md', 'lib\\deep.js', "it's.md"], 'only the patches that completed; a backslashed path read whole, a cut one left out (#9263)');
   assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
   assert.equal(a.transcriptsWithWork, 1);
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');

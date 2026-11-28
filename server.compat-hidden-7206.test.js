@@ -16,6 +16,7 @@
  */
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -35,6 +36,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 
 
 const compat = require('./engine/anthropiccompat');
 const runners = require('./engine/runners');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const _origResolveBin = runners.resolveBin;
 runners.resolveBin = (p) => (p === 'claude'
@@ -88,7 +90,11 @@ test('switch OFF: every route refuses or shows nothing, and no key is sent to De
   const r = await everyRoute();
   assert.deepEqual(r.status, { enabled: false, vendors: [] }, 'the page is offered DeepSeek');
   assert.equal(r.add.status, 400);
-  assert.equal(r.addBody.error, NOT_YET, 'add: ' + says(r.addBody));
+  /* kosmos#8378: on Windows the add route refuses DeepSeek before the switch is asked (it runs on a Mac for now), so the
+     refusal comes in the platform's words, and there the add checks (this one, no key sent, nothing stored) pass whatever
+     the switch says: only the create, switch and check routes below show the switch's gate on Windows. */
+  const ADD_REFUSAL = process.platform === 'win32' ? 'DeepSeek agents run on a Mac for now; this computer cannot run them yet' : NOT_YET;
+  assert.equal(r.addBody.error, ADD_REFUSAL, 'add: ' + says(r.addBody));
   assert.equal(r.list.accounts.some((a) => a.provider === 'deepseek' || a.dir === DIR), false, 'list: a DeepSeek row is shown');
   assert.ok(r.create.status >= 400, 'create: ' + r.create.status + ' ' + says(r.createBody));
   assert.ok(says(r.createBody).includes(NOT_YET), 'create did not refuse in the switch\'s words: ' + says(r.createBody));
@@ -100,7 +106,7 @@ test('switch OFF: every route refuses or shows nothing, and no key is sent to De
   assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-route-add')), false, 'add stored an account');
 });
 
-test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate that refuses everything)', async () => {
+test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate that refuses everything)', { skip: skipOnWin32('it adds a DeepSeek agent, and DeepSeek agents run on a Mac for now: the add route refuses them on Windows') }, async () => {
   withSwitch(true);
   try {
     const r = await everyRoute();

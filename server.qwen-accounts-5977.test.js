@@ -9,6 +9,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * The runner resolver is mocked (never the machine's codex) and the live check runs through setFetcher (never a
  * real endpoint), the harness server.provider-accounts-3296 uses.
  */
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -79,7 +80,8 @@ test('add: the local endpoint with its model is stored as "local", connected, wi
   assert.equal(b.account.name, 'Qwen on this Mac');
   assert.equal(b.account.connection.state, 'connected');
   const dir = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'local');
-  assert.equal(fs.statSync(qwen.endpointFile(dir)).mode & 0o777, 0o600);
+  // kosmos#8378: Windows keeps no POSIX mode bits (a file reads 0o666 there), so owner-only is checked only off Windows.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(qwen.endpointFile(dir)).mode & 0o777, 0o600);
   assert.equal(qwen.readEndpoint(dir).endpoint.contextWindow, 16384, 'the measured context is the default');
 });
 
@@ -121,7 +123,7 @@ test('GET /api/accounts carries the Qwen rows, badged from the live check, witho
   assert.equal(JSON.stringify(b).includes('sk-company-key-7777'), false);
 });
 
-test('check and delete: a live check answers; forget sets it aside; delete removes it; unknown folders are refused', async () => {
+test('check and delete: a live check answers; forget sets it aside; delete removes it; unknown folders are refused', { skip: SKIP_FAKE_TMUX }, async () => {
   const dir = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'company');
   qwen.setFetcher(async () => ({ status: 401, body: null }));
   const c = await post('/api/accounts/qwen/check', { dir });

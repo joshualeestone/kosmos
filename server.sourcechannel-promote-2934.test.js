@@ -19,6 +19,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.sourcechannel-promote-2934.test.js
  */
 
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
@@ -158,7 +159,7 @@ function statusWith({ content, latest, channel, look = true }) {
    by a box whose environment explicitly names prod. Every arm below that claims to exercise that
    comparison says channel: 'prod', or it would pass through the staging-pointer rung instead
    (null, keep the stamp) and test nothing it names. */
-test('#2969: installed from staging with no channel variable polls STAGING, so the badge stays STAGING even on a promoted build', () => {
+test('#2969: installed from staging with no channel variable polls STAGING, so the badge stays STAGING even on a promoted build', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusWith({ content: 'staging', latest: RUNNING });
   assert.equal(got.updateChannel, 'staging', 'the install stamp is the subscription: no variable, still staging');
   assert.equal(got.sourceChannel, 'staging',
@@ -166,7 +167,7 @@ test('#2969: installed from staging with no channel variable polls STAGING, so t
 });
 
 
-test('THE CARD: installed from staging, build since promoted -- prod publishes our exact version -> prod', () => {
+test('THE CARD: installed from staging, build since promoted -- prod publishes our exact version -> prod', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusWith({ content: 'staging', latest: RUNNING, channel: 'prod' }).sourceChannel;
   assert.equal(got, 'prod',
     'the prod pointer naming our exact version means our bytes ARE the prod bytes (#2036: same bytes promoted)');
@@ -174,13 +175,13 @@ test('THE CARD: installed from staging, build since promoted -- prod publishes o
 
 // ---- THE CASES THE BADGE EXISTS FOR, which must survive the fix --------------------
 
-test('we are NEWER than what prod publishes -> staging (unpromoted pre-release bytes)', () => {
+test('we are NEWER than what prod publishes -> staging (unpromoted pre-release bytes)', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusWith({ content: 'staging', latest: PROD_BEHIND, channel: 'prod' }).sourceChannel;
   assert.equal(got, 'staging',
     'a box ahead of prod is exactly what the STAGING badge is for; darkening it here is the regression');
 });
 
-test('prod publishes something NEWER but DIFFERENT -> staging, because ">=" is not "our bytes shipped"', () => {
+test('prod publishes something NEWER but DIFFERENT -> staging, because ">=" is not "our bytes shipped"', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusWith({ content: 'staging', latest: PROD_AHEAD, channel: 'prod' }).sourceChannel;
   assert.equal(got, 'staging',
     'an ABANDONED staging build while prod moved on satisfies >= yet never reached prod; only equality is sound');
@@ -188,23 +189,23 @@ test('prod publishes something NEWER but DIFFERENT -> staging, because ">=" is n
 
 // ---- EVERY UNKNOWN KEEPS THE RECORDED STAMP ---------------------------------------
 
-test('never looked yet (boot, before the first poll lands) -> keeps the recorded stamp', () => {
+test('never looked yet (boot, before the first poll lands) -> keeps the recorded stamp', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusWith({ content: 'staging', latest: RUNNING, channel: 'prod', look: false }).sourceChannel;
   assert.equal(got, 'staging',
     'an empty cache must not be read as evidence about prod');
 });
 
-test('host unreachable -- no cached prod version to compare -> keeps the recorded stamp', () => {
+test('host unreachable -- no cached prod version to compare -> keeps the recorded stamp', { skip: SKIP_FAKE_TMUX }, () => {
   assert.equal(statusWith({ content: 'staging', latest: null, channel: 'prod' }).sourceChannel, 'staging');
 });
 
-test('polling the STAGING pointer -- its version says nothing about prod -> keeps the stamp', () => {
+test('polling the STAGING pointer -- its version says nothing about prod -> keeps the stamp', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusWith({ content: 'staging', latest: RUNNING, channel: 'staging' }).sourceChannel;
   assert.equal(got, 'staging',
     'comparing a staging pointer version against RUNNING would answer a different question');
 });
 
-test('a prod stamp is never re-derived into staging, whatever the cache says', () => {
+test('a prod stamp is never re-derived into staging, whatever the cache says', { skip: SKIP_FAKE_TMUX }, () => {
   const scenarios = [PROD_BEHIND, RUNNING, PROD_AHEAD, null]
     .map((latest) => ({ content: 'prod', latest, look: true }));
   scenarios.push({ content: null, latest: PROD_BEHIND, look: true });
@@ -213,7 +214,7 @@ test('a prod stamp is never re-derived into staging, whatever the cache says', (
 
 // ---- #2066's contract, re-asserted against the new code path ----------------------
 
-test('#2066 still holds: trimmed, lowercased, and anything unexpected folds to prod', () => {
+test('#2066 still holds: trimmed, lowercased, and anything unexpected folds to prod', { skip: SKIP_FAKE_TMUX }, () => {
   const values = ['STAGING\n', '  Staging  ', 'production', 'stage', 'xyzzy', '', 'staging extra'];
   const got = statusesWith(values.map((content) => ({ content, latest: PROD_BEHIND, look: true })));
   assert.deepEqual(got.slice(0, 2).map((s) => s.sourceChannel), ['staging', 'staging']);

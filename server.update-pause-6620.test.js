@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const update = require('./engine/update');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 
 let base; let meta; let metaBase; let answer = { updates_paused: false }; let asked = 0;
@@ -46,7 +47,7 @@ test.before(async () => {
 });
 test.after(() => {
   if (before === undefined) delete process.env.KOSMOS_UPDATE_PAUSE_URL; else process.env.KOSMOS_UPDATE_PAUSE_URL = before;
-  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.resetCache();
+  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.setPlatform(null); update.resetCache();
   try { server.closeAllConnections(); server.close(); } catch { /* best effort */ }
   try { meta.close(); } catch { /* best effort */ }
 });
@@ -54,6 +55,10 @@ test.after(() => {
 /** A board offered `version`, installed (a stub root), automatic updates off, and an installer that runs nothing. */
 async function offer(version) {
   update.resetCache();
+  /* kosmos#8378: the Mac arm on every host, as server.version-5084 does. On a Windows host the update takes the Windows
+     arm, which finds its build through win32board rather than setInstalledRoot, so nothing was on offer. The pause is
+     asked first and refused after the platform arms, so the Windows arm's refusal is reasoned to be the same; not shown. */
+  if (process.platform === 'win32') update.setPlatform('darwin');   // Windows only: Linux keeps its own arm (review round 5)
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version }) }));
   update.setInstalledRoot(() => path.join(SANDBOX, 'kosmos-install-root'));
   update.setAutoPref(() => ({ on: false, ok: true }));

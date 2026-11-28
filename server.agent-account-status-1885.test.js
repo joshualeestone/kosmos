@@ -23,6 +23,7 @@
  */
 'use strict';
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; what it covers exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
@@ -179,7 +180,7 @@ test('#1885: an unknown agent name is answered honestly, not as a connected acco
 /* #6095 review 5: plugin reach decides "a default-account agent" from the account /api/status gives a card. A test
    that typed that shape by hand ({ dir: null }) passed while the real card ({ dir: <home>/.claude, isDefault: true })
    never reached the new code. This takes the account from the SERVER's own lookup, so the shape cannot drift. */
-test('#6095: the real default account is read as default, and its pinned session decides plugin reach', () => {
+test('#6095: the real default account is read as default, and its pinned session decides plugin reach', { skip: SKIP_FAKE_RUNNER }, () => {
   const { accountForAgent, attachPluginReach } = require('./server');
   const acct = accountForAgent('boss', accounts.list());
   assert.equal(acct.isDefault, true, 'the producer marks the default account');

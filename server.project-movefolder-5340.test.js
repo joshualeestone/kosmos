@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.project-movefolder-5340.test.js
  */
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -114,7 +115,7 @@ test('#5340 review 1: every member\'s instructions name the new folder, and the 
   assert.ok(!file.includes(old), 'the member\'s instructions still name the old folder');
 });
 
-test('#5340 review 3: a member whose instructions cannot be updated is counted, never promised the new place', async (t) => {
+test('#5340 review 3: a member whose instructions cannot be updated is counted, never promised the new place', { skip: SKIP_POSIX_MODES }, async (t) => {
   const b = fleet.install([fleet.agent('pax', { state: 'idle' })]);
   t.after(() => b.restore());
   const WORKERS = process.env.AGENT_WORKFORCE_WORKERS;

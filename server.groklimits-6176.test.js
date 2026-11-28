@@ -48,6 +48,7 @@ account(nodePath.join(SANDBOX, '.grok-key'), { '.kosmos-grok-apikey': 'xai-worki
 
 const grokAccounts = require('./engine/grokaccounts');
 grokAccounts.setFetcher(async () => ({ status: 401 }));   // never the real xAI
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 
 let base;
@@ -63,8 +64,8 @@ test('#6176: a Grok subscription row carries its logged usage; one with no readi
   assert.equal(res.status, 200);
   const body = await res.json();
   const rows = (body.accounts || []).filter((a) => a && a.provider === 'xai');
-  const byDir = (end) => rows.find((a) => String(a.dir || '').endsWith(end));
-  const sub = byDir('/.grok'), quiet = byDir('/.grok-quiet'), key = byDir('/.grok-key');
+  const byDir = (name) => rows.find((a) => nodePath.basename(String(a.dir || '')) === name);   // kosmos#8378: by folder name, any separator
+  const sub = byDir('.grok'), quiet = byDir('.grok-quiet'), key = byDir('.grok-key');
   assert.ok(sub && quiet && key, 'CONTROL: all three Grok accounts are listed: ' + JSON.stringify(rows.map((a) => [a.dir, a.authMode])));
   assert.equal(sub.authMode, 'subscription');
   assert.ok(sub.limits && Array.isArray(sub.limits.windows), 'the subscription row carries no limits: ' + JSON.stringify(sub));

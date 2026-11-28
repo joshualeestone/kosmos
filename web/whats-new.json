@@ -1,10 +1,10 @@
 {
-  "version": "0.8.30",
+  "version": "0.8.31",
   "highlights": [
     {
       "icon": "tasks",
-      "title": "Kosmos can retire agents that sit idle",
-      "line": "Settings > Automation > Idle agents removes agents that have not run for the days you pick. It is off by default; Restore brings one back."
+      "title": "Agents take turns on heavy jobs",
+      "line": "The board's heavy-job note now says who is next in line for a turn, and gives the day for a job not started today."
     }
   ]
 }

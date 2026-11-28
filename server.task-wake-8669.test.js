@@ -4,6 +4,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
    with AGENT_WORKFORCE_TASK_WAKE_MS). GitHub is a fake gh (AGENT_WORKFORCE_GH_BIN, the GitHub door's own switch) that
    answers each API path from a file this test writes, so a pull request can be open on one look and merged on the next.
    Setup as server.task-repeat-4787.test.js. */
+const SKIP_FAKE_GH = require('./test-support/skip-on-win32').skipOnWin32('it stands in gh with a shell script, which Windows cannot run by name, so the board answers that GitHub is not connected; what it covers exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -71,7 +72,7 @@ async function until(fn, ms = 5000) {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) return v; await new Promise((r) => setTimeout(r, 50)); }
 }
 
-test('#8669: an agent sets a PR wake; the board looks each tick, never says met while it is open, and stores the merge', async () => {
+test('#8669: an agent sets a PR wake; the board looks each tick, never says met while it is open, and stores the merge', { skip: SKIP_FAKE_GH }, async () => {
   ghSays('repos/octo/hello/pulls/12', 'open\tfalse\n');
   const n = newTask('Re-check after the refresh');
   const mona = sendertoken.mint('mona');
@@ -97,7 +98,7 @@ test('#8669: an agent sets a PR wake; the board looks each tick, never says met 
   assert.ok(ghCalls().every((c) => c.startsWith('api repos/')), 'gh is only asked for the API: ' + ghCalls().slice(0, 3).join(' | '));
 });
 
-test('#8669: refusals: a merged PR, no gh, a bad target, a non-member, an unidentified process, a closed task', async () => {
+test('#8669: refusals: a merged PR, no gh, a bad target, a non-member, an unidentified process, a closed task', { skip: SKIP_FAKE_GH }, async () => {
   const n = newTask('Refusals');
   ghSays('repos/octo/hello/pulls/13', 'closed\ttrue\n');
   let r = await post(`/api/project/${projectId}/task/${n}/wake`, { pr: 'octo/hello#13' }, screen);
@@ -137,7 +138,7 @@ test('#8669: refusals: a merged PR, no gh, a bad target, a non-member, an uniden
   assert.equal(stored(n).wake, undefined, 'nothing was stored by any refusal');
 });
 
-test('#8669: the person\'s wake is theirs; a branch wake starts from its commit; a file wake keeps its path off the rows', async () => {
+test('#8669: the person\'s wake is theirs; a branch wake starts from its commit; a file wake keeps its path off the rows', { skip: SKIP_FAKE_GH }, async () => {
   const n = newTask('Theirs');
   let r = await post(`/api/project/${projectId}/task/${n}/wake`, { at: '3h' }, screen);
   assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -177,7 +178,7 @@ test('#8669: the person\'s wake is theirs; a branch wake starts from its commit;
 /* Last in the file: it switches on live execution for this process. The board's own tick then tells the holder through
    its real wiring (owed, the roster, the Agent Communication gates, markTold); only the typing into a pane is stood in
    for, by chat.deliverAutomatic, which the tick calls by name at the time it tells. */
-test('#8669: through the board\'s own tick, the holder is told once after the merge, and the task records it', async () => {
+test('#8669: through the board\'s own tick, the holder is told once after the merge, and the task records it', { skip: SKIP_FAKE_GH }, async () => {
   const chat = require('./engine/chat');
   const selfreport = require('./engine/selfreport');
   const liveExecution = require('./engine/live-execution');

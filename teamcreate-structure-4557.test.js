@@ -51,7 +51,33 @@ const reports = require('./engine/reports');
 const store = require('./engine/store');
 const fleet = require('./test-support/fleet');
 
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* kosmos#9272: on Windows /bin/echo does not exist and fake-tmux.sh cannot run, so the binaries are a real System32 one
+   (create only checks that they run) and the roster comes through status's own seam, empty as panes.txt is here.
+   createAgent also takes the win32 arm there, which create.setRunner does not guard: the same seams as
+   engine/create.apostrophe-8784.test.js keep it from registering a real Scheduled Task, and /Run writes the ownership
+   row a real supervisor writes, so a create completes as CREATED. macOS and Linux are unchanged. */
+const winBin = (posix, exe) => (process.platform === 'win32'
+  ? nodePath.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe) : posix);
+const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bin/echo', 'where.exe') };
+if (process.platform === 'win32') {
+  const win32job = require('./engine/win32job');
+  const win32sessions = require('./engine/win32sessions');
+  let seq = 0;
+  /* Before each test, not once: fleet.install's restore (req 2) puts the seam back to null, which on a Mac falls through
+     to fake-tmux.sh and on Windows to nothing (measured: the three tests after req 2 refused "we could not check"). */
+  test.beforeEach(() => require('./engine/status').setPaneSource(() => ''));
+  test.afterEach(() => require('./engine/status').setPaneSource(null));   // as engine/create.apostrophe-8784.test.js
+  require('./engine/win32create').setPark(() => {});
+  win32job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
+  win32job.setRunner((args) => {
+    if (args && args[0] === '/Query') return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+    if (args && args[0] === '/Run') {
+      const name = String(args[2] || '').replace(/^.*\\agent-/, '');
+      if (name) win32sessions.record('tc-session-' + (++seq), { name, runner: 'claude' });
+    }
+    return { ok: true, out: '' };
+  });
+}
 /* 🛑 A FAKE LAUNCH RUNNER, OR create TRIES A REAL LAUNCH. Measured writing this file: without it the
    first member came back 'partial' (a real start attempted, failing only because the paths are
    sandboxed). With the runner injected, files are written and nothing is started. */
@@ -145,7 +171,9 @@ test('#4557 req 1: a member is the single-agent file of its role, plus its team 
   const strip = (text) => without(without(text, projects.TEAM_START, projects.TEAM_END), reports.START, reports.END)
     .replace(/\n{3,}/g, '\n\n');
   // The display name and the machine name (the agent's own folder path) are the only per-agent words.
-  const named = (text, shown, key) => text.split(shown).join('NAME').split('/workers/' + key + '/').join('/workers/KEY/');
+  // kosmos#9272: in either separator, since Windows writes the folder with backslashes (measured on GitHub's runner).
+  const named = (text, shown, key) => text.split(shown).join('NAME').split('/workers/' + key + '/').join('/workers/KEY/')
+    .split('\\workers\\' + key + '\\').join('\\workers\\KEY\\');
   assert.equal(named(strip(member), 'Leo', m.content), named(strip(file(solo.name)), 'Solo', solo.name),
     'a team member\'s file is not the single-agent file of its role apart from the team parts');
 });

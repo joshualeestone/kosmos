@@ -12,6 +12,7 @@ require('./test-support/tmpscope');   // #4273: this file's temp dirs are remove
  *
  *   node --test server.limitdm-5805.test.js
  */
+const SKIP_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it makes a file or folder unreadable or unwritable with chmod, which Windows does not enforce, so the failing read or write cannot be made there');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -229,7 +230,7 @@ test('#5805 2b review 3: the sweep records why it could not type a held message 
   assert.equal(limitqueue.list(NAME).length, 1, 'CONTROL: it is still kept');
 });
 
-test('#5805 2b review 3: Send now anyway on a message already typed (its removal failed) answers 409 and types nothing', async () => {
+test('#5805 2b review 3: Send now anyway on a message already typed (its removal failed) answers 409 and types nothing', { skip: SKIP_POSIX_MODES }, async () => {
   const held = await call('/thread', { text: 'typed once' });
   const id = limitqueue.list(NAME)[0].id;
   const qdir = limitqueue.dir();

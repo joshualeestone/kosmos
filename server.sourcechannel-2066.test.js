@@ -30,6 +30,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.sourcechannel-2066.test.js
  */
 
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
@@ -100,20 +101,20 @@ function statusWithChannelFile(content) {
   return statusesWithChannelFiles([content === undefined ? null : content])[0];
 }
 
-test('no source-channel file -> prod (the default every real install reads)', () => {
+test('no source-channel file -> prod (the default every real install reads)', { skip: SKIP_FAKE_TMUX }, () => {
   assert.equal(statusWithChannelFile(undefined).sourceChannel, 'prod');
 });
 
-test("'staging' -> staging", () => {
+test("'staging' -> staging", { skip: SKIP_FAKE_TMUX }, () => {
   assert.equal(statusWithChannelFile('staging').sourceChannel, 'staging');
 });
 
-test('a channel file is trimmed and lowercased before it is trusted', () => {
+test('a channel file is trimmed and lowercased before it is trusted', { skip: SKIP_FAKE_TMUX }, () => {
   const got = statusesWithChannelFiles(['STAGING\n', '  Staging  ']);
   assert.deepEqual(got.map((s) => s.sourceChannel), ['staging', 'staging']);
 });
 
-test('an unexpected value folds to prod -- a corrupt file cannot paint STAGING on a prod board', () => {
+test('an unexpected value folds to prod -- a corrupt file cannot paint STAGING on a prod board', { skip: SKIP_FAKE_TMUX }, () => {
   const badValues = ['prod', 'production', 'stage', 'nonprod', 'xyzzy', '', 'staging extra'];
   const got = statusesWithChannelFiles(badValues);
   for (let i = 0; i < badValues.length; i++) {

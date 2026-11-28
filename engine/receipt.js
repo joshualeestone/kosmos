@@ -319,6 +319,27 @@ const CODEX_COMMAND_FUNCS = new Set(['shell', 'exec_command', 'container.exec'])
 const GEMINI_EDIT_TOOLS = new Set(['write_file', 'replace']);
 const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
 
+/* #9263: a JavaScript string's text decoded, for a path read out of a Codex exec script. Null when the path cannot be
+   trusted whole: an escape with no special meaning (`\U`) is legal JavaScript, but in a path it is far likelier a single
+   backslash written raw (String.raw) than a meant identity escape, so it is treated as one; and a decoded control
+   character (`\u0009`) is never part of a real file name. That is a judgement about how a
+   Codex writes paths, not a rule of the language. */
+const JS_SIMPLE_ESCAPES = { '\\': '\\', "'": "'", '"': '"', '/': '/', '`': '`', $: '$' };   // \t, \0 and the like decode to control characters, so they are left out too
+function decodeJsEscapes(text) {
+  let bad = false;
+  const out = text.replace(/\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[^])/g, (m, e) => {
+    if (e.length > 1) {
+      const cp = parseInt(e.replace(/[ux{}]/g, ''), 16);
+      if (cp > 0x10ffff) { bad = true; return m; }
+      return String.fromCodePoint(cp);
+    }
+    if (Object.prototype.hasOwnProperty.call(JS_SIMPLE_ESCAPES, e)) return JS_SIMPLE_ESCAPES[e];
+    bad = true;
+    return m;
+  });
+  return bad || /[\x00-\x1f]/.test(out) ? null : out;
+}
+
 async function providerWork(runner, dir, holds) {
   const up = require('./usageproviders');
   const { canonicalOnDisk } = require('./trust');
@@ -368,9 +389,19 @@ async function providerWork(runner, dir, holds) {
           const src = String(p.input || '');
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
-            /* A relative path is the session's own folder's (review 1), so the same file reads the same either way. */
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ([^\n\\"]+)/g)].map((x) => x[1].trim()).filter(Boolean)
-              .map((f) => path.resolve(folder, f));
+            /* A relative path is the session's own folder's (review 1), so the same file reads the same either way.
+               The path is a JavaScript string's text, so it is decoded as one: it ends at a newline (`\n`, `\r`, or a real
+               one) or a bare quote, and its escapes are read (`\\` is a backslash, so `C:\\Users\\kay` is `C:\Users\kay`).
+               A path decodeJsEscapes cannot trust whole is left out rather than shown as a file it is not (#9263). */
+            const own = path.resolve(folder);
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\[^nr\n\r]|[^\n\r\\"])+)/g)]
+              /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A "newline"
+                 followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it is left out. */
+              .filter((x) => /^(?:(?:\\r)?\\n|\r?\n)?(?:[-+@* "]|$)/.test(src.slice(x.index + x[0].length)))
+              .map((x) => decodeJsEscapes(x[1])).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
+              /* Never the agent's own folder as an edited file: no patch line names it, so one that resolves there was
+                 misread (#9263). */
+              .map((f) => path.resolve(folder, f)).filter((f) => f !== own);
             if (paths.length) pendingPatches.set(id, paths);
           }
         } else if (p.type === 'local_shell_call' || (p.type === 'function_call' && CODEX_COMMAND_FUNCS.has(p.name))) {

@@ -72,7 +72,7 @@ function sandbox(agents) {
 }
 
 function boot(sb) {
-  const child = spawn(process.execPath, [path.join(REPO, 'server.js')], {
+  const child = spawn(process.execPath, [...require('./test-support/faketmux-win').childArgs(), path.join(REPO, 'server.js')], {   // kosmos#8378: fake tmux's reads on Windows
     env: {
       ...process.env,
       PORT: '0',

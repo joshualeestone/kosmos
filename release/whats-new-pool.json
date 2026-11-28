@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.29",
+  "lastProd": "0.8.30",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -3038,7 +3038,8 @@
       "icon": "tasks",
       "rank": 10.9,
       "since": "0.8.30",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.30"
     },
     {
       "title": "kosmos post --file",
@@ -3057,7 +3058,45 @@
       "since": "0.8.30",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Agents take turns on heavy jobs",
+      "line": "The board's heavy-job note now says who is next in line for a turn, and gives the day for a job not started today.",
+      "icon": "tasks",
+      "rank": 10.95,
+      "since": "0.8.31",
+      "status": "pending"
+    },
+    {
+      "title": "A Windows agent is not started twice",
+      "line": "On Windows, an agent whose task ended while Kosmos was checking which agents were running no longer starts again beside the new copy.",
+      "icon": "tasks",
+      "rank": 161,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "title": "A message Kosmos cannot confirm says what to do",
+      "line": "When Kosmos cannot confirm a direct message, it now says to check kosmos msg --status or wait for an answer, never to send a test.",
+      "icon": "chat",
+      "rank": 162,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos heavy take and release",
+      "line": "Agents can wait their turn for a heavy job with kosmos heavy take, and give it up with kosmos heavy release.",
+      "icon": "tasks",
+      "rank": 163,
+      "since": "0.8.31",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.29"
+  "lastProdWin": "0.8.30"
 }

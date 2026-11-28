@@ -9,6 +9,8 @@
  *   node --test server.files-preview-4997.test.js
  */
 require('./test-support/tmpscope');
+const SKIP_PARITY_MAC = require('./test-support/skip-on-win32').skipOnWin32('its fixture is a macOS folder: a name Windows does not allow (the Icon file carriage return), two folders that differ only in case (one folder on Windows), and links made without a type');   // kosmos#8378
+const SKIP_CASE_BLIND = require('./test-support/skip-on-win32').skipOnWin32('it asks for a listed file in another case, which the board refuses off Windows and on Windows deliberately serves (paths are case-blind there, projects.sameListedPath)');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -166,7 +168,7 @@ for (const [label, routes] of SURFACES) {
     ['no name', ''],
   ]) {
     for (const verb of ['preview', 'download']) {
-      test(`#4997 ${label} REFUSED (${verb}): ${why}, with no bytes`, async () => {
+      test(`#4997 ${label} REFUSED (${verb}): ${why}, with no bytes`, { skip: name === 'SHOT.PNG' && SKIP_CASE_BLIND }, async () => {
         const r = await get(routes()[verb], name);
         assert.equal(r.status, 404, why + ' was served');
         const text = await r.text();
@@ -319,7 +321,8 @@ test('#4997 review 6: on Windows a name with a colon (an alternate data stream, 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-preview-ads-'));
   fs.writeFileSync(path.join(dir, 'photo.png:Zone.Identifier'), PNG);   // a legal file name on macOS and Linux
   const ask = () => projects.resolveListedFile(dir, 'photo.png:Zone.Identifier', 'here', { listed: true, maxDepth: 0 });
-  assert.equal(ask().ok, true, 'CONTROL: off Windows the file is listed and served');
+  // kosmos#8378: on Windows the write makes an alternate data stream and the refusal below is the real answer there
+  if (process.platform !== 'win32') assert.equal(ask().ok, true, 'CONTROL: off Windows the file is listed and served');
   const was = Object.getOwnPropertyDescriptor(process, 'platform');
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
   let got;
@@ -328,7 +331,7 @@ test('#4997 review 6: on Windows a name with a colon (an alternate data stream, 
   assert.match(got.because, /not a file in here/);
 });
 
-test('#4997 review 9 (parity): the routes accept exactly the files listFiles lists, flat and walked, but for a name with a backslash, which openFile\'s shape gate refuses on every route (the card: safe) (CONTROL: the depths swapped disagree)', () => {
+test('#4997 review 9 (parity): the routes accept exactly the files listFiles lists, flat and walked, but for a name with a backslash, which openFile\'s shape gate refuses on every route (the card: safe) (CONTROL: the depths swapped disagree)', { skip: SKIP_PARITY_MAC }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-preview-parity-'));
   const put = (rel, body = 'x') => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), body); };
   for (const rel of ['top.png', 'Icon\r', 'Thumbs.db', '~$doc.docx', '~WRL0001.tmp', '.hidden', 'build', 'a/one.png', 'a/b/two.png', 'a/b/c/three.png',

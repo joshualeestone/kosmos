@@ -14,6 +14,7 @@ const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { test } = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-range-'));
@@ -27,6 +28,7 @@ process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-attach-range-launch-'));
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, parseByteRange } = require('./server');
 const attachments = require('./engine/attachments');
 
@@ -42,6 +44,9 @@ async function until(fn, ms = 3000) {
   while (Date.now() < end) { if (fn()) return true; await wait(20); }
   return fn();
 }
+// kosmos#9276: the board's descriptors on a file are counted through /dev/fd, which Windows does not have; there the
+// counts (and the controls that show they can see one) are not checked, and the rest of each test still runs.
+const FD_COUNTS = fs.existsSync('/dev/fd');
 function fdsOn(file) {
   const st = fs.statSync(file);
   let n = 0;
@@ -181,18 +186,18 @@ test('#6805: the image preview is not ranged (its file can be drawn again under 
   assert.ok(got.body.equals(bytes));
 });
 
-test('#6805: a ranged download the client abandons releases its descriptor', async () => {
+test('#6805: a ranged download the client abandons releases its descriptor', { skip: skipOnWin32('its whole subject is the descriptor the board holds on the file, counted through /dev/fd, which Windows does not have; what it checks exists on Windows (kosmos#9276)') }, async () => {
   const rec = stored(crypto.randomBytes(24 * MB), 'abandoned.bin');
   let openMid = -1;
   await new Promise((resolve, reject) => {
     const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id, headers: { range: `bytes=${MB}-` } }, (res) => {
       assert.equal(res.statusCode, 206);
-      res.once('data', () => { openMid = fdsOn(rec.file); req.destroy(); resolve(); });
+      res.once('data', () => { openMid = (FD_COUNTS ? fdsOn(rec.file) : -1); req.destroy(); resolve(); });
     });
     req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
   });
-  assert.ok(openMid >= 1, 'CONTROL: no descriptor on the file was seen mid-download');
-  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the abandoned ranged download still holds a descriptor');
+  if (FD_COUNTS) assert.ok(openMid >= 1, 'CONTROL: no descriptor on the file was seen mid-download');
+  if (FD_COUNTS) assert.ok(await until(() => fdsOn(rec.file) === 0), 'the abandoned ranged download still holds a descriptor');
 });
 
 // Replaces fs.fstatSync for the whole process while it runs: this file's tests must stay sequential (no concurrency).

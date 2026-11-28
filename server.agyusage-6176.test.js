@@ -8,6 +8,7 @@ require('./test-support/tmpscope');   // first: every temp folder this file make
  *
  *   node --test server.agyusage-6176.test.js
  */
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -52,7 +53,7 @@ const payload = (weeklyLeft) => JSON.stringify({ status: 'SUCCESS', num_turns: 0
     { id: 'b-1', name: 'Weekly Limit Remaining', window: 'weekly', remaining_fraction: weeklyLeft, reset_time: new Date(Date.now() + 5 * 864e5).toISOString() },
     { id: 'b-2', name: 'Five Hour Limit Remaining', window: '5h', remaining_fraction: 1, reset_time: new Date(Date.now() + 3 * 3600e3).toISOString() } ] } ] } } });
 
-test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, then carries the Gemini usage', async () => {
+test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, then carries the Gemini usage', { skip: SKIP_FAKE_RUNNER }, async () => {
   agystatus.setPlatformForTests('darwin');   // a Mac to agystatus and agyusage alike, so this runs on every CI runner
   const dir = path.join(SANDBOX, 'agylast'); fs.mkdirSync(dir, { recursive: true });
   agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));

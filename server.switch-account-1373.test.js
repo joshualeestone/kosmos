@@ -30,6 +30,8 @@
  */
 
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
@@ -189,7 +191,7 @@ test('#1373 route: the fixture really offers a choice, or nothing below means an
   }
 });
 
-test('#1373 route: the PARTIAL branch names the account in the future tense', async () => {
+test('#1373 route: the PARTIAL branch names the account in the future tense', { skip: SKIP_FAKE_RUNNER }, async () => {
   /* 🛑 THE ONLY ARM THAT EXECUTES THE PARTIAL SENTENCE. Every other route test here
      seeds a fake whose `has-session` reports the window GONE, so all four land on the
      OK branch and `runsOn('Then it will run on')` was guarded by nothing
@@ -228,7 +230,7 @@ test('#1373 route: the PARTIAL branch names the account in the future tense', as
     'control: the partial branch no longer says what it used to, so the tense assertion above is not about the sentence it was written for: ' + r.body.because);
 });
 
-test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {
+test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-1373-picked');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
@@ -246,7 +248,7 @@ test('#1373 route: a PICKED account is named back, and the sentence says the per
     'the launch job did not get the account the answer named, so the sentence and the agent disagree');
 });
 
-test('#1373 route: an UNPICKED account still travels, and the sentence does NOT claim a choice', async () => {
+test('#1373 route: an UNPICKED account still travels, and the sentence does NOT claim a choice', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-1373-unpicked');
   const r = await switchTo(name, { provider: 'openai', account: ALPHA, picked: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -264,7 +266,7 @@ test('#1373 route: an UNPICKED account still travels, and the sentence does NOT 
    choice. Every arm above passes an account, which means they all exercise the left half
    and none of them the conjunction itself. It was pinned only by a source regex, and the
    reason this file exists is that a regex inspects an expression and never its use. */
-test('#1373 route: a pick claimed with NO account is not reported as a choice', async () => {
+test('#1373 route: a pick claimed with NO account is not reported as a choice', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-1373-picked-no-account');
   const r = await switchTo(name, { provider: 'openai', picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -276,7 +278,7 @@ test('#1373 route: a pick claimed with NO account is not reported as a choice', 
     'the switch did not report a sign-in at all, so the absence assertion above proves nothing');
 });
 
-test('#1373 route: an account that is not on this computer is REFUSED, not silently replaced', async () => {
+test('#1373 route: an account that is not on this computer is REFUSED, not silently replaced', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-1373-ghost');
   const ghost = nodePath.join(HOME, '.codex-not-here-at-all');
   assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist or this proves nothing');
@@ -301,7 +303,7 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
    sign-in Kosmos can never live-check, then sit idle with no red. The route now
    says so in the sentence that names the account, so the person is not left
    staring at a grey "not checked live" badge with no idea why or what to do. */
-test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', async () => {
+test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-2790-signin');
   const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: true });
   assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
@@ -321,7 +323,7 @@ test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be veri
 /* The control that gives the assertion above its meaning: an API-KEY account IS
    live-checkable, so it must get NO warning. Without this, a note that fired for
    every OpenAI account would pass the arm above for the wrong reason. */
-test('#2790 route (OK branch, control): an API-key landing does NOT warn', async () => {
+test('#2790 route (OK branch, control): an API-key landing does NOT warn', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-2790-apikey-control');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -337,7 +339,7 @@ test('#2790 route (OK branch, control): an API-key landing does NOT warn', async
    from ONLY the partial branch would leave the OK-branch arm green. Reached the
    same way the #1373 partial arm is: a `has-session` answering ALIVE means the
    restart cannot prove the window closed, so the route answers `partial`. */
-test('#2790 route (PARTIAL branch): a ChatGPT sign-in still carries the warning', async () => {
+test('#2790 route (PARTIAL branch): a ChatGPT sign-in still carries the warning', { skip: SKIP_FAKE_RUNNER }, async () => {
   const alive = () => ({ ok: true, stdout: '' });
   const name = born('route-2790-signin-partial');
   create.setRunner(alive);
@@ -379,7 +381,7 @@ test('#2790 coupling: the note predicate matches checkLive treating a sign-in as
    the `runsOn` sentence whose wording DOES branch on `chosen` -- so an unpicked
    arm proves the note attaches to the "your OpenAI sign-in" (default) wording as
    well as the "you picked" wording, not just by reading the code. */
-test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async () => {
+test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-2790-signin-unpicked');
   const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -393,7 +395,7 @@ test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async (
 });
 
 /* #5145: the route answers the OpenAI sign-in it landed on (openaiAccount's dir), resolved. */
-test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', async () => {
+test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-5145-openai');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -403,7 +405,7 @@ test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed o
 
 /* #7470: a not-restarted switch said "It is still running as before" of an agent that was not running, and followed
    "We saved the switch" with the restart's own "Nothing was changed.". Both on the restart-failed branch. */
-test('#7470 route: a stopped agent is never said to be still running, and the switch says what puts it into effect', async () => {
+test('#7470 route: a stopped agent is never said to be still running, and the switch says what puts it into effect', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-7470-stopped');
   fs.writeFileSync(PANES, '');   // no window: the agent is not running
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
@@ -417,7 +419,7 @@ test('#7470 route: a stopped agent is never said to be still running, and the sw
   assert.equal(store.readProfile(name).provider, 'openai', 'CONTROL: the switch was saved');
 });
 
-test('#7470 route: a window that would not close is still running, and the saved switch is never followed by "Nothing was changed"', async () => {
+test('#7470 route: a window that would not close is still running, and the saved switch is never followed by "Nothing was changed"', { skip: SKIP_FAKE_RUNNER }, async () => {
   const alive = () => ({ ok: true, stdout: '' });
   const name = born('route-7470-alive');
   create.setRunner(alive);
@@ -438,7 +440,7 @@ test('#7470 route: a window that would not close is still running, and the saved
   assert.equal(require('./engine/remove').RESTART_CHANGED_NOTHING, 'Nothing was changed.');
 });
 
-test('#7470 route: the model switch, its window still open, says to start or restart it to put the new model into effect, never "Nothing was changed"', async () => {
+test('#7470 route: the model switch, its window still open, says to start or restart it to put the new model into effect, never "Nothing was changed"', { skip: SKIP_FAKE_TMUX }, async () => {
   const alive = () => ({ ok: true, stdout: '' });
   const name = born('route-7470-model');
   create.setRunner(alive);
@@ -474,7 +476,7 @@ test('#7470 review 2: the switch answer\'s helpers keep a full stop and leave ou
   assert.equal(switchNextStep({ because: 'X is not running, so there is nothing to restart.' }, 'Start it.'), ' Start it.', 'CONTROL');
 });
 
-test('#7470 review 3: a window Kosmos cannot tie to the agent gets no next step it cannot take, and no account or conversation sentence', async () => {
+test('#7470 review 3: a window Kosmos cannot tie to the agent gets no next step it cannot take, and no account or conversation sentence', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('route-7470-untied');
   // A pane under its name that somebody else claims: the restart (and the card's Start/Restart) leaves it alone.
   fs.writeFileSync(PANES, fleet.line({ session: name, title: 'working' }) + '\n');
@@ -487,7 +489,7 @@ test('#7470 review 3: a window Kosmos cannot tie to the agent gets no next step 
   assert.equal(store.readProfile(name).provider, 'openai', 'CONTROL: the switch was saved');
 });
 
-test('#7470 review 4: the restart marks a job Kosmos did not start as one a start cannot fix', () => {
+test('#7470 review 4: the restart marks a job Kosmos did not start as one a start cannot fix', { skip: SKIP_FAKE_TMUX }, () => {
   const name = born('route-7470-nojob');
   fs.rmSync(jobfix.jobPath(name), { force: true });   // no launch job: Kosmos did not start it
   const back = require('./engine/remove').restart(name, 'test');
@@ -556,7 +558,8 @@ test('kosmos#8666: Gemini takes any model id; Muse, an account-named vendor and 
   const none = await choices('choices-8666-nobody');
   assert.equal(none.body.ok, false);
   assert.equal(none.body.because, create.setModel('choices-8666-nobody', 'sonnet').because);
-  assert.match(none.body.because, /was not started by Kosmos/);
+  // kosmos#8378: Windows says the same refusal in its own words (the agent has no Task Scheduler startup task).
+  assert.match(none.body.because, process.platform === 'win32' ? /has no startup task in Task Scheduler/ : /was not started by Kosmos/);
 });
 
 test('kosmos#8666 review 1: an OpenAI account\'s list leaves out what the company policy does not allow, as Claude\'s does', async () => {

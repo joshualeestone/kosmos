@@ -17,6 +17,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.connect.test.js
  */
 
+const SKIP_WIN_SIGNIN = require('./test-support/skip-on-win32').skipOnWin32('these arms check the sign-in Kosmos launches in tmux, through a fake tmux that is a shell script; on Windows the sign-in runs through engine/win32signin.js instead, which engine/connect.win32signin.test.js covers');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -25,6 +26,7 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-connect-'));
 const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, not HOME
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
@@ -41,7 +43,8 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
 // `/bin/echo` exists and is executable, which is all "Claude is installed"
 // means to `start` -- so no test here ever reaches the download path.
-process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+// kosmos#8378: Windows has no /bin/echo, so there the stand-in is node itself, which is a runnable file the same way.
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = process.platform === 'win32' ? process.execPath : '/bin/echo';
 /* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
    its arguments to the reads, which the parser refused, so every read fell
    through to the real tmux on the PATH and these tests measured the
@@ -75,8 +78,12 @@ test.after(async () => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
+/* kosmos#8378: every request asks for its own connection (connection: close). On the Windows runner a request
+   reset (ECONNRESET), each time on the test after a skipped one; a reused keep-alive socket the board had closed is the
+   likely cause (kosmos#9282): with a fresh connection per request, no request reset in runner passes 11 and 12. */
 async function req(p, options) {
-  const res = await fetch(base + p, options);
+  const o = options || {};
+  const res = await fetch(base + p, { ...o, headers: { ...(o.headers || {}), connection: 'close' } });
   return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
 }
 const json = (r) => JSON.parse(r.body);
@@ -96,6 +103,11 @@ const CONNECTED_CONFIG = {
     organizationRateLimitTier: 'default_claude_max_20x',
   },
 };
+
+/* kosmos#8378: a pid that is not this process and is alive while the test runs. pid 1 off Windows, as before (on a
+   Mac the probe meets EPERM there, which reads as alive); Windows has no pid 1, so there it is the process that started
+   this one. */
+const ALIVE_PID = process.platform === 'win32' ? process.ppid : 1;
 
 test('the state route answers idle before anything has happened', async () => {
   const got = await req('/api/connect');
@@ -156,8 +168,8 @@ test('the page and the engine agree on which phases are active', () => {
 
 test('a live record from ANOTHER process is reported as it stands, not as interrupted', () => {
   /**
-   * ⚠️ "Another pid" is not "a dead pid". pid 1 (launchd) is definitionally
-   * alive, so a mid-flight record carrying it must keep its phase; only a
+   * ⚠️ "Another pid" is not "a dead pid". ALIVE_PID is alive while this test
+   * runs, so a mid-flight record carrying it must keep its phase; only a
    * pid the kernel says is gone earns the interrupted verdict.
    */
   connect.resetForTests();
@@ -165,7 +177,7 @@ test('a live record from ANOTHER process is reported as it stands, not as interr
   fs.mkdirSync(path.dirname(file), { recursive: true });
   try {
     fs.writeFileSync(file, JSON.stringify({
-      phase: 'downloading', progress: { got: 5, total: 10 }, pid: 1,
+      phase: 'downloading', progress: { got: 5, total: 10 }, pid: ALIVE_PID,
       updatedAt: new Date().toISOString(),
     }));
     assert.equal(connect.state().phase, 'downloading',
@@ -175,7 +187,7 @@ test('a live record from ANOTHER process is reported as it stands, not as interr
     // flow: without the freshness bound, that record renders as live progress
     // nobody is moving, forever.
     fs.writeFileSync(file, JSON.stringify({
-      phase: 'downloading', progress: { got: 5, total: 10 }, pid: 1,
+      phase: 'downloading', progress: { got: 5, total: 10 }, pid: ALIVE_PID,
       updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
     }));
     assert.equal(connect.state().phase, 'interrupted',
@@ -185,7 +197,7 @@ test('a live record from ANOTHER process is reported as it stands, not as interr
     // Date.parse coercion and would have failed OPEN into "live forever" if
     // the parse ever changed; the comment records the rule, this pins it.
     fs.writeFileSync(file, JSON.stringify({
-      phase: 'downloading', progress: { got: 5, total: 10 }, pid: 1,
+      phase: 'downloading', progress: { got: 5, total: 10 }, pid: ALIVE_PID,
     }));
     assert.equal(connect.state().phase, 'interrupted',
       'a live-pid record with no timestamp at all was treated as a live foreign flow');
@@ -207,14 +219,14 @@ test('cancel refuses to destroy a LIVE flow belonging to another process', () =>
    * ⚠️ `state()` deliberately reports a second server's live flow as it
    * stands; a cancel posted to the WRONG server must then refuse to kill
    * that flow's session and clobber its record -- the reporting side and the
-   * destructive side must agree about whose flow it is. pid 1 is
-   * definitionally alive; the fresh timestamp makes it a live flow.
+   * destructive side must agree about whose flow it is. ALIVE_PID is
+   * alive; the fresh timestamp makes it a live flow.
    */
   connect.resetForTests();
   const file = connect.STATE_FILE();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const record = {
-    phase: 'downloading', progress: { got: 5, total: 10 }, pid: 1,
+    phase: 'downloading', progress: { got: 5, total: 10 }, pid: ALIVE_PID,
     updatedAt: new Date().toISOString(),
   };
   return (async () => {
@@ -250,7 +262,7 @@ test('start also refuses to clobber a LIVE flow belonging to another process', a
   const file = connect.STATE_FILE();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const record = {
-    phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?x=1', pid: 1,
+    phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?x=1', pid: ALIVE_PID,
     updatedAt: new Date().toISOString(),
   };
   try {
@@ -261,7 +273,7 @@ test('start also refuses to clobber a LIVE flow belonging to another process', a
     const after = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(after.phase, 'signin-awaiting-code',
       'start on the non-owning server clobbered the owner\'s live record');
-    assert.equal(after.pid, 1, 'the record changed hands');
+    assert.equal(after.pid, ALIVE_PID, 'the record changed hands');
   } finally {
     fs.rmSync(file, { force: true });
     connect.resetForTests();
@@ -280,7 +292,7 @@ test('a code posted to the non-owning server is refused with the TRUE sentence',
   fs.mkdirSync(path.dirname(file), { recursive: true });
   try {
     fs.writeFileSync(file, JSON.stringify({
-      phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?x=1', pid: 1,
+      phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?x=1', pid: ALIVE_PID,
       updatedAt: new Date().toISOString(),
     }));
     const put = connect.submitCode('abCD1234#efGH5678');
@@ -411,7 +423,7 @@ test('#1585 CONTROL: when the world agrees the file, the route still answers con
 // into the "Not logged in" REPL against a dead credential and never opens the browser
 // (the #1937 hazard, previously fixed only for reauth). The launch argv is captured
 // through connect.setRunner (the same seam the "start, poll, cancel" test above uses).
-test('#2645: a present-but-dead credential launches a real login (auth login --claudeai), not a bare claude', async () => {
+test('#2645: a present-but-dead credential launches a real login (auth login --claudeai), not a bare claude', { skip: SKIP_WIN_SIGNIN }, async () => {
   const subscription = require('./engine/subscription');
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
@@ -447,7 +459,7 @@ test('#2645: a present-but-dead credential launches a real login (auth login --c
 // #3367 had gated this on a liveness probe, which launched nothing for a live credential; this
 // drives the real route to prove the gate is gone. The already-connected test above (no reauth,
 // answers connected, runs nothing) is the control.
-test('#3326: sign-up with reauth forces a real login even when the credential is LIVE', async () => {
+test('#3326: sign-up with reauth forces a real login even when the credential is LIVE', { skip: SKIP_WIN_SIGNIN }, async () => {
   const subscription = require('./engine/subscription');
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
@@ -486,7 +498,7 @@ for (const [label, runner] of [
   ['EXPIRED (live check says signed out)', async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null })],
   ['UNVERIFIABLE (live check cannot reach Claude)', async () => { throw new Error('claude is not reachable'); }],
 ]) {
-  test('#3326: sign-up with reauth never accepts a stale Connected, credential ' + label, async () => {
+  test('#3326: sign-up with reauth never accepts a stale Connected, credential ' + label, { skip: SKIP_WIN_SIGNIN }, async () => {
     const subscription = require('./engine/subscription');
     fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
     subscription.setRunner(runner);
@@ -521,7 +533,7 @@ for (const [label, runner] of [
 // deadCredential fall-through is never entered) must still launch a BARE claude for its
 // own onboarding. Without this arm, the test above is satisfied by a change that ALWAYS
 // forces a login, which would break the fresh-machine path the #1937 comment protects.
-test('#2645 CONTROL: a fresh machine (no credential) still launches a bare claude, no forced login', async () => {
+test('#2645 CONTROL: a fresh machine (no credential) still launches a bare claude, no forced login', { skip: SKIP_WIN_SIGNIN }, async () => {
   const subscription = require('./engine/subscription');
   fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
@@ -1192,7 +1204,7 @@ test('download progress is honest: a real total gets a bar, no total gets a coun
   assert.match(bare.els['fr-conn-prog'].textContent, /50MB so far/);
 });
 
-test('start, poll, cancel: the flow is drivable through the routes alone', async () => {
+test('start, poll, cancel: the flow is drivable through the routes alone', { skip: SKIP_WIN_SIGNIN }, async () => {
   /**
    * DRY_RUN makes every subprocess a no-op that reports ok, so the driver
    * launches and then sits looking at a blank pane -- which is exactly enough

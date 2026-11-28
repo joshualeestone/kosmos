@@ -11,6 +11,8 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.task-built-3951.test.js
  */
+const SKIP_MAC_CLI = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const SKIP_FAKE_TMUX = require('./test-support/skip-on-win32').skipOnWin32('it stages its fleet through test-support/fake-tmux.sh, a shell script Windows cannot run by its shebang, and on Windows the board reads its roster from claude agents --json instead; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -161,7 +163,7 @@ function mac(args, extra = {}) {
   });
 }
 
-test('Mac `kosmos task built` marks with the agent token and a quoted note; --clear takes it off; bad input exits 2', async () => {
+test('Mac `kosmos task built` marks with the agent token and a quoted note; --clear takes it off; bad input exits 2', { skip: SKIP_MAC_CLI }, async () => {
   const n = newTask('Mac marks it');
   const minted = sendertoken.mint('mona');
   const r = await mac(['task', 'built', projectId, String(n), 'waiting on "the" release'], { KOSMOS_AGENT_TOKEN: minted.token });
@@ -252,7 +254,7 @@ test('with the roster unreadable, a pane-named mark is 503, not an unnamed mark 
   }
 });
 
-test('a Mac agent with no token is named from its %N pane, as /api/post names it (review round 13)', async () => {
+test('a Mac agent with no token is named from its %N pane, as /api/post names it (review round 13)', { skip: SKIP_FAKE_TMUX }, async () => {
   const n = newTask('Pane named');
   const r = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'from the pane', from_pane: '%7' });
   assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -260,7 +262,7 @@ test('a Mac agent with no token is named from its %N pane, as /api/post names it
   assert.deepEqual(stored(n).builtWho, ['fixture']);
 });
 
-test('#5705: an agent marks a checked task built only with a note; the person from the screen never needs one', async () => {
+test('#5705: an agent marks a checked task built only with a note; the person from the screen never needs one', { skip: SKIP_MAC_CLI }, async () => {
   const n = tasks.create(projectId, { sentence: 'Ship the checked thing', who: 'mona', doneWhen: ['the page loads', 'the form sends'] }).number;
   const mona = sendertoken.mint('mona');
   const bare = await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': mona.token });

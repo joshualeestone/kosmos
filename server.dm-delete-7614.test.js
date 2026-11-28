@@ -27,6 +27,7 @@ const assert = require('node:assert/strict');
 const store = require('./engine/store');
 const chat = require('./engine/chat');
 const fleet = require('./test-support/fleet');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const { assertSandboxedDataRoot } = require('./test-support/data-root-sandbox');
 
@@ -34,7 +35,10 @@ const NAME = 'del7614';
 assertSandboxedDataRoot(SANDBOX, [store.ROOT, chat.threadFile(chat.DIRECT, NAME)]);
 
 let base;
-test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
+/* kosmos#8378: the scroll-back arm first writes a thousand messages synchronously, which on a Windows disk can outlast
+   the server's 5 s keep-alive, so fetch reused a socket the board had just closed (ECONNRESET, GitHub's Windows runner,
+   run 46121421024). A longer keep-alive for this test's board keeps the pooled socket open across that pause. */
+test.before(async () => { await start(0); server.keepAliveTimeout = 60000; base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
 
 const t = (n) => new Date(Date.UTC(2026, 9, 30, 12, 0, n)).toISOString();

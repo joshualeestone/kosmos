@@ -7,6 +7,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
    matcher's exactness (kt<pid>9) is proven by the direct arm at the end, with real orphans (review 4).
    Only the TERM arm proves #8890 end to end: on a Ctrl-C bash outlives node and the end-of-run leak guard (#4273)
    ends the stub, so that arm guards the older path, not this card's. */
+const SKIP_POSIX_GROUP = require('./test-support/skip-on-win32').skipOnWin32('it stops a hung file or the runner itself with POSIX signals to a process group (a perl setpgrp parent, kill to the group, pgrep), which Windows does not have; whether the watchdog works there is owed on kosmos#9278');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -135,10 +136,10 @@ async function stoppedRunLeavesNoStub(signal, said0) {
   }
 }
 
-test('#8890 a run stopped by TERM to its group stops the stub its test left in its root, and no other', async () => {
+test('#8890 a run stopped by TERM to its group stops the stub its test left in its root, and no other', { skip: SKIP_POSIX_GROUP }, async () => {
   await stoppedRunLeavesNoStub('SIGTERM', (pid) => new RegExp('stopped process ' + pid + ' this run left running'));
 });
-test('#8890 guard on #4273: a run stopped by Ctrl-C (INT to its group) still ends the stub, by either path, and no other', async () => {
+test('#8890 guard on #4273: a run stopped by Ctrl-C (INT to its group) still ends the stub, by either path, and no other', { skip: SKIP_POSIX_GROUP }, async () => {
   await stoppedRunLeavesNoStub('SIGINT', (pid) => new RegExp('stopped process ' + pid + ' this run left running|^\\s*process ' + pid + ': ', 'm'));
 });
 
@@ -166,7 +167,7 @@ leak_process_stop_root "$ROOT"
 wait "$desc" 2>/dev/null
 exit 0
 `);
-test('#8890 the function stops a descendant and an orphan under the root, and no orphan under a lookalike or other root, nor someone else\'s process naming it', () => {
+test('#8890 the function stops a descendant and an orphan under the root, and no orphan under a lookalike or other root, nor someone else\'s process naming it', { skip: SKIP_POSIX_GROUP }, () => {
   const root = path.join(PLAIN_TMP, 'kt' + (4000000 + Math.floor(Math.random() * 100000)));
   const other = path.join(PLAIN_TMP, 'kt-other-unit');
   fs.mkdirSync(root, { recursive: true }); fs.mkdirSync(root + '9', { recursive: true }); fs.mkdirSync(other, { recursive: true });

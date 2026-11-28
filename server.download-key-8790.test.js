@@ -25,6 +25,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const GATE_LOG = path.join(SANDBOX, 'gate.log');
 process.env.KOSMOS_INSTALL_GATE_LOG = GATE_LOG;
 
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server, boardAuthState, safeLogUrl } = require('./server');
 const boardauth = require('./engine/boardauth');
 

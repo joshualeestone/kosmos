@@ -14,7 +14,14 @@ final class AutomationUITests: XCTestCase {
         let row = app.buttons["settings-automation"]
         reveal(app, row, swipes: 10)
         XCTAssertTrue(row.waitForExistence(timeout: 20), "no Automation row in Settings")
-        XCTAssertTrue(app.buttons["Settings on your computer's board"].exists, "the board row went before the rest is native")
+        // The board row sits five rows below Automation (Global skills, AI policies, Usage and Updates came between),
+        // so in the lazy List it can be past the screen's edge and not built yet: a bare .exists read it as gone
+        // (red on PR #9292, flaky on #9223). Scroll to it, then back up to Automation.
+        let board = app.buttons["Settings on your computer's board"]
+        reveal(app, board, swipes: 6)
+        XCTAssertTrue(board.waitForExistence(timeout: 5), "the board row went before the rest is native")
+        reveal(app, row, swipes: 6, up: true)
+        XCTAssertTrue(row.waitForExistence(timeout: 5) && row.isHittable, "the Automation row did not come back on screen")
         row.tap()
 
         XCTAssertTrue(app.navigationBars["Automation"].waitForExistence(timeout: 10), "the native Automation screen did not open")
@@ -85,6 +92,16 @@ final class AutomationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["automation-held-release-p2"].exists, "a stopped row offers Release")
         shot(app, "automation-held")
 
+        // kosmos#8959 slice D1d3a: "Where each agent stands" under the held posts, one row per agent in the board's words.
+        // Top to bottom, each revealed on its own (a lazy List drops a row scrolled off the top).
+        let dana = app.descendants(matching: .any)["automation-ready-dana"]
+        reveal(app, dana, swipes: 4)
+        XCTAssertTrue(dana.waitForExistence(timeout: 5), "Where each agent stands is missing its first agent")
+        let eli = app.descendants(matching: .any)["automation-ready-eli"]
+        reveal(app, eli, swipes: 2)
+        XCTAssertTrue(eli.waitForExistence(timeout: 5), "the second agent's row is missing")
+        shot(app, "automation-ready")
+
         // The Recommender is on in the sample, so its three guards show, each in the board's words.
         // Each guard is revealed on its own, as the check-ins are: a lazy List draws a row only near the screen, so the
         // first guard being on screen did not mean the other two were drawn yet (D1d1's light run failed here while its
@@ -113,8 +130,8 @@ final class AutomationUITests: XCTestCase {
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: p, object: e)], timeout: timeout) == .completed
     }
 
-    private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) {
-        for _ in 0..<swipes where !(element.exists && element.isHittable) { app.swipeUp() }
+    private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8, up: Bool = false) {
+        for _ in 0..<swipes where !(element.exists && element.isHittable) { if up { app.swipeDown() } else { app.swipeUp() } }
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {

@@ -325,8 +325,14 @@ test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node argume
   /* Stub node and yarn that exit 97, first on the PATH: if a refusal were missing, the run would
      reach the suite and fail at once with 97, rather than run the real suite on this machine. */
   const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-stub-'));
-  for (const bin of ['node', 'yarn']) fs.writeFileSync(path.join(stub, bin), '#!/bin/sh\nexit 97\n', { mode: 0o755 });
-  const base = { ...process.env, PATH: stub + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
+  /* kosmos#8378: run-tests.sh reads the #7247 schtasks rule with `node -e` on Windows before its platform check, so
+     the stub hands a `-e` call to the real node; any other node call still exits 97. */
+  const realNode = process.execPath.replace(/\\/g, '/');
+  fs.writeFileSync(path.join(stub, 'node'), `#!/bin/sh\ncase "$1" in -e) exec "${realNode}" "$@" ;; esac\nexit 97\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(stub, 'yarn'), '#!/bin/sh\nexit 97\n', { mode: 0o755 });
+  // Windows names the variable Path; one PATH only, since two spellings in one environment are ambiguous there.
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH'));
+  Object.assign(base, { PATH: stub + path.delimiter + (process.env.PATH || ''), GITHUB_ACTIONS: 'true' });
   delete base.KOSMOS_TEST_PART; delete base.KOSMOS_SHELL_SHARD; delete base.KOSMOS_TEST_PART_LOCAL; delete base.KOSMOS_SHELL_PLATFORM;
   t.after(() => fs.rmSync(stub, { recursive: true, force: true }));
   const cases = [
@@ -390,19 +396,26 @@ test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost 
   const log = path.join(stub, 'argv.log');
   fs.writeFileSync(path.join(stub, 'node'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit 0\n`, { mode: 0o755 });
   const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(KOSMOS|AGENT_WORKFORCE)_/.test(k)));
+  // kosmos#8378: Windows names the variable Path, and a copied object is case-sensitive, so it is found by any case
+  // and replaced by one PATH (two spellings in one environment are ambiguous there).
+  const pathKey = Object.keys(base).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+  const basePath = base[pathKey] || '';
+  const withoutPath = Object.fromEntries(Object.entries(base).filter(([k]) => k !== pathKey));
   const seen = (env) => {
     fs.writeFileSync(log, '');
     const r = cp.spawnSync('bash', [path.join(ROOT, 'tools', 'run-tests.sh')], {
-      cwd: ROOT, env: { ...base, PATH: stub + path.delimiter + base.PATH, GITHUB_ACTIONS: 'true', KOSMOS_TEST_PART: 'shell',
+      cwd: ROOT, env: { ...withoutPath, PATH: stub + path.delimiter + basePath, GITHUB_ACTIONS: 'true', KOSMOS_TEST_PART: 'shell',
         // the forward under test does not depend on the suite wait; another agent's suite on the same Mac must not
         // hold this run past its timeout (as test-runner-scale-export-5727 runs it)
         KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_SUITE: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', ...env }, encoding: 'utf8', timeout: 120000,
     });
-    assert.equal(r.status, 0, `${JSON.stringify(env)}: exit ${r.status}: ${r.stderr.slice(-400)}`);
+    assert.equal(r.status, 0, `${JSON.stringify(env)}: exit ${r.status}: ${String(r.stderr || '').slice(-400)}${r.error ? ' (' + r.error.message + ')' : ''}`);
     return fs.readFileSync(log, 'utf8').split('\n').filter((l) => /shell-shard\.js/.test(l));
   };
   try {
-    const shardJs = path.join(ROOT, 'tools', 'shell-shard.js');
+    // kosmos#8378: run-tests.sh is a Git Bash script on Windows and names the file in that form (/d/a/... for D:\\a\\...)
+    const native = path.join(ROOT, 'tools', 'shell-shard.js');
+    const shardJs = process.platform === 'win32' ? '/' + native[0].toLowerCase() + native.slice(2).replace(/\\/g, '/') : native;
     assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '1/1', KOSMOS_SHELL_PLATFORM: 'mac' }), [`${shardJs} run 1 1 mac`]);
     assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '2/2', KOSMOS_SHELL_PLATFORM: 'linux' }), [`${shardJs} run 2 2 linux`]);
     assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '1/2' }), [`${shardJs} run 1 2`], 'CONTROL: no platform, no fourth word');

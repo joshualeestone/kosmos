@@ -30,6 +30,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
@@ -288,7 +289,7 @@ test('GET /api/tasks?view=tasks: an unreadable roster is reported (rosterUnreada
     const body = await view();
     assert.equal(body.rosterUnreadable, true);
     assert.ok(body.tasks.every((t) => t.state !== 'decision'), 'a decision derived from a roster nobody read');
-  } finally { status.setPaneSource(null); }
+  } finally { status.setPaneSource(require('./test-support/faketmux-win').current().source); }   // kosmos#8378: Windows: back to fake tmux's reads; elsewhere null
   assert.equal((await view()).rosterUnreadable, false, 'CONTROL: a good read reports a readable roster');
 });
 

@@ -9,6 +9,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *
  *   node --test server.restart-linkjob-8724.test.js
  */
+const SKIP_LINK = require('./test-support/skip-on-win32').skipOnWin32('it links a window to an agent and writes its startup job, and linking a window is refused on Windows (engine/linkwindow.js)');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -91,7 +92,7 @@ const post = async (name, body) => {
   return { code: r.status, j: await r.json() };
 };
 
-test('#8724 a linked window with no job: the refusal offers to set it up, and says what that means', async () => {
+test('#8724 a linked window with no job: the refusal offers to set it up, and says what that means', { skip: SKIP_LINK }, async () => {
   const r = await post('zara');
   assert.equal(r.code, 400, JSON.stringify(r.j));
   assert.equal(r.j.canWriteJob, true, JSON.stringify(r.j));
@@ -131,7 +132,7 @@ test('#8724 no offer for a window that is not linked, one linked under another s
   }
 });
 
-test('#8724 Set up and restart writes the job for that one agent, then restarts it', async () => {
+test('#8724 Set up and restart writes the job for that one agent, then restarts it', { skip: SKIP_LINK }, async () => {
   const r = await post('zara', { writeJob: true });
   assert.equal(r.code, 200, JSON.stringify(r.j));
   assert.equal(r.j.outcome, removal.OUTCOME.RESTARTED);
@@ -151,7 +152,7 @@ test('#8724 writeJob for an agent that does not qualify changes nothing; CONTROL
   assert.deepEqual(restarts, [], 'it was restarted anyway');
 });
 
-test('#8724 a restart its own checks refuse (quiet hours, cap, busy) writes no job; CONTROL: an allowed one does (above)', async () => {
+test('#8724 a restart its own checks refuse (quiet hours, cap, busy) writes no job; CONTROL: an allowed one does (above)', { skip: SKIP_LINK }, async () => {
   gate = { outcome: removal.OUTCOME.REFUSED, steps: [], because: 'it was not started: it is quiet hours', quiet: true };
   const r = await post('zara', { writeJob: true });
   assert.equal(r.code, 400, JSON.stringify(r.j));
@@ -160,7 +161,7 @@ test('#8724 a restart its own checks refuse (quiet hours, cap, busy) writes no j
   assert.notEqual(r.j.jobWritten, true);
 });
 
-test('#8724 set up but the restart did not take: the answer says the job is there', async () => {
+test('#8724 set up but the restart did not take: the answer says the job is there', { skip: SKIP_LINK }, async () => {
   /* The engine's PARTIAL sentence ends with its RESTART_CHANGED_NOTHING tail, which the job has made untrue. */
   afterJob = { outcome: removal.OUTCOME.PARTIAL, steps: [{ label: 'close its window', ok: false }],
     because: `We could not close its window, so it is still running. ${removal.RESTART_CHANGED_NOTHING}` };
@@ -178,7 +179,7 @@ test('#8724 a repair that refuses (it no longer needs it) says so, without a con
   assert.deepEqual(acted, []);
 });
 
-test('#8724 a job that could not be written stops before the restart, with the reason', async () => {
+test('#8724 a job that could not be written stops before the restart, with the reason', { skip: SKIP_LINK }, async () => {
   repairAnswer = { ok: true, results: [{ name: 'zara', ok: false, because: 'launchd said no' }] };
   const r = await post('zara', { writeJob: true });
   assert.equal(r.code, 400, JSON.stringify(r.j));

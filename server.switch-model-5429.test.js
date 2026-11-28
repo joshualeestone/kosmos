@@ -24,6 +24,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  *   node --test server.switch-provider-google-xai-3296.test.js
  */
 
+const SKIP_FAKE_RUNNER = require('./test-support/skip-on-win32').skipOnWin32('it stands in the agent runner with a shell script named as the real program, which Windows cannot run by name, so the board finds no runner there; the route exists on Windows, so its coverage there is owed on kosmos#9262');   // kosmos#8378
 const test = require('node:test');
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
@@ -138,7 +139,7 @@ removal.restart = (...a) => { restarts += 1; return realRestart(...a); };
 test.after(() => { removal.restart = realRestart; });
 const plist = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
 
-test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that model, and says so', async () => {
+test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that model, and says so', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-g2c');
   let r = await switchTo(name, { provider: 'google' });
   assert.equal(r.status, 200, 'setup: on Gemini first ' + JSON.stringify(r.body));
@@ -153,7 +154,7 @@ test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that m
   assert.doesNotMatch(r.body.because, /default model/, 'a picked model is never called the default');
 });
 
-test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as before', async () => {
+test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as before', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-g2c-none');
   await switchTo(name, { provider: 'google' });
   const r = await switchTo(name, { provider: 'anthropic' });
@@ -162,7 +163,7 @@ test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as bef
   assert.equal(r.body.model, undefined);
 });
 
-test('#5429 route: a model that is not a Claude model is refused BEFORE anything changes', async () => {
+test('#5429 route: a model that is not a Claude model is refused BEFORE anything changes', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-bad');
   await switchTo(name, { provider: 'google' });
   restarts = 0;
@@ -200,7 +201,7 @@ function withOpenaiList(list, fn) {
   return Promise.resolve(fn()).finally(() => { openaiAccounts.accountModels = realModels; openaiAccounts.runnableAllowlist = realAllow; });
 }
 
-test('#5429 route: to OpenAI with a model the account runs: one restart, the model is in the switched job', () => withOpenaiList(['gpt-6'], async () => {
+test('#5429 route: to OpenAI with a model the account runs: one restart, the model is in the switched job', { skip: SKIP_FAKE_RUNNER }, () => withOpenaiList(['gpt-6'], async () => {
   const name = born('srv-sm-oai-ok');
   restarts = 0;
   const r = await switchTo(name, { provider: 'openai', account: OAI, model: 'gpt-6' });
@@ -220,14 +221,14 @@ test('#5429 route: to OpenAI with a model the account does not run: refused, not
   assert.equal(store.readProfile(name).provider, 'anthropic');
 }));
 
-test("#5429 route: when the account's list cannot be read it fails open, as the model route does", () => withOpenaiList(new Error('offline'), async () => {
+test("#5429 route: when the account's list cannot be read it fails open, as the model route does", { skip: SKIP_FAKE_RUNNER }, () => withOpenaiList(new Error('offline'), async () => {
   const name = born('srv-sm-oai-open');
   const r = await switchTo(name, { provider: 'openai', account: OAI, model: 'gpt-6' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(plist(name), /gpt-6/);
 }));
 
-test('#5429 review 2: when the switch is partial (the picked Claude account could not be applied), the picked model is still named', async () => {
+test('#5429 review 2: when the switch is partial (the picked Claude account could not be applied), the picked model is still named', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-partial');
   await switchTo(name, { provider: 'google' });
   const real = create.setProvider;
@@ -243,7 +244,7 @@ test('#5429 review 2: when the switch is partial (the picked Claude account coul
 });
 
 
-test('#5534: under a company model list, a switch WITH a listed model goes through and one without is refused, before anything changes', async () => {
+test('#5534: under a company model list, a switch WITH a listed model goes through and one without is refused, before anything changes', { skip: SKIP_FAKE_RUNNER }, async () => {
   const orgpolicy = require('./engine/orgpolicy');
   const name = born('srv-sm-policy');
   let r = await switchTo(name, { provider: 'google' });
@@ -266,7 +267,7 @@ test('#5534: under a company model list, a switch WITH a listed model goes throu
 
 // #7467: the #5091 partial answer (the picked Claude account refused, the restart worked) says the conversation did not
 // come across, as the ordinary result does, for an agent switched to Claude from another family.
-test('#7467: a switch to Claude whose picked account was refused, restarted, says its conversation did not come across', async () => {
+test('#7467: a switch to Claude whose picked account was refused, restarted, says its conversation did not come across', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-7467');
   await switchTo(name, { provider: 'google' });
   const real = create.setProvider;
@@ -283,7 +284,7 @@ test('#7467: a switch to Claude whose picked account was refused, restarted, say
   assert.doesNotMatch(r.body.because, /Claude it is\./, 'the partial keeps its own first sentence');
 });
 
-test('#7467 CONTROL: a partial whose switch keeps its conversation (carried null, as a same-family switch is) keeps today\'s words', async () => {
+test('#7467 CONTROL: a partial whose switch keeps its conversation (carried null, as a same-family switch is) keeps today\'s words', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-7467c');
   await switchTo(name, { provider: 'google' });
   const real = create.setProvider;
@@ -296,7 +297,7 @@ test('#7467 CONTROL: a partial whose switch keeps its conversation (carried null
 });
 
 /* kosmos#8618 (feedback: the switch refused a model's full id, and its refusal did not say what it accepts). */
-test('kosmos#8618 route: a switch to Claude takes a model\'s full id as well as its menu key, and a refusal names the keys', async () => {
+test('kosmos#8618 route: a switch to Claude takes a model\'s full id as well as its menu key, and a refusal names the keys', { skip: SKIP_FAKE_RUNNER }, async () => {
   const name = born('srv-sm-fullid');
   await switchTo(name, { provider: 'google' });
   restarts = 0;
