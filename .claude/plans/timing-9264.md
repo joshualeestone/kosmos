@@ -14,12 +14,13 @@ and a CLI that waits on stdin longer than the short peek still fails it.
 - "a writer that never stops (yes) is refused": `cliDone < 2500` removed; that the shell reported the CLI finished
   is kept.
 - NEW: "#9264 the peek for words alone is under a second and is not the quiet read" reads install/kosmos: the
-  KOSMOS_PIPED_PEEK_MS line is under 1000 and is the only assignment of it in the file; `_words_and_piped` hands it
-  to the peek; the peek has exactly one timer and it is exactly `Number(process.env.KOSMOS_PEEK_MS)`; and no code line
-  of the function reaches `_read_stdin_quiet` / `KOSMOS_STDIN_QUIET_S` (comment lines are ignored). Six inline controls,
-  each asserting that its own rule fires and no other: a 3000 ms peek; the hand-off changed to another variable; a
-  scaled timer; a `_read_stdin_quiet` call planted in the function; a second timer in the peek; a second assignment of
-  KOSMOS_PIPED_PEEK_MS.
+  KOSMOS_PIPED_PEEK_MS line is a plain number from 100 to 999 and is the only assignment of it on any code line of
+  the file; `_words_and_piped` hands it to the peek; the peek has exactly one timer on its code lines and it is
+  exactly `Number(process.env.KOSMOS_PEEK_MS)`; and no code line of the function reaches `_read_stdin_quiet` /
+  `KOSMOS_STDIN_QUIET_S`. Comment lines are not code. Eight inline controls, each asserting that its own rule fires
+  and no other: a 3000 ms peek; a 0 ms peek; the hand-off changed to another variable; a scaled timer; a
+  `_read_stdin_quiet` call planted in the function; a second timer in the peek; a second assignment of
+  KOSMOS_PIPED_PEEK_MS on its own line; and one as a prefix to another command.
 - `run()` no longer records `ms`, which nothing reads now.
 - `run()` starts the child in its own process group and the 20 s kill takes the whole group: before, under a
   `/bin/sh` parent the CLI and its peek kept the pipes open and the test hung past its own timeout. Groups still
