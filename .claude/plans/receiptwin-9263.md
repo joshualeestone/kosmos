@@ -21,17 +21,21 @@ was cut to `C:`, and `path.resolve(folder, 'C:')` gave back the agent's own fold
 
 ## How a path is read
 The path is a JavaScript string's text, so it is decoded as one: it ends at an escaped newline (`\n`, `\r`), a real
-newline, or a bare quote, and its escapes are decoded (`\\`, `\'`, `\"`, `\t`, `\uXXXX`...). An escape a string
-cannot hold (`\U`) is what a single-backslash path (String.raw) looks like; such a path cannot be read whole and is left
-out. A path that resolves to the agent's own folder is never listed: that is the card's symptom, and no patch line
-names the folder itself.
+newline, or a bare quote, and its escapes are decoded (`\\`, `\'`, `\"`, `\t`, `\uXXXX`, `\u{...}`, `\xHH`...).
+Left out of the receipt, as paths that cannot be trusted whole:
+- an escape with no special meaning (`\U`). It is LEGAL JavaScript (an identity escape: `"C:\Users"` is `C:Users`), but
+  in a path it is far likelier a single backslash written raw (String.raw), so it is treated as one. A judgement about how
+  Codex writes paths, not a language rule (review round 5 corrected my comment, which said a string cannot hold it).
+- a decoded control character (`C:\tools.js` written raw decodes a tab), never part of a real file name.
+A path that resolves to the agent's own folder is never listed: that is the card's symptom, and no patch line names the
+folder itself.
 
-Not covered: a single-backslash path whose next character happens to make a real escape (`C:\new.js` in String.raw
-reads as `C:` then a newline). The folder filter still keeps it from showing as the folder on Windows; on macOS and
-Linux it would show as a file named `C:`. A real Codex script was not measured writing String.raw.
+Not covered: a single-backslash raw path whose escape decodes to a printable character (`C:\x41.js` raw reads
+`C:A.js`), and one cut by `\n`/`\r` (`C:\new.js` raw reads `C:`: the folder filter catches it on Windows, macOS and
+Linux would show a file named `C:`). A real Codex script was not measured writing String.raw.
 
 Design note: review rounds 2, 3 and 4 each reworked the same rule (what ends or cuts a path). Decoding the text as the
-string it is replaced the stop-rule patches.
+string it is replaced the stop-rule patches; round 5 tightened what the decoder trusts.
 
 ## Weakest premise
 How a real Windows Codex writes an absolute path in its exec script (escaped `\\`) is reasoned from the script
