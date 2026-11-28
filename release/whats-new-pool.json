@@ -3051,7 +3051,7 @@
     },
     {
       "title": "A restarted agent hears what is open",
-      "line": "An agent's restart greeting and kosmos away now say its open tasks and unanswered messages.",
+      "line": "An agent's restart greeting and kosmos away now say its open tasks and the person's messages it has not answered.",
       "icon": "tasks",
       "rank": 160,
       "since": "0.8.30",
