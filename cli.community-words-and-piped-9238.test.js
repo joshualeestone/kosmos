@@ -45,7 +45,7 @@ function fileStdin(text, keepName) {
    long (the CLI's own exit time is taken from the shell, not from the pipeline's end); { socket: text } and
    { open: true } node's own stdin pipe, which is a socket pair, with text then closed or left open with nothing on it;
    { devnull: true } /dev/null. An open pipe is closed after the CLI exits, so it cannot leak. */
-/* kosmos#9264: run() puts each child in its own process group, which an interrupt to this file does not reach, so any
+/* kosmos#9264: run() puts each child in its own session and process group, which an interrupt to this file does not reach, so any
    group still running when it ends (normally or by SIGINT, SIGTERM or SIGHUP, through removeAtEnd) is ended here. */
 const LIVE_GROUPS = new Set();
 require('./test-support/remove-at-end').removeAtEnd(() => { for (const pid of LIVE_GROUPS) { try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ } } });
@@ -79,7 +79,7 @@ function run(args, port, stdin) {
       env.CLI9238 = CLI;
     }
     const started = Date.now();
-    // kosmos#9264: its own process group, so the 20 s kill below reaches the CLI and its peek under a /bin/sh parent too
+    // kosmos#9264: its own session and process group, so the 20 s kill below reaches the CLI and its peek under a /bin/sh parent too
     const child = spawn(cmd, argv, { env, detached: true, stdio: [fd === null ? 'pipe' : fd, 'pipe', 'pipe'] });
     LIVE_GROUPS.add(child.pid);
     if (fd !== null) fs.closeSync(fd);
@@ -90,7 +90,6 @@ function run(args, port, stdin) {
     child.on('error', reject);
     child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group already ended */ }
       LIVE_GROUPS.delete(child.pid);
       if (child.stdin) { try { child.stdin.destroy(); } catch {} }
       const res = { code: exitCode, out, cliDone };
@@ -259,6 +258,8 @@ for (const [how, stdin] of [['a shell pipe whose writer sends nothing', { fifoId
    It reads these lines only: a wait added anywhere else is not seen (the plan says where). */
 function peekProblems(cli) {
   const problems = [];
+  const sets = cli.match(/^\s*(export\s+)?KOSMOS_PIPED_PEEK_MS=/gm) || [];
+  if (sets.length > 1) problems.push('KOSMOS_PIPED_PEEK_MS is set ' + sets.length + ' times');
   const m = cli.match(/^KOSMOS_PIPED_PEEK_MS=(\d+)\b/m);
   if (!m) problems.push('no KOSMOS_PIPED_PEEK_MS line');
   else if (Number(m[1]) >= 1000) problems.push('KOSMOS_PIPED_PEEK_MS is ' + m[1] + ' ms, not under 1 s');
@@ -269,6 +270,8 @@ function peekProblems(cli) {
   const body = cli.slice(start, end);
   if (!/\bKOSMOS_PEEK_MS="?\$\{?KOSMOS_PIPED_PEEK_MS\}?"?(\s|$)/.test(body)) problems.push('the peek is not given KOSMOS_PIPED_PEEK_MS');
   if (!/setTimeout\([^,;]*,\s*Number\(\s*process\.env\.KOSMOS_PEEK_MS\s*\)\s*\)/.test(body)) problems.push('the peek timer is not exactly KOSMOS_PEEK_MS');
+  const timers = (body.match(/\bsetTimeout\(/g) || []).length;
+  if (timers !== 1) problems.push('the peek has ' + timers + ' timers, not one');
   const code = body.split(/\r?\n/).filter((l) => !/^\s*(#|\/\/)/.test(l)).join('\n');   // a comment line may name the quiet read
   if (/_read_stdin_quiet|KOSMOS_STDIN_QUIET_S/.test(code)) problems.push('the peek reaches the quiet read');
   return problems;
@@ -283,6 +286,8 @@ test('#9264 the peek for words alone is under a second and is not the quiet read
   only(cli.replace('KOSMOS_PEEK_MS="$KOSMOS_PIPED_PEEK_MS"', 'KOSMOS_PEEK_MS="$KOSMOS_OTHER_MS"'), /not given KOSMOS_PIPED_PEEK_MS/);
   only(cli.replace('Number(process.env.KOSMOS_PEEK_MS))', 'Number(process.env.KOSMOS_PEEK_MS) * 10)'), /not exactly KOSMOS_PEEK_MS/);
   only(cli.replace(/(\r?\n_words_and_piped\(\) \{\r?\n)/, '$1  _read_stdin_quiet 1\n'), /reaches the quiet read/);
+  only(cli.replace('process.stdin.on("end"', 'setTimeout(() => {}, 3000); process.stdin.on("end"'), /timers, not one/);
+  only(cli.replace(/^(KOSMOS_PIPED_PEEK_MS=\d+.*)$/m, '$1\nKOSMOS_PIPED_PEEK_MS=3000'), /is set 2 times/);
 });
 
 for (const v of [
