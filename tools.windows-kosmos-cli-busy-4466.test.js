@@ -105,6 +105,10 @@ test('#9243 Windows: with --no-reply, a timed-out or unconfirmed msg says do not
   assert.equal(await cli.main(['msg', '--no-reply', 'mara', 'fyi'], u.io), 3, u.out() + u.err());
   assert.match(u.err(), /^Not confirmed: the text may be in their composer\. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it\.$/m);
   assert.doesNotMatch(u.err(), /wait for their answer/);
+  // The asked-once-more branch: a cut reply, then a retry that fails without a timeout.
+  const r = sequence([reset(), reset()]);
+  assert.equal(await cli.main(['msg', '--no-reply', 'mara', 'fyi'], r.io), 3, r.out() + r.err());
+  assert.match(r.err(), /did not answer when asked once more\. The message may have been delivered; with no id, kosmos msg --status cannot check it, and you asked for no reply, so do not send it again\./);
 });
 
 test('#4580 Windows: a post whose reply is cut is asked once more too', async () => {
