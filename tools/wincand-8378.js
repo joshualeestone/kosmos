@@ -30,6 +30,6 @@ for (const file of mine) {
   const killed = run.status === null;
   const detail = failing.length ? [].concat(wt.failureDetail(out, [])).join(' ').replace(/\s+/g, ' ').slice(0, Number(process.env.WINCAND_DETAIL || 300)) : '';
   console.log(`WINCAND ${file} exit=${killed ? 'KILLED' : run.status} pass=${num('pass')} fail=${num('fail')} skip=${num('skipped')} secs=${Math.round((Date.now() - t0) / 1000)}`
-    + (failing.length ? ` failing=${JSON.stringify(failing.slice(0, 5))} first=${JSON.stringify(detail)}` : ''));
+    + (failing.length ? ` failing=${JSON.stringify(process.env.WINCAND_ALL_NAMES ? failing : failing.slice(0, 5))} first=${JSON.stringify(detail)}` : ''));
 }
 console.log(`WINCAND-END shard ${shard}`);
