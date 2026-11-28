@@ -70,7 +70,7 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   // so the arms that hold on Windows run there (#5664 step A among them); each arm about the macOS or Linux guard, POSIX
   // startup files, POSIX path lines, the PATH scan Windows does not build yet or /bin/bash skips with its reason.
   'hookscripts-5774.test.js', 'startupfiles-5774.test.js', 'startplugins-5774.test.js', 'launchpath-5516.test.js',
-  'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js',
+  'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js', 'startimports-5774.test.js',
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
   'howhint.test.js', 'howhint-cli-8935.test.js',   // kosmos#8935: the first-use pointer through the Windows CLI (a launch-token agent); its bash half skips there with a reason
   'communityguide.test.js', 'taskguide.test.js', 'claimguide.test.js', 'postguide.test.js', 'agentguide.test.js',   // kosmos#8735: kosmos community --how, kosmos task --how, kosmos claim --how, kosmos post --how and kosmos agent --how through the Windows CLI; their bash halves skip there with a reason
