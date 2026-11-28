@@ -371,9 +371,16 @@ struct SettingsView: View {
                 Text(Updates.Words.title).foregroundColor(Palette.primary)
             }
             .accessibilityIdentifier("settings-updates")
+            // kosmos#8959 slice D2b1: the board's Connections, native and read only (what is saved, never the live sweep).
+            NavigationLink {
+                ConnView(mac: mac, sample: Self.sample, finding: load == .reading, signedOut: load == .signedOut)
+            } label: {
+                Text(Conn.Words.title).foregroundColor(Palette.primary)
+            }
+            .accessibilityIdentifier("settings-connections")
             Button(action: openBoardSettings) { row("Settings on your computer's board", detail: nil) }
         } footer: {
-            Text("Agents, AI models, connections and the rest of your computer's settings are there.")
+            Text("Agents, AI models and the rest of your computer's settings are there.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }

@@ -345,6 +345,13 @@ jobs:
           ios/LogicTests/run-mine.sh | tee "$RUNNER_TEMP/mine.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/mine.log"
 
+      # kosmos#8959 slice D2b1: the computer's Connections, from the disk-only read (never the billed sweep).
+      - name: Connections logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-conn.sh | tee "$RUNNER_TEMP/conn.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/conn.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
