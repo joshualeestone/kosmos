@@ -218,7 +218,9 @@ test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is
     // CONTROL: a project that lives on that mount lets its paths through to be resolved.
     touched.length = 0;
     fw.about('/Volumes/NoSuchShare-7989/a.md', { projects: [...list, { id: 'vol', folder: '/Volumes/NoSuchShare-7989/proj' }] });
-    assert.ok(touched.some((t) => t.startsWith('/Volumes/NoSuchShare-7989')), 'CONTROL: a mount a project uses was refused: ' + JSON.stringify(touched));
+    // kosmos#9269: the FILE's own path, which only resolved() touches after the mount check (rootsOf resolves the
+    // project's folder, also on the mount, before the check runs, so a prefix match passed either way).
+    assert.ok(touched.includes('/Volumes/NoSuchShare-7989/a.md'), 'CONTROL: a mount a project uses was refused: ' + JSON.stringify(touched));
   } finally { fs.realpathSync.native = native; }
   assert.match(renderWho({ ok: false, because: 'outside' })[0], /give the path as this computer names it/);
 });
@@ -246,7 +248,8 @@ test('kosmos#9269: a path on a UNC share no project uses is answered without tou
     // CONTROL: a project that lives on that share lets its paths through to be resolved.
     touched.length = 0;
     fw.about('\\\\somehost-9269\\share\\a.md', { projects: [...list, { id: 'unc', folder: '\\\\somehost-9269\\share\\proj' }] });
-    assert.ok(touched.some(onShare), 'CONTROL: a share a project uses was refused: ' + JSON.stringify(touched));
+    // The FILE's own path, which only resolved() touches, after the mount check: rootsOf resolves the project's folder first.
+    assert.ok(touched.includes('\\\\somehost-9269\\share\\a.md'), 'CONTROL: a share a project uses was refused: ' + JSON.stringify(touched));
   } finally { fs.realpathSync.native = native; }
 });
 
