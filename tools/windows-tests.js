@@ -160,14 +160,14 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'connect.willinstall-dryrun-1556.test.js',   // kosmos#8378: the will-install dry run and its control, with a runner stub Windows counts as runnable
   'firstrun.willinstall-wiring-1556.test.js',   // kosmos#8378: the first-run will-install wiring, with a runner stub Windows counts as runnable
   'delete-leftover.offthread-7835.test.js',   // kosmos#8378: the off-thread runner for deleting a leftover folder, with node standing in for /bin/cat and /bin/sleep
-  'delete-leftover.running-8640.test.js',   // kosmos#8378: the session-name and claim arms run on Windows; the arms that hand it tmux pane folders (absolute POSIX paths) or run a fake tmux by its shebang skip there, since Kosmos runs no tmux on Windows
+  'delete-leftover.running-8640.test.js',   // kosmos#8378: the session-name and claim arms run on Windows; the arms that hand it tmux pane folders (absolute POSIX paths), run a fake tmux by its shebang, or make a folder name with a newline skip there, since Kosmos runs no tmux on Windows
   'devicedoor-bounded-4326.test.js',   // kosmos#8378: runBounded's output cap, spawn failure, a finishing probe's exit and output, and stream order, with node stand-in probes; the timeout arm (a SIGTERM-ignoring child) and the process-group arm skip there (Windows has no signals or POSIX process groups)
-  'discover.location-2414.test.js',   // kosmos#8378: the bare home scan with a fixture home (HOME and USERPROFILE)
+  'discover.location-2414.test.js',   // kosmos#8378: the bare home scan with a fixture home (HOME and USERPROFILE); its top-level symlink arm skips there (symlinks need elevation)
   'discover.register-1531.test.js',   // kosmos#8378: adopt and register with the main-path arms against the stand-in Task Scheduler
   'dmfiles.test.js',   // kosmos#8378: the Files folder and its refusals with native paths
-  'feedback.triagedir-6265.test.js',   // kosmos#8378: triage's folder notes, with the --dir path as shellArg quotes it
-  'filenotices-scale-8464.test.js',   // kosmos#8378: the file-owner notice's change scale on Windows; only the FIFO arm skips (Windows has no mkfifo)
-  'filewho-7989.test.js',   // kosmos#8378: kosmos project who on Windows; the mkfifo arm and the macOS mount-path arm skip there (a UNC arm is owed on kosmos#9269)
+  'feedback.triagedir-6265.test.js',   // kosmos#8378: triage's folder notes, with the --dir path as shellArg quotes it; its linked-report arm skips there (symlinks need elevation)
+  'filenotices-scale-8464.test.js',   // kosmos#8378: the file-owner notice's change scale on Windows; its FIFO arm (Windows has no mkfifo) and its six symlink arms (symlinks need elevation) skip there
+  'filewho-7989.test.js',   // kosmos#8378: kosmos project who on Windows; the mkfifo arm, the macOS mount-path arm (a UNC arm is owed on kosmos#9269) and the two symlink arms (symlinks need elevation) skip there
   'handoff.test.js',   // kosmos#8378: kosmos handoff's facts on Windows; the git-erroring arm (its stub git is a #!/bin/sh script on PATH) and the unreadable-state arm (chmod 0o000) skip there, both owed Windows arms on kosmos#9269
   'homescan-5870.test.js',   // kosmos#8378: the per-pass read cache on Windows; the arms that read hook scripts through the macOS guard skip there (the Windows guard is tokenguard.win32-5664.test.js)
   'machine.agentautostart-3182.test.js',   // kosmos#8378: the autostart row's aggregation and the Windows omission; only the arm that reads launchctl through the macOS seam (by process.getuid) skips there
