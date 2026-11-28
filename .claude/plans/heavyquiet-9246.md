@@ -3,7 +3,7 @@
 1. A caller that sets KOSMOS_RUN_MARKER_DIR to the real folder itself (a launchd job, a pinning wrapper) never
    announced. Decided: treat the real folder named explicitly as the real markers, so it announces as unset does;
    the folders are compared as physical paths (`CDPATH= cd -P`), so a trailing slash, `..` or a symlink does not matter;
-   queued-heavy has already made the folder by then (line 407). Rejected: printing an
+   queued-heavy has already made the folder by then (its mkdir -p of the marker folder). Rejected: printing an
    "announce off" line whenever the markers are set, because every test points them at a private folder, so the line
    would print in every test's run and say nothing useful there; and naming it only in the plan, which leaves the
    real case silent. Weakest premise: the real folder is $HOME/.cache/kosmos-run-markers. A caller with a different
@@ -22,5 +22,6 @@
 Tests (tools/test-queued-heavy-4977.sh, 217 -> 222): the real folder named with a trailing slash announces; a symlink
 to it announces; a tab, newline and escape are sent as spaces on one line; under a C locale a line separator, a direction mark and a
 C1 control are too; and every BMP character normalizeLabel itself refuses or reads as a space comes out of
-_qh_board_text as text it accepts, in both locales (the list is the board's, so a missing entry reds; measured by
-removing U+3000). Each must red when its fix is removed.
+_qh_board_text as text it accepts, as exactly a space, in a C locale and the computer's UTF-8 one (the list is the board's,
+so a missing entry reds; round 3 found the first version could not run in the harness and ran both passes in one
+locale, and that U+3000 is the one entry [[:cntrl:]] never covers, so it proved little). Each must red when its fix is removed.
