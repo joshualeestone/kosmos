@@ -30,3 +30,6 @@ That agents read the CLI's line right after their own send. It is the likeliest 
    "wait for their answer"; it now says the copy is saved "so nothing is lost if it did not arrive". The unconfirmed
    line no longer says "below" (on Windows the sentence and the id go to different streams). The timeout and the
    unconfirmed outcomes are now run on both CLIs (exit 3 and their words; the unconfirmed arm is red with exit 1).
+7. Review 3: a --no-reply send is never told to wait for an answer (it asked for none): its maybe outcomes say "do not
+   send it again" (both CLIs, run-level arms on both). The Mac duplicate id is checked in the cutonce run. The rule says
+   a post's command says "whom it reached, or what happened to it" (a timed-out post says it is still delivering).

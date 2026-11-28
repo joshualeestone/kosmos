@@ -3154,13 +3154,16 @@ cmd_msg() {
       # must not turn "maybe" into "not sent", or the agent re-sends into a board that no longer remembers it.
       case "$rc" in 0|18|28|52|56) ;; *) rc=52 ;; esac ;;
   esac
+  # kosmos#9243: what to do when it may have arrived. A --no-reply send gets no answer to wait for, so it is told plainly.
+  local _after="with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again."
+  [ "$no_reply" -eq 1 ] && _after="with no id, kosmos msg --status cannot check it, and you asked for no reply, so do not send it again."
   if [ "$rc" -eq 28 ]; then
-    say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again."
+    say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; $_after"
     exit 3
   elif [ "$_retried" = 1 ] && [ "$rc" -ne 0 ]; then
     # kosmos#9243, as the Windows CLI: the first attempt was not refused, so it may have landed; a retry that also
     # failed proves nothing, and there is no id to check.
-    say "Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; with no id, kosmos msg --status cannot check it, so wait for their answer before sending it again."
+    say "Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; $_after"
     _keep_piped maybe   # a piped message keeps its copy, as before (the Windows CLI keeps none)
     exit 3
   elif [ "$rc" -ne 0 ]; then
@@ -3201,7 +3204,8 @@ cmd_msg() {
       # exit-code caller cannot read "maybe" as "delivered" -- but never
       # nonzero-1, which would invite the retry the state exists to stop.
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
-      say "Not confirmed: ${because:-the text may already be in their composer}. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer."
+      if [ "$no_reply" -eq 1 ]; then say "Not confirmed: ${because:-the text may already be in their composer}. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it."
+      else say "Not confirmed: ${because:-the text may already be in their composer}. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it; if not, wait for their answer."; fi
       _say_msg_id "$body"   # kosmos#8961
       exit 3
       ;;
@@ -3428,7 +3432,7 @@ cmd_reply() {
     exit 3
   elif [ "$rc" -ne 0 ]; then
     say_unreached "keep that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
-    case "$rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac   # as cmd_msg
+    case "$rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac   # a cut reply may have been kept (cmd_msg asks once more first)
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).

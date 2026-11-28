@@ -96,6 +96,17 @@ test('#9243 Windows: an unconfirmed msg says do not send it again, exit 3, and p
   assert.doesNotMatch(h.err() + h.out(), /check with them/);
 });
 
+test('#9243 Windows: with --no-reply, a timed-out or unconfirmed msg says do not send it again, never wait for an answer', async () => {
+  const t = sequence([timeoutErr(), timeoutErr()]);
+  assert.equal(await cli.main(['msg', '--no-reply', 'mara', 'fyi'], t.io), 3, t.out() + t.err());
+  assert.match(t.err(), /with no id, kosmos msg --status cannot check it, and you asked for no reply, so do not send it again\./);
+  assert.doesNotMatch(t.err(), /wait for their answer/);
+  const u = sequence(['{"delivery":{"state":"unconfirmed","because":"the text may be in their composer","id":"m7"}}']);
+  assert.equal(await cli.main(['msg', '--no-reply', 'mara', 'fyi'], u.io), 3, u.out() + u.err());
+  assert.match(u.err(), /^Not confirmed: the text may be in their composer\. Do not send it again: if an id is shown, kosmos msg --status says later whether they read it\.$/m);
+  assert.doesNotMatch(u.err(), /wait for their answer/);
+});
+
 test('#4580 Windows: a post whose reply is cut is asked once more too', async () => {
   const h = sequence([reset(), kept]);
   assert.equal(await cli.main(['post', 'proj', 'draft is in the folder'], h.io), 0, h.err());
