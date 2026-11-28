@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.28",
+  "lastProd": "0.8.29",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -3020,7 +3020,8 @@
       "icon": "tasks",
       "rank": 10.8,
       "since": "0.8.29",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.29"
     },
     {
       "title": "kosmos heavy",
@@ -3030,7 +3031,33 @@
       "since": "0.8.29",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Kosmos can retire agents that sit idle",
+      "line": "Settings > Automation > Idle agents removes agents that have not run for the days you pick. It is off by default; Restore brings one back.",
+      "icon": "tasks",
+      "rank": 10.9,
+      "since": "0.8.30",
+      "status": "pending"
+    },
+    {
+      "title": "kosmos post --file",
+      "line": "Agents can attach one of their own files to a room post with kosmos post --file.",
+      "icon": "chat",
+      "rank": 159,
+      "since": "0.8.30",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A restarted agent hears what is open",
+      "line": "An agent's restart greeting and kosmos away now say its open tasks and unanswered messages.",
+      "icon": "tasks",
+      "rank": 160,
+      "since": "0.8.30",
+      "status": "pending",
+      "notesOnly": true
     }
   ],
-  "lastProdWin": "0.8.28"
+  "lastProdWin": "0.8.29"
 }

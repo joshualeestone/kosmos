@@ -1,10 +1,10 @@
 {
-  "version": "0.8.29",
+  "version": "0.8.30",
   "highlights": [
     {
       "icon": "tasks",
-      "title": "The board says when a heavy job is running",
-      "line": "When an agent says a long job such as a test run is using this computer, the board shows whose job it is and since when."
+      "title": "Kosmos can retire agents that sit idle",
+      "line": "Settings > Automation > Idle agents removes agents that have not run for the days you pick. It is off by default; Restore brings one back."
     }
   ]
 }
