@@ -13,8 +13,8 @@
 3. engine/anthropiccompat-7206.test.js launch-env: off macOS the arm now PINS the refusal (exit 2, the "so this agent
    was not started on it" sentence, no NAME=VALUE pairs, no key) instead of skipping. Its NO_LAUNCH_ENV skip is gone.
 4. engine/allowance.test.js: the one NO_SETUP_SH reason ("setup.sh never runs on Windows") was false for this file,
-   whose other setup.sh arms run there. Split into two exact reasons: NO_SETUP_SH_BAKE (the command setup.sh bakes for
-   the Mac and Linux bundle's runtime/bin/node) and NO_SETUP_SH_RUN (a block of setup.sh's uninstaller run under sh).
+   whose other setup.sh arms run there. Now: the bake arm runs on every host with its command pinned per platform
+   (round 3), and only the uninstall arm is skipped, under NO_SETUP_SH_RUN with its measured reason.
 tools/windows-tests.js carries each file's reasons verbatim (engine/windows-tests-1777.test.js checks it).
 
 ## Measured on windows-latest
@@ -31,6 +31,13 @@ tools/windows-tests.js carries each file's reasons verbatim (engine/windows-test
 - allowance's bake arm: the host-specific check is a SUBTEST with its own skip, so the skip shows in node:test's count
   (an early return had hidden it). The entry's count reads "one arm and two assertions".
 - anthropiccompat: the whole refusal sentence is pinned (it proves the vendor was named, not "That provider").
+
+## Review round 3
+- The setup.sh bake is not skipped at all now: the arm compares the WHOLE baked command with ourCommand (quoted on a
+  Mac or Linux, winCommandFor on Windows) naming the bundle's own runtime node, its statusline script and the account.
+  Measured on windows-latest run 46170063903: allowance 33 pass 1 skip (only the uninstall arm). NO_SETUP_SH_BAKE and
+  its subtest are gone; the windows-tests.js entry says "one arm and one assertion".
+- automove's control message says what it proves (the line was taken, with moves on).
 
 ## Weakest premise
 Item 2 judges a pre-lock assertion as a CONTROL by reading it; a CONTROL that also checks something independent would
