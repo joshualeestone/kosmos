@@ -92,3 +92,5 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
 - Review 6: plus-signin-2036's enrol arm runs on Windows, leaving out only its 0600 assertion there, and its sandbox
   sets USERPROFILE beside HOME: tools/plus-signin-fresh.js uses os.homedir(), which reads USERPROFILE on Windows, so
   before this the arm wrote its seed secret file into the runner's real profile. redisable's reason reads plainly.
+  Measured on the Windows runner after the change (run 46137410555): plus-signin-2036 29 pass, 0 skipped; redisable 18
+  pass, its 3 launchd arms skipped.
