@@ -43,8 +43,8 @@
  * ⚠️ Pre-existing for ENOSPC and EACCES, WIDENED by this module:
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
  * have, and (kosmos#9268) an atomicOnly write whose three temp names were all refused raises
- * ERR_KOSMOS_TEMP_SWAPPED; no caller branches on that code. The three token-door call sites catch ERR_KOSMOS_SYMLINK directly; `sendertoken.writeTokens`
- * does NOT, and relies on `mint` and `retire` catching one level up, which is true at
+ * ERR_KOSMOS_TEMP_SWAPPED, on which no caller branches. The three token-door call sites catch ERR_KOSMOS_SYMLINK
+ * directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
  * moved it onto this writer).
@@ -180,8 +180,11 @@ function refuseFollowedLink(tmp, fd) {
     else if (known(made) && known(named) && !sameFile(named)) refuse = true;
   }
   if (!refuse) return false;
-  /* The made file to remove, decided while the fd still holds it open, so its inode cannot be freed and reused
-     between this comparison and the decision. The unlink itself follows the close. */
+  /* The made file to remove, first checked while the fd still holds it open (so its inode cannot be freed and reused
+     under the comparison), then checked again just before the unlink, because the unlink takes a path: a different
+     file renamed onto it after the first check fails the second. A rename between the second check and the unlink is
+     not closed; only somebody who can already write where the link pointed could make it. A junction or a folder link
+     at the name is a link to lstat too, so it is refused above. */
   let target = null;
   if (named && named.isSymbolicLink()) {
     try {
@@ -191,7 +194,12 @@ function refuseFollowedLink(tmp, fd) {
     } catch { target = null; }
   }
   try { fs.closeSync(fd); } catch { /* closed either way: never a second close of a number that may be reused */ }
-  if (target) { try { fs.unlinkSync(target); } catch { /* it stays; it holds nothing */ } }
+  if (target) {
+    try {
+      const still = fs.lstatSync(target, { bigint: true });
+      if (still.isFile() && sameFile(still) && still.size === 0n) fs.unlinkSync(target);
+    } catch { /* it stays; it holds nothing */ }
+  }
   return true;
 }
 
@@ -460,7 +468,10 @@ function writeSecret(file, data, mode, opts) {
          the opened file (kosmos#9268), which is when "we created it" is a fact rather
          than a proxy. */
       const tfd = fs.openSync(tmp, 'wx', createMode);
-      if (refuseFollowedLink(tmp, tfd)) throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_TEMP_SWAPPED' });   // kosmos#9268: the next attempt takes a fresh name
+      // kosmos#9268: refused, the next attempt takes a fresh name
+      if (refuseFollowedLink(tmp, tfd)) {
+        throw Object.assign(new Error('the temp name is not the file this write opened'), { code: 'ERR_KOSMOS_TEMP_SWAPPED' });
+      }
       created = true;
       try {
         /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS

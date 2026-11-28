@@ -952,8 +952,10 @@ test('#9268: a link re-pointed after the open at another file never gets that fi
 });
 
 /* kosmos#9268 review 3: the name REMOVED after the open (and, separately, a folder put there). Neither is the file the
-   fd holds: without the "gone" and "not a regular file" rules the secret is written through the fd to where the link
-   pointed, and the rename then fails and the loop retries, leaving the secret behind. */
+   fd holds. The removed arm pins the "gone" rule: without it the secret is written through the fd to where the link
+   pointed, the rename then fails, and the loop retries, leaving the secret behind. The folder arm is a control for
+   the refusal as a whole: the link-count or identity rule refuses a folder first, so it does not pin "not a regular
+   file" (refuseFollowedLink's doc). */
 for (const [label, swap] of [['removed', (p) => fs.unlinkSync(p)], ['replaced by a folder', (p) => { fs.unlinkSync(p); fs.mkdirSync(p); }]]) {
   test(`#9268: a temp name ${label} after the open is refused, and the secret never reaches where the link pointed`, (t) => {
     const file = fresh('gone');
