@@ -23,9 +23,11 @@
    the likeliest refusal (control characters); a UTF-16 count in bash is code nobody asked for. Under a C locale the
    cut is by bytes, so it never exceeds 80 units.
 
-Tests (tools/test-queued-heavy-4977.sh, 217 -> 223): the real folder named with a trailing slash announces; a symlink
+Tests (tools/test-queued-heavy-4977.sh, 217 -> 224): the real folder named with a trailing slash announces; a symlink
 to it announces; with the real folder present, another folder under the same HOME stays quiet; a tab, newline and escape are sent as spaces on one line; under a C locale a line separator, a direction mark and a
 C1 control are too; and every BMP character normalizeLabel itself refuses or reads as a space comes out of
 _qh_board_text as text it accepts, as exactly a space, in a C locale and the computer's UTF-8 one (the list is the board's,
 so a missing entry reds; round 3 found the first version could not run in the harness and ran both passes in one
-locale, and that U+3000 is the one entry [[:cntrl:]] never covers, so it proved little). Each must red when its fix is removed.
+locale, and that U+3000 is the one entry [[:cntrl:]] never covers, so it proved little). Each positive arm must red when its fix is removed (the mutation run measures it); the other-folder arm is a
+negative control, which reds if the comparison matches too broadly. An end-to-end arm sends an NBSP before -x under a
+C locale and expects the leading-dash refusal (round 8).
