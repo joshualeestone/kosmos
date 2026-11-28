@@ -21,24 +21,35 @@ const grok = require('./grokaccounts');
 const { eventually } = require('../test-support/eventually');
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const FAKE = nodePath.join(SANDBOX, 'fake-grok.sh');
+const FAKE = nodePath.join(SANDBOX, 'fake-grok.js');
 fs.writeFileSync(FAKE, [
-  '#!/bin/bash',
-  'printf "\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\nConfirm this code in your browser:\\n\\n  QWER-TYUI\\n\\n"',
-  'case "$FAKE_MODE" in',
-  '  approve) sleep 0.2; mkdir -p "$GROK_HOME/logs"; printf \'{"https://auth.x.ai::u2":{"email":"%s","refresh_token":"NEW"}}\' "$FAKE_EMAIL" > "$GROK_HOME/auth.json"; exit 0 ;;',
-  '  fail) sleep 0.2; exit 1 ;;',
-  '  noauth) sleep 0.2; exit 0 ;;',
-  '  hang) exec sleep 30 ;;',
-  'esac',
+  '#!/usr/bin/env node',
+  "'use strict';",
+  "const fs = require('fs');",
+  // Every write is synchronous, so nothing printed or written is lost when the script exits right after it. A failed
+  // file write is reported on stderr and the script carries on, as a failed bash redirect does.
+  "const say = (s) => fs.writeSync(1, s);",
+  "const put = (file, text) => { try { fs.writeFileSync(file, text); } catch (e) { fs.writeSync(2, String(e.message) + '\\n'); } };",
+  "const home = process.env.GROK_HOME || '';",
+  "say('\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\nConfirm this code in your browser:\\n\\n  QWER-TYUI\\n\\n');",
+  "const mode = process.env.FAKE_MODE;",
+  "if (mode === 'approve') setTimeout(() => {",
+  "  try { fs.mkdirSync(home + '/logs', { recursive: true }); } catch (e) { fs.writeSync(2, String(e.message) + '\\n'); }",
+  "  put(home + '/auth.json', '{\"https://auth.x.ai::u2\":{\"email\":\"' + (process.env.FAKE_EMAIL || '') + '\",\"refresh_token\":\"NEW\"}}');",
+  "  process.exit(0);",
+  "}, 200);",
+  "else if (mode === 'fail') setTimeout(() => process.exit(1), 200);",
+  "else if (mode === 'noauth') setTimeout(() => process.exit(0), 200);",
+  "else if (mode === 'hang') setTimeout(() => process.exit(0), 30000);",
 ].join('\n') + '\n', { mode: 0o755 });
+fs.chmodSync(FAKE, 0o755);   // runnable on the Mac by its mode; Windows runs it by its .js name (PATHEXT)
 
-/* kosmos#8378: FAKE is a #!/bin/bash script that startGrokLogin spawns, so it runs by its shebang line, which Windows
-   cannot do (and a .sh name is not runnable there at all). Signing in again exists on Windows, so the arms that run it
-   skip there until kosmos#9269 gives them a Windows stand-in; the two that fail a rename with chmod skip for that
-   instead. A start refused before anything is spawned needs only a runner Windows counts as runnable: PRESENT. */
+/* kosmos#9269: FAKE is a node script named .js, so it runs on every platform: startGrokLogin starts a .js grok as
+   this node with the script as its first argument (engine/tunnelcommand.js), and Windows counts a .js file as
+   runnable by its extension (PATHEXT) where the Mac needs its 0755 mode. So the arms that sign in again run on
+   Windows too; only the two that fail a rename with chmod skip there, since Windows does not enforce chmod. A start
+   refused before anything is spawned needs only a runner Windows counts as runnable: PRESENT. */
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
-const STANDIN = skipOnWin32('what it checks exists on Windows, but its stand-in grok is a #!/bin/bash script run by its shebang line, which Windows cannot do; kosmos#9269 owes the Windows arm');
 const NO_CHMOD_FAIL = skipOnWin32('what it checks exists on Windows (a rename that fails), but it makes that happen with chmod, which Windows does not enforce; the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const PRESENT = require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), 'grok');
 
@@ -69,7 +80,7 @@ function withMode(mode, email, fn) {
   return fn();
 }
 
-test('sign in again as the same email replaces the live sign-in and makes no second account', { skip: STANDIN }, () => withMode('approve', 'me@example.com', async () => {
+test('sign in again as the same email replaces the live sign-in and makes no second account', () => withMode('approve', 'me@example.com', async () => {
   const live = account('.grok-work');
   const before = grokDirs();
   const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live, label: 'ignored' });
@@ -84,7 +95,7 @@ test('sign in again as the same email replaces the live sign-in and makes no sec
   assert.equal(grok.list().filter((a) => a.email === 'me@example.com').length, 1);
 }));
 
-test('a sign-in as a DIFFERENT email leaves the live account byte for byte', { skip: STANDIN }, () => withMode('approve', 'someone-else@example.com', async () => {
+test('a sign-in as a DIFFERENT email leaves the live account byte for byte', () => withMode('approve', 'someone-else@example.com', async () => {
   const live = account('.grok-swap');
   const before = grokDirs();
   const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
@@ -96,7 +107,7 @@ test('a sign-in as a DIFFERENT email leaves the live account byte for byte', { s
   assert.ok(!grok.list().some((a) => a.email === 'someone-else@example.com'), 'the other sign-in is not left behind as an account');
 }));
 
-test('a failed, empty or cancelled sign-in again never touches the live account', { skip: STANDIN }, async () => {
+test('a failed, empty or cancelled sign-in again never touches the live account', async () => {
   for (const mode of ['fail', 'noauth']) {
     await withMode(mode, 'me@example.com', async () => {
       const live = account('.grok-' + mode);
@@ -129,7 +140,7 @@ test('a failed, empty or cancelled sign-in again never touches the live account'
   });
 });
 
-test('the DEFAULT ~/.grok can be signed in again, and stays the default', { skip: STANDIN }, () => withMode('approve', 'me@example.com', async () => {
+test('the DEFAULT ~/.grok can be signed in again, and stays the default', () => withMode('approve', 'me@example.com', async () => {
   const live = account('.grok');
   const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
   const s = await settled(out.sessionId);
@@ -158,7 +169,7 @@ test('reauthTarget refuses what is not a Grok subscription account with an email
   assert.ok(!grokDirs().some((n) => /^\.grok-work\d/.test(n)), 'no staging slot was made for a refused target');
 });
 
-test('the same email in different capitals is the same account', { skip: STANDIN }, () => withMode('approve', 'Me@Example.COM', async () => {
+test('the same email in different capitals is the same account', () => withMode('approve', 'Me@Example.COM', async () => {
   const live = account('.grok-caps');
   const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
   const s = await settled(out.sessionId);
@@ -175,7 +186,7 @@ test('a symlinked account dir is refused, so the rename cannot write through the
   assert.match(grok.reauthTarget(link).error, /not a Grok account/);
 });
 
-test('a sign-in again the watchdog ends leaves the live account and frees it', { skip: STANDIN }, () => withMode('hang', 'me@example.com', async () => {
+test('a sign-in again the watchdog ends leaves the live account and frees it', () => withMode('hang', 'me@example.com', async () => {
   grok.setGrokTimers({ timeout: 300, forceKill: 200 });
   try {
     const live = account('.grok-slow');
@@ -210,7 +221,7 @@ test('a rename that fails reports it and leaves the live account as it was', { s
 
 /* Review pass 3: a NEW sign-in as someone who already has an account here (a lapsed
    ~/.grok, which first run offers Connect for) refreshes that account, not a second one. */
-test('a new sign-in as an email already here refreshes that account instead of adding one', { skip: STANDIN }, () => withMode('approve', 'SOLO@example.com', async () => {
+test('a new sign-in as an email already here refreshes that account instead of adding one', () => withMode('approve', 'SOLO@example.com', async () => {
   // Its own email: earlier tests leave several me@example.com accounts, which is the no-guess case.
   const live = account('.grok', JSON.stringify({ 'https://auth.x.ai::u1': { email: 'solo@example.com', expires_at: '2000-01-01T00:00:00Z' } }));
   const before = grokDirs();
@@ -225,7 +236,7 @@ test('a new sign-in as an email already here refreshes that account instead of a
   fs.rmSync(live, { recursive: true, force: true });
 }));
 
-test('two accounts with that email, or one being signed in, leave the new sign-in as its own account', { skip: STANDIN }, async () => {
+test('two accounts with that email, or one being signed in, leave the new sign-in as its own account', async () => {
   await withMode('approve', 'twice@example.com', async () => {
     const both = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'twice@example.com', refresh_token: 'OLD' } });
     const a = account('.grok-twa', both);
@@ -258,7 +269,7 @@ test('two accounts with that email, or one being signed in, leave the new sign-i
 
 /* Review pass 4: a typed name asks for a separate account; a merge whose rename fails keeps
    the finished sign-in as its own account instead of throwing it away. */
-test('a NAMED new sign-in is never merged, even with an email already here', { skip: STANDIN }, () => withMode('approve', 'named@example.com', async () => {
+test('a NAMED new sign-in is never merged, even with an email already here', () => withMode('approve', 'named@example.com', async () => {
   const there = account('.grok-namedthere', JSON.stringify({ 'https://auth.x.ai::u1': { email: 'named@example.com', refresh_token: 'OLD' } }));
   const out = grok.startGrokLogin({ grokBin: FAKE, label: 'second' });
   const s = await settled(out.sessionId);
