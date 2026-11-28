@@ -194,6 +194,11 @@ test('kosmos#8048 review 6: a skill is its whole folder; other hook types, match
     fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `echo ${arg}` }] }] } }));
   }
   assert.deepEqual(carry.losses(a, b, { home }).hooks, [], 'the folder spelled ~/.claude-a and $CLAUDE_CONFIG_DIR read as different');
+  // kosmos#9273 CONTROL: one spelling for the separators must not make every argument the same: another file is a loss.
+  const c = path.join(home, '.claude-c');
+  fs.mkdirSync(c, { recursive: true });
+  fs.writeFileSync(path.join(c, 'settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo $CLAUDE_CONFIG_DIR/other' }] }] } }));
+  assert.deepEqual(carry.losses(a, c, { home }).hooks, ['echo ~/.claude-a/state'], 'CONTROL: a hook naming another file read as the same');
   // A source script that is there but cannot be read is "cannot tell", not "does not run here".
   if (process.getuid && process.getuid() !== 0) {
     const s = folder({ hooks: ['bash $CLAUDE_CONFIG_DIR/hooks/locked.sh'] });
