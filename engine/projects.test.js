@@ -2821,8 +2821,8 @@ test('the temp-folder refusal fires for a real store and not for a temp store', 
 
   // A temp folder entering a REAL store is refused: this is the leak.
   assert.equal(projects.tmpFolderRefused(tmpFolder, realStore), true);
-  // /tmp is a temp root too.
-  assert.equal(projects.tmpFolderRefused('/tmp/anything', realStore), true);
+  // /tmp is a temp root too, on the Mac and Linux; on Windows it would be a person's own C:\tmp (kosmos#9267).
+  assert.equal(projects.tmpFolderRefused('/tmp/anything', realStore), process.platform !== 'win32');
   // A real folder entering a real store is fine.
   assert.equal(projects.tmpFolderRefused(realFolder, realStore), false);
   // A temp folder is expected when the STORE is itself temp (a test/sandbox):

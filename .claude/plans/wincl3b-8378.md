@@ -86,3 +86,6 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
 - Review 4: heavy-gate's reason says what each skipped arm does (ps and lsof, /tmp fixtures, or the script run against
   this host); redisable's names reapplyAtBoardStart's timer; the #9267 comment sits on projects.test.js in ALSO.
   Deferred, already measured: the case arm ran on Windows (run 46136406318) and can fail there (run 46136503594).
+- Review 5: /tmp is a temp root only off Windows; the "/tmp is a temp root too" assertion now says true on the Mac and
+  Linux and false on Windows. Owed, not done here: one full run of the Windows job with these files in it (its
+  33-minute start budget), which the windows check on this branch's PR is.
