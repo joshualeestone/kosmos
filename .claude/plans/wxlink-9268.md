@@ -60,7 +60,8 @@ the in-place fallback (safe, not atomic). GitHub's Windows runner and this Mac a
 - Review 3's mutants, each now failing an arm: the cleanup guard replaced with `true` (the re-pointed-link arm: it
   deleted somebody's file) and `refuse = gone` replaced with `false` (the removed-name arm: the secret reached where
   the link pointed). Removing the "not a regular file" rule fails no arm, on the Mac or on Windows (run 46120311980,
-  a never-merged mutant build): a folder at the name has another inode, so the identity rule refuses it first. The
+  a never-merged mutant build): a folder at the name has more than one link on the Mac and another inode on both,
+  so the link-count or identity rule refuses it first. The
   rule stays for a mount whose identities cannot be read, where no test can reach it, and the code says so.
 - Accepted residue, stated in the code: the check runs once, right after the open, so a name swapped between it and
   the rename still goes over the config. That window is the rename's own (it takes a path) and predates #9268.

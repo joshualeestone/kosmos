@@ -151,8 +151,8 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *
  * It refuses only on POSITIVE evidence that the name is not the file the fd holds, never because something could not
  * be read, so a mount whose stat answers are unusual (a share, a FUSE file system) still writes as before:
- *   - the name is gone, or is a link, or is not a regular file (where identities read, the third rule below refuses a
- *     folder or other file first, measured on the Mac and on Windows; this one is for a mount where they do not);
+ *   - the name is gone, or is a link, or is not a regular file (where identities read, the two rules below refuse a
+ *     folder first, measured on the Mac and on Windows; this one is for a mount where they do not);
  *   - the name has more than one hard link (a second name for the file would keep the secret readable there);
  *   - both device and inode are readable and nonzero on both sides, and differ (a name swapped after the open).
  * Compared as bigints, so a large Windows file index is exact.
