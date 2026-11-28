@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 /**
  * kosmos#5293: an agent proposes an addition to another agent's instructions; the person applies it on the page.
  * One pending per target (a second is refused, never replaced); apply appends under who asked and when; undo puts the
@@ -599,7 +600,7 @@ test('review 11: an asker name that ARRIVES with a lone surrogate still leaves t
 });
 
 /* Review 12 (opus, blind). */
-test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', () => {
+test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', { skip: NO_CHMOD_READ }, () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   unrecordedApply('sally');

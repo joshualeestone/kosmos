@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 /**
  * kosmos#6713: a board started from a source checkout or a worktree that adds or reconnects an account in the REAL
  * home must leave that account's Claude settings alone (its hooks and statusline would name its own throwaway
@@ -69,7 +70,7 @@ test('#6713: the refusal pins its wording, and promises no later setup', () => {
   assert.equal(installroot.NOT_INSTALLED, 'this board is not the installed Kosmos (a source checkout, a worktree or a test install), so it leaves this account\'s Claude settings alone');
 });
 
-test('#6713: installRoot on a real folder layout uses identity: the default root, spelled through a link, is the default', (t) => {
+test('#6713: installRoot on a real folder layout uses identity: the default root, spelled through a link, is the default', { skip: NO_SYMLINK }, (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-ir-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const root = path.join(home, '.local', 'share', 'kosmos');
@@ -118,7 +119,7 @@ test('#6713: a source board adding an account in the real home leaves its settin
   assert.equal(fs.readFileSync(settings, 'utf8'), before, 'the installed Kosmos\'s wiring is untouched, byte for byte');
 });
 
-test('#6713: the real home under another spelling (a link to it) is still the real home: no sandbox, nothing written', (t) => {
+test('#6713: the real home under another spelling (a link to it) is still the real home: no sandbox, nothing written', { skip: NO_SYMLINK }, (t) => {
   const home = realHome(t);
   const alias = home + '-alias';
   fs.symlinkSync(home, alias);
@@ -129,7 +130,7 @@ test('#6713: the real home under another spelling (a link to it) is still the re
   assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: '/x' }), null, 'CONTROL: installed writes');
 });
 
-test('#6713: an account folder that is a link into the real home is in the real home, even spelled under a sandbox', (t) => {
+test('#6713: an account folder that is a link into the real home is in the real home, even spelled under a sandbox', { skip: NO_SYMLINK }, (t) => {
   const home = realHome(t);
   const real = path.join(home, '.claude-account-f6713');
   fs.mkdirSync(real, { recursive: true });

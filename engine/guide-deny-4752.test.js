@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 /**
  * #4752: the setup guide's deny rules name every folder of Kosmos's where a board token can sit, not only
  * the guide's own data folder: the older data folder (store.LEGACY_APP) and, for a guide in a named world,
@@ -268,7 +269,7 @@ test('#4752 the older folder is worked out for the home the rules were asked abo
   assert.ok(out.rules.includes(`Read(${abs(out.want)}/**)`), 'the older folder of the home asked about is not denied');
 });
 
-test('#4752 a rule that would take in the guide\'s own folder (an older folder that is a link to its parent) is left out, and said', () => {
+test('#4752 a rule that would take in the guide\'s own folder (an older folder that is a link to its parent) is left out, and said', { skip: NO_SYMLINK }, () => {
   const home = path.join(SANDBOX, 'own-home');
   const guide = path.join(home, 'workers', 'guide');
   fs.mkdirSync(guide, { recursive: true });
@@ -288,7 +289,7 @@ test('#4752 a rule that would take in the guide\'s own folder (an older folder t
   assert.ok(deny.includes(`Read(//${path.join(SANDBOX, 'data-own').replace(/^\/+/, '')}/**)`), 'CONTROL: the ordinary data folder rule is gone');
 });
 
-test('#4752 the own-folder check leaves the rules from before #4752 alone, and catches a linked store entry', () => {
+test('#4752 the own-folder check leaves the rules from before #4752 alone, and catches a linked store entry', { skip: NO_SYMLINK }, () => {
   /* A workers folder inside the data folder: the long-standing data folder rule covers the guide, and stays
      (it is not this change's to drop). A linked entry in the default world's store pointing at the guide's
      parent is this change's, and is left out. */
@@ -326,7 +327,7 @@ test('#4752 a base whose path the rule syntax would misread gets no rules, and t
   assert.equal(said.length, 2, 'the two paths left out were not both said: ' + said.join(' | '));
 });
 
-test('#4752 a rule refused because it takes in the guide\'s folder stays out on a rewrite, even if an earlier start wrote it', () => {
+test('#4752 a rule refused because it takes in the guide\'s folder stays out on a rewrite, even if an earlier start wrote it', { skip: NO_SYMLINK }, () => {
   const root = path.join(SANDBOX, 'own-3');
   const guide = path.join(root, 'workers', 'guide');
   fs.mkdirSync(guide, { recursive: true });

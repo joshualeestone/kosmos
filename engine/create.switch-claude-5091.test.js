@@ -52,7 +52,9 @@ function claudeAccount(label, email, shared) {
   const dir = nodePath.join(HOME, `.claude-${label}`);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: email } }));
-  if (shared) fs.symlinkSync(SHARED_PROJECTS, nodePath.join(dir, 'projects'));
+  /* 'junction': on Windows a folder link without elevation (Node reads it as a symbolic link, as accounts.js asks);
+     macOS and Linux ignore the type (kosmos#8378). */
+  if (shared) fs.symlinkSync(SHARED_PROJECTS, nodePath.join(dir, 'projects'), 'junction');
   else fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
   return dir;
 }

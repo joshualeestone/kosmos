@@ -138,20 +138,20 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'geminidirs-5812.test.js',   // kosmos#8378: the Gemini workspace folders and trust file, Windows turnFolders included; only its one file-mode check skips there (POSIX modes)
   'guardstate-5668.test.js',   // kosmos#8378: the token-only guard's per-agent record; only its file-mode check skips there (POSIX modes), and the deny rule is spelled with the guard's own Windows form
   'feedbackpull-fast-9180.test.js',   // kosmos#8378: kosmos feedback pull's index; only its file-mode test skips there (POSIX modes)
-  'instructionreread-changes-7149.test.js',   // kosmos#8378: the instruction changes file; its file-mode checks (POSIX modes) and its double-quote folder arm (a Windows file name cannot hold one) skip there
-  'instructionadds.test.js',   // kosmos#8378: the instruction additions store; its file-mode test skips there (POSIX modes), and its unreadable-store arm (chmod 0o000; a Windows arm is owed on kosmos#9269)
+  'instructionreread-changes-7149.test.js',   // kosmos#8378: the instruction changes file; its file-mode checks (POSIX modes), its double-quote folder arm (a Windows file name cannot hold one) and its planted-link arm (symlinks need elevation) skip there
+  'instructionadds.test.js',   // kosmos#8378: the instruction additions store; its file-mode test skips there (POSIX modes), and its two unreadable-store arms (chmod 0o000; owed Windows arms, kosmos#9269)
   'geminisettings.wrote-8362.test.js',   // kosmos#8378: the Gemini settings write record and its undo; its file-mode checks skip there (POSIX modes), and its unreachable-folder arm (chmod 0o000; a Windows arm is owed on kosmos#9269)
-  'instructions.test.js',   // kosmos#8378: the instruction file's read and save; its file-mode tests (POSIX modes) and its two fifo arms (Windows has no fifos) skip there, and its home is the sandbox through USERPROFILE
-  'enrolsign-7116.test.js',   // kosmos#8378: the enrolment join codes, review and coordinator arms on Windows; the arms that run a stand-in kosmos-se (the Mac's Secure Enclave signer) by its shebang line, and its file-mode check, skip there
+  'instructions.test.js',   // kosmos#8378: the instruction file's read and save, its home the sandbox through USERPROFILE; its file-mode tests (POSIX modes), its three fifo arms (Windows has no fifos), its symlink arms (symlinks need elevation) and its two chmod 0o000 arms (owed Windows arms, kosmos#9269) skip there
+  'enrolsign-7116.test.js',   // kosmos#8378: the enrolment join codes, review and coordinator arms on Windows; the arms that need kosmos-se (the Mac's Secure Enclave signer), its file-mode check, and the unreadable or linked join-codes arm (chmod 0o000, a symlink) skip there
   'handoversign-8819.test.js',   // kosmos#8378: the hand-over bytes and their refusals on Windows; the arms that run a stand-in kosmos-se (the Mac's Secure Enclave signer) by its shebang line skip there
   'museinstall.test.js',   // kosmos#8378: the Muse Code install button's seams with a launcher Windows counts as runnable (writeRunnerStub). No win32 branch, so this listing is optional
-  'muserun.test.js',   // kosmos#8378: Muse turn parsing and onModel with a fake runMuse; its process arms already skip off a Mac. No win32 branch, so this listing is optional
+  'muserun.test.js',   // kosmos#8378: Muse turn parsing and onModel with a fake runMuse; its process arms already skip off a Mac, and its linked-workspace arm skips on Windows (symlinks need elevation)
   'musestatus.test.js',   // kosmos#8378: Muse sign-in state; only the chmod 0o000 unread-file half skips there (POSIX modes)
   'create.spoken-name-1367.test.js',   // kosmos#8378: a refusal speaks the display name, with runner stubs Windows counts as runnable and the stand-in Task Scheduler
   'create.switch-account-1373.test.js',   // kosmos#8378: switching an agent between accounts, with runner stubs Windows counts as runnable
   'create.setprovider-google-xai-3296.test.js',   // kosmos#8378: switching to and from Gemini, Grok and Antigravity, with runner stubs Windows counts as runnable
   'create.setprovider-writes-2811.test.js',   // kosmos#8378: the exact set of paths setProvider writes, the Windows startup task sentence included; the two arms that fail a write with chmod 0500 skip there (a Windows arm is owed on kosmos#9269)
-  'create.switch-claude-5091.test.js',   // kosmos#8378: switching to Claude onto the main or a named account, with runner stubs Windows counts as runnable
+  'create.switch-claude-5091.test.js',   // kosmos#8378: switching to Claude onto the main or a named account, with runner stubs Windows counts as runnable and a junction for the shared history (no elevation needed)
   'create.runner-dir-1616.test.js',   // kosmos#8378: the runnable-binary gate (a folder, a stripped file, a real stub); the two tmux-path arms skip there (Windows runs agents without tmux)
   'create.qwen-5977.test.js',   // kosmos#8378: the Qwen account checks; the arms that switch an agent onto Qwen skip there (Kosmos refuses a Qwen agent on Windows, #5977 r3)
   'create.blockdrop-1673.test.js',   // kosmos#8378: a block dropped by the byte cap is reported, with runner stubs and the stand-in Task Scheduler
@@ -168,21 +168,21 @@ const ALSO = ['loginexpiry-file-9097.test.js',   // kosmos#9097: the off-macOS l
   'feedback.triagedir-6265.test.js',   // kosmos#8378: triage's folder notes, with the --dir path as shellArg quotes it
   'filenotices-scale-8464.test.js',   // kosmos#8378: the file-owner notice's change scale on Windows; only the FIFO arm skips (Windows has no mkfifo)
   'filewho-7989.test.js',   // kosmos#8378: kosmos project who on Windows; the mkfifo arm and the macOS mount-path arm skip there (a UNC arm is owed on kosmos#9269)
-  'handoff.test.js',   // kosmos#8378: kosmos handoff's facts on Windows; only the git-erroring arm skips there (its stub git is a #!/bin/sh script found on PATH by name; a Windows arm is owed on kosmos#9269)
+  'handoff.test.js',   // kosmos#8378: kosmos handoff's facts on Windows; the git-erroring arm (its stub git is a #!/bin/sh script on PATH) and the unreadable-state arm (chmod 0o000) skip there, both owed Windows arms on kosmos#9269
   'homescan-5870.test.js',   // kosmos#8378: the per-pass read cache on Windows; the arms that read hook scripts through the macOS guard skip there (the Windows guard is tokenguard.win32-5664.test.js)
   'machine.agentautostart-3182.test.js',   // kosmos#8378: the autostart row's aggregation and the Windows omission; only the arm that reads launchctl through the macOS seam (by process.getuid) skips there
-  'messages.test.js',   // kosmos#8378: direct messages on Windows; only the read-only-Inbox hard-link arm skips (it makes the Inbox read-only with chmod; a Windows arm is owed on kosmos#9269)
+  'messages.test.js',   // kosmos#8378: direct messages on Windows; the planted-symlink arm (symlinks need elevation) and the read-only-Inbox hard-link arm (it makes the Inbox read-only with chmod; owed on kosmos#9269) skip there
   'openaiaccounts.test.js',   // kosmos#8378: the account list, names and live check run on Windows; the add-by-key arms skip there (their stand-in codex is a #!/bin/bash script, kosmos#9269 owes them a Windows one)
   'openaiaccounts.chatgpt-driver-2338.test.js',   // kosmos#8378: its refusal arms run on Windows; the driver arms skip there (stand-in codex is a #!/bin/bash script, kosmos#9269), and the SIGTERM-ignoring arm because Windows has no signals
   'grokaccounts.reauth-3391.test.js',   // kosmos#8378: reauthTarget runs on Windows; the sign-in-again arms skip there (stand-in grok is a #!/bin/bash script), the two that fail a rename with chmod (both owed Windows arms, kosmos#9269), and the symlink refusal (symlinks need elevation)
   'grokaccounts.reauthcancel-6000.test.js',   // kosmos#8378: the premise arm runs on Windows with a runner stub; the rest skip there (stand-in grok is a #!/bin/bash script and three fail a move or delete with chmod, owed on kosmos#9269; three trap SIGTERM)
   'grokaccounts.subscription-3391.test.js',   // kosmos#8378: identity, checkLive and the refusal arms run on Windows (a runner stub where a start is refused); the driver arms skip there (stand-in grok is a #!/bin/bash script, kosmos#9269)
-  'installroot-6713.test.js',   // kosmos#8378: the install rule (leaveAlone, ensureStatusLine) with a stand-in real home made through USERPROFILE; the install/setup.sh arms skip there (the Mac and Linux installer, two of them through /bin/sh)
+  'installroot-6713.test.js',   // kosmos#8378: the install rule (leaveAlone, ensureStatusLine) with a stand-in real home made through USERPROFILE; the install/setup.sh arms (the Mac and Linux installer) and the three arms that make a symlink (symlinks need elevation) skip there
   'loginended-9031.test.js',   // kosmos#8378: the ended-login readers and the probe folder run on Windows (the HOME arm with USERPROFILE); the two arms that fake tmux with a #!/bin/sh script skip there
   'loginexpiry-sandbox-8050.test.js',   // kosmos#8378: the browser-checks login date and the sandbox-prefix rule run on Windows; the Keychain CONTROL skips there, and so do the arms that check only an absence (off macOS the reader answers null either way, so without the control they prove nothing)
   'oldsigninline-9038.test.js',   // kosmos#8378: the old sign-in line through the real snapshot() runs on Windows; the readPaneLogin arm skips there (tmux and ps stand-ins; Kosmos runs no tmux on Windows)
   'feedbacksend.test.js',   // kosmos#8378: sending feedback on Windows; the arm that blocks saving a mark with chmod (owed a Windows arm, kosmos#9269) and the fixed POSIX temp-root arm (sandboxed() has none there by design) skip
-  'guide-deny-4752.test.js',   // kosmos#8378: the guide's deny rules on Windows; the two arms that read rules built from this host's real folders back as absolute POSIX paths skip there
+  'guide-deny-4752.test.js',   // kosmos#8378: the guide's deny rules on Windows; the two arms that read rules back as absolute POSIX paths, and the three that make a symlink (symlinks need elevation), skip there
   'machine.agentautostart-4479.test.js'];   // kosmos#8378: the Windows autostart row runs there (through platform win32); the arms that drive the macOS arm through launchctl skip
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.

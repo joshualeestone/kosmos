@@ -1,5 +1,7 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
+const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 /**
  * kosmos#7116 step 2, the caller (engine/enrolsign.js): finding kosmos-se in the app's own bundle, the inviter's kept
  * join codes, reviewing an enrolment with them, and approving it. The Enclave is stood in for by a small helper script
@@ -355,7 +357,7 @@ test('#7116 step 2 caller review 2: one invite enrols one computer; the queue re
   assert.doesNotMatch(err.message, /\/Users\//);
 });
 
-test('#7116 step 2 caller review 2: a store that cannot be READ is never set aside; a link is refused, not followed', () => {
+test('#7116 step 2 caller review 2: a store that cannot be READ is never set aside; a link is refused, not followed', { skip: NO_SYMLINK || NO_CHMOD_READ }, () => {
   const root = fresh(); const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
   const file = path.join(root, 'devkey-join-codes.json');

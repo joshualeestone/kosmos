@@ -1,6 +1,7 @@
 'use strict';
 /* kosmos#7149: a re-read notice says what changed, not only which section. node --test engine/instructionreread-changes-7149.test.js */
 require('../test-support/tmpscope');
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -143,7 +144,7 @@ test('the board pass is handed its hooks (read as source; the report route is te
   assert.match(src, /prepareChanges: \(session\) => ir\.prepareChanges\(session\),\s*remember: \(session, text\) => ir\.remember\(session, text\),\s*dropChanges: \(session\) => ir\.dropChanges\(session\),/);
 });
 
-test('review 1 BLOCKER: a link planted at the changes file is replaced, never followed; both new files are 0600', () => {
+test('review 1 BLOCKER: a link planted at the changes file is replaced, never followed; both new files are 0600', { skip: NO_SYMLINK }, () => {
   const f = agentFile('cal', AFTER);
   const outside = path.join(SANDBOX, 'outside.txt');
   fs.writeFileSync(outside, 'untouched');

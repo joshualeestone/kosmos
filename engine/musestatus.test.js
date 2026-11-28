@@ -230,6 +230,10 @@ test('#3939 3c-1: slice 3a\'s single mark file (an ISO time, or none) is still r
   fs.writeFileSync(muse.signedInMarker(), JSON.stringify({ at: new Date(T + 30).toISOString() }) + '\n');
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an old mark after the refusal was not believed');
   fs.writeFileSync(muse.signedInMarker(), '{}\n');   // no time at all: its mtime, which is now, after T+20
+  /* kosmos#8378: a second in the past, still long after T+20. Just after a write, Windows can report an mtime a
+     millisecond past Date.now(), and legacySign ignores a time in the future (2 of 8 runs there failed for that). */
+  const past = new Date(Date.now() - 1000);
+  fs.utimesSync(muse.signedInMarker(), past, past);
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an old mark with no time was not read');
   clean();
 }));

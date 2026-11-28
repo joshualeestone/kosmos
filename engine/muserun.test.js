@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 /*
  * #3939 slice 2: engine/muserun.js. A fake `muse` in a sandboxed home prints events in the shape
  * Homer captured on card #3939; the real Muse Code is never run here.
@@ -40,7 +41,7 @@ function fakeMuse(body) {
   fs.writeFileSync(BIN, '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
 }
 
-test('#3939: turnArgs passes the workspace (real path) on every turn, the session, and the prompt last', () => {
+test('#3939: turnArgs passes the workspace (real path) on every turn, the session, and the prompt last', { skip: NO_SYMLINK }, () => {
   const link = path.join(SANDBOX, 'via-link');
   try { fs.symlinkSync(WORK, link); } catch { /* exists */ }
   const t = run.turnArgs({ workspace: link, sessionId: SID, prompt: '-x looks like a flag' });

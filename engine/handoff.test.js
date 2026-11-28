@@ -12,6 +12,7 @@
  * And the whole point of the command: it changes no state.
  */
 require('../test-support/tmpscope');   // #4273: first, so every temp dir here is contained and removed
+const NO_CHMOD_READ = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but it makes a file unreadable with chmod 0o000, which Windows does not enforce (there it only marks the file read-only, so the arm would pass by another rule); the Windows arm is owed on kosmos#9269');   // kosmos#8378
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -311,7 +312,7 @@ test('#6506 axis 5: a path with a newline or backtick cannot inject lines or bre
 
 // ── #6506 follow-ups (Raiden's #6532 notes 1 and 2) ────────────────────────────
 
-test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', () => {
+test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', { skip: NO_CHMOD_READ }, () => {
   const session = 'handoffunread';
   const rec = selfreport.record(session, { state: 'working' });
   assert.ok(rec.recorded, 'precondition: self-report recorded: ' + (rec.because || ''));
