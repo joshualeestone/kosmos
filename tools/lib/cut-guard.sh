@@ -1869,6 +1869,10 @@ _kosmos_beside_lock() {
         tk="$$.$RANDOM$RANDOM"
         if { : > "$d.break/$tk"; } 2>/dev/null && ! _kosmos_beside_break_mine "$d.break" "$tk"; then
           rm -f "$d.break/$tk" 2>/dev/null || true   # review 8: another taker wrote into this dir too: both back off
+          # kosmos#9300: and the last one out removes the dir. rmdir takes only an EMPTY dir, so while the other
+          # taker's token is there this does nothing and that taker removes it; without it the empty dir stayed and no
+          # writer could break a stale lock for 60 s (CI 11-28: three lock checks failed together).
+          rmdir "$d.break" 2>/dev/null || true
         elif [ -e "$d.break/$tk" ]; then
           h1="$(cat "$d/pid" 2>/dev/null)"
           if _kosmos_beside_stale_h "$d" "$h1" && [ "$(cat "$d/pid" 2>/dev/null)" = "$h1" ] \

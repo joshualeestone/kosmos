@@ -1723,6 +1723,21 @@ KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end reused-pid
 mkdir -p "$MB/beside-runs.log.lock"; echo 0 > "$MB/beside-runs.log.lock/pid"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_note_beside_run end pid-zero
 { [ ! -e "$MB/beside-runs.log.lock" ] && grep -q '^E pid-zero ' "$MB/beside-runs.log"; } && pass "#9139 a lock naming pid 0 is broken at once" || fail "#9139 a lock naming pid 0 was kept"
+# #9300 (CI 11-28 09:59 UTC, the three checks above failed together, beside-runs.log.lock.break left behind): two
+# takers that saw each other's token both backed off, each removing only its own token, so the EMPTY break dir stayed
+# and no writer could break a stale lock until it was 60 s old. Forced here: the first ownership check says "not only
+# me" (as when another taker's token landed), then the real check runs. The writer must break the lock on its next
+# poll and leave no break dir.
+eval "$(declare -f _kosmos_beside_break_mine | sed '1s/_kosmos_beside_break_mine/_bm9300_real/')"
+_bm9300_n=0
+_kosmos_beside_break_mine() { _bm9300_n=$((_bm9300_n + 1)); [ "$_bm9300_n" = 1 ] && return 1; _bm9300_real "$@"; }
+rm -rf "$MB/beside-runs.log.lock.break"; mkdir -p "$MB/beside-runs.log.lock"; echo 0 > "$MB/beside-runs.log.lock/pid"
+KOSMOS_RUN_MARKER_DIR="$MB" KOSMOS_BESIDE_LOCK_TRIES=5 kosmos_note_beside_run end backoff-9300
+{ [ "$_bm9300_n" -ge 2 ] && [ ! -e "$MB/beside-runs.log.lock" ] && [ ! -e "$MB/beside-runs.log.lock.break" ] && grep -q '^E backoff-9300 ' "$MB/beside-runs.log"; } \
+  && pass "#9300 a taker that backs off removes the empty break dir, so the next poll breaks the stale lock" \
+  || fail "#9300 a backed-off taker left the break dir (checks $_bm9300_n; left: $(ls "$MB" | grep lock | tr '\n' ' '))"
+eval "$(declare -f _bm9300_real | sed '1s/_bm9300_real/_kosmos_beside_break_mine/')"; unset -f _bm9300_real
+rm -rf "$MB/beside-runs.log.lock" "$MB/beside-runs.log.lock.break"; rm -f "$MB"/beside-runs.log.pending.* 2>/dev/null
 # A .folding. file (a fold claimed it and was killed before reading it) is read by the reader and folded once 60 s old.
 : > "$MB/beside-runs.log"; printf 'S fz %s claimed-run\n' "$now9139" > "$MB/beside-runs.log.folding.TESTCLAIM"
 KOSMOS_RUN_MARKER_DIR="$MB" kosmos_beside_runs_since 0 | grep -qF "claimed-run (fz)" && pass "#9139 the reader names a line in a .folding. file" || fail "#9139 a .folding. line was not read"
