@@ -283,14 +283,16 @@ test('a Codex agent: commands in its exec scripts, files from patches that compl
     call('10:05', 'c1', 'await tools.exec_command({cmd:"rm -rf secret"}); await tools.exec_command({cmd:"ls"});'),
     out('10:05', 'c1', 'Script completed\nWall time 1 seconds'),
     /* #9263: a path with a backslash in it, as a Windows Codex writes one, read whole on any host. */
-    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: lib\\deep.js')),
+    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md', 'Update File: lib\\deep.js', 'Update File: .')),
     out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
     /* #9263: single-backslash paths (String.raw) cannot be trusted whole, so they are left out, never shown as `C:`,
-       the folder, a name with a tab in it (`\t` from `C:\tools.js`), or the `src` a raw `src\new.md` stops at. */
+       the folder (`\U`, `\t` and the like are escapes a path is not trusted to mean), or the `src` a raw `src\new.md`
+       stops at. */
     call('10:12', 'c2b', 'await tools.apply_patch({patch:String.raw`*** Begin Patch\n*** Update File: C:\\Users\\kay\\cut.js\n+x\n*** Update File: C:\\tools.js\n+x\n*** Update File: src\\new.md\n+x\n*** End Patch`});'),
     out('10:12', 'c2b', 'Script completed\nWall time 1 seconds'),
-    /* #9263: an ordinary escape in a quoted string is decoded. */
-    call('10:14', 'c2c', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: it\\\'s.md\\n+x\\n*** End Patch"});'),
+    /* #9263: an ordinary escape in a quoted string is decoded; one that decodes to a control character (`\u0009`) is
+       never a real file name, and a path naming the agent's own folder (`.`, in c2) is never listed as a file. */
+    call('10:14', 'c2c', 'await tools.apply_patch({patch:"*** Begin Patch\\n*** Update File: it\\\'s.md\\n+x\\n*** Update File: tab\\u0009.md\\n+x\\n*** End Patch"});'),
     out('10:14', 'c2c', 'Script completed\nWall time 1 seconds'),
     call('10:20', 'c3', patch('Update File: refused.md')),
     out('10:20', 'c3', 'Script failed: patch did not apply'),

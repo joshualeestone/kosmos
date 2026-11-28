@@ -315,6 +315,10 @@ async function claudeWork(dir, holds) {
  *     replace are a file edited when their status is success. A reply written twice is read once per call id, keeping
  *     the latest status.
  */
+const CODEX_COMMAND_FUNCS = new Set(['shell', 'exec_command', 'container.exec']);
+const GEMINI_EDIT_TOOLS = new Set(['write_file', 'replace']);
+const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
+
 /* #9263: a JavaScript string's text decoded, for a path read out of a Codex exec script. Null when the path cannot be
    trusted whole: an escape with no special meaning (`\U`) is legal JavaScript, but in a path it is far likelier a single
    backslash written raw (String.raw) than a meant identity escape, so it is treated as one; and a decoded control
@@ -335,10 +339,6 @@ function decodeJsEscapes(text) {
   });
   return bad || /[\x00-\x1f]/.test(out) ? null : out;
 }
-
-const CODEX_COMMAND_FUNCS = new Set(['shell', 'exec_command', 'container.exec']);
-const GEMINI_EDIT_TOOLS = new Set(['write_file', 'replace']);
-const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
 
 async function providerWork(runner, dir, holds) {
   const up = require('./usageproviders');
@@ -397,7 +397,7 @@ async function providerWork(runner, dir, holds) {
             const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ((?:\\[^nr\n\r]|[^\n\r\\"])+)/g)]
               /* A path line ends where the next patch line begins (`+ - @ *` or a space) or the string ends. A "newline"
                  followed by anything else was the middle of a raw path (`src\new.js` stops at `src`), so it is left out. */
-              .filter((x) => /^(?:(?:\\r)?\\n|\r?\n)?(?:[-+@* "`]|$)/.test(src.slice(x.index + x[0].length)))
+              .filter((x) => /^(?:(?:\\r)?\\n|\r?\n)?(?:[-+@* "'`]|$)/.test(src.slice(x.index + x[0].length)))
               .map((x) => decodeJsEscapes(x[1])).filter((f) => f !== null).map((f) => f.trim()).filter(Boolean)
               /* Never the agent's own folder as an edited file: no patch line names it, so one that resolves there was
                  misread (#9263: `C:` resolves to the folder on Windows). */
