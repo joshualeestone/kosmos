@@ -5,8 +5,8 @@
 **Change.** A third branch, keyed on jobFor's win32 shape (a task label, no plist, no unit) and passing create.cleanName(key) as teardown does, with the same rule as the other two: only after the teardown fully landed, only a task that is ours, and best effort. It calls `win32job.remove(create.cleanName(key), job.worldId)` (`/Delete /F`; a task already gone counts as removed). engine/disconnect-agent.test.js joins the Windows job (ALSO), and gains an arm that checks the rule on every platform (a stubbed teardown, win32job's runner recording /Delete): a partial teardown keeps the task, a full one deletes it, a padded name deletes the task teardown acted on.
 
 **Measured.**
-- GitHub windows-latest: disconnect-agent 8/8 three times with the new arm (run 46124947656; 7/7 x3 before it, run 46124653940). At the head before this change it was 4 pass, 3 fail (run 46120990799), on the three undo arms the card names.
-- On this Mac, the 17 test files touching discover or disconnect pass 345/345, and windows-tests-1777 passes 24/24.
+- GitHub windows-latest, on this head's test file: disconnect-agent 8/8 three times (run 46125061954, head a33eb51dca plus the measurement tool). Earlier runs: 7/7 x3 before the new arm (46124653940). At the head before this change it was 4 pass, 3 fail (run 46120990799, branch icecreamkitty-c2-8378-never-merge; the measurement job always reports success, and the per-file WINCAND line holds the counts), on the three undo arms the card names.
+- On this Mac, the 17 test files touching discover or disconnect pass 346/346 on the final head, and windows-tests-1777 passes 24/24.
 
 **Rejected.** Making remove() delete the task. It deliberately keeps the task for Restore, which re-enables it; only an undo has no Restore.
 
