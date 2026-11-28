@@ -34,6 +34,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+/* kosmos#9273: on Windows a path has two separators. `~/.claude-a` expanded by string keeps its "/", while
+   path.resolve gives "C:\...\.claude-a", so the folder was never found in a hook written with ~ and the hook read as
+   a loss. When the host's separator is "\", both sides of each comparison use "/"; elsewhere nothing changes (a "\" is
+   a filename character there). */
+const oneSep = path.sep === '\\' ? (s) => s.replace(/\\/g, '/') : (s) => s;
+
 /* The folder an account is, or null for the default account (accounts.js: unset CLAUDE_CONFIG_DIR is ~/.claude). */
 function folderOf(dir, home = os.homedir()) {
   return typeof dir === 'string' && dir ? dir : path.join(home, '.claude');
@@ -259,8 +265,8 @@ function hookEntries(dir, home, project) {
           const xhead = /^(bash|sh|zsh|dash|node|python3?|pwsh|powershell)$/.test(words[0].trim().split(/[\\/]/).pop()) ? 1 : 0;
           const script = scripts.length === 1 ? scripts[0] : (!scripts.length && words[xhead] && /[\\/~$]/.test(words[xhead]) ? words[xhead] : null);
           const hidden = h.args.some((x) => String(x) !== script && /\s/.test(String(x)) && looksLikePath(String(x)));
-          const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir))
-            .split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
+          const oneX = (x) => oneSep(x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir)))
+            .split(oneSep(path.resolve(dir))).join('<CFG>').split(oneSep(home)).join('<HOME>');
           const id = script ? script.trim().split(/[\\/]/).pop() : (scripts[0] ? scripts[0].trim().split(/[\\/]/).pop() : words.join(' '));
           /* Review 3: as in the shell form, a bare name as the command itself is looked up on PATH. */
           const onPath = !!script && script === words[0] && !/[\\/]/.test(script.trim());
@@ -298,8 +304,8 @@ function hookEntries(dir, home, project) {
         /* Review 2: the wiring keeps the command's arguments (`gate.sh pre` and `gate.sh post` are two hooks), with the
            home and folder spellings made one (~, $HOME, the folder or $CLAUDE_CONFIG_DIR), so the same hook written two
            ways is not a false loss. Expand first, then name the folder, then the home. */
-        const one = (x) => x.replace(/^["']|["']$/g, '').replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home)
-          .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir)).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
+        const one = (x) => oneSep(x.replace(/^["']|["']$/g, '').replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home)
+          .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir))).split(oneSep(path.resolve(dir))).join('<CFG>').split(oneSep(home)).join('<HOME>');
         const scriptless = !scriptWord && !unsure;
         const id = scriptWord ? unq(scriptWord).split(/[\\/]/).pop() : hookId(cmd);   // hookId: the first script's name, or the command
         /* #8063 review 2: a bare name as the command itself (gate.sh) is looked up on PATH, not in the working folder. */
