@@ -7,6 +7,35 @@ import Foundation
 enum Models {
     typealias Account = NewAgentPicker.Account
 
+    enum Words {
+        static let title = "AI Models"
+        static let reading = "Checking your accounts…"                                   // the page's msg while it reads
+        static let failed = "We could not read the accounts on this computer."            // the page's catch
+        // Not the page's (it shows the add form instead): the phone's own empty line, as the plan says.
+        static let empty = "No AI accounts on this computer yet."
+        static let footer = "To check, sign in, add or change an account, use Settings on your computer."
+    }
+
+    // The computer's cookie by hand and the board's header, as Settings' other screens sign theirs.
+    static func request(_ mac: Settings.Mac) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/accounts", relativeTo: mac.url)!.absoluteURL)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        r.timeoutInterval = 30   // the route checks each account live before it answers
+        r.httpShouldHandleCookies = false
+        r.setValue("\(Board.macCookieName)=\(mac.cookie)", forHTTPHeaderField: "Cookie")
+        r.setValue("same-origin", forHTTPHeaderField: Board.fetchSiteHeader)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+
+    enum Read: Equatable { case got([Account]), failed(String) }
+
+    // Anything but a 200 whose body parses is the page's could-not-read sentence (its catch covers a refusal too).
+    static func read(status: Int, data: Data) -> Read {
+        guard status == 200, let rows = NewAgentPicker.parseAccounts(data) else { return .failed(Words.failed) }
+        return .got(rows)
+    }
+
     // The pill's colour, named for the page's classes.
     enum Tone: String, Equatable { case connected, loginok, unverified, none, unknown }
 

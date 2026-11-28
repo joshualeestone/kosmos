@@ -33,6 +33,19 @@ func row(_ connection: String, provider: String = "anthropic", extra: String = "
 func words(_ a: NewAgentPicker.Account) -> String { M.pill(a, clock).words }
 func tone(_ a: NewAgentPicker.Account) -> Models.Tone { M.pill(a, clock).tone }
 
+section("the request and the read")
+let mac = Settings.Mac(name: "Studio Mac", url: URL(string: "https://studio.kosmosplus.com/")!, cookie: "c00kie")
+let q = M.request(mac)
+check(q.httpMethod == "GET" && q.url?.absoluteString == "https://studio.kosmosplus.com/api/accounts", "GET /api/accounts on the computer")
+check(q.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && !q.httpShouldHandleCookies, "the computer's cookie, by hand only")
+check(q.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "same-origin, which the board's cross-site guard lets through")
+check(page.contains("fetch('/api/accounts'"), "the page reads the same route")
+if case .got(let rows) = M.read(status: 200, data: Data(#"{"accounts":[{"dir":"/a","provider":"anthropic"}]}"#.utf8)) { check(rows.count == 1 && rows[0].dir == "/a", "a 200 lists its rows") } else { check(false, "a 200 lists its rows") }
+check(M.read(status: 200, data: Data(#"{"accounts":[]}"#.utf8)) == .got([]), "an empty list is a list")
+check(M.read(status: 503, data: Data(#"{"accounts":[]}"#.utf8)) == .failed(Models.Words.failed), "a refusal says the page's could-not-read sentence")
+check(M.read(status: 200, data: Data("not json".utf8)) == .failed(Models.Words.failed), "a body that does not parse, too")
+check(page.contains("We could not read the accounts on this computer.") && page.contains("Checking your accounts…"), "the page has both lines")
+
 section("agoWords, as the page's")
 check(M.agoWords(nil) == "" && M.agoWords(-1) == "" && M.agoWords(.infinity) == "", "no age, a negative or a non-finite one says nothing")
 check(M.agoWords(4_999) == "just now" && M.agoWords(5_000) == "5 seconds ago" && M.agoWords(89_999) == "89 seconds ago", "under 5 s, then seconds below 90")

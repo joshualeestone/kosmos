@@ -11,6 +11,6 @@ xcrun swiftc -Onone -o "$out/models-logic-tests" \
   "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" \
   "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/SignInLogic.swift" "$src/TodayLogic.swift" "$src/TasksLogic.swift" "$src/BoardClient.swift" "$src/SessionKeychain.swift" \
   "$src/BoardRoom.swift" "$src/NewAgentLogic.swift" "$src/AgentMarkLogic.swift" "$src/NewAgentPicker.swift" \
-  "$src/ModelsLogic.swift" "$here/models/main.swift"
+  "$src/SettingsLogic.swift" "$src/ModelsLogic.swift" "$here/models/main.swift"
 # The repo root, so the suite can read the board's own words.
 KOSMOS_REPO="$here/../.." "$out/models-logic-tests"
