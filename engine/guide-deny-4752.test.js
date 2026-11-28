@@ -1,5 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#9104)
+const NO_SYMLINK = require('../test-support/skip-on-win32').skipOnWin32('it makes a symlink, which needs elevation or Developer Mode on Windows');   // kosmos#8378
 /**
  * #4752: the setup guide's deny rules name every folder of Kosmos's where a board token can sit, not only
  * the guide's own data folder: the older data folder (store.LEGACY_APP) and, for a guide in a named world,
@@ -33,6 +34,12 @@ const setupAssistant = require('./setup-assistant');
 const store = require('./store');
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+/* kosmos#8378: the two arms that build rules from this sandbox's real folders read them back as POSIX paths
+   (Read(//<path>)), which a Windows folder (C:\...) is not; the Windows rules have their own test
+   (setup-assistant.winrules-4752.test.js). The second also makes a file named a*b, a name Windows does not allow. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const REAL_POSIX_FOLDERS = skipOnWin32('it reads rules built from real folders back as absolute POSIX paths (Read(//...)), which a Windows folder is not');
 
 const tokenish = (rules) => rules.filter((r) => /^Read\(\/\/(b|old)\b/.test(r));
 
@@ -128,7 +135,7 @@ test('#4752 when the extra folders cannot be worked out, the rules that were the
     'CONTROL: with the folder readable again the extra rules are back');
 });
 
-test('#4752 for a guide in a named world, every entry of the default world\'s store is named, except the worlds folder and its registry', () => {
+test('#4752 for a guide in a named world, every entry of the default world\'s store is named, except the worlds folder and its registry', { skip: REAL_POSIX_FOLDERS }, () => {
   const base = path.join(SANDBOX, 'base-entries');
   for (const d of ['sendertokens', 'secrets', 'chats', 'worlds/w1/workers/guide']) fs.mkdirSync(path.join(base, d), { recursive: true });
   for (const f of ['board.token', 'connect.json', 'github-app.json', 'messages.jsonl', 'worlds.json']) fs.writeFileSync(path.join(base, f), 'x');
@@ -158,7 +165,7 @@ test('#4752 when the base cannot be worked out (preWorldEnv throws), that is sai
   assert.match(said[0], /left out: no pre-world roots/);
 });
 
-test('#4752 the base\'s own passing files are not named one by one, a name the rule syntax would misread is left out, and a link gets both forms', () => {
+test('#4752 the base\'s own passing files are not named one by one, a name the rule syntax would misread is left out, and a link gets both forms', { skip: skipOnWin32('it reads rules built from real folders back as absolute POSIX paths (Read(//...)), which a Windows folder is not, and makes a file named a*b, which Windows does not allow') }, () => {
   const base = path.join(SANDBOX, 'base-odd');
   fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
   fs.mkdirSync(path.join(base, '.worlds.json.lock'));
@@ -262,7 +269,7 @@ test('#4752 the older folder is worked out for the home the rules were asked abo
   assert.ok(out.rules.includes(`Read(${abs(out.want)}/**)`), 'the older folder of the home asked about is not denied');
 });
 
-test('#4752 a rule that would take in the guide\'s own folder (an older folder that is a link to its parent) is left out, and said', () => {
+test('#4752 a rule that would take in the guide\'s own folder (an older folder that is a link to its parent) is left out, and said', { skip: NO_SYMLINK }, () => {
   const home = path.join(SANDBOX, 'own-home');
   const guide = path.join(home, 'workers', 'guide');
   fs.mkdirSync(guide, { recursive: true });
@@ -282,7 +289,7 @@ test('#4752 a rule that would take in the guide\'s own folder (an older folder t
   assert.ok(deny.includes(`Read(//${path.join(SANDBOX, 'data-own').replace(/^\/+/, '')}/**)`), 'CONTROL: the ordinary data folder rule is gone');
 });
 
-test('#4752 the own-folder check leaves the rules from before #4752 alone, and catches a linked store entry', () => {
+test('#4752 the own-folder check leaves the rules from before #4752 alone, and catches a linked store entry', { skip: NO_SYMLINK }, () => {
   /* A workers folder inside the data folder: the long-standing data folder rule covers the guide, and stays
      (it is not this change's to drop). A linked entry in the default world's store pointing at the guide's
      parent is this change's, and is left out. */
@@ -320,7 +327,7 @@ test('#4752 a base whose path the rule syntax would misread gets no rules, and t
   assert.equal(said.length, 2, 'the two paths left out were not both said: ' + said.join(' | '));
 });
 
-test('#4752 a rule refused because it takes in the guide\'s folder stays out on a rewrite, even if an earlier start wrote it', () => {
+test('#4752 a rule refused because it takes in the guide\'s folder stays out on a rewrite, even if an earlier start wrote it', { skip: NO_SYMLINK }, () => {
   const root = path.join(SANDBOX, 'own-3');
   const guide = path.join(root, 'workers', 'guide');
   fs.mkdirSync(guide, { recursive: true });

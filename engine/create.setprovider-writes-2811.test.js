@@ -34,6 +34,11 @@ require('../test-support/tmpscope'); // this file's temp dirs, removed when it e
 
 const test = require('node:test');
 const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378
+/* kosmos#8378: the two best-effort arms make a write fail by taking a FOLDER's POSIX write permission away. Windows keeps
+   no such permission (chmod sets only a read-only flag, which a folder ignores), so there the write succeeds and the arm
+   cannot fail it. What they check exists on Windows; its Windows arm is owed on kosmos#9269. */
+const NO_FOLDER_MODES = skipOnWin32('what it checks exists on Windows, but it makes the write fail by taking a folder\'s POSIX write permission away (chmod 0500), which Windows does not keep; the Windows arm is owed on kosmos#9269');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -74,7 +79,8 @@ delete process.env.CODEX_HOME;
 const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const CODEX_BIN = nodePath.join(BIN, 'codex');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js)
+for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 const BINS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN };
 
 /* One real OpenAI sign-in, so the switch has an account to land on. */
@@ -311,8 +317,11 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
 
   assert.equal(sw.outcome, create.OUTCOME.REFUSED,
     'a failing PLIST write no longer aborts the switch: setProvider reported ' + sw.outcome);
-  /* #5500: on Linux the startup file is the systemd unit, and the refusal says so (create.rewriteAgentJob's Linux arm). */
-  assert.match(String(sw.because), process.platform === 'linux' ? /could not rewrite systemd unit for setprov-2811-plistgate/ : /startup file/,
+  /* #5500: on Linux the startup file is the systemd unit, and the refusal says so (create.rewriteAgentJob's Linux arm).
+     kosmos#8378: on Windows it is the Scheduled Task (win32InstalledOutcome); the read-only task file makes the stand-in
+     Task Scheduler's /Create fail, as the read-only plist makes the Mac write fail. */
+  const startupSentence = { linux: /could not rewrite systemd unit for setprov-2811-plistgate/, win32: /could not update .*startup task in Task Scheduler/ }[process.platform] || /startup file/;
+  assert.match(String(sw.because), startupSentence,
     'the refusal no longer names the startup file as the reason');
 
   /* ⇒ AND THE ORDER IS PINNED BY THE SAME MEASUREMENT, which is why this asserts a
@@ -328,7 +337,7 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
 });
 
 
-test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', (t) => {
+test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', { skip: NO_FOLDER_MODES }, (t) => {
   /* 🛑 WHY: the header calls writes 3 and 4 "best-effort: its catch swallows", and
      round 27 measured that NO test in the repo reaches either catch. Both were
      replaced with a throw and every file that exercises `setProvider` was run: no
@@ -370,7 +379,7 @@ test('#2811: the brief RENAME is best-effort, so a failing rename does not abort
     'the profile write (which FOLLOWS the rename) did not happen, so the rename did gate it');
 });
 
-test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', (t) => {
+test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', { skip: NO_FOLDER_MODES }, (t) => {
   /* The pair of the arm above, for write 4. Real EACCES: the profiles directory is
      made non-writable, and `store.writeProfile` writes a temp file beside the
      target and renames it, so both steps need directory write permission. */

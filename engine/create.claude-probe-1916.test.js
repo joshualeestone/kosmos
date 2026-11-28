@@ -14,6 +14,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
+/* kosmos#8378: every arm but the last runs the fake claude below, a #!/bin/sh script, by its shebang line, which Windows
+   cannot do. The probe itself exists on Windows; its Windows arm (a fake claude Windows can run) is owed on kosmos#9269. */
+const FAKE_BY_SHEBANG = require('../test-support/skip-on-win32').skipOnWin32('what it checks exists on Windows, but its fake claude is a #!/bin/sh script run by its shebang line, which Windows cannot do; the Windows arm is owed on kosmos#9269');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'create-claude-probe-1916-'));
 const BIN = nodePath.join(SANDBOX, 'claude-fake');
@@ -45,17 +48,17 @@ test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
-test('#1916 probe: a real exit-0 call is CONNECTED', async () => {
+test('#1916 probe: a real exit-0 call is CONNECTED', { skip: FAKE_BY_SHEBANG }, async () => {
   process.env.FAKE_MODE = 'ok';
   assert.equal(await create.claudeAccountLive(null), sub.STATE.CONNECTED);
 });
 
-test('#1916 probe: a real non-zero exit printing a 401 is NONE', async () => {
+test('#1916 probe: a real non-zero exit printing a 401 is NONE', { skip: FAKE_BY_SHEBANG }, async () => {
   process.env.FAKE_MODE = 'dead';
   assert.equal(await create.claudeAccountLive(null), sub.STATE.NONE);
 });
 
-test('#1916 probe: a HUNG probe is killed at the timeout, and its already-printed 401 still reads NONE', async () => {
+test('#1916 probe: a HUNG probe is killed at the timeout, and its already-printed 401 still reads NONE', { skip: FAKE_BY_SHEBANG }, async () => {
   /* Proves the timeout + SIGKILL path AND partial-output survival: the fake
      prints its 401 then sleeps 5s; with a 600ms timeout it is killed, and the
      captured stdout still classifies as dead rather than being discarded. */
@@ -69,7 +72,7 @@ test('#1916 probe: a HUNG probe is killed at the timeout, and its already-printe
   assert.ok(elapsed < 4000, 'the probe was not killed at the timeout (took ' + elapsed + 'ms)');
 });
 
-test('#1916 probe: the probe passes --strict-mcp-config so a broken CONNECTOR cannot false-refuse a live account', async () => {
+test('#1916 probe: the probe passes --strict-mcp-config so a broken CONNECTOR cannot false-refuse a live account', { skip: FAKE_BY_SHEBANG }, async () => {
   /* The fake exits 0 only if --strict-mcp-config is in its argv, so CONNECTED
      here proves defaultClaudeProbe isolates the probe from the account's MCP
      servers -- otherwise a connector's expired-token diagnostics would land in
@@ -79,7 +82,7 @@ test('#1916 probe: the probe passes --strict-mcp-config so a broken CONNECTOR ca
     'defaultClaudeProbe did not pass --strict-mcp-config (a broken connector could false-refuse a live account)');
 });
 
-test('#1916 probe: a LABELLED dir is passed to the child as CLAUDE_CONFIG_DIR', async () => {
+test('#1916 probe: a LABELLED dir is passed to the child as CLAUDE_CONFIG_DIR', { skip: FAKE_BY_SHEBANG }, async () => {
   /* The auth-critical scoping for a labelled account: the child must be probed
      against THAT dir, or the probe would measure the wrong account (accept a dead
      labelled / refuse a live one). The fake exits 0 only if its CLAUDE_CONFIG_DIR
@@ -92,7 +95,7 @@ test('#1916 probe: a LABELLED dir is passed to the child as CLAUDE_CONFIG_DIR', 
   } finally { delete process.env.FAKE_EXPECT_CONFIGDIR; }
 });
 
-test('#1916 probe: the DEFAULT DELETES CLAUDE_CONFIG_DIR even when the PARENT has one set (env leak guard)', async () => {
+test('#1916 probe: the DEFAULT DELETES CLAUDE_CONFIG_DIR even when the PARENT has one set (env leak guard)', { skip: FAKE_BY_SHEBANG }, async () => {
   /* April's env-leak point: `{...process.env}` inherits the caller's
      CLAUDE_CONFIG_DIR (this box carries one), so OMITTING the key is NOT the same
      as the child not having it. defaultClaudeProbe DELETES it for the default, so

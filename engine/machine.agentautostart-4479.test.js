@@ -26,6 +26,8 @@ const create = require('./create');
 const store = require('./store');
 
 const DARWIN = { platform: 'darwin' };
+/* kosmos#8378: every arm but the last reads the disabled list through launchctl's seam, which asks by process.getuid(). */
+const MAC_ARM = require('../test-support/skip-on-win32').skipOnWin32('it drives the macOS arm (platform darwin, through its seam), which asks launchctl for this user\'s list by the user id (process.getuid), and Windows has no POSIX user id; the Windows row is left out, which its own arm checks');
 const printDisabled = (names) => (bin, args) => (bin === '/bin/launchctl' && args[0] === 'print-disabled'
   ? { ok: true, stdout: names.map((n) => '\t"' + create.serviceLabel(n) + '" => disabled\n').join('') + '\t"com.kosmos.board" => enabled\n' }
   : { ok: true, stdout: '' });
@@ -38,7 +40,7 @@ store.writeProfile('alexis', { displayName: 'Harbor' });
 const FIXTURE = ['alexis', 'eric', 'larry', 'oldone'];
 const REMOVED = { ok: true, names: ['oldone'] };
 
-test('#4479 the card\'s fixture shows exactly one agent, by the name the person sees', () => {
+test('#4479 the card\'s fixture shows exactly one agent, by the name the person sees', { skip: MAC_ARM }, () => {
   const got = machine.agentAutostartCheck(printDisabled(FIXTURE), { ...DARWIN, removed: REMOVED });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.equal(got.title, 'An agent is set up to start at login, but turned off');
@@ -46,18 +48,18 @@ test('#4479 the card\'s fixture shows exactly one agent, by the name the person 
   assert.doesNotMatch(got.detail, /alexis|eric|larry|oldone/, 'a job name, or a leftover with no agent, was shown');
 });
 
-test('#4479 CONTROL: counting every override by its job name (the old rule) shows 3', () => {
+test('#4479 CONTROL: counting every override by its job name (the old rule) shows 3', { skip: MAC_ARM }, () => {
   const got = machine.agentAutostartCheck(printDisabled(FIXTURE), { ...DARWIN, removed: REMOVED, live: () => true, shownName: (n) => n });
   assert.equal(got.title, '3 agents are set up to start at login, but turned off');
   assert.match(got.detail, /^alexis, eric, larry have their/);
 });
 
-test('#4479 only leftovers (no plist) is the all-clear, not a warning', () => {
+test('#4479 only leftovers (no plist) is the all-clear, not a warning', { skip: MAC_ARM }, () => {
   const got = machine.agentAutostartCheck(printDisabled(['eric', 'larry']), { ...DARWIN, removed: { ok: true, names: [] } });
   assert.equal(got.state, machine.STATE.OK);
 });
 
-test('#4479 a live agent with no display name recorded is named by its job name', () => {
+test('#4479 a live agent with no display name recorded is named by its job name', { skip: MAC_ARM }, () => {
   fs.writeFileSync(create.plistPath('plainjob'), '<plist/>');
   try {
     const got = machine.agentAutostartCheck(printDisabled(['plainjob']), { ...DARWIN, removed: { ok: true, names: [] } });
@@ -65,7 +67,7 @@ test('#4479 a live agent with no display name recorded is named by its job name'
   } finally { fs.rmSync(create.plistPath('plainjob'), { force: true }); }
 });
 
-test('#4479 an agent with no recorded display name is named as the board names it, from its identity line', () => {
+test('#4479 an agent with no recorded display name is named as the board names it, from its identity line', { skip: MAC_ARM }, () => {
   fs.writeFileSync(create.plistPath('neojob'), '<plist/>');
   fs.mkdirSync(create.workerDir('neojob'), { recursive: true });
   fs.writeFileSync(path.join(create.workerDir('neojob'), 'CLAUDE.md'), 'You are **Neo**, the one.\n\n## Who you are\nThe one.\n');
@@ -78,7 +80,7 @@ test('#4479 an agent with no recorded display name is named as the board names i
   }
 });
 
-test('#4479 a plist check that cannot look (not "not there") counts the agent as live, the safe direction', () => {
+test('#4479 a plist check that cannot look (not "not there") counts the agent as live, the safe direction', { skip: MAC_ARM }, () => {
   /* Works because machine.js calls create.jobPresence through the module object at call time; a destructured
      import there would make this stub a no-op, and this test would then fail rather than pass falsely (eric has
      no plist, so the real reader answers 'no' and the row would be OK). */
@@ -91,7 +93,7 @@ test('#4479 a plist check that cannot look (not "not there") counts the agent as
   } finally { create.jobPresence = presence; }
 });
 
-test('#4479 two agents with one display name are told apart by their job names', () => {
+test('#4479 two agents with one display name are told apart by their job names', { skip: MAC_ARM }, () => {
   for (const n of ['harborone', 'harbortwo']) { fs.writeFileSync(create.plistPath(n), '<plist/>'); store.writeProfile(n, { displayName: 'Twin' }); }
   try {
     const got = machine.agentAutostartCheck(printDisabled(['harborone', 'harbortwo']), { ...DARWIN, removed: { ok: true, names: [] } });
@@ -99,7 +101,7 @@ test('#4479 two agents with one display name are told apart by their job names',
   } finally { for (const n of ['harborone', 'harbortwo']) fs.rmSync(create.plistPath(n), { force: true }); }
 });
 
-test('#4479 the row does not promise that Login Items lists the agent by this name', () => {
+test('#4479 the row does not promise that Login Items lists the agent by this name', { skip: MAC_ARM }, () => {
   const got = machine.agentAutostartCheck(printDisabled(FIXTURE), { ...DARWIN, removed: REMOVED });
   assert.match(got.detail, /Login Items, where it may not be listed by this name\.$/);
 });

@@ -13,6 +13,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_SE_STUB = skipOnWin32("it runs a stand-in for kosmos-se (the Mac's Secure Enclave admin signer, which Windows has no counterpart to) as a script by its shebang line, which Windows cannot do");   // kosmos#8378
 const se = require('./seadmin');
 const hs = require('./handoversign');
 
@@ -68,7 +70,7 @@ test('the bytes match kosmos-relay roster.rs encode_handover_start (the vector b
   assert.ok(se.SIGNED.includes('handoverStart'));
 });
 
-test('an admin signs exactly the hand-over shown, posts it with its nonce, and the signature verifies over those bytes', async () => {
+test('an admin signs exactly the hand-over shown, posts it with its nonce, and the signature verifies over those bytes', { skip: NO_SE_STUB }, async () => {
   const h = appWithHelper();
   const c = coordinator(bytesOf());
   const r = await hs.review(SHOWN, { send: c.send });
@@ -114,7 +116,7 @@ test('bytes naming anything but the hand-over shown are refused before anything 
   }
 });
 
-test('already signed is said, and nothing is signed; only what review returned is approved', async () => {
+test('already signed is said, and nothing is signed; only what review returned is approved', { skip: NO_SE_STUB }, async () => {
   const send = async () => ({ ok: true, data: { ok: true, signed: true } });
   assert.deepEqual(await hs.review(SHOWN, { send }), { signed: true, kosmosSays: true });
   await assert.rejects(hs.approveAndSend({ signed: true }, {}), /approve only what review returned/);
@@ -134,7 +136,7 @@ test('already signed is said, and nothing is signed; only what review returned i
   await assert.rejects(hs.review(SHOWN, { send: async () => ({ ok: false, because: 'tunnel line /Users/x' }) }), (e) => /did not give the hand-over to sign/.test(e.message) && !/Users/.test(e.message));
 });
 
-test('review 2 (April): a repeated agent in what is shown is refused; a failed signature says to ask again', async () => {
+test('review 2 (April): a repeated agent in what is shown is refused; a failed signature says to ask again', { skip: NO_SE_STUB }, async () => {
   await assert.rejects(hs.review(Object.assign({}, SHOWN, { agents: ['helper', 'helper'] }), { send: coordinator(bytesOf()).send }), /listed twice/);
   const h = appWithHelper();
   const c = coordinator(bytesOf());
@@ -145,7 +147,7 @@ test('review 2 (April): a repeated agent in what is shown is refused; a failed s
   assert.equal(c.posts.filter(([, , b]) => b.sig).length, 0, 'nothing posted');
 });
 
-test('an admin id is required to sign a hand-over start', async () => {
+test('an admin id is required to sign a hand-over start', { skip: NO_SE_STUB }, async () => {
   const h = appWithHelper();
   const r = await hs.review(SHOWN, { send: coordinator(bytesOf()).send });
   await assert.rejects(hs.approveAndSend(r, { expectedKey: h.expectedKey, keyFile: h.keyFile, appDir: h.app, send: coordinator(bytesOf()).send }), /which admin is starting/);

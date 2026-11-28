@@ -183,13 +183,15 @@ test('#3614: a folder the block cannot state safely is no folder (NUL sentinel, 
   const create = require('./create');
   const real = create.workerDir;
   try {
-    for (const bad of ['/tmp/x\u0000-invalid', '/tmp/two\nlines', '/tmp/tick`y']) {
+    /* kosmos#8378: native paths (path.join), not '/tmp/...' literals: fileFor checks the file is inside the folder as
+       path.join spells it, so on Windows a '/tmp/fine' folder failed that check and every arm read null for that reason. */
+    for (const bad of [path.join(SANDBOX, 'x\u0000-invalid'), path.join(SANDBOX, 'two\nlines'), path.join(SANDBOX, 'tick`y')]) {
       create.workerDir = () => bad;
       assert.equal(dmfiles.filesDir('whoever'), null, `${JSON.stringify(bad)} was accepted`);
       assert.equal(dmfiles.bodyFor('whoever'), null);
     }
-    create.workerDir = () => '/tmp/fine';
-    assert.equal(dmfiles.filesDir('whoever'), path.join('/tmp/fine', 'Files'), 'CONTROL: an ordinary folder is accepted');
+    create.workerDir = () => path.join(SANDBOX, 'fine');
+    assert.equal(dmfiles.filesDir('whoever'), path.join(SANDBOX, 'fine', 'Files'), 'CONTROL: an ordinary folder is accepted');
   } finally {
     create.workerDir = real;
   }

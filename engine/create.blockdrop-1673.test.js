@@ -78,8 +78,15 @@ const instructions = require('./instructions');
 const defaults = require('./defaults');
 
 /* The same trick create.test.js uses: real binaries that exist everywhere, so
-   the suite does not depend on what happens to be installed. */
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+   the suite does not depend on what happens to be installed.
+   kosmos#8378: stubs in the sandbox instead (test-support/runnerstub.js), since /bin/echo is a POSIX path Windows does not
+   have; and on Windows the job a create registers goes to the stand-in Task Scheduler (test-support/jobfixture.js). */
+const stub = (name) => require('../test-support/runnerstub').writeRunnerStub(nodePath.join(SANDBOX, 'bin'), name);
+const BINS = { claudeBin: stub('claude'), tmuxBin: stub('tmux') };
+/* kosmos#8378: and an empty roster through status.setPaneSource, as create.spoken-name-1367 does: on Windows the name
+   check reads the live agents from it (not tmux), and an unanswered read refuses the create. */
+test.beforeEach(() => { require('./status').setPaneSource(() => ''); require('../test-support/jobfixture').useJobStore(); });
+test.afterEach(() => { require('./status').setPaneSource(null); });
 
 /** Instructions big enough that appending the defaults would cross the cap. */
 function hugeInstructions() {
@@ -100,7 +107,7 @@ test('#1673: a block dropped by the byte cap is reported, not swallowed', () => 
   /* PRECONDITION. If the fixture were refused for size, every assertion below
      would be about a creation that never happened. */
   assert.notEqual(r.outcome, create.OUTCOME.REFUSED,
-    'precondition: the agent must still be CREATED. Dropping a block must never refuse the agent');
+    'precondition: the agent must still be CREATED. Dropping a block must never refuse the agent: ' + r.because);
 
   const labels = (r.steps || []).map((s) => s.label).join('\n');
 
@@ -126,7 +133,7 @@ test('#1673 CONTROL: an agent whose blocks all fit reports no drop', () => {
      that pushed these steps unconditionally would satisfy the test above and be
      worse than the bug, because every creation would claim its agent is broken. */
   const r = create.createAgent({ ...BINS, name: 'mk-small-1673', role: 'pm', instructions: '# Small\n\nDo the thing carefully.\n' });
-  assert.notEqual(r.outcome, create.OUTCOME.REFUSED, 'precondition: this one must be created too');
+  assert.notEqual(r.outcome, create.OUTCOME.REFUSED, 'precondition: this one must be created too: ' + r.because);
 
   const labels = (r.steps || []).map((s) => s.label).join('\n');
   assert.doesNotMatch(labels, /operating instructions/, 'nothing was dropped, so nothing may be reported as dropped');

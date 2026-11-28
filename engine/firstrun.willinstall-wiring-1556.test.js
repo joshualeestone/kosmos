@@ -44,9 +44,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json'
 
    ⚠️ THIS IS THE HAZARD I DOCUMENTED IN `firstrun.test.js` ONE FILE OVER AND THEN
    REPRODUCED HERE. Writing the warning did not make me apply it. */
-const STUB_BIN = nodePath.join(SANDBOX, 'claude-stub');
-fs.writeFileSync(STUB_BIN, '#!/bin/sh\nexit 0\n');
-fs.chmodSync(STUB_BIN, 0o755);
+// kosmos#8378: a stub this platform counts as runnable (test-support/runnerstub.js: on Windows a .cmd beside it).
+const STUB_BIN = require('../test-support/runnerstub').writeRunnerStub(SANDBOX, 'claude-stub');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = STUB_BIN;
 
 const firstrun = require('./firstrun');

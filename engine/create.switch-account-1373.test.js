@@ -60,7 +60,8 @@ delete process.env.CODEX_HOME;
 const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const CODEX_BIN = nodePath.join(BIN, 'codex');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js)
+for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 const BINS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN };
 
 /** Two real OpenAI sign-ins, so "which one" is a question with two answers. */

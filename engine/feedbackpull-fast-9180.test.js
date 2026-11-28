@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'feedbackpull-9180-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
@@ -220,7 +221,7 @@ test('review 1: a token that can no longer read fails the pull, even when every 
   assert.equal(ok.ok, true, 'a malformed report beside ones already here failed the pull: ' + ok.because);
 });
 
-test('review 1: the index is private to this user', async () => {
+test('review 1: the index is private to this user', { skip: NO_POSIX_MODES }, async () => {
   const dir = path.join(SB, 'private');
   fp.setTransport(makeStore([REC('a', '2026-11-25', 'one')]).transport);
   await fp.pull(dir, { token: TOKEN });
