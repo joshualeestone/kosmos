@@ -614,7 +614,9 @@ test('review 11: an asker name that ARRIVES with a lone surrogate still leaves t
 });
 
 /* Review 12 (opus, blind). */
-test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', () => {
+test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', (t) => {
+  // root reads a chmod 000 file anyway, so on the chmod path there is nothing to prove (the stub binds root too).
+  if (!CHMOD_VIA_STUB && process.getuid && process.getuid() === 0) { t.skip('root reads a chmod 000 file'); return; }
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   unrecordedApply('sally');
