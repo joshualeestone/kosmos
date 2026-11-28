@@ -40,7 +40,7 @@ and a CLI that waits on stdin longer than the short peek still fails it.
   same false red this card removes. The check matches the hand-off and the timer by pattern instead.
 
 ## Weakest premise
-The length check reads `_words_and_piped`, not the running CLI: a wait added some other way (a second timer or a sleep
-inside the node script that is not a timer, or a call site that probes stdin with `_read_stdin_quiet` before or instead of calling it) would pass it,
-and the behaviour arms would pass a wait that ends before 20 s. A behaviour-level check of that needs a clock, which
-is what this card removes.
+The length check reads `_words_and_piped`, not the running CLI. A wait added some other way passes it: a wait in the
+peek that is not a timer (a blocking sleep, a second read), or a call site that probes stdin with `_read_stdin_quiet`
+before or instead of calling it. The behaviour arms would also pass any wait that ends before 20 s. A behaviour-level
+check of that needs a clock, which is what this card removes.
