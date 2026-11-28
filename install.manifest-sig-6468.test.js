@@ -270,6 +270,7 @@ test('release: needs-sig is yes only for a release that ships the verifier', () 
 
 // ---- the served check after a deploy: tools/verify-manifest.sh ----
 const VM = path.join(__dirname, 'tools', 'verify-manifest.sh');
+const SKIP_POSIX_RELEASE = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/verify-manifest.sh, the release host check after a deploy, through /bin/bash, and builds its fixture with /usr/bin/tar, both by an absolute POSIX path; releases are not cut or checked on Windows');   // kosmos#8378
 function servedDist({ sig }) {
   const dist = fs.mkdtempSync(path.join(tmp, 'served-'));
   const tree = fs.mkdtempSync(path.join(tmp, 'tree-'));
@@ -291,18 +292,18 @@ function servedDist({ sig }) {
 }
 const vm = (dist, env = {}) => spawnSync('/bin/bash', [VM, '1.2.3'], { encoding: 'utf8', env: { ...process.env, KOSMOS_BASE: 'file://' + dist, KOSMOS_REQUIRE_SIG: '', ...env } });
 
-test('served check: CONTROL: with no .sig and none required, the rest of the check runs and passes', { skip: SKIP_POSIX_SETUP }, () => {
+test('served check: CONTROL: with no .sig and none required, the rest of the check runs and passes', { skip: SKIP_POSIX_RELEASE }, () => {
   const r = vm(servedDist({ sig: null }));
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /no signature served/);
   assert.match(r.stdout, /every file matches the manifest/);
 });
-test('served check: a cut (KOSMOS_REQUIRE_SIG=1) with no .sig served fails', { skip: SKIP_POSIX_SETUP }, () => {
+test('served check: a cut (KOSMOS_REQUIRE_SIG=1) with no .sig served fails', { skip: SKIP_POSIX_RELEASE }, () => {
   const r = vm(servedDist({ sig: null }), { KOSMOS_REQUIRE_SIG: '1' });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /SIGNATURE: no kosmos-1\.2\.3-arm64\.manifest\.json\.sig served/);
 });
-test('served check: a .sig that is not a pinned key\'s fails, required or not', { skip: SKIP_POSIX_SETUP }, () => {
+test('served check: a .sig that is not a pinned key\'s fails, required or not', { skip: SKIP_POSIX_RELEASE }, () => {
   for (const req of ['', '1']) {
     const r = vm(servedDist({ sig: 'bad' }), { KOSMOS_REQUIRE_SIG: req });
     assert.equal(r.status, 1, r.stdout + r.stderr);

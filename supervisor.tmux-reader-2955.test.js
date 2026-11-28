@@ -10,7 +10,7 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  * With no server, or any other answer, the baked path stays. Runs the shipped function, lifted out of the script.
  */
 const test = require('node:test');
-const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, with a #!/bin/bash fake tmux run by its shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
+const SKIP_POSIX_SUPERVISOR = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux supervisor (bin/agent-supervisor.sh) functions through /bin/bash by an absolute POSIX path, with #!/bin/sh fake tmux run by their shebang line; a Windows agent runs under its own per-turn supervisor, with no tmux');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');

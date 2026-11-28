@@ -12,7 +12,7 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const test = require('node:test');
-const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks a POSIX file mode survives a write (0600, 0640), and Windows does not keep POSIX file modes');   // kosmos#8378
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks a 0600 file mode survives a write, and Windows does not keep POSIX file modes');   // kosmos#8378
 const assert = require('node:assert/strict');
 const reporthook = require('./reporthook');
 const accounts = require('./accounts');
