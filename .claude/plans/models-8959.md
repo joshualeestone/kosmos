@@ -14,6 +14,9 @@ Card: https://github.com/joshualeestone/kosmos/issues/8959 (master plan 71204730
 ## Weakest premise
 That `/held` carries enough to draw each row honestly. It is the disk's record (what was saved), not a verified check, so a key that has since been revoked would read as connected. The row must say so in words (for example "saved on your computer"), or D2b reads the sweep once, on an explicit tap only.
 
+- **`GET /api/accounts` is live-checked per account** (server.js ~15259, `listLive()`), and its stated invariant is: every caller is a person pressing something, never a timer. So D2a reads it on open and on a pull only, with NO repeating read (unlike D1d1's 30 s check-ins). Rejected: a timer like the check-ins (it would pay a live check per account every 30 s).
+- **The phone already parses it:** `NewAgentPicker.parseAccounts` reads each row's dir, provider (acctProvider's rules), email, chosen name, key tail, label, local, isDefault, memoryShared, and `connection.badge` / `connection.state`, which is the page's one badge vocabulary across providers. D2a reuses that parser rather than writing a second one.
+
 ## Still to measure before building D2a
-- The exact shape of `GET /api/accounts` that the page paints (which fields say signed in, out, expired), against what NewAgentPicker already parses.
+- The page's paintAccounts: which badge values it words how (signed in, signed out, rejected, unknown), so the phone says the same words.
 - Whether any AI Models row the page shows reads a route the phone token is refused.
