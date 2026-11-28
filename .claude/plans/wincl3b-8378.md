@@ -41,11 +41,12 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
 update.marker (the run-setup shell line through /bin/sh), remove.redisable (launchd's own disable record),
 pdfpreview's two Linux renderer arms (stand-ins found by the POSIX execute bit; a `"` in a file name; its refusal and
 --out arms run for the Windows renderer on every host and for Linux off Windows), the release and fleet tools
-(build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), the shell report hook
+(build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), plus-signin-2036's one
+arm that checks the seed secret's 0600 mode (the seed, plus-signin-fresh.js, runs on Windows in its other arms), the shell report hook
 (install/kosmos-report-hook.sh), the macOS cwd-case arm of trust.canonical-spelling, tool-guard's two POSIX controls,
 and the 7 startimports arms that run the macOS guard (its parser arm runs everywhere, with host-resolved paths).
 runnable-not-directory skips nothing: its installedCheck arm checks claude and codex on Windows, where machine.js does
-not probe tmux.
+not probe tmux, and the file joins the Windows job (ALSO_ROOT) after passing 22 of 22 there.
 **Not in this slice:** engine/orgchartfile.test.js and teamcreate-structure-4557.test.js. Mona Lisa owns both on
 #9272 (branch wincl-9272): she measured that #4660 and the teamcreate arms fail on Windows for path spelling and a
 roster seam, not a shell script, fixes those, and puts the sh-script orgchart arms beside node stand-ins. An earlier

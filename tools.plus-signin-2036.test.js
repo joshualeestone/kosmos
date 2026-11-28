@@ -3,7 +3,7 @@
 // driven against a fake board. Temp dirs only; nothing reaches a real board or coordinator.
 require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
-const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/plus-signin-auto.sh, the release gate sign-in seed, which keeps its secret under the release Mac home; the gate runs on the release Mac, never on Windows');   // kosmos#8378
+const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('its one skipped arm checks that tools/plus-signin-fresh.js keeps the seed secret in a mode-600 file (fs.statSync mode bits), and Windows does not keep POSIX file modes; the seed itself runs on Windows in this file\'s other arms');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
