@@ -633,7 +633,9 @@ _body_file_and_words() {
 # no name left) is read at once, by position so nothing is taken from it, to its end or its first text, unless
 # something has already read part of it (a `while read` loop over a heredoc, a here-string or a file: perl tells), and a named
 # file is read on the same terms (`post '<title>' < body.md` is at its start; a loop's file is not), so a loop keeps
-# its lines; without perl a named file is never read; a terminal or a character device
+# its lines (but a loop that does not read stdin itself, `for x in a b; do ... done < notes.txt`, leaves the file at
+# its start, so it is refused, with the < /dev/null line); without perl a named file is never read, and a removed
+# file is read from its start, so a loop over a heredoc would be refused; a terminal or a character device
 # (/dev/null) is never read; anything else (a pipe, or the socket a program such as
 # node hands over) is watched for at most KOSMOS_PIPED_PEEK_MS in all, stopping at its first text, so a writer that
 # never stops cannot hold it. Only whether text came is kept, never the text. Words alone with an open, empty pipe or
