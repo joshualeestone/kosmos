@@ -37,7 +37,11 @@ folder itself.
 Not covered: a single-backslash raw path whose escape decodes to a printable character (`C:\x41.js` raw reads
 `C:A.js`, a WRONG name shown), or whose cut leaves a next line that begins like a patch line (`C:\n+x.js`). A real
 Codex script was not measured writing String.raw.
-Accepted risk: an unknown escape drops a real edit from the receipt (an under-report, chosen over a wrong name).
+Accepted risks, each an under-report chosen over a wrong name: an unknown escape drops a real edit from the receipt; so
+does a path line followed by something no apply_patch text puts there (a blank line, say). Round 7 added `'` (a
+single-quoted patch string ending after a path) to what may follow.
+Also not covered, and older than this card: the matcher is not anchored to the start of a patch line, so an added line
+that itself reads `+*** Update File: x.js` is still counted as an edit.
 
 Design note: review rounds 2, 3 and 4 each reworked the same rule (what ends or cuts a path). Decoding the text as the
 string it is replaced the stop-rule patches; round 5 tightened what the decoder trusts.
