@@ -28,4 +28,6 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: '8'
+          WINCAND_LIST: tools/wincand-8378-cluster1.txt
+          WINCAND_DETAIL: '4000'
         run: node tools/wincand-8378.js

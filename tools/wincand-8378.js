@@ -11,7 +11,8 @@ const cp = require('child_process');
 const wt = require('./windows-tests.js');
 
 const root = path.join(__dirname, '..');
-const all = fs.readFileSync(path.join(__dirname, 'wincand-8378-list.txt'), 'utf8').split('\n').map((s) => s.trim()).filter(Boolean);
+// WINCAND_LIST: another list file (repo-relative); WINCAND_DETAIL: how much of a failure to print (default 300 chars).
+const all = fs.readFileSync(path.join(root, process.env.WINCAND_LIST || 'tools/wincand-8378-list.txt'), 'utf8').split('\n').map((s) => s.trim()).filter(Boolean);
 const shards = Number(process.env.SHARDS || 1);
 const shard = Number(process.env.SHARD || 0);
 const mine = all.filter((_, i) => i % shards === shard);
@@ -27,7 +28,7 @@ for (const file of mine) {
   const num = (k) => { const m = out.match(new RegExp(`^ℹ ${k} (\\d+)`, 'm')); return m ? Number(m[1]) : -1; };
   const failing = wt.failingTests(out, file);
   const killed = run.status === null;
-  const detail = failing.length ? [].concat(wt.failureDetail(out, [])).join(' ').replace(/\s+/g, ' ').slice(0, 300) : '';
+  const detail = failing.length ? [].concat(wt.failureDetail(out, [])).join(' ').replace(/\s+/g, ' ').slice(0, Number(process.env.WINCAND_DETAIL || 300)) : '';
   console.log(`WINCAND ${file} exit=${killed ? 'KILLED' : run.status} pass=${num('pass')} fail=${num('fail')} skip=${num('skipped')} secs=${Math.round((Date.now() - t0) / 1000)}`
     + (failing.length ? ` failing=${JSON.stringify(failing.slice(0, 5))} first=${JSON.stringify(detail)}` : ''));
 }
