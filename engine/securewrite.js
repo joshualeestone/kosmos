@@ -45,7 +45,8 @@
  * have, and (kosmos#9268, #9285) any write whose three atomic attempts all fail, at least one of them refused because
  * its temp name was not the opened file, raises ERR_KOSMOS_TEMP_SWAPPED, atomicOnly or not. No caller branches on it
  * (grep); that each caller's catch takes it is reasoned, as for ENOSPC and EACCES, which they already met. The three
- * token-door call sites catch ERR_KOSMOS_SYMLINK directly; `sendertoken.writeTokens` does NOT, and relies on `mint` and `retire` catching one level up, which is true at
+ * token-door call sites catch ERR_KOSMOS_SYMLINK directly; `sendertoken.writeTokens` does NOT, and relies on `mint`
+ * and `retire` catching one level up, which is true at
  * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
  * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
  * moved it onto this writer).
@@ -164,7 +165,8 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *
  * What a refusal leaves (kosmos#9285): whatever was planted at the temp name (a link, a swapped-in file, a second hard
  * link, a folder) stays, because the name is never touched; a later process's reaper unlinks a planted file or link,
- * once this writer has ended, since it carries a temp name, but cannot remove a planted folder, which stays. When the name
+ * once this writer has ended, since it carries a temp name, but cannot remove a planted folder, which stays. When the
+ * name
  * is no longer a link to the made file (swapped, removed, or a second hard link to it), the made file stays where the
  * link pointed, empty, since nothing is ever written to it; that name is not a temp name, so nothing reaps it.
  *
@@ -183,7 +185,8 @@ const TEMP_RE = /\.kosmos-(\d+)-(?:t(\d+)-)?(\d+)-\d+\.tmp$/;
  *     race at the config itself. On no measured mount does an ordinary save see this refusal (the Mac, GitHub's
  *     Windows runner, a Linux container). The cost is wider than three such refusals: ONE is enough when the other
  *     two attempts fail for any reason, so a sync client or antivirus that moved one fresh temp, with two renames
- *     failing EPERM (the usual reason Windows reaches the fallback), now fails that save rather than rewrite in place. Three failures with no such refusal fall back as
+ *     failing EPERM (the usual reason Windows reaches the fallback), now fails that save rather than rewrite in
+ *     place. Three failures with no such refusal fall back as
  *     before, and that includes a plain file planted at all three names (each create fails EEXIST): not closed here,
  *     as it was before #9268, and carded as kosmos#9307 (the same race at the config applies). EEXIST is what this
  *     module's own tests use to reach the fallback, so counting it as
