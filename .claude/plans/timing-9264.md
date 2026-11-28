@@ -15,17 +15,21 @@ and a CLI that waits on stdin longer than the short peek still fails it.
   is kept.
 - NEW: "#9264 the peek for words alone is under a second and is not the quiet read" reads install/kosmos: the
   KOSMOS_PIPED_PEEK_MS line is under 1000, `_words_and_piped` hands it to the peek, the peek's timer reads it, and the
-  function never reaches `_read_stdin_quiet` / `KOSMOS_STDIN_QUIET_S`. Two inline controls (a 3000 ms peek, and the
-  quiet read's length handed to the peek) must make it fail.
+  timer is exactly `Number(process.env.KOSMOS_PEEK_MS)`, and no code line of the function reaches `_read_stdin_quiet` /
+  `KOSMOS_STDIN_QUIET_S` (comment lines are ignored). Three inline controls (a 3000 ms peek, the quiet read's length
+  handed to the peek, a scaled timer) must make it fail.
 - `run()` no longer records `ms`, which nothing reads now.
 - `run()` starts the child in its own process group and the 20 s kill takes the whole group: before, under a
-  `/bin/sh` parent the CLI and its peek kept the pipes open and the test hung past its own timeout.
+  `/bin/sh` parent the CLI and its peek kept the pipes open and the test hung past its own timeout. Groups still
+  running when the file ends, by exit or by SIGINT, SIGTERM or SIGHUP, are killed through test-support/remove-at-end.
 
 ## Measured
 - Real CLI: 29 pass, 0 fail, 1 skipped.
 - `KOSMOS_PIPED_PEEK_MS=300` -> `3000` (restored after): the new #9264 test goes red.
 - `KOSMOS_PIPED_PEEK_MS=300` -> `999999` (restored after): before the group kill the writer arms hung over 300 s;
   after it, the open-pipe and never-stopping-writer arms are red at 20 s (the `sleep 4` writer ends, so it passes).
+- Same 999999 ms peek, the file run directly and sent SIGTERM 4 s in: its `yes` writer was running before and no
+  writer or peek process was left after.
 
 ## Rejected
 - A coarse upper bound (10 to 15 s) between the 250 ms floor and the 20 s kill: it would not catch a 3 s wait, and
