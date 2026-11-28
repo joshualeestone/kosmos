@@ -1127,7 +1127,20 @@ o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannbeside QUEUED_HEAVY_CAP_S=2 QUEUED_H
 ok "#9217: a beside run (past the cap) announces too" '[[ "$o" == *"RUNNING BESIDE"* ]] && grep -qE "^heavy start beside job --pid [0-9]+$" $S/kosmos-calls'
 rm -f $S/kosmos-calls
 
-EXPECTED=217   # one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
+# kosmos#9246: a caller that names the real marker folder itself is on the real markers, so it announces (trailing
+# slash and a symlink to it alike); control characters in the name become spaces, so the board does not refuse it.
+mkdir -p $S/home/.cache/kosmos-run-markers; ln -sfn $S/home/.cache/kosmos-run-markers $S/markers-link
+o=$(cd /tmp && unset QUEUED_HEAVY_ANNOUNCE; HOME=$S/home KOSMOS_RUN_MARKER_DIR=$S/home/.cache/kosmos-run-markers/ TMUX_PANE=%42 /bin/bash $QH "named real" true 2>&1); calls
+ok "#9246: the real marker folder named explicitly (with a trailing slash) announces, as unset does" '[[ "$o" == *"END rc=0"* && "$o" == *"asked the board"* ]] && grep -qE "^heavy start named real --pid [0-9]+$" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && unset QUEUED_HEAVY_ANNOUNCE; HOME=$S/home KOSMOS_RUN_MARKER_DIR=$S/markers-link TMUX_PANE=%42 /bin/bash $QH "linked real" true 2>&1); calls
+ok "#9246: a symlink to the real marker folder announces too" '[[ "$o" == *"asked the board"* ]] && grep -qE "^heavy start linked real --pid [0-9]+$" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mannctl QUEUED_HEAVY_ANNOUNCE=1 TMUX_PANE=%42 /bin/bash $QH "$(printf 'ctl\tjob\nx\033y')" true 2>&1); calls
+ok "#9246: a tab, a newline and an escape in the name are sent as spaces, on one line" '[ "$(wc -l < $S/kosmos-calls | tr -d " ")" = 1 ] && grep -qxE "heavy start ctl job x y --pid [0-9]+" $S/kosmos-calls'
+rm -f $S/kosmos-calls
+
+EXPECTED=220   # three #9246 arms (the real marker folder named with a trailing slash, a symlink to it, control characters in a name); one #9217 shim control (unset markers under a HOME not this test's); fourteen #9217 announce arms (a main turn and its pid, off, unset under private markers, real markers on, real markers opted out, no agent named, a leading dash, a light run, a light suite run, a long name, a noisy failing kosmos, a slow board, a script path in the name, a beside run); three #9191 arms (kill_waiters, joiner_under, the #5923 call sites); two #9139 review-8 arms (an unrelated leaderless group, an EPERM holder); two #9139 review-7 arms (no spin at KOSMOS_WAIT_MAX_S=0, a reused slot pid); one #9139 review-6 arm (the next run waits for a SIGKILLed wrapper's command); three #9139 review-5 arms (one beside run at a time, no spin beside a cut, a dead slot), 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms, twenty #9118 main-turn stop arms, thirteen #9118 withdraw arms, sixteen #9139 cap arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

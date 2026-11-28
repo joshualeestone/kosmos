@@ -1036,11 +1036,23 @@ fi
 # so a run whose PATH has no kosmos (a tmux run-shell or launchd job) shows it; it cannot tell a refusal from success
 # (nor a kosmos too old to have the verb), since nothing waits to hear.
 # On or off: QUEUED_HEAVY_ANNOUNCE=1 turns it on and any other value off. Unset (or empty), it is on only when the run markers are the real ones
-# (KOSMOS_RUN_MARKER_DIR unset): every test points them at a private folder, so a test's queued-heavy never writes to a
+# (KOSMOS_RUN_MARKER_DIR unset, or set to the real folder): every test points them at a private folder, so a test's queued-heavy never writes to a
 # real board, run by tools/run-tests.sh or on its own. The label is the run's own name, cut to 80 characters (bash's
 # count: a name with non-ASCII letters can be cut mid-letter under a C locale, or refused when it holds an emoji).
+# kosmos#9246: a caller that names the real folder itself (a launchd job, a pinning wrapper) is on the real markers too,
+# so it announces: the folder is compared with the real one, trailing slashes aside and through any symlink when both
+# exist. Any other folder is a private one, and stays quiet as before.
+_qh_real_markers() {
+  local m="${KOSMOS_RUN_MARKER_DIR:-}" real="${HOME:-/tmp}/.cache/kosmos-run-markers" pm pr
+  [ -z "$m" ] && return 0
+  while [ "${m%/}" != "$m" ] && [ "$m" != / ]; do m="${m%/}"; done
+  [ "$m" = "$real" ] && return 0
+  pm=$(cd -P -- "$m" 2>/dev/null && pwd -P) || return 1
+  pr=$(cd -P -- "$real" 2>/dev/null && pwd -P) || return 1
+  [ -n "$pm" ] && [ "$pm" = "$pr" ]
+}
 qh_announce="${QUEUED_HEAVY_ANNOUNCE:-}"
-[ -n "$qh_announce" ] || { [ -z "${KOSMOS_RUN_MARKER_DIR:-}" ] && qh_announce=1 || qh_announce=0; }
+[ -n "$qh_announce" ] || { _qh_real_markers && qh_announce=1 || qh_announce=0; }
 [ "$qh_announce" = 1 ] || qh_announce=0
 # LANE != side is defensive: a side turn is a --light run with QH_RUNS_BC=0, which the class test already leaves out.
 if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$QH_RUNS_BC" = 1 ]; } \
@@ -1050,7 +1062,10 @@ if [ "$LANE" != side ] && { [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] || [ "$Q
   # name like "cut tools/release.sh" as a live run. So no word of it can be a script path: / and .sh are broken up, and
   # so are the hyphenated script names an unanchored pgrep -f might look for (run-tests, browser-checks, test-install).
   # A plain word such as "release" is left as it is: breaking it would garble ordinary names.
-  qh_label="${WHAT//\// }"; qh_label="${qh_label//.sh/ sh}"; qh_label="${qh_label//run-tests/run tests}"
+  # kosmos#9246: control characters (a newline, a tab, an escape) become spaces, as the board refuses a label that holds
+  # one, so the likeliest refusal no longer hides behind "asked the board". (An emoji past 80 UTF-16 units still can.)
+  qh_label="${WHAT//[[:cntrl:]]/ }"
+  qh_label="${qh_label//\// }"; qh_label="${qh_label//.sh/ sh}"; qh_label="${qh_label//run-tests/run tests}"
   qh_label="${qh_label//browser-checks/browser checks}"; qh_label="${qh_label//test-install/test install}"
   qh_label="${qh_label:0:80}"
   qh_lead="${qh_label#"${qh_label%%[![:space:]]*}"}"
