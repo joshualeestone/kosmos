@@ -35,7 +35,7 @@ function sandbox({ signedIn = true } = {}) {
 }
 
 function boot(box, extraEnv) {
-  const child = spawn(process.execPath, [path.join(REPO, 'server.js')], {
+  const child = spawn(process.execPath, [...require('./test-support/faketmux-win').childArgs(), path.join(REPO, 'server.js')], {   // kosmos#8378: fake tmux's reads on Windows
     env: {
       PATH: process.env.PATH,
       HOME: box.home,

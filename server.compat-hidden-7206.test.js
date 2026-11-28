@@ -16,6 +16,7 @@
  */
 require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -84,7 +85,7 @@ async function everyRoute() {
 }
 const says = (b) => JSON.stringify(b);
 
-test('switch OFF: every route refuses or shows nothing, and no key is sent to DeepSeek', async () => {
+test('switch OFF: every route refuses or shows nothing, and no key is sent to DeepSeek', { skip: skipOnWin32('it adds a DeepSeek agent, and DeepSeek agents run on a Mac for now: the add route refuses them on Windows') }, async () => {
   withSwitch(false);
   const r = await everyRoute();
   assert.deepEqual(r.status, { enabled: false, vendors: [] }, 'the page is offered DeepSeek');
@@ -101,7 +102,7 @@ test('switch OFF: every route refuses or shows nothing, and no key is sent to De
   assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-route-add')), false, 'add stored an account');
 });
 
-test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate that refuses everything)', async () => {
+test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate that refuses everything)', { skip: skipOnWin32('it adds a DeepSeek agent, and DeepSeek agents run on a Mac for now: the add route refuses them on Windows') }, async () => {
   withSwitch(true);
   try {
     const r = await everyRoute();

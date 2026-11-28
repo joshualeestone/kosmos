@@ -43,7 +43,13 @@ function serveOnWindows(platform = process.platform) {
   return true;
 }
 
+/** For a board a test starts as a child process: on Windows, the node arguments that load the preload, which calls
+    serveOnWindows() in that child before server.js runs; elsewhere none, so the child's argv is what it always was. */
+function childArgs(platform = process.platform) {
+  return platform === 'win32' ? ['--require', require('node:path').join(__dirname, 'faketmux-win-preload.js')] : [];
+}
+
 /** The seams serveOnWindows installed, for fleet.restore() to return to; nulls when it did not run. */
 function current() { return { source, capture }; }
 
-module.exports = { serveOnWindows, current };
+module.exports = { serveOnWindows, current, childArgs };

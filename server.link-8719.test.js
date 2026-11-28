@@ -27,6 +27,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378
 const assert = require('node:assert/strict');
 require('./test-support/faketmux-win').serveOnWindows();   // kosmos#8378: fake tmux's reads on Windows, where its script cannot run
 const { start, server } = require('./server');
@@ -66,7 +67,7 @@ async function link(name, body, headers) {
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
-test('#8719 a confirmed link of a hand-started Claude window marks that session and says linked', async () => {
+test('#8719 a confirmed link of a hand-started Claude window marks that session and says linked', { skip: skipOnWin32('it links a hand-started window through tmux, and linking a window is not available on Windows yet: the route refuses it there') }, async () => {
   lines = [{ session: 'zara', claim: '' }];
   const r = await link('zara', { confirm: true });
   assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -84,7 +85,7 @@ test('#8719 without the confirmation nothing is linked; CONTROL: the same window
   assert.equal(calls.length, 0, 'tmux was never touched');
 });
 
-test('#8719 a window that is not plainly that agent is refused 409 with the reason, and tmux is not touched', async () => {
+test('#8719 a window that is not plainly that agent is refused 409 with the reason, and tmux is not touched', { skip: skipOnWin32('it links a hand-started window through tmux, and linking a window is not available on Windows yet: the route refuses it there') }, async () => {
   lines = [{ session: 'zara', claim: 'zara' }];
   let r = await link('zara', { confirm: true });
   assert.equal(r.status, 409);
@@ -105,7 +106,7 @@ test('#8719 a cross-site request cannot link a window (the board-wide write guar
   assert.equal(calls.length, 0);
 });
 
-test('#8719 when tmux cannot be asked the route says so (500), never "there is no window"', async () => {
+test('#8719 when tmux cannot be asked the route says so (500), never "there is no window"', { skip: skipOnWin32('it links a hand-started window through tmux, and linking a window is not available on Windows yet: the route refuses it there') }, async () => {
   status.setPaneSource(() => null);
   try {
     const r = await link('zara', { confirm: true });
