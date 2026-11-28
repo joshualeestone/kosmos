@@ -4,7 +4,9 @@ Hand-out: Splinter, 00:38 11-28. List: #8378 comment 7235424591; how-to: 7235170
 7235404367. Measured throughout on GitHub's Windows runner through the never-merged branch wing5srv-8378-never-merge.
 
 Result on the runner: 58 of 59 files failed, 126 tests (run 46119265069). Now all 59 pass, 0 failing (run 46121613128,
-and 46122481509 after review round 1). Tests passing went from 344 to 459; skips from 13 to 24, each new one named below.
+46122481509 after review round 1, 46123222340 after round 3 with server.faketmux-win-8378 too: 60 files, 463 pass,
+24 skip, 0 fail). Tests passing went from 344 to 463; skips from 13 to 24, each new one named below (round 1 unskipped
+compat-hidden's OFF arm and round 3 skipped attachment-range's abandoned download, so the count stayed 24).
 
 🛑 What that green means (review round 3): the stand-in serves fake tmux's tmux-shaped rows, so on a Windows host every
 card is a Mac card (no claude.exe rows, reachedByChannel false, delivery through tmux). The green says each route is
