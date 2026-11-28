@@ -102,16 +102,17 @@ function take({ root, agent, label, pid, now = Date.now(), startOf = hj.defaultS
     // takes it under a wrapper (--pid): the turn moves to the wrapper, so it stays ONE job. Any other job of its own,
     // under another pid, is busy like anyone's: a second wrapper waits. Round 8: the wrapper's record is made FIRST and
     // the one without a process ended only once it exists, so a failed start leaves the turn where it was.
-    let bare = null;
-    if (!held && p !== null) {
-      bare = jobs.find((j) => j.agent === agent && j.pid === null && !j.unchecked) || null;
-      if (bare) held = bare;
-    }
+    // Round 9: it moves only when that record is the agent's ONLY job (with another of its own running, a new wrapper
+    // waits, as round 7 says); and once the wrapper holds the turn, a record without a process left by a failed end is
+    // ended by its next take, so the two never outlive one more ask.
+    const own = jobs.filter((j) => j.agent === agent);
+    const bare = p !== null ? (own.find((j) => j.pid === null) || null) : null;
+    if (!held && bare && own.length === 1) held = bare;
     if (held) {   // already the holder: asking again is not a place in its own line, and re-announces (a new label shows)
       line = line.filter((e) => !mine(agent, p)(e));
       const again = hj.start({ root, agent, label: lab, pid: p, now, startOf });
       if (!again.ok) { out = again; return; }   // the old record, if this was a move, is untouched: the turn stays
-      if (bare) hj.end({ root, agent, pid: null });   // moved: a failed end leaves two of its own records, which the next take ends
+      if (bare) hj.end({ root, agent, pid: null });   // moved, or left over: a failed end is retried by the next take --pid
       out = writeLine(root, line) ? { ok: true, turn: true, job: again.job } : { ok: true, turn: true, job: again.job, lineNotSaved: true };
       return;
     }

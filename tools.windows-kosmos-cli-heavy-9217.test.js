@@ -187,3 +187,9 @@ test('heavy take: a take that timed out is "maybe" (3), never the "wait" code (1
   const r = await run(['heavy', 'take', 'suite'], () => { throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); });
   assert.equal(r.code, 3, 'a timed-out take must be "maybe" (3): never 0 (run the job) and never 10 (wait)');
 });
+
+test('heavy release: a turn ended while other records of yours remain says they still hold the turn', async () => {
+  const r = await run(['heavy', 'release', '--pid', '4242'], () => [200, { ok: true, left: 0, ended: 1, others: 1 }]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^Released: that turn has ended\. You still have 1 recorded, which still holds the turn; kosmos heavy lists them\.$/);
+});
