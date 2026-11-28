@@ -240,7 +240,9 @@ test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal
     let rc = 0; let said = '';
     try { execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on }); } catch (e) { rc = e.status; said = String(e.stdout); }
     assert.equal(rc, 2, 'launch-env did not refuse off macOS');
-    assert.match(said, /, so this agent was not started on it$/);
+    // The whole sentence: the vendor is named from the folder, never the "That provider" fallback.
+    assert.equal(said, `${compat.notYet('deepseek')}, so this agent was not started on it`);
+    assert.ok(!said.startsWith('That provider'), 'the refusal did not name the vendor');
     assert.ok(!said.includes('\0') && !said.includes(KEY), 'the refusal carried the key');
     return;
   }
