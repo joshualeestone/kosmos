@@ -494,3 +494,18 @@ test('kosmos#9222: announcing again past the ceiling while ps cannot answer keep
   const rec = hj.readAll(r).find((j) => j.pid === 99990);
   assert.deepEqual([rec.pidStart, rec.since], ['A', base], 'past the ceiling, the re-announce reset since');
 }));
+
+test('kosmos#9230: a re-announce made between a read and its drop is not removed by that drop', () => {
+  const r = root();
+  assert.equal(hj.start({ root: r, agent: 'renet', label: 'first', pid: 4250, now: T0, startOf: () => 'A' }).ok, true);
+  let once = true;
+  const startOf = () => {
+    if (once) {   // inside the read, before it takes the lock to drop: the same job announced again
+      once = false;
+      assert.equal(hj.start({ root: r, agent: 'renet', label: 'again', pid: 4250, now: T0 + 5, startOf: () => undefined }).ok, true);
+    }
+    return null;   // the read judges the first record gone
+  };
+  hj.live({ root: r, now: T0 + 1, startOf });
+  assert.deepEqual(hj.readAll(r).map((j) => j.label), ['again'], 'the drop decided before the re-announce removed it');
+});
