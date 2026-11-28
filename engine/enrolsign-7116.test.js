@@ -60,7 +60,7 @@ process.stderr.write('kosmos-se: usage\\n'); process.exit(2);
   return { app, helper, keyFile, expectedKey, publicKey };
 }
 
-test('#7116 step 2 caller: kosmos-se is found only as a plain executable file in the app\'s own bin', { skip: NO_SE_STUB }, () => {
+test('#7116 step 2 caller: kosmos-se is found only as a plain executable file in the app\'s own bin', { skip: require('../test-support/skip-on-win32').skipOnWin32('it checks that kosmos-se is found by its exec bit and not through a symlink, POSIX file properties Windows does not have (there a file runs by its extension); kosmos-se is the Mac\'s Secure Enclave signer') }, () => {
   const none = fresh();
   assert.equal(es.helperPath(none), null, 'no bin');
   const { app, helper } = appWithHelper();

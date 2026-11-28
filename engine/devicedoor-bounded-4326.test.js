@@ -57,15 +57,15 @@ async function gone(pid, ms = 30000) {
 }
 
 test('#4326 a child that IGNORES SIGTERM is answered at the timeout and then SIGKILLed', { skip: require('../test-support/skip-on-win32').skipOnWin32('its stand-in ignores SIGTERM, and Windows has no signals: there kill ends the child at once, so the SIGKILL-after-grace path never runs') }, async () => {
-  /* The stand-in marks a file once its SIGTERM handler is in place. A SIGTERM that came first would kill it before the
-     mark, so a present mark proves this arm tested an ignoring child and not one that merely started slowly (a node
-     stand-in starts more slowly than the shell `trap '' TERM` it replaced, kosmos#8378). */
+  /* This arm skips on Windows, so it keeps the shell stand-in (`trap '' TERM`, quick to start), not the node one the
+     other arms use (kosmos#8378). It marks a file once the trap is set: a SIGTERM that came first would kill it before
+     the mark, so a present mark proves the arm tested an ignoring child, not one that had not started yet. */
   const armed = path.join(os.tmpdir(), 'devicedoor-armed-' + process.pid + '-' + Date.now());
-  const stub = script('stubborn.js', "process.on('SIGTERM', () => {});\nrequire('fs').writeFileSync(" + JSON.stringify(armed) + ", '');\nsetInterval(() => {}, 1000);");
-  /* 2 s, not the shell stand-in's 400 ms: node must start and install its handler inside the timeout, and a loaded
-     machine can take longer than 400 ms to start node (the #4656 notes: a fixed speed is the wrong bound). */
-  const T = 2000;
-  const r = await run(STUB_BIN, [stub], { timeoutMs: T, graceMs: 300 });
+  const stub = path.join(DIR, 'stubborn.sh');
+  fs.writeFileSync(stub, "#!/bin/sh\ntrap '' TERM\n: > " + JSON.stringify(armed) + "\nwhile :; do sleep 1; done\n");
+  fs.chmodSync(stub, 0o755);
+  const T = 400;
+  const r = await run(stub, [], { timeoutMs: T, graceMs: 300 });
   try {
     assert.ok(fs.existsSync(armed), 'the stand-in was ended before its SIGTERM handler was in place, so this arm tested nothing (premise)');
     assert.equal(r.code, -1, 'a timed-out probe must answer -1 (not connected), as execFile did');

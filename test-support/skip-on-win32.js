@@ -12,7 +12,7 @@
  *
  * One exception, and it must say so (kosmos#8378): a test whose subject DOES exist on Windows, but whose setup is
  * Mac-only (a tmux stop, say) and needs a Windows arm written, may skip while that arm is owed, if its reason says
- * "what it checks exists on Windows" and names the open card that owes the arm (kosmos#8456 is the first). Then the gap
+ * "what it checks exists on Windows" and names the open card that owes the arm (kosmos#8456 was the first and is closed; kosmos#9269 holds cluster 2's). Then the gap
  * is counted on a card someone owns, not hidden in a reason that reads as "not applicable".
  *
  * Name the mechanism in the reason, not "Windows has no bash": a bare `bash` reaches Git Bash on Windows (on the box

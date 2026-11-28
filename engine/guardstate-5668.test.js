@@ -137,7 +137,9 @@ test('#5668 review 1: the record is denied to the agent in both layers, so it ca
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
   const rec = stateDir();
   // kosmos#8378: the guard's own spelling of a rule path, so a Windows path (c:\... written //c/...) is spelled as the rule is.
-  const ruleAbs = (p) => setup.ruleAbs(p);
+  /* kosmos#8378: on Windows the guard spells a rule path its own way (//c/...), so there the expected rule comes from
+     setup.ruleAbs; elsewhere this file keeps its own formula, so a regression in ruleAbs still fails here. */
+  const ruleAbs = process.platform === 'win32' ? (p) => setup.ruleAbs(p) : (p) => '//' + String(p).replace(/^\/+/, '');
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(rec)}/**)`), 'the records are not denied to the file tools');
   assert.ok(s.sandbox.filesystem.denyWrite.includes(real(rec)), 'the record is not denied to the sandboxed shell');
