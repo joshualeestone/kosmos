@@ -365,8 +365,10 @@ rt_wd_loop() {
 # with a space then keeps its closing quote). A file is named
 # only when taskkill stopped it (one that ended first is not). The snapshot runs in the foreground, so a stop waits
 # for the one in progress. Not covered: node behind a shim (the Mac loop's shim step has no Windows twin).
-# A snapshot that hangs (a stuck WMI query) is cut at 20 s and reads as empty, so it cannot hold the stop at the end.
+# A snapshot that hangs (a stuck WMI query) is cut at 20 s, so a stop at the end waits at most that long for it.
+# KOSMOS_TEST_WIN_SNAP_EMPTY=1 makes it print nothing, for tools.run-tests-winwd-9278's empty-snapshot arm.
 rt_wd_snap_win() {   # one row per Windows process: pid, parent pid, age in whole seconds, start time, command line
+  [ "${KOSMOS_TEST_WIN_SNAP_EMPTY:-}" = 1 ] && return 0
   timeout 20 powershell -NoProfile -NonInteractive -Command '$now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { "{0} {1} {2} {3} {4}" -f $_.ProcessId, $_.ParentProcessId, [int64]($now - $_.CreationDate).TotalSeconds, $_.CreationDate.Ticks, $_.CommandLine }' 2>/dev/null | tr -d '\r'
 }
 rt_wd_loop_win() {
@@ -394,13 +396,14 @@ rt_wd_loop_win() {
     else
       snap="$(rt_wd_snap_win)"
       if [ -z "$snap" ]; then
-        # No rows at all (powershell refused or timed out): no file can be stopped, so the limit is not claimed.
+        # No rows at all (powershell refused, or timed out before printing any): no file can be stopped while it
+        # lasts. Said once a spell, and recorded beside the flag so a red run's summary says so too.
         if [ "$blind" = 0 ]; then
-          blind=1; rm -f "$flag.node"
-          echo "run-tests: the Windows process snapshot came back empty, so the per-file limit is off for now (#6668, kosmos#9278)" >&2
+          blind=1; : > "$flag.blind"
+          echo "run-tests: the Windows process snapshot came back empty, so the per-file limit is off while it does (#6668, kosmos#9278)" >&2
         fi
       else
-        [ "$blind" = 1 ] && { blind=0; : > "$flag.node"; }
+        blind=0
       fi
       old="$(printf '%s\n' "$snap" | awk -v n="$nodew" -v lim="$RT_FILE_TIMEOUT_S" '$2 == n && $3 >= lim && tolower($0) ~ /node(\.exe)?"? /')"
       while IFS= read -r row; do
@@ -416,9 +419,11 @@ rt_wd_loop_win() {
           case "$cmd" in *" $f"|*"/$f"|*" $w"|*"\\$w") [ "${#f}" -gt "${#p}" ] && p="$f" ;; esac
         done
         [ -n "$p" ] && file="$p"
-        # A taskkill that fails (the file ended first, or part of its tree went mid-kill) is not recorded, so a file that
-        # is still there is tried again at the next look; one that ended is simply gone from the next snapshot.
-        taskkill //T //F //PID "$pid" >/dev/null 2>&1 || continue
+        # taskkill /T can stop the file and still fail on a child that went first, so on a failure ask whether the file
+        # itself is still there: if it is, it is tried again at the next look; if not, it was stopped (or ended).
+        if ! taskkill //T //F //PID "$pid" >/dev/null 2>&1; then
+          tasklist //FI "PID eq $pid" //NH 2>/dev/null | grep -q " $pid " && continue
+        fi
         stopped="$stopped $key"
         echo "run-tests: TIMED OUT after $RT_FILE_TIMEOUT_LABEL: $file (#6668; stopped it and its process tree)" >&2
         printf '%s\n' "$file" >> "$flag"
@@ -439,6 +444,11 @@ rt_file_watchdog_start() {
   # kosmos#9278: the Windows loop reads every process through powershell; without it there is no limit, and it says so.
   if [ "$_RT_WIN" = 1 ] && ! command -v powershell >/dev/null 2>&1; then
     echo "run-tests: powershell is missing, so the file watchdog cannot see Windows processes; running without a per-file limit (#6668, kosmos#9278)" >&2
+    return 0
+  fi
+  # And the coreutils timeout that cuts a hung snapshot (Windows' own timeout.exe, found first, would empty every one).
+  if [ "$_RT_WIN" = 1 ] && ! timeout --version >/dev/null 2>&1; then
+    echo "run-tests: the timeout found first is not coreutils timeout, so the file watchdog cannot bound its Windows snapshot; running without a per-file limit (#6668, kosmos#9278)" >&2
     return 0
   fi
   # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
@@ -513,12 +523,13 @@ rt_file_watchdog_stop() {
   _rt_wd_pid=""
   [ -n "$_rt_wd_flag" ] || return 0
   [ -e "$_rt_wd_flag.node" ] && _rt_wd_found=1
+  [ -e "$_rt_wd_flag.blind" ] && _rt_wd_blind=1   # kosmos#9278: the Windows snapshot was empty at some point
   if [ -s "$_rt_wd_flag" ]; then
     echo "run-tests: $(wc -l < "$_rt_wd_flag" | tr -d ' ') test file(s) ran longer than $RT_FILE_TIMEOUT_LABEL and were stopped (#6668):" >&2
     sed 's/^/  /' "$_rt_wd_flag" >&2
     [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
   fi
-  rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; _rt_wd_flag=""
+  rm -f "$_rt_wd_flag" "$_rt_wd_flag.node" "$_rt_wd_flag.blind"; _rt_wd_flag=""
 }
 
 # #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
@@ -922,7 +933,7 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # stopped run), before the root goes (lib/test-leak-guard.sh leak_process_stop_root). It ignores SIGPIPE first: a
   # Ctrl-C to `run-tests.sh | tee` ends tee, and the trap's first line would otherwise end the trap (#8890 review 2);
   # and a second INT or TERM, which would cut the clean-up short (review 3; a KILL still ends it).
-  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node" "$_rt_wd_flag.blind"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; type leak_process_stop_root >/dev/null 2>&1 && leak_process_stop_root "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
   # kosmos#9278: node on Windows takes os.tmpdir() from TEMP and TMP, never TMPDIR. Measured on a Windows runner: a test
   # saw the computer's own temp folder, so the per-run root, its removal at exit and the temp leak check below held none
@@ -938,7 +949,7 @@ else
   # clean-up short now that rt_stop_own_node can take about 3 s. Not proven by a test (no run root is hard to reach).
   # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
   # waits for node, and the normal stop follows).
-  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
+  trap '_rt_turn_end $?; trap "" PIPE INT TERM; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; _rt_wd_pid=""; rt_stop_own_node; type kosmos_shell_parallel_stop >/dev/null 2>&1 && kosmos_shell_parallel_stop; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node" "$_rt_wd_flag.blind"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
@@ -1103,6 +1114,7 @@ _rt_wd_pid=""
 _rt_wd_flag=""
 _rt_wd_started=0
 _rt_wd_found=0
+_rt_wd_blind=0
 rt_file_watchdog_start   # not for a shell-only run
 if [ "$KOSMOS_TEST_PART" != shell ]; then
 node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" --require "$REPO/test-support/fresh-connections.js" --test-timeout="$RT_TEST_TIMEOUT_MS" "${KOSMOS_TEST_FILES[@]}" "$@"
@@ -1251,6 +1263,7 @@ if [ "$NODE_STATUS" -ne 0 ]; then
   if [ "${_rt_node_status:-0}" -ne 0 ]; then
     if [ "${_rt_wd_started:-0}" != 1 ]; then _rt_wd_said="per-file limit: off (the watchdog could not start)"
     elif [ "${_rt_wd_found:-0}" != 1 ]; then _rt_wd_said="per-file limit: off (node --test not found before the run ended)"
+    elif [ "${_rt_wd_blind:-0}" = 1 ]; then _rt_wd_said="per-file limit $RT_FILE_TIMEOUT_LABEL, but off while the Windows process snapshot came back empty (kosmos#9278)"
     else _rt_wd_said="per-file limit $RT_FILE_TIMEOUT_LABEL"; fi
     echo "Limits this run: $_rt_wd_said, per-test limit ${RT_TEST_TIMEOUT_MS} ms (#6668)"
   fi
