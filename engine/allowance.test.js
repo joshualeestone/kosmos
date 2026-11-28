@@ -17,7 +17,8 @@ const allowance = require('./allowance');
 const statusline = require('./kosmos-statusline');
 const accounts = require('./accounts');
 const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
-const NO_SETUP_SH = require('../test-support/skip-on-win32').skipOnWin32('it checks what setup.sh, the Mac and Linux installer, writes into the default account (the runtime node it bakes into the command, the status line it names); setup.sh never runs on Windows, which installs through its own installer');   // kosmos#8378
+const NO_SETUP_SH_BAKE = require('../test-support/skip-on-win32').skipOnWin32('it checks the status line command setup.sh bakes for the Mac and Linux bundle, whose node sits at runtime/bin/node; a Windows install keeps its node elsewhere and writes its own command');   // kosmos#8378, #9315
+const NO_SETUP_SH_RUN = require('../test-support/skip-on-win32').skipOnWin32('it runs a block of setup.sh, the Mac and Linux uninstaller, under sh; Windows uninstalls through its own installer');   // kosmos#8378, #9315
 
 const SCRIPT = allowance.scriptPath();
 const NODE = allowance.stableNode();
@@ -259,7 +260,7 @@ function runSetupBlock({ withAllowance }) {
   return { r, data: fs.existsSync(settings) ? readJson(settings) : null };
 }
 
-test('setup.sh wires the default account with the report hooks AND the statusline', { skip: NO_SETUP_SH }, () => {
+test('setup.sh wires the default account with the report hooks AND the statusline', { skip: NO_SETUP_SH_BAKE }, () => {
   const { r, data } = runSetupBlock({ withAllowance: true });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
@@ -293,7 +294,7 @@ test('setup.sh: a statusline that cannot be wired does not change the hooks\' an
 /* Uninstall NAMES the status line it cannot remove (setup.sh's rule: anything not
    removed is left alone and named). The block is extracted from setup.sh and run
    under bash, both arms: ours is named, somebody else's is not. */
-test('uninstall names our status line, and only ours', { skip: NO_SETUP_SH }, () => {
+test('uninstall names our status line, and only ours', { skip: NO_SETUP_SH_RUN }, () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
   const start = sh.indexOf('  # #3946: the status line Kosmos adds to record weekly usage');
   assert.ok(start > 0, 'the uninstall naming block moved in setup.sh');

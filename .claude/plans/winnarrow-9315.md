@@ -1,0 +1,19 @@
+# winnarrow-9315: four Windows test skips narrowed or made exact (kosmos#9315, follow-up to #8378 cluster 1)
+
+## Items
+1. engine/automove-7548.test.js "kosmos#7621 item 2" was skipped whole on Windows, but only its second block (a chmod
+   0o555 folder) needs the lock. The written-person-line half now runs everywhere; the chmod block is guarded.
+2. The other chmod-lock skips, read by BODY (a script listed each skipped test, the line of its first chmodSync lock,
+   and the assertions before it): chat x2, commitments, communityretire-4994 x9, autobalance-sweep-7152 x2,
+   communityavatar, usage-world-5532 x3. Every assertion before a lock is a CONTROL or a sandbox guard for the lock's
+   own subject (the failure the chmod causes); none has a subject of its own, so none is a mixed arm. No change.
+3. engine/anthropiccompat-7206.test.js launch-env: off macOS the arm now PINS the refusal (exit 2, the "so this agent
+   was not started on it" sentence, no NAME=VALUE pairs, no key) instead of skipping. Its NO_LAUNCH_ENV skip is gone.
+4. engine/allowance.test.js: the one NO_SETUP_SH reason ("setup.sh never runs on Windows") was false for this file,
+   whose other setup.sh arms run there. Split into two exact reasons: NO_SETUP_SH_BAKE (the command setup.sh bakes for
+   the Mac and Linux bundle's runtime/bin/node) and NO_SETUP_SH_RUN (a block of setup.sh's uninstaller run under sh).
+tools/windows-tests.js carries each file's reasons verbatim (engine/windows-tests-1777.test.js checks it).
+
+## Weakest premise
+Item 2 judges a pre-lock assertion as a CONTROL by reading it; a CONTROL that also checks something independent would
+be missed. Items 1 and 3 need a Windows run to be proven (the off-macOS arm cannot run here).
