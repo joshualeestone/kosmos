@@ -43,3 +43,13 @@ tools/wincand-8378.js over the 81 files on windows-latest (full history, a 1200 
 - W3: securewrite's inode arm and chmod-retry arm now run on Windows; only their mode lines are POSIX-gated.
 - W4: six HOST_BRANCH_EXCLUDED reasons refreshed to what the files now do.
 - W5: status.heldq's comment says the fixture pane list changes the Mac arm too (it no longer reads the live fleet).
+
+## Review 2 (one BLOCKER, fixed)
+- BLOCKER: two agykeep arms sent a Mac-shaped event, which the Windows bridge refuses before it posts, so their bounds
+  timed an early exit; both send this computer's path shape and assert the keep was asked for.
+- W: tmpscope's seven #6061 arms run on Windows (a self-SIGKILL there is exit 1, no signal, no exit sweep);
+  cli.task-files' pure filesLines checks are their own arm on every host; codexhooks' install arm runs on Windows with
+  only its 0600 lines gated; setup-assistant's held-name arm runs the Mac sequence through the platform seam.
+- W: the four skips whose subject exists on Windows (phonenotify ENOTDIR, limitmsg x2, setup-assistant marker) say so
+  and name kosmos#9313, which owes their Windows arms.
+- N: render-talk installs its fleet inside the try, so a throw cannot leave the job runner stub set; an entry reworded.

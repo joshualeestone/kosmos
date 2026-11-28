@@ -27,7 +27,6 @@ const PINNED_VERSION = require('./runners').MANIFEST.openai.version;   // the Ma
 /* kosmos#8378: the pure arms below check the POSIX forms (a quoted sh command, a basic-string trust key), so they name
    that platform: on a Windows host the default is the PowerShell form, tested in codexhooks.win32-8348.test.js. */
 const POSIX = { platform: 'darwin' };
-const { skipOnWin32 } = require('../test-support/skip-on-win32');
 
 test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails here until the hash is re-measured', () => {
   // On a bump of engine/runners.js: run the real-Codex test below on the new build (it checks the record with a
@@ -103,7 +102,9 @@ test('stateHeading refuses a path a TOML basic string would need escapes for', (
   assert.equal(hooks.stateHeading('/h\nq/hooks.json', POSIX.platform), null);
 });
 
-test('install writes hooks.json and the trust record (0600), is a no-op the second time, and follows a moved bridge', { skip: skipOnWin32('it checks POSIX file modes (0600), which Windows does not keep; the Windows install, with its PowerShell command and literal-string key, is tested in engine/codexhooks.win32-8348.test.js') }, () => {
+// kosmos#8378: the install, the no-op second run and the moved bridge run on every host, in the host's own forms; only
+// the 0600 lines are POSIX (Windows keeps no file modes).
+test('install writes hooks.json and the trust record (0600), is a no-op the second time, and follows a moved bridge', () => {
   const h = home();
   fs.writeFileSync(path.join(h, 'config.toml'), '[projects."/w"]\ntrust_level = "trusted"\n', { mode: 0o600 });
   const firstInode = fs.statSync(path.join(h, 'config.toml')).ino;
@@ -112,8 +113,10 @@ test('install writes hooks.json and the trust record (0600), is a no-op the seco
   assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), hooks.hooksJson(cmd));
   const cfg = fs.readFileSync(path.join(h, 'config.toml'), 'utf8');
   assert.equal(cfg, `[projects."/w"]\ntrust_level = "trusted"\n${hooks.stateHeading(path.join(h, 'hooks.json'))}\ntrusted_hash = "${hooks.trustHash(cmd)}"\n`);
-  assert.equal(fs.statSync(path.join(h, 'hooks.json')).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.join(h, 'config.toml')).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(path.join(h, 'hooks.json')).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.join(h, 'config.toml')).mode & 0o777, 0o600);
+  }
 
   const inode = fs.statSync(path.join(h, 'config.toml')).ino;
   assert.equal(inode, firstInode, 'review 3: the first record is appended in place (a rename could lose a Codex edit)');

@@ -184,6 +184,18 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
   // The recorded fingerprint is what each file is compared with, and a task with no path is never compared.
   assert.deepEqual(asked.map((a) => a[0]), ['/m', '/c', '/gone', '/locked', '/m', '/m\u202e']);
   assert.ok(asked.every((a) => a[1] === FP));
+  // The walk never looks a name up inside the automount folder: a recording lstat sees nothing below it.
+  const seen = [];
+  const spy = { lstatSync: (q) => { seen.push(q); return fs.lstatSync(q); }, readlinkSync: (q) => fs.readlinkSync(q) };
+  assert.equal(tasklist.reachesAutomount(VIA + '/deep/er', new Set([AUTO]), spy), true);
+  assert.ok(seen.length > 0 && seen.every((q) => !q.startsWith(AUTO + '/')), 'a name inside the automount folder was looked up: ' + seen.join(', '));
+  assert.equal(tasklist.reachesAutomount(OUT + '/x', new Set([AUTO])), false, 'CONTROL: a plain folder read as an automount');
+});
+
+test('#8214 filesLines: the Linux, unreadable-mount-table, other-case, Windows and --all rules, with no real disk (any host, kosmos#8378)', () => {
+  const FP = sha('x');
+  const compare = (p) => (p === '/m' ? { ok: true, match: true } : undefined);
+  const row = (number, extra) => ({ number, sentence: 'Task ' + number, builtAt: 'x', builtFingerprint: FP, ...extra });
   // On Linux /home is where homes are, so it is opened; a reader's error words are cleaned as a path is.
   const onLinux = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: '/home/u/x' })] },
     { project: 'files', compare: () => ({ ok: false, words: 'could not be read (bad \u001b[2J\r/home/u/x)' }), platform: 'linux', automounts: new Set() });
@@ -191,19 +203,13 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
   // A mount table that cannot be read opens nothing, and says why.
   const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: '/m' })] }, { project: 'files', compare, platform: 'darwin', automounts: null });
   assert.equal(blind.lines[1], '    NOT CHECKED /m: Kosmos could not read this computer\'s automount table, so it opens no path');
-  // The walk never looks a name up inside the automount folder: a recording lstat sees nothing below it.
-  const seen = [];
-  const spy = { lstatSync: (q) => { seen.push(q); return fs.lstatSync(q); }, readlinkSync: (q) => fs.readlinkSync(q) };
-  assert.equal(tasklist.reachesAutomount(VIA + '/deep/er', new Set([AUTO]), spy), true);
-  assert.ok(seen.length > 0 && seen.every((q) => !q.startsWith(AUTO + '/')), 'a name inside the automount folder was looked up: ' + seen.join(', '));
-  assert.equal(tasklist.reachesAutomount(OUT + '/x', new Set([AUTO])), false, 'CONTROL: a plain folder read as an automount');
   // Review 7: the folder named in another case (APFS ignores case) is the same folder, on any host: a stand-in disk
   // where every name is a folder.
   const anyFolder = { lstatSync: () => ({ isSymbolicLink: () => false }), readlinkSync: () => { throw new Error('no links'); } };
   assert.equal(tasklist.reachesAutomount('/system/volumes/data/home/u/x', new Set(['/System/Volumes/Data/home']), anyFolder), true, 'another case walked into the automount folder');
   assert.equal(tasklist.reachesAutomount('/system/volumes/data/homes/u', new Set(['/System/Volumes/Data/home']), anyFolder), false, 'CONTROL: a neighbour read as the automount folder');
   // On Windows the rule turns round: a drive path is opened, a Mac path is another computer's, a network path never.
-  asked.length = 0;
+  const asked = [];
   const onWin = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: 'C:\\m' }), row(2, { builtFilePath: '/m' }), row(3, { builtFilePath: '\\\\h\\s\\x' })] },
     { project: 'files', compare: (p) => { asked.push(p); return { ok: true, match: true }; }, platform: 'win32', driveInfo: () => ({ kind: 'local', share: null }), fs: anyFolder });   // #8232: the link walk reads this, never the host's disk
   assert.deepEqual(onWin.lines.slice(0, 6), ['#1  Task 1', '    matches  C:\\m', '#2  Task 2', '    NOT CHECKED /m: marked on a Mac or Linux computer, so it is not on this one',

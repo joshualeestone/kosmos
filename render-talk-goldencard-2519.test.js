@@ -972,8 +972,9 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
     win32job.setRunner((args) => (args && args[0] === '/Query'
       ? { ok: false, out: 'ERROR: The system cannot find the file specified.' } : { ok: true, out: '' }));
   }
-  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  let board;
   try {
+    board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
     const out = cap.neutralise(board.card('mara'));
     const found = [];
     (function walk(v, at) {
@@ -1086,7 +1087,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
     assert.equal(dOut.disruption.startedAt, 1757000000000,
       'the producer disruption timestamp reached the recording');
   } finally {
-    board.restore();
+    if (board) board.restore();
     if (win32job) win32job.setRunner(null);
   }
 });

@@ -97,7 +97,7 @@ test('review 1: the mark survives Forget computer (the state dir emptied), which
   } finally { fs.rmSync(mark, { force: true }); }
 });
 
-test('review 1: a mark that cannot be looked at counts as marked (never send)', { skip: skipOnWin32('it makes the look fail by putting a file where a folder goes, and on Windows that look answers not there (ENOENT) rather than ENOTDIR, so the fixture cannot be built there') }, () => {
+test('review 1: a mark that cannot be looked at counts as marked (never send)', { skip: skipOnWin32('what it checks exists on Windows, but it makes the look fail by putting a file where a folder goes, and on Windows that look answers not there (ENOENT) rather than ENOTDIR; its Windows arm is owed on kosmos#9313') }, () => {
   // A path through a file where a folder should be: lstat fails with ENOTDIR, not ENOENT.
   const blocker = path.join(dir, 'not-a-dir');
   fs.writeFileSync(blocker, '');
