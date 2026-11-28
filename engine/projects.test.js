@@ -2855,6 +2855,16 @@ test('a folder symlinked INTO temp is caught by its resolved target', () => {
   assert.equal(projects.isUnderTmpDir(link), true);
 });
 
+/* kosmos#9267: Windows is case-blind, so a temp folder typed in another letter case, and not yet made (so it cannot be
+   resolved to the spelling on disk), is still temp there. Without the case fold it read as not temp. */
+test('#9267 Windows: a temp folder typed in another letter case, not yet made, still reads as temp', { skip: process.platform !== 'win32' && 'the file system is case-blind only on Windows' }, () => {
+  for (const spell of [(s) => s.toUpperCase(), (s) => s.toLowerCase()]) {
+    const dir = path.join(spell(os.tmpdir()), 'aw-case-9267-' + process.pid, 'proj');
+    assert.equal(fs.existsSync(dir), false, 'the folder must not exist, or it would be resolved to the spelling on disk');
+    assert.equal(projects.isUnderTmpDir(dir), true, dir + ' did not read as temp');
+  }
+});
+
 test('in the test store (itself temp) a temp-folder project is still accepted', () => {
   // Documents the escape by construction: this whole suite's WORK dir is under
   // os.tmpdir(), and creation works precisely because the store is temp too.

@@ -41,11 +41,12 @@ takes the rest of the 62, one file at a time, from the per-test detail of run 46
 update.marker (the run-setup shell line through /bin/sh), remove.redisable (launchd's own disable record),
 pdfpreview's two Linux renderer arms (stand-ins found by the POSIX execute bit; a `"` in a file name; its refusal and
 --out arms run for the Windows renderer on every host and for Linux off Windows), the release and fleet tools
-(build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), the shell report hook
+(build-kosmos-linux.sh, release.sh, heavy-gate.sh, build-kosmos-bundle.sh, plus-signin-auto.sh), plus-signin-2036's one
+arm that checks the seed secret's 0600 mode (the seed, plus-signin-fresh.js, runs on Windows in its other arms), the shell report hook
 (install/kosmos-report-hook.sh), the macOS cwd-case arm of trust.canonical-spelling, tool-guard's two POSIX controls,
 and the 7 startimports arms that run the macOS guard (its parser arm runs everywhere, with host-resolved paths).
 runnable-not-directory skips nothing: its installedCheck arm checks claude and codex on Windows, where machine.js does
-not probe tmux.
+not probe tmux, and the file joins the Windows job (ALSO_ROOT) after passing 22 of 22 there.
 **Not in this slice:** engine/orgchartfile.test.js and teamcreate-structure-4557.test.js. Mona Lisa owns both on
 #9272 (branch wincl-9272): she measured that #4660 and the teamcreate arms fail on Windows for path spelling and a
 roster seam, not a shell script, fixes those, and puts the sh-script orgchart arms beside node stand-ins. An earlier
@@ -69,3 +70,12 @@ callers (setup.sh refuses other systems; the release tools run on the release Ma
   was isUnderTmpDir comparing a not-yet-made folder in the temp folder's 8.3 spelling (each root is now compared both
   as given and resolved; added to #9267). Run 46118283614 on those three files: projects and reporthook green; the
   one red left in the cluster is #9268's arm, on purpose.
+- After review 1, on the Windows runner: runnable-not-directory 22 of 22 (10 failed before), projects 162 pass and
+  pdfpreview 11 pass (run 46135356176); startimports 8 pass, its 7 macOS-guard arms skipped (run 46135446761, after
+  its parser arm was corrected to resolve a rooted path on the file's own drive).
+- Review 3: what was fixed to hold on Windows is now run there by the Windows job: reporthook, trust.canonical-spelling,
+  pdfpreview, receipt-5153 and usageagy join ALSO, and engine.live-execution-1598 and bridges.board-proof-1765 join
+  ALSO_ROOT (each measured green on the runner above). A new Windows-only arm in projects.test.js pins the case fold
+  (a temp folder typed in another letter case, not yet made). Reasons that read as coverage claims now say "needs no
+  skip on Windows"; redisable's says off macOS it schedules and logs nothing. Deferred: startimports' review-4 arm
+  checks TEXT_EXTS.size beside its macOS-guard checks and skips as a whole; that count still runs on the Mac.

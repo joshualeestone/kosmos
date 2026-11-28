@@ -3,7 +3,7 @@
 // driven against a fake board. Temp dirs only; nothing reaches a real board or coordinator.
 require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
-const SKIP_RELEASE_HOST = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/plus-signin-auto.sh, the release gate sign-in seed, which keeps its secret under the release Mac home; the gate runs on the release Mac, never on Windows');   // kosmos#8378
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('its one skipped arm checks that tools/plus-signin-fresh.js keeps the seed secret in a mode-600 file (fs.statSync mode bits), and Windows does not keep POSIX file modes; the seed itself needs no skip on Windows, in this file\'s other arms');   // kosmos#8378
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -307,7 +307,7 @@ test('#2036: a seed that owns an address registers to it; a start the coordinato
   } finally { b.server.close(); }
 });
 
-test('#2036: the seed\'s first run enrols an authenticator and keeps its secret in a mode-600 file that survives a reboot, never on screen', { skip: SKIP_RELEASE_HOST }, async () => {
+test('#2036: the seed\'s first run enrols an authenticator and keeps its secret in a mode-600 file that survives a reboot, never on screen', { skip: NO_POSIX_MODES }, async () => {
   const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
   const b = await fakeBoard({ stage: 'enrol_second_factor' });
   try {
