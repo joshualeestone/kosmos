@@ -509,8 +509,9 @@ test('kosmos#8378: only a regular file is a report; a link to /dev/null (opens, 
   fs.symlinkSync('/dev/null', file);
   try {
     assert.equal(fs.statSync(file).isFile(), false, 'CONTROL: the planted name is not a regular file');
-    assert.equal(fs.openSync(file, 'r') >= 0, true, 'CONTROL: and it opens, so only the type check can refuse it');
+    fs.closeSync(fs.openSync(file, 'r'));   // CONTROL: it opens, so only the type check can refuse it
     assert.deepEqual(selfreport.read('devnull-8378'), { found: false, because: selfreport.NO_READING.UNREADABLE });
+    assert.equal(selfreport.history('devnull-8378'), null, 'history reads it as cannot be read, not as no rows');
   } finally { fs.rmSync(file, { force: true }); }
   // CONTROL: a link to a real report still reads (open follows it, fstat sees the regular file).
   const real = selfreport.fileFor('real-8378');
