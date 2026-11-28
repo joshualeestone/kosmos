@@ -45,8 +45,8 @@ function fileStdin(text, keepName) {
    long (the CLI's own exit time is taken from the shell, not from the pipeline's end); { socket: text } and
    { open: true } node's own stdin pipe, which is a socket pair, with text then closed or left open with nothing on it;
    { devnull: true } /dev/null. An open pipe is closed after the CLI exits, so it cannot leak. */
-/* kosmos#9264: run() puts each child in its own session and process group, which an interrupt to this file does not reach, so any
-   group still running when it ends (normally or by SIGINT, SIGTERM or SIGHUP, through removeAtEnd) is ended here. */
+/* kosmos#9264: run() puts each child in its own session and process group, which an interrupt to this file does not
+   reach; a group whose pipes are still open when the file ends is killed here (exit, SIGINT, SIGTERM, SIGHUP). */
 const LIVE_GROUPS = new Set();
 require('./test-support/remove-at-end').removeAtEnd(() => { for (const pid of LIVE_GROUPS) { try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ } } });
 function run(args, port, stdin) {
