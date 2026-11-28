@@ -430,8 +430,9 @@ async function providerWork(runner, dir, holds) {
                 }
                 CONCAT.lastIndex = after;
                 if (CONCAT.test(src)) readWhole = true;   // "..." + more: a concatenation
-                bodies.push({ q, text });
-                spans.push([open + 1, end]);
+                const span = [open + 1, end];
+                bodies.push({ q, text, span });
+                spans.push(span);
                 break;
               }
             }
@@ -439,9 +440,10 @@ async function providerWork(runner, dir, holds) {
               /* A call's argument was not one literal string (a variable, a concatenation). A patch held elsewhere is still
                  a literal somewhere, so every string literal whose text starts with `*** Begin Patch` (after whitespace or
                  `\n` escapes) is read the same way, with its own quote, outside the strings already read. A literal counts
-                 only where JavaScript can start one (after `=` `(` `:` `,` `[` `+`, whitespace or the start), so the quote
-                 closing a shell heredoc's word (`<<'EOF'\n*** Begin Patch`) is not taken for an opener. */
-              const lit = /(^|[=(:,[+\s])(['"`])(?=(?:\\[nrt]|\s)*\*\*\* Begin Patch)/g;
+                 only where JavaScript can start one (after `=` `(` `:` `,` `[` `+` `|` `&` `?` `!`, whitespace or the start), so
+                 the quote closing a shell heredoc's word (`<<'EOF'\n*** Begin Patch`) is not taken for an opener. A call
+                 found inside such a literal was written in a patch held in a variable, not made: it is dropped (review 3). */
+              const lit = /(^|[=(:,[+|&?!\s])(['"`])(?=(?:\\[nrt]|\s)*\*\*\* Begin Patch)/g;
               const calls = spans.slice();   // in order, as the calls were read
               let ci = 0;                    // the first call string that does not end before this literal (linear)
               const inSpan = (i) => { while (ci < calls.length && calls[ci][1] < i) ci += 1; return ci < calls.length && i >= calls[ci][0]; };
@@ -454,14 +456,18 @@ async function providerWork(runner, dir, holds) {
                 while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
                 const end = Math.min(i, src.length);
                 litAfter = end + 1;
+                for (let k = ci; k < calls.length && calls[k][0] < end; k += 1) if (calls[k][0] > open) calls[k].dead = true;
                 bodies.push({ q, text: src.slice(open + 1, end) });
                 spans.push([open + 1, end]);
               }
-              spans.sort((x, y) => x[0] - y[0]);
-              // One pass: the text between the literal strings, each string replaced by spaces of its length.
+              const live = bodies.filter((b) => !(b.span && b.span.dead));
+              bodies.length = 0; bodies.push(...live);
+              const liveSpans = spans.filter((sp) => !sp.dead).sort((x, y) => x[0] - y[0]);
+              /* One pass: the text between the literal strings, each string replaced by newlines of its length, so a path
+                 outside them stops where one begins and never runs across it into a later header (review 3). */
               const parts = [];
               let at = 0;
-              for (const [from, to] of spans) { parts.push(src.slice(at, from), ' '.repeat(to - from)); at = to; }
+              for (const [from, to] of liveSpans) { parts.push(src.slice(at, from), '\n'.repeat(to - from)); at = to; }
               parts.push(src.slice(at));
               bodies.push({ q: '"', text: parts.join(''), whole: true });
             }
@@ -487,7 +493,7 @@ async function providerWork(runner, dir, holds) {
                 /* The whole-script reading assumes a " (it cannot see which string a path is in), so a path that ran on
                    past the end of its real string into code (a quote, then `)` `;` `+` `}` or `,`, as a patch built in
                    pieces or passed by name does) or holds a template's ${ is left out, never listed as a file name. */
-                if (whole && /['"`]\s*[)};+,]|\$\{/.test(x[1])) return false;
+                if (whole && /['"`]\s*[)\]};+,]|\$\{/.test(x[1])) return false;
                 // A path that swallowed further headers (no line end between them) is not a file name, in either reading.
                 if (HEADER.test(x[1])) return false;
                 /* The whole-script reading stops at a " it assumed; a ' or backtick string's name may hold one (`a"b.md`),

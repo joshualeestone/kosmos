@@ -468,11 +468,17 @@ test('#9314: a Codex patch is read from its own apply_patch string (receiptquote
     out('10:35', 'b2w', 'Script completed\nWall time 1 seconds'),
     call('10:36', 'b2x', String.raw`const sh = {cmd:"apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: hd.md\n+x\nEOF"}; const q = "*** Begin Patch\n*** Delete File: qv.md"; await tools.apply_patch({patch:q});`),
     out('10:36', 'b2x', 'Script completed\nWall time 1 seconds'),
+    /* #9314 slice 2 review 3: a header-shaped log string does not swallow a real header across a string read on its own
+       (realn.md is listed), and a call written inside a patch held in a variable is not a call (fakev.md is not). */
+    call('10:37', 'b2y', String.raw`console.log('*** Delete File: noisel.md'); await tools.apply_patch(p); await tools.apply_patch({patch:'*** Begin Patch\n' + '*** Delete File: realn.md\n*** End Patch'});`),
+    out('10:37', 'b2y', 'Script completed\nWall time 1 seconds'),
+    call('10:38', 'b2z', String.raw`const p = "*** Begin Patch\n*** Update File: libv.js\n+tools.apply_patch('*** Delete File: fakev.md')\n*** Delete File: realv.md"; await tools.apply_patch(p);`),
+    out('10:38', 'b2z', 'Script completed\nWall time 1 seconds'),
   ]));
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   assert.deepEqual(r.agents[0].files, ['gone.md', "o'k.md", 'lead.md', 'z.md', 'b"c.md', 'hb.md', 'lib.js', "q's.md", 'esc.md', 'v.md',
     'mixl.md', 'mixq.md', 'mixv.md', 'cat.md', 'qk.md', 'cwd.md', 'a"b.md', "c'd.md", 'trunc.md',
-    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md'], 'each path stops at its own patch string\'s quote (#9314)');
+    'cwd2.md', 'a"b2.md', 'f1.md', 'f2.md', 'indent.md', 'x"}}_c.md', 'qv.md', 'hd.md', 'realn.md', 'libv.js', 'realv.md'], 'each path stops at its own patch string\'s quote (#9314)');
   assert.ok(!r.agents[0].files.some((f) => f === 'a' || f === 'x' || f.includes('s1.md') || f.includes('s2.md') || /["'`]\}?\)\s*;/.test(f)), 'a cut, swallowed or run-on name (a quote, then `);` or `});`) was listed: ' + JSON.stringify(r.agents[0].files));
 });
 

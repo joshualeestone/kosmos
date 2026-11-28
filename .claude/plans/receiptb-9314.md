@@ -17,7 +17,7 @@ that branch) and handed it over (Fleet Builders, 10:45 CST).
 - engine/receipt.js: Baron's reader, taken whole from receiptquote-9314 at e42e56801c (it replaces #9323's
   codexPatchPaths). Added here: in the whole-script reading, a path that ran on past its real string (a quote then
   `)` `;` `+` `}` `,`) or holds `${` is left out.
-- engine/receipt-5153.test.js: #9323's cases stay; Baron's cases run as their own test (agent bdx9314, ids b2d to b2q).
+- engine/receipt-5153.test.js: #9323's cases stay; Baron's cases run as their own test (agent bdx9314, ids b2d to b2q; b2r to b2z were added by reviews 1 to 3).
   (Review 2 put #9323's `named.md` expectation back: a patch passed by name is read from its own literal now.)
 
 ## Measured
@@ -49,3 +49,14 @@ indented (a template literal). The span check is a moving pointer, so it stays l
 Residual, accepted: a first member string that holds a header but is not the patch (`{note:"*** Update File: nn.md",
 patch:...}`) is taken for the patch; Codex does not write that. A shell heredoc's own path is listed when the script also
 has a non-literal call (as main listed it).
+
+## Review 3 (opus, measuring)
+Fuzz of 20,000 to 30,000 scripts per seed against main: wrong names about 2,650 here against 4,400 on main (most, on
+both, are header text in comments or log strings read by the whole-script fallback; without that noise, 274 against
+691); left out about 550 to 600 against 630 to 650. Two regressions it found are fixed: blanking with spaces let a
+header-shaped string elsewhere run across a blanked string and swallow a real header (about 100 ordinary names left out);
+strings are now blanked with newlines. A call written inside a patch held in a variable was read as a call and its span
+overlapped the literal's; such calls are now dropped. Also: `]` in the run-on rule, and `| & ? !` before a literal.
+Tests b2y (realn.md listed) and b2z (fakev.md not) fail on the commit before. Timing unchanged (linear, 13 shapes).
+Residual, accepted: a ' or backtick piece read by the fallback with a name holding `")` (`o'k").md` reads `o'k`), fewer
+than main; an escaped `\\n` before a header in an added line is read as a line start, as on main.
