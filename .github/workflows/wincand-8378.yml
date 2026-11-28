@@ -31,3 +31,14 @@ jobs:
           WINCAND_LIST: tools/wincand-8378-list.txt
           WINCAND_DETAIL: '30000'
         run: node tools/wincand-8378.js
+  linux-container:
+    # kosmos#9268 MEASUREMENT ONLY: securewrite's tests inside a container, whose root is an overlay file system.
+    runs-on: ubuntu-latest
+    container: node:26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: what file system holds the temp folder
+        run: df -T /tmp || true; cat /proc/mounts | grep ' / ' || true
+      - name: securewrite and trust tests
+        run: node --test engine/securewrite.test.js engine/trust.test.js
